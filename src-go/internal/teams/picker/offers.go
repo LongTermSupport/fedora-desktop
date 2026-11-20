@@ -356,7 +356,9 @@ func (p *Picker) checkoutRepo(ctx context.Context) (string, error) {
 }
 
 // offerJoinHere, on the first pass, offers a session of the team that covers this checkout, or
-// the making of one when none does.
+// the making of one when none does. A container's checkout is offered nothing, and nothing is
+// said of it here: opening ccy-teams starts no session, and the refusal is shown where one would
+// start from this folder (the list's header and each row's Start line).
 func (r *run) offerJoinHere(ctx context.Context) error {
 	p := r.p
 	here, err := p.Checkouts.Find(ctx, "")
@@ -364,10 +366,7 @@ func (r *run) offerJoinHere(ctx context.Context) error {
 	case err != nil:
 		p.Kit.ReportErr(err)
 		return nil
-	case here.Top == "":
-		return nil
-	case !here.Host():
-		p.Kit.Tell(here.Refusal(p.Kit.Abbrev(here.Top)))
+	case here.Top == "", !here.Host():
 		return nil
 	}
 	top := here.Top

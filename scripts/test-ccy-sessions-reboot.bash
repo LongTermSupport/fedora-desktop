@@ -67,6 +67,8 @@ case "$*" in
 *list-sessions*) cat "$TEST_SESSIONS" ;;
 # verify-restore's probes: the pane table, and one session's screen from TEST_SCREENS/<name>.
 *list-panes*) if [ -n "${TEST_PANES:-}" ]; then cat "$TEST_PANES"; fi ;;
+# No pane is in a tmux mode (#{pane_mode} is empty): set-going's keys reach the session.
+*display-message*) echo ;;
 # Real tmux takes `=name` as a SESSION target but not as a pane target: a pane command
 # needs `=name:` and fails "can't find pane" without the colon (#69). The fake does the same.
 *capture-pane*)

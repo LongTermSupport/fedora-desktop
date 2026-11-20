@@ -33,6 +33,8 @@ func goingHost(t *testing.T) *harness {
 	h.env["CCY_SESSIONS_SET_GOING_WAIT"] = "0"
 	h.env["CCY_SESSIONS_SUBMIT_DELAY"] = "0"
 	h.fake.On([]string{"tmux", "-L", "ccy", "send-keys"}, execx.Result{})
+	// No pane is in a tmux mode: the keys reach Claude Code.
+	h.fake.On([]string{"tmux", "-L", "ccy", "display-message", "-p"}, execx.Result{Stdout: []byte("\n")})
 	// This boot began an hour before the harness clock.
 	procStat := filepath.Join(h.root, "proc-stat")
 	content := fmt.Sprintf("cpu  1 2 3 4\nbtime %d\nprocesses 9\n", h.clock.Add(-time.Hour).Unix())

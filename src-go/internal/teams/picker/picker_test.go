@@ -104,8 +104,11 @@ func TestPickerHeaderNeverOffersANewSessionInAContainersCheckout(t *testing.T) {
 	if len(h.Script.GumLog) != 0 {
 		t.Fatalf("a session is offered there on the way in: %q", h.Script.GumLog)
 	}
-	if !strings.Contains(h.ErrOut.String(), top+" is LXC container "+teamtest.LxcContainer+"'s checkout") {
-		t.Fatalf("the way in says nothing of it: %q", h.ErrOut.String())
+	// Opening ccy-teams starts no session, so the way in prints no warning about this folder:
+	// the refusal belongs where a session would start from it (this header, and a row's Start
+	// line), never as a free-standing line above the list that reads as an error.
+	if strings.Contains(h.ErrOut.String(), "'s checkout") {
+		t.Fatalf("the way in warned about a folder nothing is started from: %q", h.ErrOut.String())
 	}
 }
 

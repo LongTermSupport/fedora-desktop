@@ -156,7 +156,8 @@ team, then **Compact every session of `<team>` (stays open)**) types `/goal clea
 tmux pane on this desktop, the coordinator's included, then one instruction: we are about to
 shut down, the work is not done, so commit work in progress, stop sub-agents, push what passes
 its QA gate, write down where unfinished work stands, and stop. It waits for each session to be
-idle (up to 300 s, never interrupting a turn) and never types over unsent text. It is typed, so
+idle (up to 300 s, never interrupting a turn) and never types over unsent text. A pane you left
+scrolled back (tmux copy mode) is taken out of it first, so the line is not lost to the mode. It is typed, so
 it is your own turn in the session, not a team message. An LXC agent run with `service: true`
 gets the same in its `agent-bus-claude` tmux session in the container, through `sudo lxc-attach` as its user. One whose container is stopped, and sessions elsewhere, are named and
 fail the run, with the text to give them by hand. The ccy supervisor types at the same idle

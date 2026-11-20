@@ -29,15 +29,41 @@ type submitPane struct {
 	enters  int
 	looks   int
 	presses []string
+	// mode is the tmux mode the pane is in ("" for none), as an attached person who scrolled
+	// back leaves it (copy-mode); keys sent in a mode go to the mode, not to Claude. stuck keeps
+	// it there after a cancel; modeOnType enters it as the text is typed.
+	mode       string
+	stuck      bool
+	modeOnType string
+}
+
+// inMode answers display-message for the pane's mode.
+func (p *submitPane) inMode(f *execx.Fake) {
+	f.OnFunc([]string{"tmux", "-L", "ccy", "display-message", "-p", "-t", "=alpha:", "#{pane_mode}"}, func(execx.Cmd) (execx.Result, error) {
+		return execx.Result{Stdout: []byte(p.mode + "\n")}, nil
+	})
 }
 
 func (p *submitPane) fake() *execx.Fake {
 	f := &execx.Fake{}
+	p.inMode(f)
 	f.OnFunc([]string{"tmux", "-L", "ccy", "send-keys", "-t", "=alpha:"}, func(c execx.Cmd) (execx.Result, error) {
 		key := c.Args[len(c.Args)-1]
 		p.presses = append(p.presses, key)
-		if slices.Contains(c.Args, "-l") {
+		switch {
+		case slices.Contains(c.Args, "-X"):
+			if p.mode == "" {
+				return execx.Result{ExitCode: 1, Stderr: []byte("not in a mode")}, nil
+			}
+			if !p.stuck {
+				p.mode = ""
+			}
+			return execx.Result{}, nil
+		case p.mode != "":
+			return execx.Result{}, nil
+		case slices.Contains(c.Args, "-l"):
 			p.typed = key
+			p.mode = p.modeOnType
 			return execx.Result{}, nil
 		}
 		p.enters++
@@ -69,6 +95,52 @@ func TestSubmitTypesPausesEntersAndSeesTheBoxEmpty(t *testing.T) {
 	}
 	if p.looks != 1 || len(slept) < 1 || slept[0] != 200*time.Millisecond {
 		t.Fatalf("looks %d, slept %v: the Enter waits the pause after the text, then the box is read", p.looks, slept)
+	}
+}
+
+// A pane left in copy mode (an attached person scrolled back) sends every key to the mode, while
+// the box, read from the pane beneath, still looks Ready: the line would be lost and called
+// taken. Submit leaves the mode first, then types.
+func TestSubmitLeavesCopyModeBeforeTyping(t *testing.T) {
+	for _, mode := range []string{"copy-mode", "view-mode"} {
+		p := &submitPane{mode: mode}
+		var slept []time.Duration
+		if err := newTmux(p.fake()).Submit(context.Background(), "alpha", "/compact now", pace(&slept)); err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if want := []string{"cancel", "/compact now", "Enter"}; !slices.Equal(p.presses, want) {
+			t.Fatalf("%s: pressed %q, want %q", mode, p.presses, want)
+		}
+	}
+}
+
+// A mode Submit does not know how to leave (a tree or buffer chooser), or one that stays after
+// the cancel, is refused before anything is typed.
+func TestSubmitRefusesAPaneItCannotTakeOutOfItsMode(t *testing.T) {
+	for _, p := range []*submitPane{{mode: "tree-mode"}, {mode: "copy-mode", stuck: true}} {
+		var slept []time.Duration
+		err := newTmux(p.fake()).Submit(context.Background(), "alpha", "/compact now", pace(&slept))
+		if !errors.Is(err, tmuxccy.ErrPaneInMode) || !strings.Contains(err.Error(), p.mode) ||
+			!strings.Contains(err.Error(), "nothing was typed") {
+			t.Fatalf("%s: got %v, want ErrPaneInMode naming the mode", p.mode, err)
+		}
+		if slices.Contains(p.presses, "/compact now") || slices.Contains(p.presses, "Enter") {
+			t.Fatalf("%s: pressed %q", p.mode, p.presses)
+		}
+	}
+}
+
+// A pane that enters copy mode while the line is typed took the keys into the mode: the line is
+// lost, so no Enter is pressed (in copy mode it would copy and leave), and it is not called taken.
+func TestSubmitDoesNotEnterALineTypedIntoCopyMode(t *testing.T) {
+	p := &submitPane{modeOnType: "copy-mode"}
+	var slept []time.Duration
+	err := newTmux(p.fake()).Submit(context.Background(), "alpha", "/compact now", pace(&slept))
+	if !errors.Is(err, tmuxccy.ErrPaneInMode) || !strings.Contains(err.Error(), "may be lost") {
+		t.Fatalf("got %v, want ErrPaneInMode saying the line may be lost", err)
+	}
+	if slices.Contains(p.presses, "Enter") {
+		t.Fatalf("pressed %q", p.presses)
 	}
 }
 
@@ -104,6 +176,7 @@ func TestSubmitTakesASessionGoneAfterTheEnterAsSubmitted(t *testing.T) {
 		f := &execx.Fake{}
 		f.On([]string{"tmux", "-L", "ccy", "capture-pane"}, fail(msg))
 		f.On([]string{"tmux", "-L", "ccy", "send-keys"}, ok(""))
+		f.On([]string{"tmux", "-L", "ccy", "display-message"}, ok("\n"))
 		if err := newTmux(f).Submit(context.Background(), "alpha", "/exit", pace(&slept)); err != nil {
 			t.Fatalf("%q: got %v", msg, err)
 		}
@@ -126,6 +199,7 @@ type scriptedPane struct {
 
 func (p *scriptedPane) fake() *execx.Fake {
 	f := &execx.Fake{}
+	f.On([]string{"tmux", "-L", "ccy", "display-message"}, ok("\n"))
 	f.OnFunc([]string{"tmux", "-L", "ccy", "send-keys", "-t", "=alpha:"}, func(c execx.Cmd) (execx.Result, error) {
 		if !slices.Contains(c.Args, "-l") {
 			p.enters++
@@ -220,11 +294,18 @@ func TestSubmitCarriesAFailedKeyOrRead(t *testing.T) {
 	var slept []time.Duration
 	f := &execx.Fake{}
 	f.On([]string{"tmux"}, fail("no such pane"))
+	if err := newTmux(f).Submit(context.Background(), "alpha", "x", pace(&slept)); err == nil || !strings.Contains(err.Error(), "reading the mode of alpha's pane failed") {
+		t.Fatalf("got %v", err)
+	}
+	f = &execx.Fake{}
+	f.On([]string{"tmux"}, fail("no such pane"))
+	f.On([]string{"tmux", "-L", "ccy", "display-message"}, ok("\n"))
 	if err := newTmux(f).Submit(context.Background(), "alpha", "x", pace(&slept)); err == nil || !strings.Contains(err.Error(), "typing into alpha failed") {
 		t.Fatalf("got %v", err)
 	}
 	f = &execx.Fake{}
 	f.On([]string{"tmux"}, fail("no such pane"))
+	f.On([]string{"tmux", "-L", "ccy", "display-message"}, ok("\n"))
 	f.On([]string{"tmux", "-L", "ccy", "send-keys", "-t", "=alpha:", "-l", "x"}, ok(""))
 	err := newTmux(f).Submit(context.Background(), "alpha", "x", pace(&slept))
 	if err == nil || !strings.Contains(err.Error(), "pressing Enter in alpha failed") || !strings.Contains(err.Error(), "the line was typed, not entered") {
@@ -232,6 +313,7 @@ func TestSubmitCarriesAFailedKeyOrRead(t *testing.T) {
 	}
 	f = &execx.Fake{}
 	f.On([]string{"tmux"}, fail("no such pane"))
+	f.On([]string{"tmux", "-L", "ccy", "display-message"}, ok("\n"))
 	f.On([]string{"tmux", "-L", "ccy", "send-keys"}, ok(""))
 	if err = newTmux(f).Submit(context.Background(), "alpha", "x", pace(&slept)); err == nil || !strings.Contains(err.Error(), "the screen of alpha could not be read") {
 		t.Fatalf("got %v", err)

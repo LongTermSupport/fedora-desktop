@@ -137,6 +137,8 @@ list-sessions) cat "$TEST_STATE/sessions" ;;
 list-clients | set-hook | attach-session) ;;
 # No pane runs a cc session here (Plan 00203 M6 lists them by their panes).
 list-panes) ;;
+# No pane is in a tmux mode (#{pane_mode} is empty): typed keys reach the session.
+display-message) echo ;;
 capture-pane)
     if [ -f "$TEST_STATE/panes/$name" ]; then cat "$TEST_STATE/panes/$name"; else printf '%s\n' "──────────────" "❯ " "──────────────"; fi ;;
 send-keys)

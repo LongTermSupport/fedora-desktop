@@ -224,6 +224,11 @@ func (m *machine) answer(sessions []*session, args []string) (execx.Result, erro
 		return nil
 	}
 	switch args[0] {
+	case "display-message":
+		if find() == nil {
+			return gone(target(args))
+		}
+		return execx.Result{Stdout: []byte("\n")}, nil
 	case "list-sessions":
 		var b strings.Builder
 		for _, s := range sessions {

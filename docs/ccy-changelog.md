@@ -17,6 +17,22 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.49 — container 2.84.43
+
+- **A line typed into a session is no longer lost to tmux copy mode** (Plan 00257, wind-down
+  triage). When someone attached to a session had scrolled back, its pane was in copy mode:
+  every key typed went to the mode, while the screen beneath still showed an empty input box,
+  so ccy-teams wind-down and shutdown, `ccy --stop`, ccy-sessions' Close and wind-down and the
+  restore's set-going could report a line as typed, or a session as compacted, that Claude never
+  received. Before typing, the pane is now taken out of copy or view mode. A pane in another
+  tmux mode (a tree or buffer chooser), or one that stays in its mode, fails with nothing typed.
+  A pane that enters a mode while the line is being typed fails with no Enter pressed, and the
+  report says the line may be lost.
+- **ccy-teams no longer prints a container-checkout warning when it opens** in an LXC
+  container's checkout. Opening the list starts no session. The refusal is still shown where a
+  session would start from that folder: the list's header ("A new ccy session is unavailable:
+  …") and a row's Start line. The image is unchanged.
+
 ## 3.122.48 — container 2.84.43
 
 - **A close now says what happens at its bounds** (Plan 00257 Q52 review). The Close question

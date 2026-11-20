@@ -3347,7 +3347,12 @@ it types the text, pauses, presses Enter, reads the box until it is seen empty o
 gone counts as left) and presses Enter again while it still holds the text, up to
 `SubmitEnters`; text still there is `tmuxccy.ErrNotSubmitted` (a `*NotSubmittedError` saying
 what the box showed), which the caller reports as a failure, never as taken. A screen with no
-box after an Enter is `tmuxccy.ErrBoxNotDrawn`, never taken (fedora-desktop#288).
+box after an Enter is `tmuxccy.ErrBoxNotDrawn`, never taken (fedora-desktop#288). A pane in a
+tmux mode sends every key to the mode while the box is read from the screen beneath, so a lost
+line read as taken: `Submit` takes a pane out of copy or view mode before typing, and any other
+mode, or one entered while the line is typed, is `tmuxccy.ErrPaneInMode` with no Enter pressed
+(Plan 00257 wind-down triage). Routing every typed line through `Submit`, which this rule holds,
+is what holds that class too.
 
 **The next wider rule, not built:** any text written into a TUI (a tmux pane or a PTY, in any
 language) and submitted with one unchecked Enter. Not built: its one other instance, the

@@ -145,6 +145,8 @@ func (w *world) fakeTmux() { w.fakeServer("", "-L", "ccy") }
 // sessions whose server field is key ("" for ccy's).
 func (w *world) fakeServer(key string, server ...string) {
 	on := func(cmd string) []string { return append(append([]string{"tmux"}, server...), cmd) }
+	// No pane is in a tmux mode: the keys reach Claude Code.
+	w.fake.On(on("display-message"), execx.Result{Stdout: []byte("\n")})
 	w.fake.OnFunc(on("list-sessions"), func(execx.Cmd) (execx.Result, error) {
 		if w.listErr[key] {
 			return execx.Result{ExitCode: 1, Stderr: []byte("lxc-attach: container is not running")}, nil
