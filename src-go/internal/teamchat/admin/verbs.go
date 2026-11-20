@@ -30,7 +30,7 @@ import (
 // database's homes and the backups' effects, built when a backup verb runs, as it reads the
 // teamchat-ctl account (nil while unwired); for the child, its Opener. A seam that reads a host
 // file reads it when a verb calls it, so a verb fails only on what it needs (n2f-W1). LXC is the
-// `lxc apply` and `lxc restart` seams; the verbs give it the Roster and Refresh themselves.
+// `lxc apply`, `lxc restart` and `lxc start` seams; the verbs give it the Roster and Refresh themselves.
 type System struct {
 	Host    host.Deps
 	Child   Child
@@ -109,7 +109,7 @@ func rootRuns() map[string]func(context.Context, Env, []string) term.ExitCode {
 		"team seal": teamSeal, verbTeamExport: teamExport, "team import": teamImport, "team carry-check": teamCarryCheck,
 		"role apply": memberVerb(apply.OpRoleApply),
 		"health":     healthVerb, "element check": elementVerb(false), "element apply": elementVerb(true),
-		"lxc apply": lxcApply, "lxc restart": lxcRestart,
+		"lxc apply": lxcApply, "lxc restart": lxcRestart, "lxc start": lxcStart,
 		"backup": backupVerb, "backups": backupsVerb, "restore": restoreVerb,
 		"units list": unitsList, "units print": unitsPrint,
 		"human password": humanVerb(apply.OpHumanPassword), "human logout": humanVerb(apply.OpHumanLogout),

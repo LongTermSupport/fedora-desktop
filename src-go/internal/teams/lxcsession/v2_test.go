@@ -32,7 +32,7 @@ func newV2Rig(t *testing.T) *v2Rig {
 		}
 		return execx.Result{Stdout: []byte("LoadState=" + r.load + "\nActiveState=" + r.active + "\n")}, nil
 	})
-	r.On("sudo -n "+paths.AdminBinaryPath+" lxc restart", "", 0)
+	r.On("sudo -n "+paths.AdminBinaryPath+" lxc start", "", 0)
 	h := r.Host
 	r.s = New(h, flow.New(h))
 	return r
@@ -89,21 +89,26 @@ func TestAV2SeatsStartIsKeptWhenRootCannotBeAsked(t *testing.T) {
 	}
 }
 
-// TC16: the start is teamchat-admin lxc restart --member <container>/<seat key> as root, and it
-// says what it ran and how to attach.
-func TestAV2SeatsStartRunsTeamchatAdminLxcRestart(t *testing.T) {
+// TC16: the start is teamchat-admin lxc start --member <container>/<seat key> as root (SU4,
+// systemd's start, which leaves a running unit as it is; never lxc restart), and it says what it
+// ran and how to attach.
+func TestAV2SeatsStartRunsTeamchatAdminLxcStart(t *testing.T) {
 	r := newV2Rig(t)
 	if _, err := r.s.Start(t.Context(), v2Row()); err != nil {
 		t.Fatal(err)
 	}
-	want := "sudo -n " + paths.AdminBinaryPath + " lxc restart --member " + v2Target(t)
+	want := "sudo -n " + paths.AdminBinaryPath + " lxc start --member " + v2Target(t)
 	if !r.Fake.Called(want) {
 		t.Fatalf("did not run %q: %v", want, r.Fake.Calls())
 	}
-	r.errHas("Ran sudo "+paths.AdminBinaryPath+" lxc restart --member "+v2Target(t), "tmux -S ")
+	r.errHas("Ran sudo "+paths.AdminBinaryPath+" lxc start --member "+v2Target(t), "tmux -S ")
+	if r.Fake.Called("sudo -n " + paths.AdminBinaryPath + " lxc restart") {
+		t.Fatal("the start ran lxc restart, which ends a session that runs")
+	}
 }
 
-// A session already running is not restarted (a restart would end it): nothing is run.
+// A session already running is said so and nothing is run; the start itself would leave it
+// running anyway (SU4), so this check is a courtesy, not the guarantee.
 func TestAV2SeatsStartRefusesARunningSession(t *testing.T) {
 	r := newV2Rig(t)
 	r.active = "active"
@@ -119,7 +124,7 @@ func TestAV2SeatsStartRefusesARunningSession(t *testing.T) {
 // A refusal of teamchat-admin is said with its own words.
 func TestAV2SeatsStartSaysTeamchatAdminsRefusal(t *testing.T) {
 	r := newV2Rig(t)
-	r.OnErr("sudo -n "+paths.AdminBinaryPath+" lxc restart", "lxc restart: the guest's systemd is unreachable\n", 69)
+	r.OnErr("sudo -n "+paths.AdminBinaryPath+" lxc start", "lxc start: the guest's systemd is unreachable\n", 69)
 	if _, err := r.s.Start(t.Context(), v2Row()); err != nil {
 		t.Fatal(err)
 	}

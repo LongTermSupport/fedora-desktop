@@ -202,7 +202,8 @@ its session was on the bus at the last health check. A v2 team's menu offers onl
 container, as above; a member outside an LXC container is named as not reachable from here) and,
 on an LXC seat's row where its container runs, its unit file is placed (`service: true`) and its
 session does not run, **Start its session in its LXC container**, which runs `sudo teamchat-admin
-lxc restart --member <container>/<seat key>` and says so. `ccy-teams restart` and `wind-down` act
+lxc start --member <container>/<seat key>` and says so (systemd's start, which leaves a session
+that already runs as it is: a start never ends one). `ccy-teams restart` and `wind-down` act
 on v1 teams only and say so when given a v2 team. Spec: Plan 00257 `SPEC-team-close.md` TC15-TC17.
 
 **Restart a team's desktop sessions**, after a reboot or whenever. `ccy-teams restart <team>`

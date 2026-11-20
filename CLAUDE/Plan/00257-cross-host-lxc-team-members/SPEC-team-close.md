@@ -89,11 +89,14 @@ Each expectation below is numbered and held by a test, written first.
   (`paths.StatusFile`, read with `status.Read`, the read `teamchat-admin status` makes), its
   state the homeserver unit's, an expired or missing record said in WHERE. Its member rows are
   the record's members (handle, kind, role, state, online); a v2 LXC member's row also names
-  its container and whether its session runs.
+  its container and whether its session was on the bus at the last health check (the record's
+  `online`, not a live reading).
 - **TC16.** A v2 LXC seat's row offers "Start its session in its LXC container" only where it can
   work: its container runs, its unit file is placed (`service: true`) and its session does not
-  run. It runs `teamchat-admin lxc restart --member <container>/<seat key>` (SU3), the one
-  on-demand start of a v2 LXC session, and says what it ran.
+  run. It runs `teamchat-admin lxc start --member <container>/<seat key>` (SPEC-n3 SU4), the
+  one on-demand start of a v2 LXC session, and says what it ran. SU4 is systemd's start, which
+  leaves a unit that already runs as it is, so the start never ends a running session, whatever
+  changed between the row's check and the start; never `lxc restart` (SU3), which would.
 - **TC17.** The shutdown's team must be on the board (TC1): a v2 team is found there too, so
   `ccy-teams shutdown <v2 team>` and its row's action reach it.
 

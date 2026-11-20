@@ -179,7 +179,9 @@ passwordless_sudo_for_unattended_deploys: false
 #   state      optional; present (the default) or absent
 #   service    optional; true gives the member's session a unit inside the container
 #              (agent-bus-claude under tmux, in checkout), run only on demand from the
-#              member's row in ccy-teams: never at boot, never restarted by itself. Needs
+#              member's row in ccy-teams (a v2 seat's also by
+#              teamchat-admin lxc start --member <container>/<seat key>, which leaves a
+#              running session as it is): never at boot, never restarted by itself. Needs
 #              systemd as the container's init and tmux in it (whether the container starts
 #              with the host is its owner's choice, never required). Alike on every entry of
 #              one user; false (the default) for a member run by hand.

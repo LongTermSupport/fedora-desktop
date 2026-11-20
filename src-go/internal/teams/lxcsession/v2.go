@@ -71,9 +71,10 @@ func (s *Starter) offersV2(ctx context.Context, row board.Row) bool {
 	return load != "not-found" && !unitRuns(active)
 }
 
-// startV2 is Start for a v2 team's LXC seat: `teamchat-admin lxc restart --member
-// <container>/<seat key>` (SU3) as root, the one on-demand start of its session; a unit that
-// already runs is not restarted, since a restart would end the session.
+// startV2 is Start for a v2 team's LXC seat: `teamchat-admin lxc start --member
+// <container>/<seat key>` (SU4) as root, the one on-demand start of its session. systemd's start
+// leaves a unit that already runs as it is, so a running session is never ended; the check before
+// it only says so instead of running anything.
 func (s *Starter) startV2(ctx context.Context, row board.Row) (flow.Result, error) {
 	e, seat, found, err := s.v2Seat(row)
 	if err != nil {
@@ -111,8 +112,8 @@ func (s *Starter) startV2(ctx context.Context, row board.Row) (flow.Result, erro
 	}
 	key := seat.Key()
 	member := box + "/" + key.String()
-	argv := []string{paths.AdminBinaryPath, "lxc", "restart", "--member", member}
-	if res, err := s.Sudo.Capture(ctx, paths.AdminBinaryPath, "lxc", "restart", "--member", member); err != nil {
+	argv := []string{paths.AdminBinaryPath, "lxc", "start", "--member", member}
+	if res, err := s.Sudo.Capture(ctx, paths.AdminBinaryPath, "lxc", "start", "--member", member); err != nil {
 		return s.Kit.Note(ctx, "Its session was not started: sudo "+strings.Join(argv, " ")+" failed: "+err.Error()+
 			": "+strings.TrimSpace(string(res.Stderr)))
 	}

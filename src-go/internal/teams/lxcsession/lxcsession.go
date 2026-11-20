@@ -15,7 +15,7 @@
 // LXC record (lxcstate) holding the row's handle. Its line is offered where the start can work
 // (SPEC-team-close TC16): its container runs, its session unit's file is placed (service: true)
 // and the unit does not run, asked as root without a password (what cannot be asked keeps the
-// line). The start is `teamchat-admin lxc restart --member <container>/<seat key>` (SU3) as root.
+// line). The start is `teamchat-admin lxc start --member <container>/<seat key>` (SU4) as root.
 package lxcsession
 
 import (

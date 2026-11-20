@@ -400,10 +400,11 @@ teamchat_lxc_members:
 
 - **A `service: true` seat's session runs only on demand.** Its unit has no `[Install]` section
   and `Restart=no`, and `lxc apply` only places and reloads it: nothing starts it at boot or at
-  an apply. Start it, or start it again, with
-  `teamchat-admin lxc restart --member <container>/<seat key>`; the seat key is the last part
-  of the seat's name in the play's `lxc apply` lines. ccy-teams shows no v2 LXC seat rows, so
-  it has no start line for one.
+  an apply. Start it with `teamchat-admin lxc start --member <container>/<seat key>` (a
+  session that already runs is left as it is), or from the seat's row in ccy-teams (**Start its
+  session in its LXC container**, which runs the same); the seat key is the last part of the
+  seat's name in the play's `lxc apply` lines. `teamchat-admin lxc restart --member` restarts
+  it, ending the session that runs.
 - **One entry is one seat.** A container may hold any number of entries, for any users and
   checkouts; a coordinator and a worker on one checkout are two entries with two seats. There is
   no `role`: the team's `coordinator` names the coordinator's handle.

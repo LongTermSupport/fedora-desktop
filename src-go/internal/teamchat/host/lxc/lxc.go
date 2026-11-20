@@ -1,5 +1,6 @@
-// Package lxc is `lxc apply` and `lxc restart` run from the host, and the L3 probe the health
-// tick asks (Plan 00209 SPEC-n3 section 3, LX1-LX9, SU1-SU3, LP1; DESIGN-v2-C-host.md 3.9). It
+// Package lxc is `lxc apply`, `lxc restart` and `lxc start` run from the host, and the L3 probe
+// the health tick asks (Plan 00209 SPEC-n3 section 3, LX1-LX9, SU1-SU4, LP1; DESIGN-v2-C-host.md
+// 3.9). It
 // composes the guest root (guestroot, TB1), the lxc programs (lxccmd, TB3), the guest's
 // systemd (guestbus, SU2), the unit text (unit), the guest's facts (guestfacts) and the host's
 // two LXC records (lxcstate); the child's member work reaches it through Roster.
@@ -7,7 +8,7 @@
 // An offline member (n3b-D1) never fails, refuses or waits for anything: a container that is
 // stopped, frozen or missing, one that stops during the phase, or a session unit that is down
 // is shown offline and the phase goes on for the rest. Only an operation that names that one
-// member (`--member`, `lxc restart`) reports it, as an *OfflineError. A running member whose
+// member (`--member`, `lxc restart`, `lxc start`) reports it, as an *OfflineError. A running member whose
 // facts are wrong fails that member alone; the rest of the team still applies.
 package lxc
 

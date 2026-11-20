@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.37 — container 2.84.40
+
+- **Starting a v2 LXC seat's session never restarts one that runs** (Plan 00257 SPEC-team-close
+  TC16, SPEC-n3 SU4). The seat row's Start its session in its LXC container now runs
+  `teamchat-admin lxc start --member <container>/<seat key>`, a new verb: the unit's failed
+  state reset, then systemd's start, which leaves a unit that already runs as it is. Before, it
+  ran `lxc restart` after checking the unit was not running, so a session that started between
+  the check and the restart was ended. `lxc apply`'s offline line for a unit that is down names
+  `lxc start` too. The image is unchanged.
+
 ## 3.122.36 — container 2.84.40
 
 - **ccy-teams lists v2 (teamchat) teams and shuts their LXC seats down** (Plan 00257

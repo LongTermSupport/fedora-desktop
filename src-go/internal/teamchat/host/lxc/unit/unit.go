@@ -3,7 +3,7 @@
 // before it reaches the text, so no value can carry a systemd specifier, a variable, a space
 // that splits ExecStart, or a newline that adds a directive.
 //
-// The unit is started only on demand (`teamchat-admin lxc restart --member`), never at boot
+// The unit is started only on demand (`teamchat-admin lxc start --member`), never at boot
 // and never by itself (owner, Plan 00257): it has no [Install] section, so nothing can enable
 // it, and Restart=no.
 package unit

@@ -148,6 +148,19 @@ func readDeclaration(e Env) (declare.Declaration, error) {
 // lxcRestart is `lxc restart --member C/K` (SU3), the target form `lxc apply` takes, given
 // once: lxc.Restart, nothing on stdin or stdout.
 func lxcRestart(ctx context.Context, e Env, args []string) term.ExitCode {
+	return lxcSeatVerbRun(ctx, e, args, "lxc restart", lxc.Restart)
+}
+
+// lxcStart is `lxc start --member C/K` (SU4), in lxc restart's form: lxc.Start, which never
+// restarts a session that runs.
+func lxcStart(ctx context.Context, e Env, args []string) term.ExitCode {
+	return lxcSeatVerbRun(ctx, e, args, "lxc start", lxc.Start)
+}
+
+// lxcSeatVerbRun is a verb acting on one seat's unit, named by one --member C/K.
+func lxcSeatVerbRun(ctx context.Context, e Env, args []string, verb string,
+	act func(context.Context, lxc.Deps, paths.ContainerName, paths.SeatKey) error,
+) term.ExitCode {
 	sys, code := e.system()
 	if code != term.ExitOK {
 		return code
@@ -160,14 +173,14 @@ func lxcRestart(ctx context.Context, e Env, args []string) term.ExitCode {
 		return failWith(e, err)
 	}
 	if len(members) != 1 {
-		return fail(e.Stderr, term.ExitUsage, "lxc restart takes one --member <container>/<seat key>")
+		return fail(e.Stderr, term.ExitUsage, verb+" takes one --member <container>/<seat key>")
 	}
 	t := members[0]
 	d, code := lxcDeps(e, sys)
 	if code != term.ExitOK {
 		return code
 	}
-	if err := lxc.Restart(ctx, d, t.Container, t.Key); err != nil {
+	if err := act(ctx, d, t.Container, t.Key); err != nil {
 		return failWith(e, err)
 	}
 	return term.ExitOK

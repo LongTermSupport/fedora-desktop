@@ -352,7 +352,7 @@ func TestAContainerThatDoesNotStartAtBootTakesAServiceSeat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, lineOf(t, "CHANGED", "c1", "unit placed; teamchat-admin lxc restart --member starts it"))
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "unit placed; teamchat-admin lxc start --member starts it"))
 	if slices.Contains(guestfacts.ConfigKeys, "lxc.start.auto") {
 		t.Fatalf("the apply reads lxc.start.auto: %v", guestfacts.ConfigKeys)
 	}
@@ -845,7 +845,7 @@ func TestUnitChangedIsReloadedNotStartedAndServiceOffRemoves(t *testing.T) {
 // it, spelled with the seat's own container and key so the reader can run it as it stands.
 func unitDownC1(t *testing.T) string {
 	t.Helper()
-	return "offline: unit down; teamchat-admin lxc restart --member c1/" + keyOf(t, "t1").String() + " starts it"
+	return "offline: unit down; teamchat-admin lxc start --member c1/" + keyOf(t, "t1").String() + " starts it"
 }
 
 func TestUnitRefusedIsOffline(t *testing.T) {
@@ -892,7 +892,7 @@ func TestUnitReloadFailedIsRetried(t *testing.T) {
 	if !slices.Equal(w.bus.calls, []string{"Reload"}) {
 		t.Fatalf("systemd %v", w.bus.calls)
 	}
-	hasLine(t, r, lineOf(t, "CHANGED", "c1", "unit placed; teamchat-admin lxc restart --member starts it"))
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "unit placed; teamchat-admin lxc start --member starts it"))
 	if e := w.entry("c1"); e.Status != lxcstate.StatusJoined {
 		t.Fatalf("entry %+v", e)
 	}

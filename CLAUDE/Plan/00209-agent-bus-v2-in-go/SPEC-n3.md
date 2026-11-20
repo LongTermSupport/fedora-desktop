@@ -394,7 +394,7 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   under the runtime directory within 107 bytes; two seats of one user rendered as two units
   with distinct runtime directories and tmux sockets. Written to
   `/etc/systemd/system/` by LX5's rules (n3-D3), with no `[Install]` section, `Restart=no` and no
-  wants link: the session starts only on demand, by `lxc restart --member` (owner, Plan 00257);
+  wants link: the session starts only on demand, by `lxc start --member` (SU4; owner, Plan 00257);
   apply only reloads it, and removes a wants link an earlier apply made, stopping that session.
   Its `ExecStart` parsed by CL5. **[A]** for placing it.
 - **SU2. The guest's systemd** over the guest's `/run/systemd/private`, opened by TB1's socket
@@ -405,7 +405,15 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   bus in tests; H-C9 in the VM lab. If H-C9 fails, DC13 (b): the unit starts at the next
   container start only, and `lxc restart` refuses naming a container restart.
 - **SU3. `lxc restart --member <container>/<key>`**: refuses a member with no unit; else
-  `ResetFailedUnit` then a restart over SU2, of that seat's unit alone.
+  `ResetFailedUnit` then a restart over SU2, of that seat's unit alone. A restart ends a session
+  that runs, so it is never the way to start one.
+- **SU4. `lxc start --member <container>/<key>`**: SU3's seat lookup, refusals and offline
+  causes, in its own words (`lxc start`, `offline: container stopped during the start`); then
+  `ResetFailedUnit` and `StartUnit` over SU2, of that seat's unit alone. systemd's start leaves a
+  unit that already runs as it is, so a session that runs is never ended, whatever its state was
+  when the caller looked. It is the one on-demand start of a v2 LXC session (ccy-teams' "Start
+  its session", SPEC-team-close TC16). Tests: reset then start, never restart; the offline
+  targets 69; a seat with no unit or no record refused under its verb.
 - **LP1. The L3 probe as `health.Guests`**: (team, handle) to the record entry that holds it and
   is not `left`, its (container, checkout, seat) and its `user` (a handle only `left` entries
   hold has no live seat and is not held); the seat lock
@@ -448,7 +456,7 @@ init pin moved, the root gone, or an attach, a kit write or an SU2 call failing 
 further step. Its line is `SKIPPED` when the record knows its handle and the handle was not joined
 this phase, else `DEFERRED`. Its record entry is `offline` with the line's why. The other seats go
 on, and the phase exits 0 for them. It is an error only for a seat the operator targeted
-(`lxc apply --member C/K`, `lxc restart --member C/K`): 69, naming the container, and beside any
+(`lxc apply --member C/K`, `lxc restart --member C/K`, `lxc start --member C/K`): 69, naming the container, and beside any
 other error the other decides the exit (n3b-D3). `--only-teams` targets teams, never seats.
 
 What is not offline stays a failure of that seat alone (70 for a refused fact): a running
@@ -470,12 +478,13 @@ The why strings are the code's, `host/lxc/apply.go`, `absent.go` and `restart.go
 | 07 place-bundle        | the container gone after the seat's join                                              | `offline: bundle not placed` (the next apply that finds it running reissues, n3-D23)                                                                                                |
 | 07 place-bundle 75     | not offline: a held seat                                                              | `DEFERRED` `seat held; the new identity is placed at the next apply` (LX6)                                                                                                          |
 | 08 membership          | the container gone after the bundle was placed                                        | `offline: membership pending` (the next apply reruns `guest membership`)                                                                                                            |
-| 09 unit                | the guest's systemd refusing a call, gone or unreachable, the container still running | `offline: unit down; teamchat-admin lxc restart --member <container>/<seat key> starts it`, with the seat's own container and key (v2 LXC seats are not ccy-teams rows; Plan 00257) |
+| 09 unit                | the guest's systemd refusing a call, gone or unreachable, the container still running | `offline: unit down; teamchat-admin lxc start --member <container>/<seat key> starts it`, with the seat's own container and key (v2 LXC seats are not ccy-teams rows; Plan 00257) |
 | 10 record              | never                                                                                 | offline seats are written `offline`                                                                                                                                                 |
 | absent, container down | stopped or missing: parked from the host at once                                      | stopped: `offline: container stopped; guest files pending` (`left`); missing: the host copy and entry dropped                                                                       |
 | absent 4, the L3 wait  | the container stopping mid-wait ends the wait at once                                 | `offline: container stopped; guest files pending` (`left`); a seat still held is `DEFERRED` (LX8), never a failure                                                                  |
 | `lxc restart`          | the target missing or stopped                                                         | 69: `offline: container missing`, `offline: container stopped`                                                                                                                      |
 | `lxc restart`, mid-way | the pin or the bus gone during the restart; the systemd not dialled                   | 69: `offline: container stopped during the restart`, `offline: the guest's systemd is unreachable`                                                                                  |
+| `lxc start`            | as `lxc restart`; mid-way, the pin or the bus gone during the start | 69: as `lxc restart`, and `offline: container stopped during the start` |
 | LP1 probe              | stopped, missing, stopping mid-probe, or a handle the record does not name            | `GuestProbe{Stopped: true}`, never an error; an error only for the host's own reads                                                                                                 |
 | LP2 notice             | a stopped container                                                                   | a notice, posted once per run; a failed post is retried by the next tick and never fails it                                                                                         |
 

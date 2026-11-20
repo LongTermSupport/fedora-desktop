@@ -1253,7 +1253,7 @@ func (r *run) failAll(ms []*member, step string, err error) {
 // unit is step 09 for one seat (SU1, SU2): its unit written, then Reload (new, changed, or the
 // seat not recorded joined); a joined seat's unchanged unit is left alone. No apply starts or
 // restarts it and none makes a wants link (owner, Plan 00257): the session starts only on
-// demand (`lxc restart --member`). A wants link an earlier apply made is removed and its
+// demand (`lxc start --member`). A wants link an earlier apply made is removed and its
 // session stopped. `service: false` stops and removes the unit. systemd refusing, or gone, is
 // the unit down: offline, never a failure.
 func (r *run) unit(ctx context.Context, g *guestBox, m *member) {
@@ -1277,9 +1277,9 @@ func (r *run) unit(ctx context.Context, g *guestBox, m *member) {
 }
 
 // whyUnitDown is the why of a seat whose unit is down, naming the command that starts it: v2
-// LXC seats are not ccy-teams rows, so the start is `lxc restart --member` (SU3).
+// LXC seats are not ccy-teams rows, so the start is `lxc start --member` (SU4).
 func whyUnitDown(m *member) string {
-	return "offline: unit down; teamchat-admin lxc restart --member " + m.box.String() + "/" + m.key.String() + " starts it"
+	return "offline: unit down; teamchat-admin lxc start --member " + m.box.String() + "/" + m.key.String() + " starts it"
 }
 
 // errUnreachable is the guest's systemd that could not be dialled.
@@ -1346,7 +1346,7 @@ func (r *run) placeUnit(ctx context.Context, g *guestBox, m *member) error {
 	case existed && wrote:
 		r.line(m, Changed, "unit updated; it takes effect at its next start")
 	default:
-		r.line(m, Changed, "unit placed; teamchat-admin lxc restart --member starts it")
+		r.line(m, Changed, "unit placed; teamchat-admin lxc start --member starts it")
 	}
 	return nil
 }

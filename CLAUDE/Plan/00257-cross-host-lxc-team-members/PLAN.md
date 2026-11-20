@@ -148,7 +148,7 @@ Related plans:
   completely"). Both bus generations: the member's session unit has no `[Install]` and
   `Restart=no`, apply never enables, links or starts it, and removes an earlier wants link
   (stopping that session). The only start is on demand: ccy-teams' Start its session in its LXC
-  container (v1), `teamchat-admin lxc restart --member` (v2). Host proof:
+  container (v1), `teamchat-admin lxc start --member` (v2). Host proof:
   `lxc-no-autostart-acceptance.bash`. Report: `subagent-reports/lxc-no-autostart-report.md`.
 - [x] ✅ **Task B.13**: close every active seat of a team (owner's request: "wind down a whole
   team… all active seats get the compact and exit"): ccy-teams' Shut down reaches v1 and v2

@@ -1817,7 +1817,7 @@ parsed back:
 | guest seat root         | `~/.config/teamchat/lxc/<key>/seats/` (B's `<v2-state>`, which `run --kind lxc --key <key>` derives), the seat directory `<team>/` below it                                                                         | per seat, as a ccy session's `sessions/<session>/` (3.7.1): B's state root holds one directory per team, so two seats of one user in one team cannot share one                                                                                                                                                                             |
 | guest desired directory | `~/.config/teamchat/lxc/<key>/membership/` (B's `<v2-desired>`)                                                                                                                                                     | per seat, as ccy's `control/<session>/` (3.7.5), for the reason below                                                                                                                                                                                                                                                                      |
 | host copy               | `/var/lib/teamchat-admin/_lxc/<container>/<key>.json`                                                                                                                                                               | 3.9.3                                                                                                                                                                                                                                                                                                                                      |
-| member target           | `<container>/<key>` (`lxc apply --member`, `lxc restart --member`)                                                                                                                                                  | ccy-teams computes the key with the same function                                                                                                                                                                                                                                                                                          |
+| member target           | `<container>/<key>` (`lxc apply --member`, `lxc restart --member`, `lxc start --member`)                                                                                                                                              | ccy-teams computes the key with the same function                                                                                                                                                                                                                                                                                          |
 | output field            | `<user>@<container>/<repo>-<seat>-<key>`                                                                                                                                                                            | 3.9.3's lines                                                                                                                                                                                                                                                                                                                              |
 
 **Why the desired membership is per seat, not per checkout.** B's desired file holds at most one
@@ -2182,14 +2182,14 @@ rendered declaration would heal it on its own; it is held as decision DC10 and n
 pane (area B owns what runs and its arguments, B 2.2). One unit and one tmux
 server and session per seat, so a user with several seats has several units, each started,
 failed and removed alone (names: 3.9.1). **The session starts only on demand** (owner, Plan
-00257: a member's session never starts with its container): `lxc restart --member` starts it.
+00257: a member's session never starts with its container): `lxc start --member` starts it.
 The unit has no `[Install]` section and `Restart=no`; no apply makes a wants link, starts or
 restarts it; an apply that finds the wants link an earlier apply made removes it and stops the
 session. v1 wrote a system unit
 with a guest script as root and ran the guest's `systemctl` as root. v2 writes the unit file,
 `/etc/systemd/system/teamchat-session-<team>-<repo>-<seat>-<key>.service`, into the guest from the
 host side (3.9.1's rules). It asks the guest's own systemd to
-reload the unit (and `lxc restart` to start it) over the guest's private manager socket, `run/systemd/private` below
+reload the unit (and `lxc start` to start it, `lxc restart` to restart it) over the guest's private manager socket, `run/systemd/private` below
 the guest root: opened `O_PATH` through the root fd (3.9.2 step 03's flags), `fstat`ed as a socket
 owned by root, and connected through `/proc/self/fd/<n>`, never by a `connect` to a
 `/proc/<init pid>/root/...` path. That is a host process speaking peer-to-peer

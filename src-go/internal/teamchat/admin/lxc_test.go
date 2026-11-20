@@ -345,9 +345,16 @@ type brokenWriter struct{}
 
 func (brokenWriter) Write([]byte) (int, error) { return 0, errors.New("stdout closed") }
 
-// lxc restart: one --member C/K, nothing else; a seat no record holds is refused (70);
-// a stopped container holding the seat is 69, naming it.
+// lxc restart and lxc start (SU3, SU4): one --member C/K, nothing else; a seat no record holds
+// is refused (70); a stopped container holding the seat is 69, naming it.
 func TestLXCRestart(t *testing.T) {
+	for _, verb := range []string{"restart", "start"} {
+		t.Run(verb, func(t *testing.T) { lxcSeatVerb(t, verb) })
+	}
+}
+
+func lxcSeatVerb(t *testing.T, verb string) {
+	t.Helper()
 	w := newWorld(t)
 	decl := lxcDecl(t, lxcEntry("box-1", 1))
 	sys := w.lxcSys(t, decl, stopped("box-1"))
@@ -364,11 +371,11 @@ func TestLXCRestart(t *testing.T) {
 		{"--container", "box-1", "--key", key},
 		{"--member", target, "extra"},
 	} {
-		if out := w.lxcVerb(sys, "", append([]string{"lxc", "restart"}, args...)...); out.code != term.ExitUsage {
+		if out := w.lxcVerb(sys, "", append([]string{"lxc", verb}, args...)...); out.code != term.ExitUsage {
 			t.Errorf("%v: %d %s", args, out.code, out.stderr)
 		}
 	}
-	if out := w.lxcVerb(sys, "", "lxc", "restart", "--member", target); out.code != ExitRefused || !strings.Contains(out.stderr, "names no seat") {
+	if out := w.lxcVerb(sys, "", "lxc", verb, "--member", target); out.code != ExitRefused || !strings.Contains(out.stderr, "names no seat") {
 		t.Fatalf("no record: %d %s", out.code, out.stderr)
 	}
 	box, err := paths.ParseContainerName("box-1")
@@ -385,7 +392,7 @@ func TestLXCRestart(t *testing.T) {
 	if _, err := lxcstate.WriteRecord(w.root, rec, os.Getgid()); err != nil {
 		t.Fatal(err)
 	}
-	out := w.lxcVerb(sys, "", "lxc", "restart", "--member", target)
+	out := w.lxcVerb(sys, "", "lxc", verb, "--member", target)
 	if out.code != ExitUnreachable || out.stdout != "" || !strings.Contains(out.stderr, "container box-1 is offline") {
 		t.Fatalf("stopped: %d %q %s", out.code, out.stdout, out.stderr)
 	}
