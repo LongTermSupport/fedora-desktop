@@ -1,165 +1,186 @@
 # The Watch List
 
-External public repositories this project keeps an eye on and scans at intervals, looking for
-good ideas, tooling, concepts and inspiration for fedora-desktop: the Fedora IaC, the ccy Claude
-Code container, agent teams, the hooks daemon and the Go QA tooling.
+External public repositories this project studies for ideas, tooling and code worth adopting in
+fedora-desktop: the Fedora IaC, the ccy Claude Code container, agent teams and the agent bus, the
+hooks daemon and the Go QA tooling. Most of them are the owner's GitHub stars: other people
+building agent fleets, teams, sandboxes, gateways and Claude Code tooling. The list follows the
+stars, and a repository that is not a star can be added by hand.
 
 These are public third-party projects, so their names are tracked here. That is the opposite of
 `untracked/repos/`, which holds private reference clones that must never be named
-([AgentNotes.md](AgentNotes.md)). The watch list's local mirrors live in `untracked/watchlist/`
-(gitignored, one directory per repository, `<owner>__<repo>`).
+([AgentNotes.md](AgentNotes.md)).
 
-## What a scan produces
+The work is done in **runs**. Each run records, for every repository it studies, the commit it
+studied. The next run can then study only what changed (`diff`), or study everything again in
+depth (`baseline`).
 
-Each scan of a repository ends in one of two outcomes per finding, never in a bare note:
+## Where things are
 
-- **a GitHub issue** in this repository, for a clear, defined win (what to adopt, why, where it
-  would land here);
+| What                                                                        | Where                                                       | Tracked |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------- | ------- |
+| The list: source, licence, reuse class, state and group for each repository | [Watchlist.tsv](Watchlist.tsv)                              | yes     |
+| A run: its manifest, one report per group, the synthesis                    | `CLAUDE/WatchlistRuns/<run-id>/`                            | yes     |
+| Full clones of studied repositories                                         | `untracked/starred-repos/<licence>/<owner>/<repo>`          | no      |
+| Clones of excluded repositories                                             | `untracked/starred-repos-excluded/<licence>/<owner>/<repo>` | no      |
+| Drafts of issue bodies, scanned before sending                              | `untracked/watchlist-reports/`                              | no      |
+
+The `watchlist` Go command owns the list and the manifests: never edit either by hand. It runs
+from the checkout (`cd src-go && go run ./cmd/watchlist --root .. <verb>`), because nothing
+outside an agent run needs it. Its specification is Plan 00258's `SPEC-watchlist-runs.md`.
+
+## Licence: what we may take
+
+The licence directory is the SPDX id read from the repository's own licence file, never GitHub's
+label alone: GitHub labels many as `NOASSERTION` or `NONE` that are in fact BUSL, AGPL, PolyForm,
+proprietary, or Apache-2.0 with added restrictions. Where no SPDX id fits, the id is
+`LicenseRef-<name>`. This repository is MIT.
+
+| Reuse class  | Licences                                                    | What we may do                                                            |
+| ------------ | ----------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `lift`       | MIT, Apache-2.0, ISC, 0BSD, BSD-\*                          | Copy code, keeping its copyright and licence notice (and Apache's NOTICE) |
+| `whole-file` | MPL-2.0                                                     | Copy only whole files, which keep their licence                           |
+| `clean-room` | GPL, AGPL, LGPL, SSPL, BUSL, PolyForm, `LicenseRef-*`, none | Ideas only, through the clean room                                        |
+
+A repository can carry exceptions: a commercial `ee/` directory, vendored code, a per-file header.
+A proposal to copy code names the file and checks that file's own header, not only the root
+licence.
+
+**The clean room.** A study of a `clean-room` repository describes behaviour and ideas in its
+own words: no code, no transcribed pseudo-code, no copied comments or prompts. The study report
+is the boundary. Whoever implements an idea from it works from the report alone and never opens
+the source, so the agent that studied the code does not write the implementation.
+
+`licence_sha` in the list is a hash of the licence file. When `sync` reports it changed, the
+licence is read again and the row corrected (`watchlist set`). A licence change is itself a
+finding.
+
+## Groups
+
+A run studies one group per agent. A new repository gets the group it fits; a new group is added
+here first.
+
+| Group                 | What it covers                                                  | What to compare against here                        |
+| --------------------- | --------------------------------------------------------------- | --------------------------------------------------- |
+| `fleets`              | Desktop and web apps that run fleets of coding agents           | ccy, ccy-sessions, ccy-teams                        |
+| `teams`               | Agent teams, roles, protocols between agents                    | ccy-teams, the agent bus, team roles                |
+| `multiplexers`        | tmux and worktree session managers, persistent shells           | ccy-sessions, ccy-teams launch, worktree discipline |
+| `vm-sandboxes`        | A VM or microVM per agent or project                            | ccy's container, LXC, the VM lab                    |
+| `local-sandboxes`     | Landlock, seccomp, sandbox-exec, user-account isolation         | ccy's container, network policy, SELinux            |
+| `gateways`            | LLM and MCP gateways, API proxies, credential brokers           | ccy network policy, Plan 00252's egress proxy       |
+| `usage-observability` | Usage and limit tracking, account switching, session monitors   | ccy tokens, usage pause, seat status                |
+| `tooling`             | Claude Code hooks and tools, secret scanning, desktop packaging | the hooks daemon, QA, the playbooks                 |
+| `team-client`         | The Matrix client team humans use (lightning)                   | Plan 00254: its releases, our issues, regressions   |
+
+## Runs
+
+| Mode       | What it studies                                    | Depth                                                                                                                    |
+| ---------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `baseline` | The whole project at the run's commit              | In depth: architecture, how it works, maturity, licence, a comparison with what we build, ideas, code we may lift, risks |
+| `diff`     | Only the commits since the repository's last study | Lighter: what is new, whether it changes an earlier finding, new ideas, a licence change                                 |
+
+The first run is a baseline. A new baseline can be run whenever wanted, for every repository or
+for one group, and later diff runs start from it. In a diff run, a repository never studied
+before gets a baseline, and one with no new commits is left out.
+
+### The steps of a run
+
+1. **Sync.** `watchlist sync` reads the current stars and adds new ones as `new`, marks removed
+   ones `unstarred` (keeping the clone), clones what is missing, fetches and fast-forwards every
+   clone, and reports licence files that changed and the repositories whose head has moved since
+   their last study. A failed fetch, or an upstream that rewrote its history, stops it.
+2. **Triage.** Every `new` repository gets its licence read from its licence file, then
+   `watchlist set <repo> --licence <id> --state study --group <group>`, or `--state excluded` when
+   it is unrelated to this repository's work. The command moves the clone to match. When
+   relevance is unclear, ask the owner. Runs refuse to start while anything is `new`.
+3. **Start.** `watchlist run new <run-id> --mode baseline|diff [--group <g>]`, with run id
+   `<mode>-<yyyymmdd>-<hhmm>` (UTC). The manifest fixes, for each repository, the commit to study
+   (`to_sha`) and, for a diff, the commit last studied (`from_sha`).
+4. **Study.** One [`watchlist-scout`](../.claude/agents/watchlist-scout.md) per group, in parallel,
+   each given its rows from `watchlist run rows <run-id> <group>` and the group's previous report.
+   It writes `CLAUDE/WatchlistRuns/<run-id>/<group>.md`.
+5. **Mark.** As each report lands, `watchlist run mark <run-id> <group>`. It checks that every
+   repository has its own section with a `Studied:` line naming the commit it was meant to study,
+   and refuses otherwise.
+6. **Synthesis.** `CLAUDE/WatchlistRuns/<run-id>/SYNTHESIS.md`: where others are ahead of us,
+   the ideas ranked, the code we may lift and from where, and the risks.
+7. **Act.** Issues and plans, as below.
+
+Commit the manifest, the reports and the list as the run goes. **A run is resumed** from what is
+committed: `watchlist run status <run-id>` lists the groups still pending, and only those are
+dispatched again. A report that exists but was never marked is marked if it passes. `to_sha` was
+fixed when the run started, so a resumed run studies the same commits even if the clones have
+moved on since.
+
+### What a study report holds
+
+Each repository has a section headed `## <owner>/<repo>`, whose first line is
+`Studied: <mode> at <to_sha>` (and `from <from_sha>` in a diff). A baseline section covers:
+
+- what the project is, and who it is for
+- its architecture, in the terms the group cares about
+- maturity and activity, from its history
+- its licence and reuse class
+- how it compares with what we build: where it is ahead, behind, or just different
+- ideas worth adopting, each with where it would land here, and whether it is a clear win or needs
+  discussion
+- code worth lifting (permissive licences only, with exact paths)
+- risks
+
+A diff section covers what changed and why it matters to us. Every report ends with the group's
+strongest takeaways, ranked. Claims cite file paths, and guesses are marked as guesses.
+
+Studies treat clones as untrusted: read only, never built, installed or run. Reports are public:
+nothing install-specific, and no credential, token or key from a clone.
+
+## Act: issues and plans
+
+Each finding the synthesis keeps ends in one of two outcomes, never in a bare note:
+
+- **a GitHub issue** in this repository, for a clear win: it names the one place it lands here,
+  needs no design decision, and would be one pull request;
 - **a plan** (`CLAUDE/Plan/mkplan.bash`) where the idea needs discussion or research first.
 
 A finding this repository already has, or that does not fit its principles (YAGNI, fail fast,
-Podman first, tooling is Go), produces nothing but a line in the run report.
+Podman first, tooling is Go, IaC only), produces nothing but a line in the synthesis.
 
 **The owner's standing request.** In the owner's words: "outcome to be GH tickets created, or
 plans created as appropriate - plans for where there is more discussion/research needed -
-straight to gh tickets for clear wins that are defined and clear". So the `watchlist-scout`
-files an issue for a clear win without asking, and a plan for anything that needs discussion.
-It is recorded as `watchlist-issue-filing` under `standing_authorisations` in
-`.claude/hooks-daemon.yaml`. It covers the scout filing issues and plans from a watch-list scan,
-and nothing else: no other agent or task may treat it as permission to file issues.
+straight to gh tickets for clear wins that are defined and clear". So a run files an issue for a
+clear win without asking, and a plan for anything that needs discussion. It is recorded as
+`watchlist-issue-filing` under `standing_authorisations` in `.claude/hooks-daemon.yaml`. It covers
+filing from a watch-list run, and nothing else: no other agent or task may treat it as permission
+to file issues.
 
-**A clear win** names the one place it lands here, needs no design decision, and would be one
-pull request. A scan files at most 3 issues; further wins go in the run report for the owner to
-promote. Each issue carries the `watchlist` label, the run id and the reviewed range, and its
-text is scanned for secrets and install-specific names before it is sent (the repository is
-public and the pre-commit scanner does not see `gh`).
-
-## Ideas, reusable code, anything else valuable
-
-A scan looks for three things: **ideas** to adopt (a design, a feature, a rule), **code** this
-repository could take as it is, and **anything else of value** (a test technique, a security
-finding, a tool worth installing, a defect upstream that affects us). Each becomes an issue or a
-plan by the rules above.
-
-**Code is reused only under a licence that allows it.** This repository is MIT. Before a finding
-proposes copying or vendoring code, the scout records the watched repository's licence (its
-SPDX id from `gh repo view <owner>/<repo> --json licenseInfo`, confirmed against its LICENSE file,
-and any per-file headers on the code in question):
-
-- **MIT, BSD, ISC, Apache-2.0** and similar permissive licences: reusable, keeping the copyright
-  and licence notice with the copied code (and Apache-2.0's NOTICE, if any).
-- **MPL-2.0**: only as whole, separate files that keep their licence.
-- **GPL, AGPL, LGPL, SSPL, BUSL, Elastic, any non-commercial or "source available" licence, or
-  no licence at all**: never copied. The idea may still be adopted, written afresh here.
-
-The issue or plan states the licence and which of these applies. A licence change upstream
-(the LICENSE file in a scanned range) is itself a finding.
-
-## The state
-
-[Watchlist.tsv](Watchlist.tsv) is the machine-read list: for each repository the URL, the branch
-reviewed, the last-reviewed commit and the run that recorded it. The `watchlist` command owns it
-(`add`, `mark`); it is read strictly and a malformed row is an error. Instruction files carry no
-dates, so when a review happened lives in the run id, the run report and the plan journal. The
-command's behaviour is specified in `SPEC-watchlist.md` of Plan 00200. Only `github.com`
-repositories can be listed. The command rewrites the file whole, so comments added by hand to
-the TSV are lost on the next `add` or `mark`; put commentary in this document.
-
-| Repository                                                                                                                | Why it is watched                                                                                                           | Areas to look at                                                                                                     |
-| ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| [cdknorow/coral](https://github.com/cdknorow/coral)                                                                       | A multi-agent Claude Code orchestrator with a shared message board and task queue: the nearest neighbour of ccy agent teams | Task dependencies and wait-don't-poll messaging, agent role and team models, cost tracking, hooks usage              |
-| [devvmhq/devvm](https://github.com/devvmhq/devvm)                                                                         | One sandbox VM per project with its toolchain, for a person or a coding agent, and a proxy in front of the agent            | The proxy: per-agent permission control, OAuth key hot-swap, gh calls limited to named repos under an org-wide token |
-| [mvschwarz/openrig](https://github.com/mvschwarz/openrig)                                                                 | Persistent agent teams across Claude Code, Codex and Pi, with roles, shared context and owned work                          | Team, role and work-ownership models against ccy agent teams and the bus                                             |
-| [kstenerud/yoloai](https://github.com/kstenerud/yoloai)                                                                   | Agent sandboxing that treats the agent as a security risk, the stance ccy takes                                             | Isolation boundaries, what it allows and denies                                                                      |
-| [jingkaihe/matchlock](https://github.com/jingkaihe/matchlock)                                                             | A Linux sandbox securing AI agent workloads                                                                                 | Its lock-down model against ccy's                                                                                    |
-| [Edmonds-Commerce-Limited/claude-code-hooks-daemon](https://github.com/Edmonds-Commerce-Limited/claude-code-hooks-daemon) | The hooks daemon this repository runs                                                                                       | New handlers and config worth enabling; upstream fixes to issues filed from here                                     |
-| [Maxteabag/hotseat](https://github.com/Maxteabag/hotseat)                                                                 | A dashboard and CLI for Claude Code and Codex accounts, their quota and work a usage limit stopped                          | Token pools, usage limits, account hand-over against ccy's token management                                          |
-| [Maxteabag/clarp](https://github.com/Maxteabag/clarp)                                                                     | A self-hosted server, PWA and desktop app for coding agents on your own machine                                             | Remote access to local agent sessions                                                                                |
-| [Yu-369/VibeCurb](https://github.com/Yu-369/VibeCurb)                                                                     | Injects taste into AI workflows so agents produce less generic output                                                       | How it steers output quality, as prompts or hooks                                                                    |
-| [trailofbits/coop](https://github.com/trailofbits/coop)                                                                   | An isolated VM for Claude Code and Codex, from a security firm                                                              | Its threat model and isolation against ccy's container                                                               |
-| [coipond/coi](https://github.com/coipond/coi)                                                                             | A machine per agent, with root and Docker                                                                                   | Docker inside the sandbox; per-agent machines                                                                        |
-| [eugene1g/agent-safehouse](https://github.com/eugene1g/agent-safehouse)                                                   | Agents read and write only what they need                                                                                   | Path-scoped permission profiles                                                                                      |
-| [clawkwork/clawk](https://github.com/clawkwork/clawk)                                                                     | A disposable Linux VM per coding agent                                                                                      | VM lifecycle and reset                                                                                               |
-| [madarco/agentbox](https://github.com/madarco/agentbox)                                                                   | Several agents in parallel sandboxed VMs from one command                                                                   | Parallel orchestration of sandboxes                                                                                  |
-| [webcoyote/sandvault](https://github.com/webcoyote/sandvault)                                                             | Agents in their own OS user account plus a sandbox                                                                          | User-account isolation                                                                                               |
-| [nolabs-ai/nono](https://github.com/nolabs-ai/nono)                                                                       | Zero-trust sandboxing for agent runtimes                                                                                    | The permission model and its enforcement                                                                             |
-| [smol-machines/smolvm](https://github.com/smol-machines/smolvm)                                                           | An embeddable, branchable VM for local agents                                                                               | Branching VM state, fast boot                                                                                        |
-| [rudderlabs/devbox](https://github.com/rudderlabs/devbox)                                                                 | One sandbox per task with no real secrets inside                                                                            | How credentials reach a sandbox without being in it: the credential-proxy idea                                       |
-| [delta-box/deltabox-lite](https://github.com/delta-box/deltabox-lite)                                                     | A sandbox whose changes are diffed, committed or aborted                                                                    | Reviewing and rolling back an agent's changes                                                                        |
-| [KarpelesLab/teamclaude](https://github.com/KarpelesLab/teamclaude)                                                       | A proxy pooling several Claude Code and Codex accounts                                                                      | OAuth key hot-swap through a proxy; check the provider's terms before adopting                                       |
-| [liaohch3/claude-tap](https://github.com/liaohch3/claude-tap)                                                             | Intercepts and inspects coding-agent API traffic                                                                            | Where a proxy can observe and filter agent calls                                                                     |
-| [agentgateway/agentgateway](https://github.com/agentgateway/agentgateway)                                                 | A proxy for agents and MCP servers with policy                                                                              | Authorisation at the proxy, MCP permission control                                                                   |
-| [awslabs/cli-agent-orchestrator](https://github.com/awslabs/cli-agent-orchestrator)                                       | Multi-agent orchestration of coding CLIs in tmux                                                                            | Against ccy teams and the agent bus                                                                                  |
-| [agent-of-empires/agent-of-empires](https://github.com/agent-of-empires/agent-of-empires)                                 | Managing several agents from a TUI or the web                                                                               | Session management, remote access                                                                                    |
-| [standardagents/dmux](https://github.com/standardagents/dmux)                                                             | An agent multiplexer over git worktrees                                                                                     | Worktree-per-agent workflow                                                                                          |
-| [OrchestratorInc/agent-orchestrator](https://github.com/OrchestratorInc/agent-orchestrator)                               | Supervises fleets of agents from task to merged PR                                                                          | The supervision loop through to merge                                                                                |
-| [herdrdev/herdr](https://github.com/herdrdev/herdr)                                                                       | A runtime for coding agents, widely used                                                                                    | Session runtime and lifecycle                                                                                        |
-| [Ark0N/Codeman](https://github.com/Ark0N/Codeman)                                                                         | Self-hosted mission control for coding agents                                                                               | Dashboards and session supervision                                                                                   |
-| [pchalasani/claude-code-tools](https://github.com/pchalasani/claude-code-tools)                                           | Productivity tools for Claude Code and other CLIs                                                                           | tmux and session helpers                                                                                             |
-| [karanb192/claude-code-hooks](https://github.com/karanb192/claude-code-hooks)                                             | Claude Code hooks for safety, cost and observability                                                                        | Hook ideas against the hooks daemon's                                                                                |
-| [Maciek-roboblog/Claude-Code-Usage-Monitor](https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor)                 | Real-time usage monitoring with predictions                                                                                 | Usage and limit prediction against ccy's token usage                                                                 |
-| [starbaser/ccproxy](https://github.com/starbaser/ccproxy)                                                                 | Hooks into every Claude Code request and response                                                                           | Request-level control in a proxy (licence unclear: ideas only)                                                       |
-| [DevDock-AI/claude-unlimited](https://github.com/DevDock-AI/claude-unlimited)                                             | Rotates subscriptions and keys at a usage limit                                                                             | Key rotation mechanics (check the provider's terms)                                                                  |
-| [ldegio/agtop](https://github.com/ldegio/agtop)                                                                           | A top-style view of agent sessions                                                                                          | Session monitoring (GPL: ideas only)                                                                                 |
-| [generalaction/emdash](https://github.com/generalaction/emdash)                                                           | A parallel coding-agent environment                                                                                         | Running agents side by side                                                                                          |
-| [sodiumsun/agenttrail](https://github.com/sodiumsun/agenttrail)                                                           | Local observability for agents                                                                                              | What an agent did, recorded and shown                                                                                |
-| [clash-sh/clash](https://github.com/clash-sh/clash)                                                                       | Detects merge conflicts across worktrees early                                                                              | Conflict warnings between parallel branches                                                                          |
-| [maximhq/bifrost](https://github.com/maximhq/bifrost)                                                                     | An LLM and MCP gateway                                                                                                      | Routing, RBAC and per-user identity at a gateway                                                                     |
-| [ThinkWatchProject/ThinkWatch](https://github.com/ThinkWatchProject/ThinkWatch)                                           | An LLM and MCP gateway with per-user identity                                                                               | Access control and audit at a gateway                                                                                |
-| [IT-Hjaelp-Nu/keybox](https://github.com/IT-Hjaelp-Nu/keybox)                                                             | A credential broker giving agents short-lived, scoped GitHub tokens                                                         | Per-repo GitHub token scoping (new and small)                                                                        |
-| [tonyweckstrom1987/holvi](https://github.com/tonyweckstrom1987/holvi)                                                     | A credential broker for agents                                                                                              | Scoped, short-lived credentials (new and small)                                                                      |
-| [Mizerd/lightning](https://github.com/Mizerd/lightning)                                                                   | The Matrix client our humans read team buses in (Plan 00254); a responsive maintainer who fixes what we report              | Releases (tags `v*`) and when they reach Flathub, the thread panel, our issues and pull requests, regressions        |
-
-Coral's initial full review is Plan 00193's `AUDIT-coral.md`. It is recorded as reviewed at the
-commit that audit read, so the first scan covers only what changed after it.
-
-## The process
-
-1. `watchlist sync` clones any missing mirror and fetches the rest. For each repository it prints
-   the last-reviewed commit, the new head, the commits between them and the changed paths. A
-   repository never reviewed is reported as `initial: full review`, and each report names the
-   mirror directory. A failed fetch is an error, never a skip. So is a force-pushed upstream:
-   a last-reviewed commit that the head no longer descends from is reported as a rewritten
-   history, not as a range.
-2. The [`watchlist-scout`](../.claude/agents/watchlist-scout.md) agent reviews: the whole project
-   for an initial repository, only the diff range otherwise. It judges each finding against what
-   this repository already has, files issues and plans as above (checking for duplicates first),
-   and writes a run report to Plan 00200's `subagent-reports/<run id>.md`. The report is
-   tracked: it is what the run id in `Watchlist.tsv` resolves to, and it records why each
-   finding was filed or discarded, which the next scan of that repository builds on. Only the
-   drafts of issue bodies and comments stay in `untracked/watchlist-reports/`, scanned there
-   before `gh` publishes them.
-3. Only after its outcomes are filed does the scout run `watchlist mark <repo> <sha> --run <id>`.
-   A scan that dies midway leaves the repository unmarked, so the next scan repeats it rather
-   than losing it. `mark` accepts only a commit on the watched branch that descends from the
-   last review.
-
-The command runs from the checkout, not from an installed binary, because nothing outside an
-agent run needs it:
-
-```bash
-cd src-go && go run ./cmd/watchlist --root .. sync
-```
-
-Installing it on the host would go through `tasks/build-go-command.yml` like `ccy-teams`, and is
-a decision for when a human wants to run it by hand.
+- **Cap: at most 3 issues per run.** Rank the clear wins, file the best 3, and list the rest in the
+  synthesis under "not filed (cap)" for the owner to promote. Plans are not capped, but each must
+  earn its place.
+- **Duplicates first.** Give the `hooks-daemon-plan-dedupe-scout` the count of live plan folders
+  (`ls -d CLAUDE/Plan/[0-9]*/ | wc -l`); its report must say `Checked N live plans` with the same
+  N. Search `gh issue list --state all --limit 500 --search "<terms>"`. An existing issue or plan
+  gets a mention in the synthesis, not a twin.
+- **Scan the text before it leaves.** Draft each issue body and comment under
+  `untracked/watchlist-reports/`; this repository is public and `gh` is not covered by the
+  pre-commit scanner. Run `grep -nEi` for an email address other than `@example.com`, an IPv4
+  address outside 192.0.2.0/24, 198.51.100.0/24 and 203.0.113.0/24, `/home/`, `/root/`,
+  `/workspace`, `/var/lib/`, `/run/user`, `.local`, `.lan` and `.internal` host names, and
+  `ghp_`, `gho_`, `github_pat_`, `AKIA`, `xox[bp]-`, `BEGIN .*PRIVATE KEY`, `password`, `secret`
+  and `token=`. Then run the private-identifier denylist: `source scripts/git-hooks/lib/secret-scan.bash`,
+  `hook_build_private_denylist "$PWD" <file under untracked/>`, then
+  `hook_scan_text_for_private <file> < body`. Exit 2 from the build (no `localhost.yml`) means
+  only the grep applies; any other failure stops. After a build that succeeded, check the
+  denylist file is not empty before scanning: the scan returns success on an empty or missing
+  denylist without checking anything. A hit means rewrite and scan again.
+- **The issue body**: what the idea is, where it was seen (a link at the studied commit), why it
+  fits, what adopting it touches, its licence and reuse class, then a trailer line
+  `Watchlist run: <run-id>; <owner>/<repo> <from_sha or "baseline">..<to_sha>`. Create it with
+  `gh issue create --label watchlist` (create the label first if `gh label list` lacks it).
 
 ## Using it
 
 The owner's entry point is the [`watchlist` skill](../.claude/skills/watchlist/SKILL.md):
+`/watchlist sync`, `/watchlist baseline [<group>]`, `/watchlist diff [<group>]`,
+`/watchlist resume <run-id>`, `/watchlist status`, and `/watchlist add <url>` for a repository
+that is not a star.
 
-- `/watchlist` scans every repository;
-- `/watchlist <owner>/<repo>` scans one;
-- `/watchlist add <url>` adds a repository and runs its initial full review.
-
-## How scans recur
-
-Scans are run by hand with `/watchlist` for now. Choosing a mechanism that runs them at intervals
-(a persistent cron, a scheduled agent, a plan task reminding the owner) is an open decision for
-the owner, tracked in Plan 00200.
-
-## Adding a repository by hand
-
-Do not edit the TSV for a new repository: `watchlist add <url>` validates the URL (https, github.com only),
-refuses duplicates and records the default branch. Add its row to the table above with the reason
-it is watched and the areas to look at.
+Runs are started by hand for now. A mechanism that runs a diff at intervals (a persistent cron,
+a scheduled agent) is an open decision for the owner (Plan 00258, Task 4.1).
