@@ -153,6 +153,13 @@ func readRun(root, id string) (run, error) {
 	}
 	r := run{id: id, stamp: stamp}
 	path := filepath.Clean(r.manifest(root))
+	info, err := os.Stat(path)
+	if err != nil {
+		return run{}, fmt.Errorf("cannot read the manifest of run %s: %w", id, err)
+	}
+	if !info.Mode().IsRegular() {
+		return run{}, fmt.Errorf("the manifest of run %s, %s, is not a regular file", id, path)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return run{}, fmt.Errorf("cannot read the manifest of run %s: %w", id, err)

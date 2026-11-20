@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -278,6 +279,18 @@ func TestRunsDirectoryIsReadStrictly(t *testing.T) {
 	writeFile(t, filepath.Join(watchlist.RunsDir(w.root), "notes.txt"), "x")
 	if code := w.run("run", "status"); code != term.ExitFailure || !strings.Contains(w.err.String(), "notes.txt") {
 		t.Fatalf("exit %d, err %q", code, w.err.String())
+	}
+	// project_walk_open: a manifest that is a named pipe is refused, not opened (which blocks).
+	w = studyWorld(t)
+	fifoDir := w.runDir("baseline-20261101-0900")
+	if err := os.MkdirAll(fifoDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(fifoDir, "manifest.tsv"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := w.run("run", "status"); code != term.ExitFailure || !strings.Contains(w.err.String(), "not a regular file") {
+		t.Fatalf("fifo: exit %d, err %q", code, w.err.String())
 	}
 	w = studyWorld(t)
 	w.writeRun(t, "baseline-20261101-0900", "broken\n")
