@@ -1547,6 +1547,60 @@ path to the project root (`system_paths._absolute`). Refuse a relative value whe
 anchor it, as `_resolve_project_root` refuses a relative `CLAUDE_PROJECT_DIR`. Never satisfy
 the rule with an `isabs` check that leaves the relative path in place.
 
+### hook-regex-over-raw-command
+
+**What it is.** Python that calls `get_bash_command(...)` and, in the same function, applies a
+regex method (`search`, `match`, `fullmatch`, `findall`, `finditer`, `sub`, `subn`,
+`re.split`) or an `in` test to the value it returned, or to anything assigned from it. A value
+that went through `command_position_segments`, `command_position_code_segments`,
+`command_position_code_segments_with_separators`, `command_position_argument_segments` or
+`command_position_view` is a command-position segment and is clean. The rule is a Semgrep
+taint rule in `.semgrep/hook-handlers.yml`, run by `qa-hook-handler-rules.bash` and proven
+against `.semgrep/hook-handlers.py`.
+
+**Why it exists.** A Bash command line holds text that is not run: a commit message, an echo, a
+grep pattern, a heredoc body. A regex over the whole line asks "does the text contain these
+words?", not "does a command run them?". `ansible_enforcement` searched the whole line for
+`dnf install` and `systemctl restart`, and `hidden_git_mutation` searched it for
+`bash -c "$(cat f)"`, so a commit message or a grep pattern that quoted either was denied
+(issue #294). Found and defended under Defence Before Fix; the rule is red on the form of both
+handlers before that fix.
+
+**What it does not see.** Taint is followed inside one function, so a helper that is handed the
+command and searches it (`self._search(command)`) is not reported: that is how a handler
+judges the line as written on purpose (`ansible_enforcement` does so for a script it writes and
+then runs behind a wrapper, and for text piped into a shell). The helper is then one visible
+call, reviewed with its reason. A command read some other way than `get_bash_command` is not a
+source, and a `str.startswith` or `==` test is not a sink.
+
+**How to fix a finding.** Judge the command-position segments instead:
+`for segment in command_position_code_segments(command): ... pattern.search(segment)`. Where a
+shape the daemon's view cannot follow needs the line as written, put that judgement in a helper
+named for what it judges, and test the shape both ways.
+
+### hook-regex-over-command-parameter
+
+**What it is.** Python in a function with a parameter named `command` (typed or not) that
+applies a regex method (`search`, `match`, `fullmatch`, `findall`, `finditer`, `sub`, `subn`,
+`re.split`) or an `in` test to it. A Semgrep rule in `.semgrep/hook-handlers.yml`, run by
+`qa-hook-handler-rules.bash` and proven against `.semgrep/hook-handlers.py`. It is the
+second half of [hook-regex-over-raw-command](#hook-regex-over-raw-command), which follows the
+value inside one function.
+
+**Why it exists.** `hidden_git_mutation` passed `get_bash_command()`'s text to a helper whose
+parameter was `command`, and the helper searched it for `bash -c "$(cat f)"`. The taint rule
+stops at the function boundary, so this rule reads the name the project gives that text.
+Found and defended under Defence Before Fix; red on the form of that handler before issue
+#294's fix.
+
+**What it does not see.** A parameter named something else (`cmd`, `line`) and text reached
+through an attribute. A function that scans text on purpose (a heredoc scanner) names its
+parameter `text`, which this rule does not read.
+
+**How to fix a finding.** Judge `command_position_code_segments(command)` and match each
+segment. Where the whole line must be read as written, rename the parameter for what the
+function does with it (`text`) and test the shape both ways.
+
 ### ccy-container-default-pids-limit
 
 **What it is.** A bash engine `run` or `create` (`podman`, `docker`, a variable with

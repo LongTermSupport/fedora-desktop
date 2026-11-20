@@ -79,3 +79,95 @@ rules:
     severity: ERROR
     metadata:
       dbf-class: a path resolved against the hooks daemon's working directory
+
+  # Rule: a project handler never matches text against the raw command line (Defence Before
+  # Fix; CLAUDE/QA.md "hook-regex-over-raw-command").
+  #
+  # A Bash command line holds text that is not run: a commit message, an echo, a grep pattern,
+  # a heredoc body. A regex or a substring test over the whole line answers "does the text
+  # contain these words?", not "does a command run them?". ansible_enforcement and
+  # hidden_git_mutation each searched get_bash_command()'s text, so a commit message that
+  # quoted `dnf install` or `bash -c "$(cat f)"` was denied (issue #294).
+  #
+  # WRONG: command = get_bash_command(hook_input)
+  #        return any(p.search(command) for p in patterns)
+  # RIGHT: segments = command_position_code_segments(command)
+  #        return any(p.search(segment) for segment in segments for p in patterns)
+  #
+  # Taint, inside one function: the source is a call of get_bash_command; the sinks are a regex
+  # method (search, match, fullmatch, findall, finditer, sub, subn, re.split) or an `in` test
+  # applied to the tainted value. A value that went through one of the daemon's
+  # command_position_* functions is a command-position segment, and is clean. A handler that
+  # judges the line as written on purpose passes it to a helper of its own (named for what it
+  # judges), where the text is a parameter, so the helper's regex is not tainted: the choice to
+  # judge raw text is then one visible call, reviewed with its reason, never an accident.
+  - id: hook-regex-over-raw-command
+    languages: [python]
+    mode: taint
+    pattern-sources:
+      - pattern: get_bash_command(...)
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: command_position_segments(...)
+          - pattern: command_position_code_segments(...)
+          - pattern: command_position_code_segments_with_separators(...)
+          - pattern: command_position_argument_segments(...)
+          - pattern: command_position_view(...)
+    pattern-sinks:
+      - patterns:
+          - pattern: $RE.$METHOD(..., $X, ...)
+          - metavariable-regex:
+              metavariable: $METHOD
+              regex: '^(search|match|fullmatch|findall|finditer|sub|subn)$'
+          - focus-metavariable: $X
+      - patterns:
+          - pattern: re.split($PATTERN, $X, ...)
+          - focus-metavariable: $X
+      - patterns:
+          - pattern: $NEEDLE in $X
+          - focus-metavariable: $X
+    message: >
+      hook-regex-over-raw-command: this matches text against the raw Bash command line, which
+      holds text that is not run (a message, an echo, a grep pattern, a heredoc body). Judge the
+      command-position segments (command_position_code_segments) instead. See CLAUDE/QA.md
+      "hook-regex-over-raw-command".
+    severity: ERROR
+    metadata:
+      dbf-class: a project handler matching text against the raw Bash command line
+
+  # Rule: the same class, one function away (Defence Before Fix; CLAUDE/QA.md
+  # "hook-regex-over-command-parameter").
+  #
+  # hook-regex-over-raw-command follows the value inside one function. hidden_git_mutation
+  # handed get_bash_command()'s text to a helper whose parameter is named `command`, and the
+  # helper ran the regex, so the taint rule did not see it. A function with a parameter named
+  # `command` that applies a regex method or an `in` test to it is the same text-over-the-line
+  # judgement. A helper that scans text on purpose (a heredoc scanner) names its parameter for
+  # what it is, `text`, so the choice stays visible at its definition.
+  - id: hook-regex-over-command-parameter
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              def $F(..., command, ...):
+                  ...
+          - pattern-inside: |
+              def $F(..., command: $T, ...):
+                  ...
+      - pattern-either:
+          - patterns:
+              - pattern: $RE.$METHOD(..., command, ...)
+              - metavariable-regex:
+                  metavariable: $METHOD
+                  regex: '^(search|match|fullmatch|findall|finditer|sub|subn)$'
+          - pattern: re.split($PATTERN, command, ...)
+          - pattern: $NEEDLE in command
+    message: >
+      hook-regex-over-command-parameter: this matches text against a parameter named
+      `command`, the raw Bash command line, which holds text that is not run (a message, an
+      echo, a grep pattern, a heredoc body). Judge the command-position segments
+      (command_position_code_segments), or name the parameter `text` if the function scans
+      text on purpose. See CLAUDE/QA.md "hook-regex-over-command-parameter".
+    severity: ERROR
+    metadata:
+      dbf-class: a project handler matching text against a parameter holding the raw Bash command line
