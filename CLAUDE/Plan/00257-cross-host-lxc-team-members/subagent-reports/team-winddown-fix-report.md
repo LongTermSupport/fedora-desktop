@@ -494,3 +494,13 @@ detector can express. It is fixed conventionally, with the regression tests abov
 - golangci-lint 2.14.0 (the pinned version) over sessclose, teams/shutdown, teams/picker,
   sessions and ccylaunch: 0 issues.
 - `bash scripts/test-ccy-teams-command.bash`: passed 397, failed 0.
+- `qa-changed --base 262793bdb`, first run (on 03bedb9da): only the go-qa analyzers stage
+  failed. The project rule `project_screen_state_compared` (fedora-desktop#288) refused
+  `notReady`'s `j.last == screen.Busy`. Commit 01597b4fe makes it a switch over every
+  `screen.State` with no behaviour change. It also bumps CCY to 3.122.47, because the
+  pre-commit gate requires a bump for any change to CCY code. This class already has its
+  detector, and the detector caught this instance, so no new rule is needed.
+- `qa-changed --base 262793bdb`, second run (on 01597b4fe): exit 0, 72 checks passed, none
+  failed. Among them were go-qa over both modules and these suites: `test-ccy-teams-command`
+  (397), `test-ccy-sessions-reboot` (344), `test-ccy-sessions-take-over` (46) and
+  `test-ccy-tmux-targets` (23).
