@@ -1,0 +1,3 @@
+Kept-Reason: Its worktree is a host-side path this container cannot read, so the sweep cannot prove it clean; origin's copy is not merged. Left for the host session or the owner to finish.
+Kept-By: joseph
+Kept-At: 2026-11-20T11:01:28Z
