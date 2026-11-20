@@ -34,9 +34,17 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00261-dbf-declared-but-unenforced-configuration](00261-dbf-declared-but-unenforced-configuration/) - Not Started. A Defence Before Fix analyzer that fails when a team-record or member-config field is read only by its parser or validator.
+
+- [00260-ccy-per-session-github-app-token](00260-ccy-per-session-github-app-token/) - Not Started. A GitHub App installation token minted on the host per session for the project's one repository, checked and revoked if broader, in place of the full `GH_TOKEN`.
+
+- [00259-ccy-agent-written-files-never-run-on-host](00259-ccy-agent-written-files-never-run-on-host/) - Not Started. Stop files an agent writes in the read-write project mount (git hooks and config, agent settings) from running on the host as the owner.
+
+- [00258-starred-repos-deep-dive](00258-starred-repos-deep-dive/) - In Progress. The watch list extended to the owner's GitHub stars: full clones under `untracked/starred-repos/<licence>/<owner>/<repo>` (licence read from the licence file: lift or clean room), studied in baseline or diff runs that record the commit studied per repository; the first run is an in-depth baseline.
+
 - [00257-cross-host-lxc-team-members](00257-cross-host-lxc-team-members/) - In Progress (architecture note: per-seat placement (A) versus a per-host proxy (B), A recommended; owner's choice open). Owner Q44: an LXC container on any host joins any v2 team, with the homeserver on the same host or another one.
 
-- [00256-ccy-session-idle-stand-down](00256-ccy-session-idle-stand-down/) - In Progress (triage script queued for the host; owner decisions 1-5 after). Issue #270 Problem 2: `--idle-stand-down DURATION` ends an idle ccy session as `ccy --stop` does, stops its compose services, keeps its record; `ccy-sessions wake NAME`, and `stood-down` in `--list` and `verify-restore`.
+- [00256-ccy-session-idle-stand-down](00256-ccy-session-idle-stand-down/) - Dormant (parked by the owner, not a priority). Explicit stand-down only (no idle trigger): end a ccy session, stop its compose services, keep its record, `ccy-sessions wake NAME`; triggered by #290/#291's wind-down.
 
 - [00255-cc-session-sandbox-and-deploy-broker](00255-cc-session-sandbox-and-deploy-broker/) - In Progress (host triage read into RESEARCH.md §13; owner decisions D1-D9 open). Issue #101, options 3 + 4: a root-owned deploy broker runs committed plays at a commit on GitHub for cc agents, then cc seals each session (Matrix clients' data, browsers, password store and keyring hidden; the session bus filtered), and passwordless sudo goes last, so the owner can run plays at every step.
 
@@ -224,7 +232,7 @@ Use these Unicode icons in plan documents:
 
 - [00147-tmux-f12-menu-fedora-desktop-items](00147-tmux-f12-menu-fedora-desktop-items/) - Not Started (owner decisions). A "Fedora Desktop" entry in the tmux F12 menu, built from drop-ins.
 
-- [00146-ccy-token-switch-through-the-supervisor](00146-ccy-token-switch-through-the-supervisor/) - Not Started (owner decisions, then a host spike). Hot-swap a running ccy or `cc` session's token through a local Go forwarder behind `ANTHROPIC_BASE_URL`; supervisor respawn is the fallback.
+- [00146-ccy-token-switch-through-the-supervisor](00146-ccy-token-switch-through-the-supervisor/) - Not Started (Phase 0 build and host spike next). Hot-swap a running ccy or `cc` session's token through a host HTTPS proxy that swaps a placeholder, keeping the 1M context; one switch core for `ccy-sessions`, the status line and `ccy-teams` failover.
 
 - [00144-single-fedora-desktop-panel-icon](00144-single-fedora-desktop-panel-icon/) - In Progress (deployed; logout and visual check left). Container Watch folds into the one Fedora Desktop panel icon.
 

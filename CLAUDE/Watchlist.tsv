@@ -1,50 +1,84 @@
-# The watch list: public repositories scanned at intervals for ideas (CLAUDE/Watchlist.md).
-# Edited by the watchlist command (add, mark); read strictly, a malformed row is an error.
+# The watch list: the owner's GitHub stars and repositories added by hand (CLAUDE/Watchlist.md).
+# Written by the watchlist command (sync, add, set); read strictly, a malformed row is an error.
+# One row per repository, sorted by repo, tab-separated:
 #
-# url <TAB> branch <TAB> last_sha <TAB> run
-#   url       https://github.com/<owner>/<repo>, no .git suffix
-#   branch    the branch that is reviewed (the remote's default branch when added)
-#   last_sha  the commit last reviewed (40 hex digits), or - when never reviewed
-#   run       the run or document that recorded last_sha (no spaces), or - with it
-https://github.com/cdknorow/coral	main	e785da3baf077aa7519ad910266e4c7ecde32ce0	plan-00193-audit-coral
-https://github.com/devvmhq/devvm	main	28d7eca6c8e5f5ef18e5b24a587755def2a0a254	scan-20261111T1210Z
-https://github.com/mvschwarz/openrig	main	-	-
-https://github.com/kstenerud/yoloai	main	-	-
-https://github.com/jingkaihe/matchlock	main	-	-
-https://github.com/Edmonds-Commerce-Limited/claude-code-hooks-daemon	main	-	-
-https://github.com/Maxteabag/hotseat	main	-	-
-https://github.com/Maxteabag/clarp	main	-	-
-https://github.com/Yu-369/VibeCurb	main	-	-
-https://github.com/trailofbits/coop	main	-	-
-https://github.com/coipond/coi	master	-	-
-https://github.com/eugene1g/agent-safehouse	main	-	-
-https://github.com/clawkwork/clawk	main	-	-
-https://github.com/madarco/agentbox	main	-	-
-https://github.com/webcoyote/sandvault	main	-	-
-https://github.com/nolabs-ai/nono	main	-	-
-https://github.com/smol-machines/smolvm	main	-	-
-https://github.com/rudderlabs/devbox	main	-	-
-https://github.com/delta-box/deltabox-lite	main	-	-
-https://github.com/KarpelesLab/teamclaude	master	-	-
-https://github.com/liaohch3/claude-tap	main	-	-
-https://github.com/agentgateway/agentgateway	main	-	-
-https://github.com/awslabs/cli-agent-orchestrator	main	-	-
-https://github.com/agent-of-empires/agent-of-empires	main	-	-
-https://github.com/standardagents/dmux	main	-	-
-https://github.com/OrchestratorInc/agent-orchestrator	main	-	-
-https://github.com/herdrdev/herdr	master	ee5bfb5041bb3e4a49d591c72308aae3c81ecdde	scan-20261111T0947Z
-https://github.com/Ark0N/Codeman	master	-	-
-https://github.com/pchalasani/claude-code-tools	main	-	-
-https://github.com/karanb192/claude-code-hooks	main	-	-
-https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor	main	-	-
-https://github.com/starbaser/ccproxy	dev	-	-
-https://github.com/DevDock-AI/claude-unlimited	main	-	-
-https://github.com/ldegio/agtop	main	-	-
-https://github.com/generalaction/emdash	main	-	-
-https://github.com/sodiumsun/agenttrail	main	-	-
-https://github.com/clash-sh/clash	main	-	-
-https://github.com/maximhq/bifrost	dev	-	-
-https://github.com/ThinkWatchProject/ThinkWatch	main	-	-
-https://github.com/IT-Hjaelp-Nu/keybox	main	-	-
-https://github.com/tonyweckstrom1987/holvi	main	-	-
-https://github.com/Mizerd/lightning	main	-	-
+# repo <TAB> source <TAB> licence <TAB> reuse <TAB> state <TAB> group <TAB> licence_file <TAB> licence_sha
+#   repo          <owner>/<repo> on github.com
+#   source        star (from the owner's stars) or added (by watchlist add)
+#   licence       SPDX id, LicenseRef-<name>, NONE, or NOASSERTION (not yet verified)
+#   reuse         derived from licence: lift (MIT, Apache-2.0, ISC, 0BSD, BSD-*),
+#                 whole-file (MPL-2.0), clean-room (everything else)
+#   state         new (to triage), study, excluded (set aside) or unstarred
+#   group         the study group, lower-case kebab; - only when state is not study
+#   licence_file  the licence file at the clone's root, or -
+#   licence_sha   the first 16 hex digits of that file's sha256, or -
+Ark0N/Codeman	star	MIT	lift	study	fleets	LICENSE	d720aed9b0ff0605
+DevDock-AI/claude-unlimited	star	MIT	lift	study	usage-observability	LICENSE	c9b90f22ba7b5158
+Edmonds-Commerce-Limited/claude-code-hooks-daemon	star	MIT	lift	study	tooling	LICENSE	13aad1e111bcfc3d
+IT-Hjaelp-Nu/keybox	star	LicenseRef-Proprietary	clean-room	study	gateways	-	-
+KarpelesLab/teamclaude	star	MIT	lift	study	gateways	LICENSE	464ac8facec03c09
+LongTermSupport/php-book-markdown-tools	star	GPL-3.0	clean-room	excluded	-	LICENSE	3972dc9744f6499f
+Maciek-roboblog/Claude-Code-Usage-Monitor	star	MIT	lift	study	usage-observability	LICENSE	73f22f02e13930fb
+Maurdekye/orgtree	star	MIT	lift	study	teams	LICENSE	69ea989f8f41fb16
+Maxteabag/clarp	star	PolyForm-Shield-1.0.0	clean-room	study	usage-observability	LICENSE.md	eba84a37284fcbf1
+Maxteabag/hotseat	star	MIT	lift	study	usage-observability	LICENSE	3d2ecea0ceb204b7
+OrchestratorInc/agent-orchestrator	star	Apache-2.0	lift	study	fleets	LICENSE	1a2219722b7ef583
+ThinkWatchProject/ThinkWatch	star	BUSL-1.1	clean-room	study	gateways	LICENSE	cd0e772ff89fdc90
+Yu-369/VibeCurb	star	MIT	lift	study	tooling	LICENSE	5de4a35646d7b801
+a2aproject/A2A	star	Apache-2.0	lift	study	teams	LICENSE	cfc7749b96f63bd3
+agent-of-empires/agent-of-empires	star	MIT	lift	study	multiplexers	LICENSE	b37140699c292ab0
+agent-substrate/substrate	star	Apache-2.0	lift	study	teams	LICENSE	cfc7749b96f63bd3
+agentgateway/agentgateway	star	Apache-2.0	lift	study	gateways	LICENSE	3b1ee5b1e14fda40
+awslabs/cli-agent-orchestrator	star	Apache-2.0	lift	study	multiplexers	LICENSE	09e8a9bcec806710
+awslabs/git-secrets	star	Apache-2.0	lift	study	tooling	LICENSE.txt	e7a0682a9b197d61
+clash-sh/clash	star	MIT	lift	study	multiplexers	LICENSE	afec3b4ec757b60a
+clawkwork/clawk	star	Apache-2.0	lift	study	vm-sandboxes	LICENSE	3d7153752a765279
+coipond/coi	star	MIT	lift	study	vm-sandboxes	LICENSE	b86b2744481db41a
+csuka/ansible_role_percona_xtradb_cluster	star	Apache-2.0	lift	excluded	-	LICENSE	c71d239df91726fc
+delta-box/deltabox-lite	star	Apache-2.0	lift	study	vm-sandboxes	LICENSE	62c7a1e35f564068
+devvmhq/devvm	star	MIT	lift	study	vm-sandboxes	LICENSE	6a2b097737f1bcad
+displaylink-rpm/displaylink-rpm	star	MIT	lift	study	tooling	LICENSE	f94c88f4c68ed946
+dm64/ConvertToOpenAir	star	GPL-3.0	clean-room	excluded	-	LICENSE	3972dc9744f6499f
+eugene1g/agent-safehouse	star	Apache-2.0	lift	study	local-sandboxes	LICENSE	cfc7749b96f63bd3
+generalaction/emdash	star	Apache-2.0	lift	study	fleets	LICENSE.md	d44bd5fc9c7c8aa1
+gyf304/dotenv	star	BSD-2-Clause	lift	study	tooling	LICENSE	e9a05cef495b5399
+herdrdev/herdr	star	Apache-2.0	lift	study	multiplexers	LICENSE	c71d239df91726fc
+iamdb/hifi.rs	star	GPL-3.0	clean-room	excluded	-	LICENSE	3972dc9744f6499f
+inevolin/claude-code-usage-analysis	star	MIT	lift	study	usage-observability	LICENSE	e28ee832f9faf834
+intel/openvino-plugins-ai-audacity	star	GPL-3.0	clean-room	excluded	-	LICENSE.txt	589ed823e9a84c56
+intentic/intentic	star	MIT	lift	study	fleets	LICENSE	48b991864d1b86b6
+jart/cosmopolitan	star	ISC	lift	excluded	-	LICENSE	188101f17152d898
+jenyayel/help-widget	star	MIT	lift	excluded	-	LICENCE	5d98bbee9baeba3b
+jingkaihe/matchlock	star	MIT	lift	study	local-sandboxes	LICENSE	a8caa48f60885edf
+karanb192/claude-code-hooks	star	MIT	lift	study	tooling	LICENSE	6b62504504986af4
+kstenerud/yoloai	star	MIT	lift	study	local-sandboxes	LICENSE	e6833eee8c455b1e
+ldegio/agtop	star	GPL-2.0	clean-room	study	usage-observability	LICENSE	33da12ec2eb61c6b
+liaohch3/claude-tap	star	MIT	lift	study	gateways	LICENSE	e136b7801d0bdcb6
+lightning-matrix/lightning	added	GPL-3.0	clean-room	study	team-client	LICENSE	3972dc9744f6499f
+madarco/agentbox	star	MIT	lift	study	vm-sandboxes	LICENSE	c292523e13d0c15f
+maximhq/bifrost	star	Apache-2.0	lift	study	gateways	LICENSE	9108c6efb701f196
+multica-ai/multica	star	LicenseRef-Multica	clean-room	study	fleets	LICENSE	45720c4b2f859ffb
+mvschwarz/openrig	star	Apache-2.0	lift	study	teams	LICENSE	c92a33920bf0cd3a
+nemanjam/nextjs-prisma-boilerplate	star	MIT	lift	excluded	-	LICENSE	77fde84482302b92
+nolabs-ai/nono	star	Apache-2.0	lift	study	local-sandboxes	LICENSE	7310e9389f298b89
+paulintrognon/next-typescript	star	NONE	clean-room	excluded	-	-	-
+pchalasani/claude-code-tools	star	MIT	lift	study	tooling	LICENSE	04141d3812dd141d
+ramsey/conventional-commits	star	MIT	lift	excluded	-	LICENSE	e4561c77e527de77
+react-page/react-page	star	MIT	lift	excluded	-	LICENSE	869da1d5a8d92a04
+rogeriochaves/open-managed-agents	star	AGPL-3.0	clean-room	study	teams	LICENSE	0d96a4ff68ad6d4b
+rudderlabs/devbox	star	MIT	lift	study	vm-sandboxes	LICENSE	c307c7a4e53dd9e3
+rustdesk/rustdesk	star	AGPL-3.0	clean-room	excluded	-	LICENCE	8486a10c4393cee1
+shell-pool/shpool	star	Apache-2.0	lift	study	multiplexers	LICENSE	cfc7749b96f63bd3
+smol-machines/smolvm	star	Apache-2.0	lift	study	vm-sandboxes	LICENSE	ac6a4050f2f415a0
+sodiumsun/agenttrail	star	MIT	lift	study	usage-observability	LICENSE	a1f3ee92b4f47053
+stablyai/orca	star	MIT	lift	study	fleets	LICENSE	ff1b611f80580d49
+standardagents/dmux	star	MIT	lift	study	multiplexers	LICENSE	8630da306062433e
+standardebooks/tools	star	GPL-3.0	clean-room	excluded	-	LICENSE.md	1839318bb6963a8d
+starbaser/ccproxy	star	AGPL-3.0	clean-room	study	gateways	LICENSE	526be4dbb1ee741d
+subgentic/coral	added	Apache-2.0	lift	study	teams	LICENSE	cd706dab213f4737
+tejasghutukade/stageflow	star	MIT	lift	study	teams	LICENSE	a5b9506df7231915
+tonyweckstrom1987/holvi	star	MIT	lift	study	gateways	LICENSE	e6e78e3f9c350356
+trailofbits/coop	star	Apache-2.0	lift	study	vm-sandboxes	LICENSE	cfc7749b96f63bd3
+webcoyote/sandvault	star	Apache-2.0	lift	study	local-sandboxes	LICENSE.md	e48e30bcb8ddf120
+windtf/wireproxy	star	ISC	lift	study	gateways	LICENSE	12e05cf70e2876d0
+yandex/gixy	star	MPL-2.0	whole-file	excluded	-	LICENSE	a3b1d5372c1f43cb

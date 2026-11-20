@@ -68,7 +68,9 @@ playbooks/imports/play-teamchat.yml
 # launcher's front), whose typed-line submitter no longer takes a screen with no input box as
 # entered and names what the box showed when a line stays in it. Its ccy-teams (ccy 3.122.34,
 # container 2.84.40) adds Start its session in its LXC container to an LXC member's menu, shown
-# only on this host's LXC member whose entry has service: true (Plan 00257 B.12).
+# only on this host's LXC member whose entry has service: true (Plan 00257 B.12). It also
+# deploys Plan 00258's watchlist command (full clones and study runs; internal/gitx, which ccy
+# links, changed). Running sessions keep the old ccy until they restart.
 playbooks/imports/play-claude-yolo.yml
 # Plan 00257 B.12: the v1 agent-bus play rewrites each LXC member's agent-bus-claude-<user>
 # unit (service: true) with no [Install] and Restart=no, and DISABLES AND STOPS one an earlier

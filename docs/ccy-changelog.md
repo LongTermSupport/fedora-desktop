@@ -252,6 +252,13 @@ Two version numbers move independently — see
   names gain the health unit's drop-in. Nothing a ccy session does changes; the image is
   rebuilt once so its `teamchat` is this source's.
 
+## 3.122.24 — container 2.84.30
+
+- **gitx's watch-list calls change** (Plan 00258). The git calls only the old watch-list
+  mirrors used are removed from `internal/gitx`, and the full-clone, fetch, fast-forward and
+  shallow-clone calls of the new `watchlist` command are added. The ccy Go commands that link
+  gitx are rebuilt; none of them calls what changed, and the image does not change.
+
 ## 3.122.23 — container 2.84.30
 
 - **Go structs reordered so padding wastes no memory** (Plan 00245). govet's fieldalignment
