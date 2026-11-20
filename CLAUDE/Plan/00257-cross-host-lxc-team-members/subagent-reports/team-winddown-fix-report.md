@@ -351,7 +351,7 @@ Journal: `JOURNAL/2026-11-20/092749Z-decision-c50a6c.md`.
 - CCY 3.122.44. The container is unchanged: no image input changed
   (`ccy-image-source-paths.bash` names neither `teams/` nor `sessclose/`).
 
-### D2: a busy box is waited for, never given Escape (commit: see the final message)
+### D2: a busy box is waited for, never given Escape (commit 8e60b9232)
 
 - `sessclose` `ready()` no longer presses Escape at a busy box, in either the `/compact` or the
   `/exit` phase. The box is read every poll until it is ready and empty, up to `Waits.Prompt`.
@@ -395,8 +395,10 @@ D3 is recorded in SPEC-team-close as confirmed by the owner (Q52). It needs no c
 
 - `go test -race` over `./internal/sessclose/... ./internal/teams/... ./internal/tmuxccy/... ./internal/sessions/... ./internal/ccylaunch/... ./cmd/...` passes.
 - golangci-lint over sessclose, tmuxccy, teams/shutdown and teams/picker reports 0 issues.
-- `qa-changed.bash --base 232bac0f6` (both commits): result in the final message, log
-  `untracked/scratch/q52-qa.log`.
+- `qa-changed.bash --base 232bac0f6` over D1 and D2 passed every check except one assertion in
+  the bash suite `test-ccy-teams-command.bash`, which still picked the old "Shut down every
+  session of alpha" line. Commit 5c41c33ce makes it pick the renamed line, and the suite then
+  passes on its own (397 checks). `qa-changed --files` on that file is green.
 
 DBF: D1 and D2 are owner decisions (a rename and a behaviour change), not defects, so there is
 no class to detect.
