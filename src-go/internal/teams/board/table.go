@@ -68,6 +68,8 @@ type Row struct {
 	// Live is whether the member's session is listening on the bus now (its LIVE line), the one
 	// source of a member's STATE besides parked; unreported for a row that is not a listed member.
 	Live agentbus.Liveness
+	// V2 is a row of a v2 (teamchat) team, read from its status record: no v1 flow acts on it.
+	V2 bool
 }
 
 // The columns, in order; a column's index is its place in headings and in Row.cells.

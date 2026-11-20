@@ -61,3 +61,54 @@ The context budget ran out before it. Handoff for the next agent:
   the request's "busy past the bound" could instead mean waiting for the turn without
   interrupting it. Needs the owner's word.
 - **D3.** An LXC session that will not end is left running and failed, never killed.
+
+## v2 half
+
+Done on `plan-xhost-lxc-members`, test first through teamtest's fake machine (each RED seen
+before its code, except `lxcfreeze.Lister.UnitState`, whose test and code landed together).
+
+- **TC15, v2 teams on the board** (`internal/teams/board/v2.go`): the directories of
+  `<root>/var/lib/teamchat-status/teams/` that are team ids are `Snapshot.V2Teams`, kept apart
+  from `Teams`, so no v1 flow reading `snap.Teams` (apply, remove, restart, wind-down, login, the
+  agent-bus reads, the picker's v1 menus) acts on one. Team row: `status.Read` then
+  `status.Shown`, its team problems (an expired, missing or unreadable record) in WHERE, STATE
+  from `systemctl is-active teamchat-server@<team>.service` (`systemd.UnitState`). Member rows:
+  the record's members (handle, kind, role, state); an LXC member also whether it was on the bus at the last
+  health check (the record's `online`, worded for its source: rule `project_liveness_word`),
+  its container and the LXC record's why. `Row.V2` marks them. A v2 name that is a v1 team's is said
+  on the v1 row, never a second team. The graph draws v2 teams too. `config.TeamchatRoot`
+  (`CCY_TEAMS_TEAMCHAT_ROOT`, "" on a host) is the root the v2 records are read under; teamtest
+  and `scripts/test-ccy-teams-command.bash` set a scratch one, so no test reads the machine's.
+  Tests: `board/v2_test.go`, `teamtest/teamchat_test.go`.
+- **Consumers of `snap.Teams`** checked: board (collect, fetch, graph), picker (menus, sessions,
+  offers, add-running, heading), login, restart, wind-down, shutdown. The picker gives a v2 row
+  only `v2Actions` (team: Shut down and help; LXC seat: Start its session where offered, and
+  help); its heading counts v2 teams and a v2-only machine is not offered create. `restart` and
+  `wind-down` refuse a v2 team by what it is (`board.V2Refusal`). Tests: `picker/v2_test.go`,
+  `TestAV2TeamIsRefusedByWhatItIs` in restart and wind-down.
+- **TC2, TC3, TC17, v2 LXC seats in shutdown** (`internal/teams/shutdown/v2.go`): a v2 team is
+  found on the board; every entry of its LXC record not `left`: `deferred` is offline; otherwise,
+  after sudo and `lxc-ls --running`, a stopped container is offline and a running one goes to the
+  existing `addGuest` with `tmux -S paths.GuestTmuxSocket(key)` as the entry's user and session
+  `paths.GuestTmuxSession`. A v2 member outside an LXC container is named not reachable from
+  here (`whyV2Host`, exit 1): ccy-teams has no way yet to find a v2 host seat's session.
+  Tests: `shutdown/v2_test.go` (four).
+- **TC7 fix (v1 and v2)**: a shutdown whose only seats were session-less said "has no running
+  session" without listing them, against TC7; it now lists them under their heading (the v2 test
+  caught it).
+- **TC16, the v2 Start its session line** (`internal/teams/lxcsession/v2.go`): offered when the
+  seat is in the LXC record, its container runs, `systemctl show` (new
+  `lxcfreeze.Lister.UnitState`, as root through lxc-attach) gives a LoadState other than
+  `not-found` and an ActiveState not running; what root cannot answer without a password keeps
+  the line. Start re-checks, refuses a running unit (a restart would end the session), then runs
+  `sudo -n /usr/local/sbin/teamchat-admin lxc restart --member <container>/<seat key>` and says
+  what it ran and how to attach. Tests: `lxcsession/v2_test.go`, `lxcfreeze/attach_test.go`.
+- Docs: shutdown help, ccy-teams usage text, `docs/agent-bus.md`, `docs/ccy-changelog.md`
+  3.122.36 (image unchanged), the `lxcsession` package doc. B.13 marked done in PLAN.md.
+
+DBF: a missing capability, not a defect class; no detector applies. The TC7 listing gap is a
+one-condition logic slip no analyzer can express; fixed with its regression test.
+
+Left open, for the coordinator: D1-D3 unchanged; a v2 host (ccy) seat is reported, not closed;
+the board's on-the-bus word for an LXC seat comes from the status record's `online`, not a
+live probe of the container (a probe per seat per redraw would cost a sudo process each).

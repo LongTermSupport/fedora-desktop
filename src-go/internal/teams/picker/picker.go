@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -162,7 +163,7 @@ func (p *Picker) pickerSession(ctx context.Context) error {
 	if err != nil {
 		return flow.Leave(term.ExitFailure)
 	}
-	if len(first.Teams) == 0 {
+	if len(first.Teams) == 0 && len(first.V2Teams) == 0 {
 		return p.offerCreate(ctx)
 	}
 	if err = p.offerPathLimits(ctx); err != nil {
@@ -248,9 +249,10 @@ func (r *run) rowHeaders() []string {
 
 // listHeading is the teams list's heading: how many teams there are, and which are not up.
 func (r *run) listHeading() ui.Heading {
-	context := plural(len(r.snap.Teams), "team")
+	teams := slices.Concat(r.snap.Teams, r.snap.V2Teams)
+	context := plural(len(teams), "team")
 	var down []string
-	for _, team := range r.snap.Teams {
+	for _, team := range teams {
 		if r.snap.StateOf(team) != systemd.HomeserverUp {
 			down = append(down, team)
 		}

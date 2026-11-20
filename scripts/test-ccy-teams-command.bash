@@ -576,6 +576,8 @@ done
 export PATH="$BIN:$GUMBIN:$PATH" HOME="$HOME_DIR" CCY_STATE_DIR="$SCRATCH/ccy-state" CCY_LIB="$LIB_DIR"
 export CCY_TEAMS_HOST_VARS="$HOST_VARS" CCY_TEAMS_LAUNCHER="$BIN/launcher"
 export CCY_TEAMS_PLAY="$BIN/play" CCY_TEAMS_APPLIED_DIR="$STATE/applied" TEST_REPO_ROOT="$REPO_ROOT"
+# The machine's own v2 (teamchat) teams are never read: their records go under a scratch root.
+export CCY_TEAMS_TEAMCHAT_ROOT="$STATE/teamchat"
 export CCY_TEAMS_ELEMENT_PLAY="$BIN/element-play"
 # The play lock (and every other runtime lock) is taken in a runtime directory of the suite's
 # own: never the real one, where a play run on this machine would make an apply wait.

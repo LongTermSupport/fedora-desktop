@@ -43,10 +43,16 @@ const (
 // the sessions and seats, the members, and the table rows built from them. A pass reads each
 // source once (systemd, tmux, the registry, the declaration).
 type Snapshot struct {
-	Teams  []string // declared present, then loaded, then stamped: first-seen order
-	Port   map[string]string
-	URL    map[string]string
-	Server map[string]string
+	Teams []string // declared present, then loaded, then stamped: first-seen order
+	// V2Teams are the v2 (teamchat) teams, by their status directories (SPEC-team-close TC15),
+	// sorted; kept apart from Teams so that no v1 flow (apply, remove, restart, wind-down, the
+	// agent-bus reads) ever acts on one. V2Shadowed names a v2 status directory whose name is a
+	// v1 team's, which is shown as the v1 team.
+	V2Teams    []string
+	V2Shadowed map[string]bool
+	Port       map[string]string
+	URL        map[string]string
+	Server     map[string]string
 	// Description is what each declared team is for; empty for a team that has none.
 	Description map[string]string
 	// DescriptionState says a team's description cannot be shown (vaulted, invalid).
@@ -91,7 +97,7 @@ func NewSnapshot() *Snapshot {
 		Loaded:           map[string]bool{}, Active: map[string]string{}, Status: map[string]declare.Status{},
 		Live: map[string]int{}, SeatSession: map[string]string{}, SeatRestore: map[string]bool{}, Seats: discover.New(),
 		Members: map[string]agentbus.Roster{}, LXC: map[string]lxcrecord.Record{}, MembersUnknown: map[string]string{}, SignedIn: map[string]string{},
-		Sessions: map[string]int{},
+		Sessions: map[string]int{}, V2Shadowed: map[string]bool{},
 	}
 }
 

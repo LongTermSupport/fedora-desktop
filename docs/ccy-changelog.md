@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.36 — container 2.84.40
+
+- **ccy-teams lists v2 (teamchat) teams and shuts their LXC seats down** (Plan 00257
+  SPEC-team-close.md TC15-TC17). A v2 team is on the board from its status record, its
+  homeserver unit's state and its members, an LXC seat with its container and whether its
+  session was on the bus at the last health check. Its Shut down closes each LXC seat's session on the seat's own tmux server
+  in its running container (`/compact`, then `/exit`; never stopped); its LXC seat's row offers
+  Start its session where it can work, through `teamchat-admin lxc restart --member`. No v1 flow
+  acts on a v2 team. A shutdown with only session-less or offline seats now says "has no running
+  session" and lists them. The image is unchanged.
+
 ## 3.122.35 — container 2.84.40
 
 - **ccy-teams' Shut down closes the team's LXC members' sessions too** (Plan 00257

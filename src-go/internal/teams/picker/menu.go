@@ -68,10 +68,28 @@ func (a action) ui() ui.Action { return ui.Action{ID: a.id, Label: a.label} }
 // just after starting a ccy session in it, and a team's row and a running seat's then offer
 // adding a running session (addActions): the add lines stay together.
 func (r *run) actionsFor(row board.Row) []action {
+	if row.V2 {
+		return lastDestructive(r.v2Actions(row))
+	}
 	acts := r.kindActions(row)
 	lxc := action{actLxc, "Add an LXC container's agent to " + row.Team, "add an LXC container to " + row.Team}
 	adds := append([]action{lxc}, r.addActions(row)...)
 	return lastDestructive(slices.Insert(acts, slices.IndexFunc(acts, func(a action) bool { return a.id == actNew })+1, adds...))
+}
+
+// v2Actions are what reaches a row of a v2 (teamchat) team (SPEC-team-close TC1, TC16, TC17):
+// its team's Shut down, an LXC seat's start where it can work, and help. No v1 flow (apply,
+// remove, restart, wind-down, Element, adding a member) is offered on one: each acts on
+// agent-bus.
+func (r *run) v2Actions(row board.Row) []action {
+	help := action{actHelp, helpLabel, "help"}
+	switch {
+	case row.Kind == board.KindTeam:
+		return []action{{actShutdown, "Shut down every session of " + row.Team, "shut down " + row.Team + "'s sessions"}, help}
+	case row.Kind == lxcMemberKind && r.lxcStarts[lxcStartKey(row)]:
+		return []action{{actStartLxc, "Start its session in its LXC container", "start its session"}, help}
+	}
+	return []action{help}
 }
 
 // destructive is whether choosing a parks, removes, takes down, shuts down or makes a

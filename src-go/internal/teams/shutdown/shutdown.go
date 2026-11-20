@@ -73,6 +73,8 @@ type Shutdown struct {
 	Lxc        Containers
 	Sudo       *sudo.Sudo
 	AppliedDir string
+	// TeamchatRoot is the root a v2 team's LXC record is read under ("" on a host).
+	TeamchatRoot string
 
 	Term   *term.Term
 	Out    *term.Printer
@@ -93,7 +95,8 @@ func New(h *host.Host, kit *flow.Kit, b *board.Collector) *Shutdown {
 	return &Shutdown{
 		Kit: kit, Collect: b.Collect, Closer: sessclose.New(h.Tmux, h.Registry, h.Getenv), Bus: h.Bus,
 		Lxc: &lxcfreeze.Lister{Sudo: h.Sudo, LookPath: h.LookPath}, Sudo: h.Sudo, AppliedDir: h.AppliedDir,
-		Term: h.Term, Out: h.Out, Stderr: h.Stderr, Payload: h.Payload, Stdin: h.Stdin, IsTerminal: h.IsTerminal, Home: h.Home,
+		TeamchatRoot: h.TeamchatRoot,
+		Term:         h.Term, Out: h.Out, Stderr: h.Stderr, Payload: h.Payload, Stdin: h.Stdin, IsTerminal: h.IsTerminal, Home: h.Home,
 		Now: time.Now, Sleep: time.Sleep, Waits: DefaultWaits,
 	}
 }
@@ -114,6 +117,10 @@ that does not end is left running and named, and its container and unit are unto
 An LXC member whose container is stopped is offline, and a seat whose session has ended
 (or a container with no session in it) has no session: each is named, with nothing to
 shut down.
+
+A v2 (teamchat) team is shut down the same way: each LXC seat of its LXC record whose
+container runs is closed in its session on the seat's own tmux server (tmux -S); a v2
+member outside an LXC container is named as not reachable from here.
 
 Exit codes:
   0   every session exited cleanly or stopped, or nothing was shut down on request
@@ -169,13 +176,19 @@ func (s *Shutdown) forTeam(ctx context.Context, team string, yes, noCompact bool
 	if err != nil {
 		return term.ExitFailure
 	}
-	if !slices.Contains(snap.Teams, team) {
+	var p plan
+	switch {
+	case slices.Contains(snap.Teams, team):
+		p = planFor(snap, team)
+		s.resolveLxc(ctx, team, &p)
+	case snap.IsV2(team):
+		p = planForV2(snap, team)
+		s.resolveV2Lxc(ctx, team, &p)
+	default:
 		s.Term.PrintError("there is no team " + team + " on this machine; ccy-teams --list shows the teams.")
 		return term.ExitFailure
 	}
-	p := planFor(snap, team)
-	s.resolveLxc(ctx, team, &p)
-	if len(p.jobs) == 0 && len(p.unreached) == 0 && len(p.offline) == 0 {
+	if len(p.jobs) == 0 && len(p.unreached) == 0 && len(p.offline) == 0 && len(p.idle) == 0 {
 		s.tell("Team " + team + " has no running session.")
 		return term.ExitOK
 	}
@@ -303,6 +316,8 @@ func seatsOf(snap *board.Snapshot, name, team string) []seatRef {
 func (s *Shutdown) preview(team string, p plan, noCompact bool) {
 	if len(p.jobs) > 0 {
 		s.tell("Team " + team + ": " + sessions(len(p.jobs)) + " to shut down.")
+	} else {
+		s.tell("Team " + team + " has no running session.")
 	}
 	for _, j := range p.jobs {
 		line := "  " + j.name + "   seat " + j.seat + " (" + j.handle + ") in " + term.AbbrevHome(j.dir, s.Home)

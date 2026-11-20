@@ -370,3 +370,15 @@ func TestNothingGoesOnTheBus(t *testing.T) {
 		}
 	}
 }
+
+// No v1 flow acts on a v2 (teamchat) team: it is refused by what it is, naming what reaches it.
+func TestAV2TeamIsRefusedByWhatItIs(t *testing.T) {
+	m := newMachine(t)
+	m.WriteV2Status(t, teamtest.V2Team, true)
+	m.On("systemctl is-active teamchat-server@"+teamtest.V2Team+".service", "active\n", 0)
+	if got := m.run(teamtest.V2Team, "--yes"); got != term.ExitFailure {
+		t.Fatalf("exit %d", got)
+	}
+	m.errHas(t, "ERROR: ops is a v2 (teamchat) team, and this acts on agent-bus (v1) teams only; "+
+		"ccy-teams shutdown ops closes its LXC seats' sessions.")
+}

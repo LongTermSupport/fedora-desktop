@@ -10,6 +10,12 @@
 // whose agent_bus_lxc_members entry has service: true, the one kind with a unit. Whether the container runs is read with lxc-ls as root, then the
 // unit is started inside it as root through lxc-attach (lxcfreeze.Lister.StartUnit). Every
 // outcome is said, and the list comes back.
+//
+// A v2 (teamchat) team's LXC seat (a row board reads from its status record) is the seat of its
+// LXC record (lxcstate) holding the row's handle. Its line is offered where the start can work
+// (SPEC-team-close TC16): its container runs, its session unit's file is placed (service: true)
+// and the unit does not run, asked as root without a password (what cannot be asked keeps the
+// line). The start is `teamchat-admin lxc restart --member <container>/<seat key>` (SU3) as root.
 package lxcsession
 
 import (
@@ -35,6 +41,7 @@ type Containers interface {
 	LxcPath(ctx context.Context) (string, error)
 	Containers(ctx context.Context) (running, stopped []string, err error)
 	StartUnit(ctx context.Context, lxcPath, container, unit string) error
+	UnitState(ctx context.Context, lxcPath, container, unit string) (load, active string, err error)
 }
 
 // Declared is the host_vars' agent_bus_lxc_members entries, as the play reads them.
@@ -49,13 +56,15 @@ type Starter struct {
 	Sudo       *sudo.Sudo
 	Declare    Declared
 	AppliedDir string
+	// TeamchatRoot is the root a v2 team's LXC record is read under ("" on a host).
+	TeamchatRoot string
 }
 
 // New is the Starter over a host.
 func New(h *host.Host, kit *flow.Kit) *Starter {
 	return &Starter{
 		Kit: kit, Lxc: &lxcfreeze.Lister{Sudo: h.Sudo, LookPath: h.LookPath}, Sudo: h.Sudo, Declare: h.Declare,
-		AppliedDir: h.AppliedDir,
+		AppliedDir: h.AppliedDir, TeamchatRoot: h.TeamchatRoot,
 	}
 }
 
@@ -74,6 +83,9 @@ func recorded(rec lxcrecord.Record, row board.Row) int {
 // Another host's member is in no record here, and a service: false member has no unit. A
 // record or declaration that cannot be read keeps the line, so choosing it says why.
 func (s *Starter) Offers(ctx context.Context, row board.Row) bool {
+	if row.V2 {
+		return s.offersV2(ctx, row)
+	}
 	rec, _, err := lxcrecord.Read(s.AppliedDir, row.Team)
 	if err != nil {
 		return true
@@ -97,6 +109,9 @@ func Unit(user string) string { return "agent-bus-claude-" + user + ".service" }
 
 // Start is Start its session in its LXC container, for row.
 func (s *Starter) Start(ctx context.Context, row board.Row) (flow.Result, error) {
+	if row.V2 {
+		return s.startV2(ctx, row)
+	}
 	rec, _, err := lxcrecord.Read(s.AppliedDir, row.Team)
 	if err != nil {
 		return s.Kit.Note(ctx, "Nothing was started: "+err.Error())

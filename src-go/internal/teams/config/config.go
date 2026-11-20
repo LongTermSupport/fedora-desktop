@@ -53,6 +53,10 @@ type Config struct {
 	// Pingbus is the host's pingbus, the agent team bus kit's (a hot remove re-baselines a seat
 	// and posts its goodbye with it).
 	Pingbus string
+	// TeamchatRoot is the root the v2 (teamchat) records are read under: "" on a host, so a
+	// team's status record is paths.StatusFile itself. Its override, CCY_TEAMS_TEAMCHAT_ROOT, is
+	// for test suites, which must not read the machine's own v2 teams.
+	TeamchatRoot string
 }
 
 // Load resolves the configuration from root and the environment (getenv).
@@ -75,5 +79,7 @@ func Load(root string, getenv func(string) string) Config {
 		StateDir:    filepath.Join(or("XDG_STATE_HOME", filepath.Join(home, ".local/state")), "ccy-teams"),
 		Home:        home,
 		Pingbus:     or("CCY_TEAMS_PINGBUS", "/usr/local/share/agent-bus/kit/pingbus"),
+
+		TeamchatRoot: getenv("CCY_TEAMS_TEAMCHAT_ROOT"),
 	}
 }

@@ -194,6 +194,17 @@ session running, nothing to shut down" (a free seat whose session has ended alre
 running container with no session in it; it never fails the run). A session with unsent text in its input box, or whose screen cannot
 be read, is left alone. Local only: nothing goes on the bus. Spec: Plan 00201 `SPEC-shutdown.md`.
 
+**v2 (teamchat) teams on the board.** A v2 team is listed from its status record (the record
+`teamchat-admin status` reads), its STATE its homeserver unit's, and an expired or missing record
+said in WHERE; its members are the record's, an LXC seat's row naming its container and whether
+its session was on the bus at the last health check. A v2 team's menu offers only what reaches it: **Shut down every session of
+`<team>`** (its LXC seats' sessions, each closed on the seat's own tmux server in its running
+container, as above; a member outside an LXC container is named as not reachable from here) and,
+on an LXC seat's row where its container runs, its unit file is placed (`service: true`) and its
+session does not run, **Start its session in its LXC container**, which runs `sudo teamchat-admin
+lxc restart --member <container>/<seat key>` and says so. `ccy-teams restart` and `wind-down` act
+on v1 teams only and say so when given a v2 team. Spec: Plan 00257 `SPEC-team-close.md` TC15-TC17.
+
 **Restart a team's desktop sessions**, after a reboot or whenever. `ccy-teams restart <team>`
 (or Enter on the team, then **Restart the team's desktop sessions**) resumes each member's own
 conversation by its recorded id, never `--continue`. A running ccy session restarts in place at

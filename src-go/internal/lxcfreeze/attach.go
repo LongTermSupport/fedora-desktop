@@ -49,3 +49,26 @@ func (r containerTmux) Run(ctx context.Context, c execx.Cmd) (execx.Result, erro
 		"runuser", "-u", r.user, "--", "env", "-i", "PATH=" + guestPath, "tmux",
 	}, c.Args...)...)
 }
+
+// UnitState is a unit's LoadState and ActiveState inside a running container, asked of systemd
+// as root: `sudo -n lxc-attach -P <lxcPath> -n <container> --clear-env -- env -i PATH=<guest
+// path> systemctl show --property=LoadState,ActiveState -- <unit>`. A unit with no file is
+// loaded "not-found". An answer missing either is an error. sudo must be ready first.
+func (l *Lister) UnitState(ctx context.Context, lxcPath, container, unit string) (string, string, error) {
+	res, err := l.Sudo.Capture(ctx, "lxc-attach", "-P", lxcPath, "-n", container, "--clear-env", "--",
+		"env", "-i", "PATH="+guestPath, "systemctl", "show", "--property=LoadState,ActiveState", "--", unit)
+	if err != nil {
+		return "", "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(res.Stderr)))
+	}
+	props := map[string]string{}
+	for line := range strings.SplitSeq(string(res.Stdout), "\n") {
+		if key, value, ok := strings.Cut(line, "="); ok {
+			props[key] = value
+		}
+	}
+	load, active := props["LoadState"], props["ActiveState"]
+	if load == "" || active == "" {
+		return "", "", fmt.Errorf("systemctl show in container %s gave no LoadState or ActiveState for %s", container, unit)
+	}
+	return load, active, nil
+}

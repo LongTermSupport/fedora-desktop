@@ -76,3 +76,36 @@ func TestStartUnitKeepsSystemdsRefusal(t *testing.T) {
 		t.Fatalf("err %v", err)
 	}
 }
+
+// A unit's load and active states inside a container are asked of systemd as root through sudo
+// lxc-attach: what a v2 LXC seat's start is offered by (its unit file placed, its session down).
+func TestUnitStateReadsLoadAndActiveStateAsRoot(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "lxc-attach"}, execx.Result{Stdout: []byte("LoadState=loaded\nActiveState=inactive\n")})
+	load, active, err := newLister(f).UnitState(context.Background(), "/srv/lxc", "box", "teamchat-lxc-x.service")
+	if err != nil || load != "loaded" || active != "inactive" {
+		t.Fatalf("%q %q %v", load, active, err)
+	}
+	want := []string{
+		"sudo", "-n", "lxc-attach", "-P", "/srv/lxc", "-n", "box", "--clear-env", "--",
+		"env", "-i", "PATH=" + guestPath, "systemctl", "show", "--property=LoadState,ActiveState", "--", "teamchat-lxc-x.service",
+	}
+	calls := f.Calls()
+	if len(calls) != 1 || !slices.Equal(append([]string{calls[0].Name}, calls[0].Args...), want) {
+		t.Fatalf("ran %v", calls)
+	}
+}
+
+func TestUnitStateFailsOnAnAnswerItCannotRead(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "lxc-attach"}, execx.Result{Stdout: []byte("LoadState=loaded\n")})
+	if _, _, err := newLister(f).UnitState(context.Background(), "/srv/lxc", "box", "u.service"); err == nil {
+		t.Fatal("an answer with no ActiveState was read")
+	}
+	f = &execx.Fake{}
+	f.On([]string{"sudo", "-n", "lxc-attach"}, exit1("lxc-attach: failed to get init pid\n"))
+	if _, _, err := newLister(f).UnitState(context.Background(), "/srv/lxc", "box", "u.service"); err == nil ||
+		!strings.Contains(err.Error(), "failed to get init pid") {
+		t.Fatalf("err %v", err)
+	}
+}

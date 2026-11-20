@@ -151,9 +151,10 @@ Usage:
                                    restore backup <n> after a yes/no (--yes: none);
                                    without <n>, choose one from the list
   ccy-teams shutdown <team> [--yes] [--no-compact]
-                                   end every session of the team on this host: it lists
-                                   them, and the members it cannot reach from here (an
-                                   LXC container's agent, another machine), then asks
+                                   end every session of the team on this host, v1 or v2
+                                   (teamchat), its LXC seats' sessions in their running
+                                   containers too: it lists them, and the members it
+                                   cannot reach from here (another machine), then asks
                                    (default No; with no terminal, --yes is required).
                                    Each session gets /compact typed into its tmux pane
                                    (Escape first when busy), then /exit once the

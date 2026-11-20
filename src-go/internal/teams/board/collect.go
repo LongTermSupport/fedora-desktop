@@ -173,7 +173,7 @@ func (c *Collector) Collect(ctx context.Context) (*Snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(s.Teams) == 0 {
+	if len(s.Teams) == 0 && len(s.V2Teams) == 0 {
 		return s, nil
 	}
 	if err := c.collectSessions(ctx, s); err != nil {
@@ -183,6 +183,9 @@ func (c *Collector) Collect(ctx context.Context) (*Snapshot, error) {
 	seats := c.seatsRead(s, r)
 	for _, team := range s.Teams {
 		c.addTeamRows(s, team, seats, r)
+	}
+	for _, team := range s.V2Teams {
+		c.addV2Rows(ctx, s, team)
 	}
 	return s, nil
 }
@@ -222,7 +225,11 @@ func (c *Collector) collectTeams(ctx context.Context, s *Snapshot) error {
 	for _, st := range read.states {
 		s.Status[st.Team] = st
 	}
-	return c.addStamped(s, seen)
+	if err := c.addStamped(s, seen); err != nil {
+		return err
+	}
+	c.addV2Teams(s, seen)
+	return nil
 }
 
 // readTeams is the start-up's shared read when there is one, else a new read, which the
@@ -502,6 +509,9 @@ func (c *Collector) addTeamRows(s *Snapshot, team string, seats []seatAt, r read
 	s.LXC[team] = lxc
 	if s.livenessUnreported(team) {
 		where += ", " + unreportedLiveness
+	}
+	if s.V2Shadowed[team] {
+		where += ", " + wordV2Shadowed
 	}
 	s.Rows = append(s.Rows, Row{
 		Team: team, Member: s.aboutTeam(team), Kind: KindTeam, State: state, Applied: s.StatusWord(team),

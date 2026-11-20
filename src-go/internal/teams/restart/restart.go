@@ -146,6 +146,10 @@ func (r *Restart) forTeam(ctx context.Context, team string, yes bool) term.ExitC
 	if err != nil {
 		return term.ExitFailure
 	}
+	if snap.IsV2(team) {
+		r.Term.PrintError(board.V2Refusal(team))
+		return term.ExitFailure
+	}
 	if !slices.Contains(snap.Teams, team) {
 		r.Term.PrintError("there is no team " + team + " on this machine; ccy-teams --list shows the teams.")
 		return term.ExitFailure

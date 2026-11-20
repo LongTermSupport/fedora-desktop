@@ -198,6 +198,10 @@ func (w *WindDown) forTeam(ctx context.Context, team string, yes bool) term.Exit
 	if err != nil {
 		return term.ExitFailure
 	}
+	if snap.IsV2(team) {
+		w.Term.PrintError(board.V2Refusal(team))
+		return term.ExitFailure
+	}
 	if !slices.Contains(snap.Teams, team) {
 		w.Term.PrintError("there is no team " + team + " on this machine; ccy-teams --list shows the teams.")
 		return term.ExitFailure

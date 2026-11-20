@@ -64,11 +64,11 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 		return map[string]string{
 			"HOME": "/h", "XDG_STATE_HOME": "/s", "CCY_LIB": "/l", "CCY_TEAMS_HOST_VARS": "/hv",
 			"CCY_TEAMS_LAUNCHER": "/x", "CCY_TEAMS_PLAY": "/p", "CCY_TEAMS_ELEMENT_PLAY": "/e",
-			"CCY_TEAMS_APPLIED_DIR": "/a", "CCY_TEAMS_PINGBUS": "/pb",
+			"CCY_TEAMS_APPLIED_DIR": "/a", "CCY_TEAMS_PINGBUS": "/pb", "CCY_TEAMS_TEAMCHAT_ROOT": "/tc",
 		}[k]
 	})
 	if c.StateDir != "/s/ccy-teams" || c.CcyLib != "/l" || c.HostVars != "/hv" || c.Launcher != "/x" ||
-		c.Play != "/p" || c.ElementPlay != "/e" || c.AppliedDir != "/a" || c.Pingbus != "/pb" {
+		c.Play != "/p" || c.ElementPlay != "/e" || c.AppliedDir != "/a" || c.Pingbus != "/pb" || c.TeamchatRoot != "/tc" {
 		t.Fatalf("overrides %+v", c)
 	}
 }

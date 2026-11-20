@@ -3,6 +3,7 @@ package board
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -51,7 +52,7 @@ const classDefs = "  classDef " + stateListening + " fill:#dff5e1,stroke:#2e7d32
 func Mermaid(s *Snapshot) string {
 	var b strings.Builder
 	b.WriteString("flowchart TB\n" + classDefs)
-	for i, team := range s.Teams {
+	for i, team := range slices.Concat(s.Teams, s.V2Teams) {
 		(&teamGraph{s: s, team: team, id: "t" + strconv.Itoa(i), b: &b}).draw(slug(team))
 	}
 	return b.String()

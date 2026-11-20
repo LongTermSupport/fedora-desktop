@@ -124,6 +124,16 @@ func TestHomeserverStateUnknownWhenSilent(t *testing.T) {
 	}
 }
 
+// Any unit's state is asked the same way: a v2 team's homeserver unit is named whole.
+func TestUnitStateNamesAnyUnitsState(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"systemctl", "is-active", "teamchat-server@ops.service"}, execx.Result{Stdout: []byte("failed\n"), ExitCode: 3})
+	state, err := (&Systemd{Runner: f}).UnitState(context.Background(), "teamchat-server@ops.service")
+	if err != nil || state != "down (failed)" {
+		t.Fatalf("state %q err %v", state, err)
+	}
+}
+
 func TestStateWordIsHomeserverStatesAnswerForAnActiveColumn(t *testing.T) {
 	for active, want := range map[string]string{
 		"active": "up", "inactive": "down (inactive)", "failed": "down (failed)", "activating": "down (activating)", "": "down (unknown)",

@@ -93,6 +93,8 @@ func New(t *testing.T) *World {
 		UserHome: func(int) (string, error) { return w.Env["HOME"], nil },
 	}
 	w.Host.AppliedDir = filepath.Join(root, "applied")
+	// The v2 records are read under the world's own root, never the machine's.
+	w.Host.TeamchatRoot = filepath.Join(root, "teamchat")
 	w.Host.Wire()
 	// A run that made sudo ready ends by dropping the credential.
 	w.On("sudo -k", "", 0)

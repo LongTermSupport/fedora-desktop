@@ -89,7 +89,12 @@ func (s *Systemd) HomeserverUnits(ctx context.Context) ([]Unit, error) {
 // HomeserverState is "up", or "down (<systemd's word>)". A non-zero is-active exit is the
 // answer, not a failure; only a systemctl that could not run is an error.
 func (s *Systemd) HomeserverState(ctx context.Context, team string) (string, error) {
-	res, err := s.Runner.Run(ctx, execx.Cmd{Name: systemctlBin, Args: []string{"is-active", unitPrefix + team + unitSuffix}})
+	return s.UnitState(ctx, unitPrefix+team+unitSuffix)
+}
+
+// UnitState is HomeserverState for any unit, named whole (a v2 team's homeserver unit).
+func (s *Systemd) UnitState(ctx context.Context, unit string) (string, error) {
+	res, err := s.Runner.Run(ctx, execx.Cmd{Name: systemctlBin, Args: []string{"is-active", unit}})
 	state := strings.TrimSpace(string(res.Stdout))
 	if err != nil {
 		if exitErr, ok := errors.AsType[*execx.ExitError](err); !ok || exitErr == nil {
