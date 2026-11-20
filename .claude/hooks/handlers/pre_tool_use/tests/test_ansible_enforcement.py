@@ -308,9 +308,7 @@ INERT_TEXT_THE_DAEMON_KEEPS = [
     'echo "run: dnf install $PKG"',
     'echo "${PKG}: sudo dnf install"',
     'grep -n "dnf install $X" f',
-    "cat <<EOF > notes.md\nsudo dnf install x\nEOF",
     "cat <<EOF\nsudo dnf install $X\nEOF",
-    "cat <<-EOF > notes.md\n\tsudo dnf install x\nEOF",
     "jq '.\"dnf install\"' f",
     "jq -r '.[] | select(.n == \"pip install x\")' f",
     "(jq '.\"dnf install\"' f)",
@@ -321,6 +319,8 @@ INERT_TEXT_THE_DAEMON_KEEPS = [
 # on its raw text, exactly as the original handler did. `bash -n` would not run its body, but the
 # handler does not read option letters any more.
 ACCEPTED_OVERBLOCKING = [
+    "cat <<EOF > notes.md\nsudo dnf install x\nEOF",
+    "cat <<-EOF > notes.md\n\tsudo dnf install x\nEOF",
     # round 4: a write, a substitution, a git global option, push/fetch/tag/grep and sort are all
     # judged as written, so each of these stays denied as the original denied it
     "git -C sub commit -m 'dnf install x'",

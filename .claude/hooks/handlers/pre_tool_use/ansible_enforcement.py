@@ -9,44 +9,40 @@ reading, and a line that runs a script it wrote, hands text to a shell, or wraps
 anything (`sudo`, `script -c`, `watch`, `find -exec`, `perl -e system(...)`) names the change
 in its text.
 
-One exception, `judge_raw_command_line` below, answers issue #294 (a commit message, an echo or
-a grep pattern that merely NAMES `dnf install` was denied): when EVERY command the line runs is
-inert, the line is judged by those commands instead of its raw text. An inert command executes
-none of its arguments as code: `echo`, `printf`, `grep`/`rg`, `cat`, `jq`, `git commit`/`log`/
-`show`/`diff`/`status`/`add`/`tag`/`grep`/`push`/`fetch`, `gh issue|pr comment|create` with a body
-given, `true`, `test`, `wc`, `sort`, `head`, `tail`, `ls`, `pwd`, `cd`, `uniq`. A wrapper (`sudo`,
-`env`, `timeout`, `nice`, `nohup`...), a shell, an interpreter, `find`, `xargs`, `make`, `watch`
-and anything unknown is NOT inert, so a line holding one is judged on its raw text, whatever else
-it holds. An all-inert line cannot run a system change, so the exception cannot let one through.
-Over-blocking is accepted: an inert write plus an unrelated shell run on one line is judged as the
-original judged it.
+One exception answers issue #294 (a commit message, an echo or a grep pattern that merely NAMES
+`dnf install` was denied). It lives in its own module, `_raw_command_judge`, the one sanctioned
+judge of a raw line (the Semgrep rule hook-regex-over-raw-command excludes that module by path):
+a line that is ALL INERT is judged by the commands it runs instead of its raw text. All inert
+means the line writes no file (any redirect but /dev/null and the standard streams), holds no
+`$(...)`, backtick or process substitution, runs only `echo`, `printf`, `grep`, `rg`, `cat`, `jq`,
+`wc`, `cd`, `true`, `false`, a few git subcommands (commit, log, show, diff, status, add) and
+`gh issue|pr comment|create` with a body, each with an EXACT option allow-list (an option not on
+it, an abbreviated long option, or any git option before the subcommand sends the raw text to the
+judge), and no word of those commands can expand to an option. Over-blocking is accepted: a line
+that writes a file, substitutes, or runs a wrapper, shell, interpreter, `find`, `xargs`, `make`,
+`watch`, `git push` or anything unknown is judged as the original judged it.
 """
 
 import re
 import sys
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar
 
-# Add daemon to path for imports
+# Add daemon to path for imports, and this directory for the sanctioned raw judge
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "hooks-daemon/src"))
+sys.path.insert(0, str(Path(__file__).parent))
 
 from claude_code_hooks_daemon.core import Decision, GatingResult
 from claude_code_hooks_daemon.core.acceptance_test import AcceptanceTest, TestType
 from claude_code_hooks_daemon.core.handler_bases import PreToolUseHandlerBase
 from claude_code_hooks_daemon.core.rule import Rule
 from claude_code_hooks_daemon.core.utils import get_bash_command
-from claude_code_hooks_daemon.utils.command_position import (
-    DATA_HEADS,
-    command_position_code_segments,
-    segment_spans,
-)
-from claude_code_hooks_daemon.utils.shell_segmentation import (
-    resolve_shell_word,
-    shell_word_spans,
-)
+
+from _raw_command_judge import INERT_COMMANDS, every_command_is_inert, judge_raw_command_line
 
 RULE_ID = "R-ANSIBLE-DIRECT-SYSTEM-CHANGE"
+
+__all__ = ["INERT_COMMANDS", "RULE_ID", "AnsibleEnforcementHandler", "every_command_is_inert", "judge_raw_command_line"]
 
 _RULE = Rule(
     rule_id=RULE_ID,
@@ -61,10 +57,12 @@ _RULE = Rule(
         "`bash -c 'dnf install x'`, a script the line writes and then runs, and text piped into\n"
         "a shell are blocked, whatever options sit before the verb (`dnf -y install`) and\n"
         "however the tool is spelled (`dnf5`, `/usr/bin/dnf`, `d''nf`, behind `sudo`, `env`).\n\n"
-        "Only a line whose every command is inert (echo, printf, grep, cat, jq, a git commit...)\n"
-        "is judged by what it runs, so a commit message or an echo that merely names `dnf install`\n"
-        "is not blocked. A shell, wrapper, interpreter, `find`, `xargs` or `make` on the line\n"
-        "puts the whole line back to its raw text.\n\n"
+        "Only a line that is ALL INERT is judged by what it runs, so a commit message or an echo\n"
+        "that merely names `dnf install` is not blocked. All inert: no file written (any redirect\n"
+        "but /dev/null), no `$(...)` or backtick, only echo, printf, grep, rg, cat, jq, wc, cd, a\n"
+        "git commit/log/show/diff/status/add or a gh comment with a body, each with listed options\n"
+        "only. A shell, wrapper, interpreter, `find`, `xargs`, `make`, a write or a substitution\n"
+        "on the line puts the whole line back to its raw text.\n\n"
         "ALLOWED (read-only queries): dnf info/list/search, rpm -q, systemctl status,\n"
         "systemctl --user, gsettings get, dconf read, flatpak list."
     ),
@@ -141,279 +139,6 @@ _FORBIDDEN_PATTERNS: tuple[str, ...] = (
 
 #: A quoted word that is one plain name or path: `'dnf'`, `"/usr/bin/systemctl"`.
 _QUOTED_NAME = re.compile(r"""(?<![\w'"])(['"])([\w./+-]+)\1(?![\w'"])""")
-
-#: The commands that execute none of their arguments as code. The list is closed on purpose:
-#: a wrapper, a shell, an interpreter, `find`, `xargs`, `make`, `watch` and anything unknown is not
-#: in it, so a line holding one is judged on its raw text. `git` and `gh` are inert only with the
-#: subcommands below (`_git_is_inert`, `_gh_is_inert`).
-INERT_COMMANDS: frozenset[str] = frozenset(
-    {
-        "echo", "printf", "grep", "egrep", "fgrep", "rg", "cat", "jq", "git", "gh", "true", "false", "test", "[",
-        "wc", "sort", "head", "tail", "ls", "pwd", "cd", "uniq",
-    }
-)  # fmt: skip
-_GIT_INERT_SUBCOMMANDS = frozenset({"commit", "log", "show", "diff", "status", "add", "tag", "grep", "push", "fetch"})
-#: An argument that makes an otherwise inert command run another program.
-_RUNS_A_PROGRAM = ("--exec", "--receive-pack", "--upload-pack", "--open-files-in-pager", "--pre", "--hostname-bin", "--compress-program")
-_BODY_OPTIONS = frozenset({"-b", "--body", "-F", "--body-file"})
-_CLOSERS = frozenset({"done", "fi"})
-_HEREDOC_BODY = "HEREDOC_BODY"
-
-#: Words that open a shell construct before its command: `then echo x`.
-_RESERVED_PREFIX: frozenset[str] = frozenset({"then", "do", "else", "elif", "if", "while", "until", "!", "{", "(", "}", ")", ""})
-
-_PRINT_FREE = ("$(", "`", "<(", ">(")
-_SIMPLE_VARIABLE = re.compile(r"(?<!\\)\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)")
-_HEREDOC_OPERATOR = re.compile(r"<<(-?)[ \t]*([A-Za-z_][A-Za-z0-9_]*)(?=[\s;|&)<>]|$)")
-_ANY_HEREDOC_DELIMITER = re.compile(r"""<<-?[ \t]*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?""")
-
-
-def _basename(word: str) -> str:
-    return word.rsplit("/", 1)[-1]
-
-
-def _without_group_parens(word: str) -> str:
-    """``word`` without the `(` that opens a subshell and the unmatched `)` that closes one."""
-    word = word.lstrip("(") if not word.startswith("$(") else word
-    while word.endswith(")") and word.count(")") > word.count("("):
-        word = word[:-1]
-    return word
-
-
-def _words(segment: str) -> list[str] | None:
-    """The segment's resolved words without a construct opener, or None when one cannot be read."""
-    resolved = [resolve_shell_word(segment[start:end]) for start, end in shell_word_spans(segment)]
-    if any(word is None for word in resolved):
-        return None
-    words = [_without_group_parens(word) for word in resolved if word is not None]
-    while words and words[0] in _RESERVED_PREFIX:
-        words = words[1:]
-    return words
-
-
-def _head_word(segment: str) -> str | None:
-    """The first word of the segment after a construct opener, None when it cannot be read.
-
-    Later words may be unreadable (`echo $X`): only the head decides what a print-only rewrite does.
-    """
-    for start, end in shell_word_spans(segment):
-        word = resolve_shell_word(segment[start:end])
-        if word is None:
-            return None
-        word = _without_group_parens(word)
-        if word not in _RESERVED_PREFIX:
-            return word
-    return None
-
-
-def _normalised(text: str) -> str:
-    """``text`` with each word resolved the way the shell does (`d''nf` is `dnf`), words joined by a space."""
-    pieces = []
-    for start, end in shell_word_spans(text):
-        word = resolve_shell_word(text[start:end])
-        pieces.append(text[start:end] if word is None else word)
-    return " ".join(pieces)
-
-
-def _git_is_inert(rest: list[str]) -> bool:
-    """`git [-C dir] <subcommand>` with an inert subcommand and no argument that runs a program."""
-    index = 0
-    while rest[index : index + 1] == ["-C"]:
-        index += 2
-    return rest[index : index + 1] and rest[index] in _GIT_INERT_SUBCOMMANDS and not _names_a_program_to_run(rest)
-
-
-def _gh_is_inert(rest: list[str]) -> bool:
-    """`gh issue|pr comment|create` with the text given by `-b`, `--body` or a body file."""
-    if len(rest) < 3 or rest[0] not in ("issue", "pr") or rest[1] not in ("comment", "create"):
-        return False
-    return any(word in _BODY_OPTIONS or word.startswith(("--body=", "--body-file=")) for word in rest[2:])
-
-
-def _names_a_program_to_run(rest: list[str]) -> bool:
-    return any(word.startswith(_RUNS_A_PROGRAM) or word == "-O" for word in rest)
-
-
-def _head_is_inert(words: list[str]) -> bool:
-    head, rest = words[0], words[1:]
-    if head == "for":
-        return True
-    if head in _CLOSERS:
-        return not rest
-    if head not in INERT_COMMANDS:
-        return False
-    if head == "git":
-        return bool(_git_is_inert(rest))
-    if head == "gh":
-        return _gh_is_inert(rest)
-    return not _names_a_program_to_run(rest)
-
-
-def _segment_is_inert(segment: str, heredoc_delimiters: set[str]) -> bool:
-    """Whether the command one segment runs executes none of its arguments as code."""
-    if any(marker in segment for marker in _PRINT_FREE):
-        return False
-    text = segment.strip()
-    if heredoc_delimiters and (text == _HEREDOC_BODY or text in heredoc_delimiters):
-        return True
-    words = _words(segment)
-    if words is None:
-        return False
-    return not words or _head_is_inert(words)
-
-
-def _quote_inert_heredocs(text: str) -> str:
-    """``text`` with each unquoted heredoc whose body substitutes nothing made a quoted one.
-
-    An unquoted `<<EOF` body is expanded by the shell, so the daemon keeps it as text that may
-    execute. A heredoc with no `$(` and no grave accent is plain data, so giving its delimiter
-    quotes hands the daemon the same body to judge by its own rules. The text is only judged,
-    never executed, so the rewrite changes no behaviour.
-    """
-    pieces: list[str] = []
-    position = 0
-    quote = ""
-    pending: list[re.Match[str]] = []
-    index = 0
-    while index < len(text):
-        char = text[index]
-        if quote:
-            if char == "\\" and quote == '"':
-                index += 2
-                continue
-            if char == quote:
-                quote = ""
-        elif char == "\\":
-            index += 2
-            continue
-        elif char in "'\"":
-            quote = char
-        elif char == "#" and (index == 0 or text[index - 1] in " \t\n"):
-            newline = text.find("\n", index)
-            index = len(text) if newline < 0 else newline
-            continue
-        elif text.startswith("<<", index) and not text.startswith("<<<", index) and (index == 0 or text[index - 1] != "<"):
-            match = _HEREDOC_OPERATOR.match(text, index)
-            if match is not None:
-                pending.append(match)
-                index = match.end()
-                continue
-        elif char == "\n":
-            index += 1
-            for operator in pending:
-                end = _heredoc_end(text, index, operator)
-                if end is None:
-                    continue
-                body_end, after = end
-                if "$(" not in text[index:body_end] and "`" not in text[index:body_end]:
-                    pieces.append(text[position : operator.start()])
-                    pieces.append(f"<<{operator.group(1)}'{operator.group(2)}'")
-                    position = operator.end()
-                index = after
-            pending = []
-            continue
-        index += 1
-    pieces.append(text[position:])
-    return "".join(pieces)
-
-
-def _heredoc_end(text: str, body_start: int, operator: re.Match[str]) -> tuple[int, int] | None:
-    """(end of the body, the index after the terminator line) of a heredoc, or None if unterminated."""
-    delimiter = operator.group(2)
-    offset = body_start
-    while offset <= len(text):
-        newline = text.find("\n", offset)
-        line_end = len(text) if newline < 0 else newline
-        line = text[offset:line_end]
-        if (line.lstrip("\t") if operator.group(1) else line) == delimiter:
-            return offset, min(line_end + 1, len(text))
-        if newline < 0:
-            return None
-        offset = newline + 1
-    return None
-
-
-def _swap_head_for_echo(segment: str, name: str) -> str:
-    """``segment`` with its first word that resolves to ``name`` spelled `echo`."""
-    for start, end in shell_word_spans(segment):
-        word = resolve_shell_word(segment[start:end])
-        if word is not None and _basename(_without_group_parens(word)) == name:
-            return segment[:start] + segment[start:end].replace(name, "echo", 1) + segment[end:]
-    return segment
-
-
-def _inert_form(segment: str) -> str:
-    """``segment`` rewritten to a form the daemon's view blanks, when it only prints.
-
-    `jq` prints its program, so it becomes an echo of the same text; an echo, printf, grep, rg or
-    jq whose only expansions are plain `$NAME` or `${NAME}` prints them, so the references are
-    named `_V` and the daemon blanks the arguments. The result is only ever judged for inertness
-    and searched; a line that is not all inert is judged on its raw text, never on this form.
-    """
-    head = _head_word(segment)
-    if head == "jq":
-        segment = _swap_head_for_echo(segment, "jq")
-        head = "echo"
-    if head is not None and (head in DATA_HEADS or head == "echo"):
-        if any(marker in segment for marker in _PRINT_FREE):
-            return segment
-        renamed = _SIMPLE_VARIABLE.sub("_V", segment)
-        return segment if "$" in renamed else renamed
-    return segment
-
-
-def _view_input(line: str) -> str:
-    """``line`` with the print-only forms rewritten, ready for the daemon's command view."""
-    line = _quote_inert_heredocs(line)
-    pieces: list[str] = []
-    previous_end = 0
-    for start, end in segment_spans(line):
-        pieces.append(line[previous_end:start])
-        pieces.append(_inert_form(line[start:end]))
-        previous_end = end
-    pieces.append(line[previous_end:])
-    return "".join(pieces)
-
-
-def _inert_segments(line: str) -> list[str] | None:
-    """The command-position segments of ``line`` when every one runs an inert command, else None."""
-    segments = command_position_code_segments(_view_input(line))
-    delimiters = set(_ANY_HEREDOC_DELIMITER.findall(line))
-    if all(_segment_is_inert(segment, delimiters) for segment in segments):
-        return segments
-    return None
-
-
-def every_command_is_inert(line: str) -> bool:
-    """Whether every command ``line`` runs is inert (:data:`INERT_COMMANDS`)."""
-    return _inert_segments(line) is not None
-
-
-def judge_raw_command_line(line: str, search: Callable[[str], str | None]) -> str | None:
-    """The text of the system change ``line`` runs, or None. THE one place a line is judged as written.
-
-    This is the sanctioned raw-text judge (the Semgrep rule hook-regex-over-raw-command exempts a
-    call of it by name, so the choice stays one visible call). The default is the original
-    handler's reading: ``search`` over the whole raw text, then over each command-position segment
-    with its words resolved (`d''nf install`). The exception is a line whose every command is
-    inert: it is judged by those segments alone, so a message, an echo or a grep pattern that only
-    names a change passes.
-    """
-    inert = _inert_segments(line)
-    if inert is not None:
-        candidates = inert
-    else:
-        found = search(line)
-        if found is not None:
-            return found
-        candidates = command_position_code_segments(line)
-    for segment in candidates:
-        for text in (segment, _normalised(segment)):
-            found = search(text)
-            if found is not None:
-                return found if inert is None else segment
-    return None
-
 
 class AnsibleEnforcementHandler(PreToolUseHandlerBase):
     """Block direct system management commands - enforce Ansible deployment.
@@ -515,8 +240,9 @@ class AnsibleEnforcementHandler(PreToolUseHandlerBase):
             "Direct package management, service management, and system configuration "
             "commands are blocked ([R-ANSIBLE-DIRECT-SYSTEM-CHANGE]). All system changes "
             "must go through Ansible playbooks. The line is judged as written; only a line "
-            "whose every command is inert (echo, grep, cat, a git commit) is judged by what it "
-            "runs, so a message that merely names one passes.\n\n"
+            "that writes no file, substitutes nothing and runs only inert commands with listed "
+            "options (echo, grep, cat, a git commit) is judged by what it runs, so a message "
+            "that merely names one passes.\n\n"
             "**Blocked**: `dnf install`, `systemctl enable/start/stop`, `gsettings set`, "
             "`useradd`, `pip install` (system), `npm install -g`, `flatpak install`\n\n"
             "**Allowed** (read-only queries): `dnf info/list/search`, `systemctl status`, "

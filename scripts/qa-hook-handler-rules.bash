@@ -4,6 +4,11 @@
 #   hook-path-resolved-against-cwd       a hook handler resolving a path against its cwd
 #   hook-regex-over-raw-command          a hook handler matching text against the raw command line
 #   hook-regex-over-command-parameter    the same, one function away (a parameter named command)
+#   hook-sanctioned-name-impostor        a function or import borrowing a name the exemption trusts
+#
+# hook-regex-over-raw-command excludes by path the one sanctioned judge of a raw line, the module
+# .claude/hooks/handlers/pre_tool_use/_raw_command_judge.py (all-inert lines pass, the rest is
+# judged as the original handler judged it); a rename or copy elsewhere is a finding.
 #
 # Code the hooks daemon loads (the project's handlers in .claude/hooks/handlers/) runs in the
 # daemon's process, whose working directory is not the agent's project. Each rule's reasoning,

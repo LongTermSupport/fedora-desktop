@@ -103,18 +103,39 @@ rules:
   # value that went through one of the daemon's command_position_* functions is a command-position
   # segment, and is clean.
   #
-  # The one sanctioned way to judge the line as written is a call of judge_raw_command_line (in
-  # ansible_enforcement.py): the choice to read raw text is then one visible, named call whose
-  # docstring carries the reason (an all-inert line is judged by what it runs, anything else as
-  # the original handler did, so no real-run command is lost). Builtins (len, str, bool, isinstance,
-  # repr, print), the daemon's own whole-line predicate is_plain_data_command and calls on other objects (GatingResult.deny(f"...")) are not helpers.
+  # The one sanctioned way to judge the line as written is a call of judge_raw_command_line, which
+  # lives in its own module, .claude/hooks/handlers/pre_tool_use/_raw_command_judge.py. That module
+  # is EXCLUDED BY PATH below (the reason: it is the judge, so everything this rule forbids is its
+  # job; its module docstring says why an all-inert line is judged by what it runs and anything
+  # else as the original handler did). A copy of it, a renamed look-alike, or any other module that
+  # searches the line is not that path, so it is a finding, and a look-alike that reuses a sanctioned
+  # NAME is a finding of hook-sanctioned-name-impostor. The sources include a two-step read of
+  # tool_input (`ti = h["tool_input"]; command = ti["command"]`), and the sinks include find, count,
+  # index, partition and fnmatch. Builtins (len, str, bool, isinstance, repr, print), the daemon's
+  # own whole-line predicate is_plain_data_command and calls on other objects
+  # (GatingResult.deny(f"...")) are not helpers.
   - id: hook-regex-over-raw-command
     languages: [python]
+    paths:
+      exclude:
+        # The sanctioned raw judge, by path (see the comment above): a rename cannot fake a path.
+        - /.claude/hooks/handlers/pre_tool_use/_raw_command_judge.py
     mode: taint
     pattern-sources:
       - pattern: get_bash_command(...)
       - pattern: $H["tool_input"]["command"]
       - pattern: $H.get("tool_input", ...).get("command", ...)
+      - patterns:
+          - pattern-either:
+              - pattern: $T["command"]
+              - pattern: $T.get("command", ...)
+          - pattern-either:
+              - pattern-inside: |
+                  $T = $H["tool_input"]
+                  ...
+              - pattern-inside: |
+                  $T = $H.get("tool_input", ...)
+                  ...
     pattern-sanitizers:
       - pattern-either:
           - pattern: command_position_segments(...)
@@ -135,6 +156,19 @@ rules:
           - pattern: re.split($PATTERN, $X, ...)
           - focus-metavariable: $X
       - patterns:
+          - pattern: $X.$METHOD(...)
+          - metavariable-regex:
+              metavariable: $METHOD
+              regex: '^(find|rfind|count|index|rindex|partition|rpartition)$'
+          - focus-metavariable: $X
+      - patterns:
+          - pattern-either:
+              - pattern: fnmatch.$F($X, ...)
+              - pattern: fnmatch.$F($P, $X)
+              - pattern: fnmatch($X, ...)
+              - pattern: fnmatch($P, $X)
+          - focus-metavariable: $X
+      - patterns:
           - pattern: $NEEDLE in $X
           - focus-metavariable: $X
       - patterns:
@@ -147,7 +181,8 @@ rules:
       hook-regex-over-raw-command: this matches text against the raw Bash command line, or hands
       it to a helper that can, and the line holds text that is not run (a message, an echo, a grep
       pattern, a heredoc body). Judge the command-position segments (command_position_code_segments)
-      instead, or call judge_raw_command_line, the one sanctioned judge of the line as written.
+      instead, or call judge_raw_command_line, the one sanctioned judge of the line as written
+      (the module _raw_command_judge, excluded by path).
       See CLAUDE/QA.md "hook-regex-over-raw-command".
     severity: ERROR
     metadata:
@@ -189,3 +224,54 @@ rules:
     severity: ERROR
     metadata:
       dbf-class: a project handler matching text against a parameter holding the raw Bash command line
+
+  # Rule: no look-alike of a sanctioned name (Defence Before Fix; CLAUDE/QA.md
+  # "hook-sanctioned-name-impostor").
+  #
+  # hook-regex-over-raw-command trusts four kinds of call by NAME: judge_raw_command_line,
+  # is_plain_data_command and every command_position_* function return something the rule treats
+  # as judged or clean. A handler that defines a function, a lambda or an alias with one of those
+  # names, or imports one from anywhere but its real home, would be trusted without doing the work:
+  # the exemption works by name and a name can be faked. The real homes are
+  # claude_code_hooks_daemon.utils.command_position (the daemon's functions) and
+  # _raw_command_judge (the one judge, excluded by path); a definition in any other file is a finding.
+  - id: hook-sanctioned-name-impostor
+    languages: [python]
+    paths:
+      exclude:
+        - /.claude/hooks/handlers/pre_tool_use/_raw_command_judge.py
+    pattern-either:
+      - patterns:
+          - pattern: |
+              def $N(...):
+                  ...
+          - metavariable-regex:
+              metavariable: $N
+              regex: '^(judge_raw_command_line|is_plain_data_command|command_position_\w+)$'
+      - patterns:
+          - pattern: $N = $E
+          - metavariable-regex:
+              metavariable: $N
+              regex: '^(judge_raw_command_line|is_plain_data_command|command_position_\w+)$'
+      - patterns:
+          - pattern: from $M import $X as $N
+          - metavariable-regex:
+              metavariable: $N
+              regex: '^(judge_raw_command_line|is_plain_data_command|command_position_\w+)$'
+      - patterns:
+          - pattern: from $M import $N
+          - metavariable-regex:
+              metavariable: $N
+              regex: '^(judge_raw_command_line|is_plain_data_command|command_position_\w+)$'
+          - metavariable-regex:
+              metavariable: $M
+              regex: '^(?!(?:_raw_command_judge|claude_code_hooks_daemon\.utils\.command_position)$)'
+    message: >
+      hook-sanctioned-name-impostor: this defines or imports a name that hook-regex-over-raw-command
+      trusts (judge_raw_command_line, is_plain_data_command, command_position_*) from somewhere other
+      than its real home, so the name would be trusted without the work behind it. Import the real
+      function (from _raw_command_judge, or from claude_code_hooks_daemon.utils.command_position), or
+      give your own function another name. See CLAUDE/QA.md "hook-sanctioned-name-impostor".
+    severity: ERROR
+    metadata:
+      dbf-class: a function that borrows the name of a function a Semgrep rule trusts

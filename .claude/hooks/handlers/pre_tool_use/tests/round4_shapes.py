@@ -66,7 +66,7 @@ WRITE_THEN_GIT_RUNS_IT = [
     "echo '[diff] external = {C}' >> .git/config && git diff",
     "echo '[core] pager = {C}' >> .git/config && git log",
     "echo '[alias] lg = !{C}' >> .git/config && git log",
-    "echo '[core] hooksPath = x' >> .git/config; git commit -m z",
+    "echo '[core] hooksPath = x' >> .git/config; git commit -m '{C}'",
     "printf '[core]\\n\\tfsmonitor = {C}\\n' >> .git/config && git status",
     "git log && echo '{C}' >> scripts/git-hooks/pre-commit",
 ]
@@ -159,7 +159,7 @@ FILE_WRITES = [
     "cat > notes.md <<'EOF'\n{C}\nEOF",
     "cat <<'EOF' > notes.md\n{C}\nEOF",
     "git commit -m '{C}' > /tmp/c.log",
-    "git log --oneline > log.txt",
+    "git log --oneline '{C}' > log.txt",
     "grep -rn '{C}' . > hits.txt",
     "jq -n '\"{C}\"' > out.json",
     "printf '{C}' >> \"$HOME/f\"",
@@ -169,6 +169,24 @@ FILE_WRITES = [
     "echo '{C}' | tee notes.md",
     "echo '{C}' | tee -a notes.md",
     "git commit -m '{C}' && git log > log.txt",
+]
+
+# A separator glued to an inert command: the line is split the way the shell splits it.
+SEPARATOR_SHAPES = [
+    "echo x & {C}",
+    "echo x &{C}",
+    "echo x|{C}",
+    "echo x;{C}",
+    "echo x&&{C}",
+    "echo x ||{C}",
+    "echo x |& {C}",
+    "echo x\n{C}",
+    "echo x\\\n; {C}",
+    "git status; ( {C} )",
+    "git status && { {C}; }",
+    "echo x && ! {C}",
+    "if true; then {C}; fi",
+    "echo a && time {C}",
 ]
 
 # A variable or a brace expansion can expand to an option: the words are not literal.
@@ -299,6 +317,7 @@ DENIED_NEVER_INERT = fill(
     + FILE_WRITES
     + EXPANDED_WORDS
     + NOT_LISTED
+    + SEPARATOR_SHAPES
 )
 INERT_ALLOWED_FILLED = fill(INERT_ALLOWED)
 ALL_DENIED = DENIED_NEVER_INERT

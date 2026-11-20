@@ -20,6 +20,20 @@ from claude_code_hooks_daemon.utils.command_position import (
 from _raw_command_judge import judge_raw_command_line
 
 
+# ruleid: hook-sanctioned-name-impostor
+from elsewhere import sneaky as command_position_segments_2
+
+# ruleid: hook-sanctioned-name-impostor
+from my_helpers import command_position_code_segments_2
+
+# ruleid: hook-sanctioned-name-impostor
+from ansible_enforcement import judge_raw_command_line as the_judge
+
+
+def uses_the_borrowed_names(line):
+    return the_judge(line, None), command_position_segments_2(line), command_position_code_segments_2(line)
+
+
 def system_path_judged_from_cwd(file_path, blocked):
     # The originating instance in system_paths.py: a relative path judged where the daemon runs.
     # ruleid: hook-path-resolved-against-cwd
@@ -264,7 +278,7 @@ def command_position_clean(text):
 
 
 # ruleid: hook-sanctioned-name-impostor
-command_position_all_clean = lambda text: text
+command_position_all_clean = str.strip
 
 
 class ImpostorJudges:
@@ -275,16 +289,6 @@ class ImpostorJudges:
     # ruleid: hook-sanctioned-name-impostor
     def is_plain_data_command(self, text):
         return True
-
-
-# ruleid: hook-sanctioned-name-impostor
-from elsewhere import sneaky as command_position_segments_2
-
-# ruleid: hook-sanctioned-name-impostor
-from my_helpers import command_position_code_segments_2
-
-# ruleid: hook-sanctioned-name-impostor
-from ansible_enforcement import judge_raw_command_line as the_judge
 
 
 def the_daemons_whole_line_predicate_is_not_a_helper(hook_input):
