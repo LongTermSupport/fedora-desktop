@@ -204,6 +204,10 @@ handlers:
     british_english: {enabled: true, priority: 60}          # Warn about American English spellings
     review_round_advisor: {enabled: true, priority: 60}     # Advise from the 4th review round on one plan or branch
     subagent_full_qa_blocker: {enabled: true}               # Full-suite QA belongs to the coordinator, not a sub-agent
+    # Enabled at the v3.76.0 config review (owner: apply all).
+    write_protected_paths: {enabled: true}                  # Inert until options.paths lists files kept read-only for agents
+    github_issue_assignment_guard: {enabled: true}          # Issue-tied work needs an issue assigned to this account
+    long_running_command_guard: {enabled: true}             # A likely-long foreground Bash call goes to run_in_background
 
   # PostToolUse handlers (run after tool execution)
   post_tool_use:
