@@ -2528,7 +2528,11 @@ scope (server; session; pane or window).
   a package holding no tmux answer: clean).
 - Red, real tree: fourteen findings at seven sites, `tmuxccy/tmuxccy.go:130` and `:160`,
   `tmuxccy/panes.go:23` and `:96`, `tmuxccy/submit.go:93`, `sessclose/sessclose.go:504` and
-  `teams/winddown/windstep.go:220`; the `ccyteamstest` build adds none.
+  `teams/winddown/windstep.go:220`; the `ccyteamstest` build adds none. The command: the
+  driver built from the rule's tree (`cd src-go/qa && go build -o <dir>/driver ./driver`), the
+  tree before the fix taken out of git (`git archive 2d2c7f042^ src-go | tar -x -C <dir>/old`),
+  then in `<dir>/old/src-go` `go vet -vettool=<dir>/driver ./...` and again with
+  `-tags ccyteamstest`, each giving the same fourteen `tmux's answer ... matched outside tmuxccy's goneAnswer` lines.
 - Green: every site asks `goneAnswer` through tmuxccy; CapturePane's not-there answer now
   matches `ErrSessionGone`, which Submit, sessclose and winddown test. `tmuxccy`
   `TestListReadsOnlyTmuxsOwnNoServerAsEmpty` and `TestCapturePaneIsGoneOnlyOnTmuxsOwnAnswer`

@@ -3,6 +3,7 @@ package lxcfreeze
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -52,7 +53,7 @@ func (r containerTmux) Run(ctx context.Context, c execx.Cmd) (execx.Result, erro
 
 // UnitState is a unit's LoadState and ActiveState inside a running container, asked of systemd
 // as root: `sudo -n lxc-attach -P <lxcPath> -n <container> --clear-env -- env -i PATH=<guest
-// path> systemctl show --property=LoadState,ActiveState -- <unit>`. A unit with no file is
+// path> systemctl show --property=Id,LoadState,ActiveState -- <unit>`. A unit with no file is
 // loaded "not-found". An answer missing either is an error. sudo must be ready first.
 func (l *Lister) UnitState(ctx context.Context, lxcPath, container, unit string) (string, string, error) {
 	states, err := l.UnitStates(ctx, lxcPath, container, unit)
@@ -67,34 +68,44 @@ type UnitStatus struct {
 	Load, Active string
 }
 
-// UnitStates is UnitState for every unit given, asked in one systemctl show inside the
-// container; systemd answers one block per unit, blank-line separated, in argument order. An
-// answer with another number of blocks, or a block missing either state, is an error.
+// UnitStates is UnitState for every unit given, in the order given, asked in one systemctl show
+// inside the container with each unit's Id; systemd answers one block per unit, blank-line
+// separated, and each block is matched to its unit by its Id, not by its position. An answer
+// with another number of blocks, a block with no Id, an Id named twice or not asked, or a unit
+// missing either state, is an error.
 func (l *Lister) UnitStates(ctx context.Context, lxcPath, container string, units ...string) ([]UnitStatus, error) {
 	res, err := l.Sudo.Capture(ctx, append([]string{
 		"lxc-attach", "-P", lxcPath, "-n", container, "--clear-env", "--",
-		"env", "-i", "PATH=" + guestPath, "systemctl", "show", "--property=LoadState,ActiveState", "--",
+		"env", "-i", "PATH=" + guestPath, "systemctl", "show", "--property=Id,LoadState,ActiveState", "--",
 	}, units...)...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(res.Stderr)))
 	}
-	var states []UnitStatus
-	for block := range strings.SplitSeq(strings.TrimSpace(string(res.Stdout)), "\n\n") {
+	blocks := strings.Split(strings.TrimSpace(string(res.Stdout)), "\n\n")
+	if len(blocks) != len(units) {
+		return nil, fmt.Errorf("systemctl show in container %s answered %d units of %d (%s)", container, len(blocks), len(units), strings.Join(units, " "))
+	}
+	byID := map[string]UnitStatus{}
+	for _, block := range blocks {
 		props := map[string]string{}
 		for line := range strings.SplitSeq(block, "\n") {
 			if key, value, ok := strings.Cut(line, "="); ok {
 				props[key] = value
 			}
 		}
-		states = append(states, UnitStatus{Load: props["LoadState"], Active: props["ActiveState"]})
+		id := props["Id"]
+		if _, seen := byID[id]; seen || !slices.Contains(units, id) {
+			return nil, fmt.Errorf("systemctl show in container %s answered for unit %q, which is not one asked once (%s)", container, id, strings.Join(units, " "))
+		}
+		byID[id] = UnitStatus{Load: props["LoadState"], Active: props["ActiveState"]}
 	}
-	if len(states) != len(units) {
-		return nil, fmt.Errorf("systemctl show in container %s answered %d units of %d (%s)", container, len(states), len(units), strings.Join(units, " "))
-	}
-	for i, unit := range units {
-		if states[i].Load == "" || states[i].Active == "" {
+	states := make([]UnitStatus, 0, len(units))
+	for _, unit := range units {
+		s := byID[unit]
+		if s.Load == "" || s.Active == "" {
 			return nil, fmt.Errorf("systemctl show in container %s gave no LoadState or ActiveState for %s", container, unit)
 		}
+		states = append(states, s)
 	}
 	return states, nil
 }

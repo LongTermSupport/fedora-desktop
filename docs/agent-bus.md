@@ -199,13 +199,13 @@ be read, is left alone. Local only: nothing goes on the bus. Spec: Plan 00201 `S
 said in WHERE; its members are the record's, an LXC seat's row naming its container and whether
 its session was on the bus at the last health check. A v2 team's menu offers only what reaches it: **Shut down every session of
 `<team>`** (its LXC seats' sessions, each closed on the seat's own tmux server in its running
-container, as above, and each ccy session on this host whose desired membership in the owner's
-seat store names a seat of the team; a member with no session here has nothing to shut down when
-its seat is in this host's seat store, and is named as not reachable from here otherwise, as is an
-LXC member no entry of the team's LXC record names) and,
+container, as above, and each ccy session on this host that holds a seat of the team in the
+owner's seat store, as its holding record names it; a member whose seat nothing holds has nothing
+to shut down when its seat is in this host's seat store, and is named as not reachable from here
+otherwise, as is a seat held by a session outside ccy's tmux, a seat whose holding record cannot
+be read, and an LXC member no entry of the team's LXC record names) and,
 on an LXC seat's row where its container runs, its unit file is placed (`service: true`) and its
-session does not run, **Start its session in its LXC container**, which runs `sudo teamchat-admin
-lxc start --member <container>/<seat key>` and says so (systemd's start, which leaves a session
+session does not run, **Start its session in its LXC container**, which runs `sudo teamchat-admin lxc start --member <container>/<seat key>` and says so (systemd's start, which leaves a session
 that already runs as it is: a start never ends one). `ccy-teams restart` and `wind-down` act
 on v1 teams only and say so when given a v2 team. Spec: Plan 00257 `SPEC-team-close.md` TC15-TC17.
 

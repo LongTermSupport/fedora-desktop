@@ -49,6 +49,35 @@ func (s *Store) Holdings() ([]Holding, error) {
 	return out, nil
 }
 
+// ReadHoldings is Holdings of one checkout read without a store opened for allocation (ccy-teams
+// shutdown asks it): no part beyond where the store is, and nothing made; a seat store that does
+// not exist holds nothing.
+func ReadHoldings(store paths.Store, checkout paths.CheckoutKey) ([]Holding, error) {
+	root, err := openDir(store.Root(), false)
+	if errors.Is(err, unix.ENOENT) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	s := &Store{store: store, checkout: checkout, root: root}
+	holdings, err := s.Holdings()
+	return holdings, errors.Join(err, root.close())
+}
+
+// HeldBy is the holdings the session holds: complete, their record naming it. It is the one
+// answer to "which seats does this session hold", for the launcher's exit (Verbs.end) and
+// ccy-teams shutdown alike; an incomplete holding names no session, so it is no one's.
+func HeldBy(holdings []Holding, session paths.SessionName) []Holding {
+	var out []Holding
+	for _, h := range holdings {
+		if h.Complete && h.Record.Session == session {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
 // teamHoldings is Holdings for one team's directory; a placement's claim directory is skipped.
 func (s *Store) teamHoldings(team paths.TeamID) ([]Holding, error) {
 	dir := s.store.PoolTeam(s.checkout, team)

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
@@ -158,7 +159,11 @@ func TestAV2TeamsStartLinesAreAskedOnceARefresh(t *testing.T) {
 	h.On("sudo -n lxc-config lxc.lxcpath", "/var/lib/lxc\n", 0)
 	h.On("sudo -n lxc-ls -1 --running", "box\n", 0)
 	h.On("sudo -n lxc-ls -1", "box\n", 0)
-	h.On("sudo -n lxc-attach", "LoadState=loaded\nActiveState=inactive\n\nLoadState=loaded\nActiveState=active\n", 0)
+	h.Fake.OnFunc([]string{"sudo", "-n", "lxc-attach"}, func(c execx.Cmd) (execx.Result, error) {
+		units := c.Args[len(c.Args)-2:]
+		return execx.Result{Stdout: []byte("Id=" + units[1] + "\nLoadState=loaded\nActiveState=active\n\n" +
+			"Id=" + units[0] + "\nLoadState=loaded\nActiveState=inactive\n")}, nil
+	})
 	h.Host.LookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
 	h.p.LxcSession = lxcsession.New(h.Host, h.p.Kit)
 	r := h.run1(t)

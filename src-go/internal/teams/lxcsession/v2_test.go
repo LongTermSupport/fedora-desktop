@@ -30,7 +30,8 @@ func newV2Rig(t *testing.T) *v2Rig {
 		if !slices.Contains(c.Args, "show") {
 			return execx.Result{ExitCode: 1, Stderr: []byte("not asked")}, nil
 		}
-		return execx.Result{Stdout: []byte("LoadState=" + r.load + "\nActiveState=" + r.active + "\n")}, nil
+		unit := c.Args[len(c.Args)-1]
+		return execx.Result{Stdout: []byte("Id=" + unit + "\nLoadState=" + r.load + "\nActiveState=" + r.active + "\n")}, nil
 	})
 	r.On("sudo -n "+paths.AdminBinaryPath+" lxc start", "", 0)
 	h := r.Host

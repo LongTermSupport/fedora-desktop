@@ -19,6 +19,10 @@ const (
 		"(a session on another machine); end it where it runs"
 	whyV2NoLxcEntry = "an LXC member no entry of the team's LXC record names, so its container is not known here " +
 		"(teamchat-admin lxc apply writes the record)"
+	whyV2HeldOffTmux = "which is not a session on this host's ccy tmux (a ccy session started outside tmux " +
+		"holds its seats under its container's name); type /exit in it where it runs"
+	whyV2HeldUnread = "its seat in this host's seat store is held, but the holding record cannot be read, so " +
+		"no session can be named for it; the seat sweep settles it, or end the session where it runs"
 )
 
 // resolveV2Lxc sorts a v2 team's LXC seats (SPEC-team-close TC2-TC4): every entry of its LXC

@@ -319,10 +319,7 @@ func (v *Verbs) end(ctx context.Context, holder Holder, session paths.SessionNam
 		}
 	}
 	var errs []error
-	for _, h := range holdings {
-		if !h.Complete || h.Record.Session != session {
-			continue
-		}
+	for _, h := range seat.HeldBy(holdings, session) {
 		var err error
 		switch {
 		case over:

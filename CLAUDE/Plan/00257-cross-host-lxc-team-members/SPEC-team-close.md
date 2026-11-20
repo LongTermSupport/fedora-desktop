@@ -21,10 +21,14 @@ Each expectation below is numbered and held by a test, written first.
   close with the tmux server the seat's session is on:
   - a host seat: a live ccy or cc tmux session that a session record or a desired membership
     names for the seat (discover), on ccy's tmux server (`tmux -L ccy`); for a v2 team, the
-    desired membership filed in the owner's seat store under the ccy session's name
-    (`Store.DesiredFile`, what ccy mounts as `TEAMCHAT_MEMBERSHIP`). A v2 host member no live
-    session holds has no session when its seat is in this host's seat store pool, and is out of
-    reach otherwise;
+    seat store's holding: a live session whose name a complete holding of the team's seat
+    records (`held/held.json`, `seat.HeldBy`, the same answer the launcher's exit acts on). A
+    desired membership (`Store.DesiredFile`) is never asked: it outlives its session and tmux
+    reuses names, so it could name a later, unrelated session. A v2 host seat held by a session
+    that is not on ccy's tmux (one started outside tmux holds its seats under its container's
+    name), or whose holding record cannot be read, is out of reach; a seat of this host's pool
+    that nothing holds has no session; a member whose seat is not in the pool is out of reach
+    (another machine);
   - a v1 LXC seat: the tmux session `agent-bus-claude` on the server of the same name inside
     the running container, as the member's user, through `sudo lxc-attach`
     (`lxcfreeze.Lister.InContainer`, as the wind-down reaches it);
@@ -77,10 +81,12 @@ Each expectation below is numbered and held by a test, written first.
 - **TC12.** Every seat that did not close is named with why, in words that say which case it
   was: not found (its tmux session is not there), busy past the bound (its prompt was not ready
   within 30 s), its compaction never finished (600 s), exit refused (it did not end within 60 s
-  of `/exit`), unreachable (sudo, `lxc-ls` or `lxc-attach` failed, or an LXC record unreadable),
-  out of reach (another machine, a seat no record names, a v2 LXC member no entry of the team's
-  LXC record names, a missing record included). "Not there" is tmux's own answer only (exit 1
-  and its exact wording); the same words from lxc-attach, runuser or env are unreachable.
+  of `/exit`), unreachable (sudo, `lxc-ls` or `lxc-attach` failed, or an LXC record or the seat
+  store's holdings unreadable), out of reach (another machine, a seat no record names, a v2 LXC
+  member no entry of the team's LXC record names, a missing record included, a v2 host seat held
+  by a session not on ccy's tmux, named with that session, or held with a record that cannot be
+  read). Each member is named once, with one reason. "Not there" is tmux's own answer only (exit
+  1 and its exact wording); the same words from lxc-attach, runuser or env are unreachable.
 - **TC13.** The last line counts: `<team>: X exited cleanly, Y stopped, Z failed`, then `; N members not reachable from here` and `; N members offline` when there are any.
 
 ## Exit codes

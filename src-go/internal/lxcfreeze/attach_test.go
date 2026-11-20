@@ -81,14 +81,14 @@ func TestStartUnitKeepsSystemdsRefusal(t *testing.T) {
 // lxc-attach: what a v2 LXC seat's start is offered by (its unit file placed, its session down).
 func TestUnitStateReadsLoadAndActiveStateAsRoot(t *testing.T) {
 	f := &execx.Fake{}
-	f.On([]string{"sudo", "-n", "lxc-attach"}, execx.Result{Stdout: []byte("LoadState=loaded\nActiveState=inactive\n")})
+	f.On([]string{"sudo", "-n", "lxc-attach"}, execx.Result{Stdout: []byte("Id=teamchat-lxc-x.service\nLoadState=loaded\nActiveState=inactive\n")})
 	load, active, err := newLister(f).UnitState(context.Background(), "/srv/lxc", "box", "teamchat-lxc-x.service")
 	if err != nil || load != "loaded" || active != "inactive" {
 		t.Fatalf("%q %q %v", load, active, err)
 	}
 	want := []string{
 		"sudo", "-n", "lxc-attach", "-P", "/srv/lxc", "-n", "box", "--clear-env", "--",
-		"env", "-i", "PATH=" + guestPath, "systemctl", "show", "--property=LoadState,ActiveState", "--", "teamchat-lxc-x.service",
+		"env", "-i", "PATH=" + guestPath, "systemctl", "show", "--property=Id,LoadState,ActiveState", "--", "teamchat-lxc-x.service",
 	}
 	calls := f.Calls()
 	if len(calls) != 1 || !slices.Equal(append([]string{calls[0].Name}, calls[0].Args...), want) {
@@ -98,7 +98,7 @@ func TestUnitStateReadsLoadAndActiveStateAsRoot(t *testing.T) {
 
 func TestUnitStateFailsOnAnAnswerItCannotRead(t *testing.T) {
 	f := &execx.Fake{}
-	f.On([]string{"sudo", "-n", "lxc-attach"}, execx.Result{Stdout: []byte("LoadState=loaded\n")})
+	f.On([]string{"sudo", "-n", "lxc-attach"}, execx.Result{Stdout: []byte("Id=u.service\nLoadState=loaded\n")})
 	if _, _, err := newLister(f).UnitState(context.Background(), "/srv/lxc", "box", "u.service"); err == nil {
 		t.Fatal("an answer with no ActiveState was read")
 	}
@@ -110,24 +110,44 @@ func TestUnitStateFailsOnAnAnswerItCannotRead(t *testing.T) {
 	}
 }
 
-// Every unit of a container is asked in one systemctl show; its blocks come back in argument
-// order, and an answer with another number of blocks is refused.
+// Every unit of a container is asked in one systemctl show, with its Id, and each answer is
+// matched to its unit by that Id, never by position alone; an answer with another number of
+// blocks is refused.
 func TestUnitStatesAsksEveryUnitInOneCall(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"sudo", "-n", "lxc-attach"}, execx.Result{Stdout: []byte(
-		"LoadState=loaded\nActiveState=inactive\n\nLoadState=not-found\nActiveState=inactive\n")})
+		"Id=b.service\nLoadState=not-found\nActiveState=inactive\n\nId=a.service\nLoadState=loaded\nActiveState=active\n")})
 	got, err := newLister(f).UnitStates(context.Background(), "/srv/lxc", "box", "a.service", "b.service")
-	if err != nil || len(got) != 2 || got[0] != (UnitStatus{Load: "loaded", Active: "inactive"}) ||
+	if err != nil || len(got) != 2 || got[0] != (UnitStatus{Load: "loaded", Active: "active"}) ||
 		got[1] != (UnitStatus{Load: "not-found", Active: "inactive"}) {
 		t.Fatalf("%v %v", got, err)
 	}
 	calls := f.Calls()
-	if len(calls) != 1 || !slices.Equal(calls[0].Args[len(calls[0].Args)-3:], []string{"--", "a.service", "b.service"}) {
+	if len(calls) != 1 || !slices.Contains(calls[0].Args, "--property=Id,LoadState,ActiveState") ||
+		!slices.Equal(calls[0].Args[len(calls[0].Args)-3:], []string{"--", "a.service", "b.service"}) {
 		t.Fatalf("ran %v", calls)
 	}
 	f = &execx.Fake{}
-	f.On([]string{"sudo", "-n", "lxc-attach"}, execx.Result{Stdout: []byte("LoadState=loaded\nActiveState=inactive\n")})
+	f.On([]string{"sudo", "-n", "lxc-attach"}, execx.Result{Stdout: []byte("Id=a.service\nLoadState=loaded\nActiveState=inactive\n")})
 	if _, err = newLister(f).UnitStates(context.Background(), "/srv/lxc", "box", "a.service", "b.service"); err == nil {
 		t.Fatal("one block read for two units")
+	}
+}
+
+// An answer whose Ids do not name the units asked (a unit missing, another named, one named twice,
+// or no Id) is refused, so a state is never given to the wrong unit.
+func TestUnitStatesRefusesAnAnswerForAnotherUnit(t *testing.T) {
+	for name, answer := range map[string]string{
+		"another unit": "Id=a.service\nLoadState=loaded\nActiveState=active\n\nId=c.service\nLoadState=loaded\nActiveState=active\n",
+		"named twice":  "Id=a.service\nLoadState=loaded\nActiveState=active\n\nId=a.service\nLoadState=loaded\nActiveState=active\n",
+		"no Id":        "LoadState=loaded\nActiveState=active\n\nId=b.service\nLoadState=loaded\nActiveState=active\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &execx.Fake{}
+			f.On([]string{"sudo", "-n", "lxc-attach"}, execx.Result{Stdout: []byte(answer)})
+			if got, err := newLister(f).UnitStates(context.Background(), "/srv/lxc", "box", "a.service", "b.service"); err == nil {
+				t.Fatalf("read %v", got)
+			}
+		})
 	}
 }

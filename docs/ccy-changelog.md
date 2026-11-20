@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.41 — container 2.84.41
+
+- **Shutting down a v2 (teamchat) team finds its host seats by the seat store's holdings**
+  (Plan 00257 SPEC-team-close TC2, TC12). A ccy session is closed only when a holding of the
+  team's seat names it, the same answer the launcher's exit acts on; a desired membership is
+  no longer asked, since it outlives its session and a later session under the same tmux name
+  was sent `/compact` and `/exit`. A seat held by a session outside ccy's tmux, or with a holding
+  record that cannot be read, is now not reachable (exit 1) instead of "no session"; each member
+  is named once. LXC seats' unit states are matched to their units by systemd's `Id`, not by
+  position. The image is rebuilt: the seat store package it builds from gained the shared
+  holdings reader.
+
 ## 3.122.40 — container 2.84.40
 
 - **The ccy-teams board asks its v2 LXC seats' start lines once a refresh** (Plan 00257

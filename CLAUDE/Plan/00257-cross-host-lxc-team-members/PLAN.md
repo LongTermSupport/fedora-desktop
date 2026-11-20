@@ -155,8 +155,9 @@ Related plans:
   LXC seats (`/compact` then `/exit`, never killed, the container and unit untouched), and v2
   teams are on the board with their LXC seats' on-demand start. Spec:
   [SPEC-team-close.md](SPEC-team-close.md) (TC1-TC17; D1-D3 with the coordinator). A v2 host
-  seat is found through the owner's seat store (its ccy session's desired membership) and
-  closed. Reports: `subagent-reports/team-winddown-report.md`, review fixes
+  seat is found through the owner's seat store (the live ccy session its holding names, as the
+  launcher's exit decides; never a desired membership, which outlives its session) and closed.
+  Reports: `subagent-reports/team-winddown-report.md`, review fixes
   `subagent-reports/team-winddown-fix-report.md`.
 - [ ] ⬜ **Task B.6**: LXC apply robustness.
 - [ ] ⬜ **Task B.7**: durability (D1 for restore).

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -119,10 +120,5 @@ func (s StoreTaker) TakeAll(ctx context.Context, takes []seat.Take) (err error) 
 
 // heldBy is whether the take's session already holds its seat.
 func heldBy(holdings []seat.Holding, t seat.Take) bool {
-	for _, h := range holdings {
-		if h.Complete && h.Seat == t.Seat && h.Record.Session == t.Session {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(seat.HeldBy(holdings, t.Session), func(h seat.Holding) bool { return h.Seat == t.Seat })
 }

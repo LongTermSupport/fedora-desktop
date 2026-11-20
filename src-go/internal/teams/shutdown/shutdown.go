@@ -76,8 +76,8 @@ type Shutdown struct {
 	AppliedDir string
 	// TeamchatRoot is the root a v2 team's LXC record is read under ("" on a host).
 	TeamchatRoot string
-	// SeatStore is the owner's teamchat seat store, where a v2 host session's desired membership
-	// is filed under its name.
+	// SeatStore is the owner's teamchat seat store, whose holdings name the session holding each
+	// v2 host seat.
 	SeatStore func() (paths.Store, error)
 
 	Term   *term.Term
@@ -131,10 +131,12 @@ shut down.
 
 A v2 (teamchat) team is shut down the same way: each LXC seat of its LXC record whose
 container runs is closed in its session on the seat's own tmux server (tmux -S), and each
-ccy session on this host whose desired membership (in the owner's seat store) names a seat
-of the team is closed as above. A v2 member with no session here is named: with nothing to
-shut down when its seat is in this host's seat store, else as not reachable from here; an
-LXC member no entry of the team's LXC record names is not reachable from here.
+ccy session on this host that holds a seat of the team (its holding record in the owner's
+seat store names the session) is closed as above. A v2 member whose seat nothing holds is
+named: with nothing to shut down when its seat is in this host's seat store, else as not
+reachable from here. A seat held by a session outside ccy's tmux, a seat whose holding
+record cannot be read, and an LXC member no entry of the team's LXC record names are not
+reachable from here.
 
 Exit codes:
   0   every session exited cleanly or stopped, or nothing was shut down on request

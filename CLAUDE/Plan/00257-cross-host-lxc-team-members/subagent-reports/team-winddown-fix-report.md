@@ -127,3 +127,64 @@ DBF: a cost, not a defect class.
   changelog entry each. The pre-commit hook asks for a bump on every commit that touches ccy
   code. The image is unchanged: no image-source path was touched.
 - **QA:** `qa-changed` was green before each commit, with no flake rerun needed.
+
+## Fix round, part 3
+
+The independent review of part 2 (`team-winddown-fix2-review.md`) found one blocking defect,
+two should-fix items and two nits. All five are done. B.13 stays ticked; its line, SPEC-team-close
+TC2 and TC12, `docs/agent-bus.md` and the shutdown help text now say that v2 host seats are found
+by the seat store's holdings. Each test below was seen failing before its code
+(`untracked/scratch/b13-fix3-red.log` holds the shutdown run).
+
+| Item                                            | State | Tests                                                                                                                                                                                                      |
+| ----------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. leftover desired.json closes another session | fixed | `shutdown` `TestALeftoverDesiredMembershipDoesNotMakeASessionTheTeams`, `TestAV2HostSeatsSessionIsClosed` (now by holding); `seat` `TestHeldByIsTheSessionsCompleteHoldings`, `TestReadHoldingsIsHoldingsReadOnly` |
+| 2. seat held outside ccy tmux read as idle      | fixed | `shutdown` `TestAV2HostSeatHeldOutsideCcyTmuxIsOutOfReach`                                                                                                                                                  |
+| 3. unreadable membership reported twice         | fixed | `shutdown` `TestAnUnreadableHoldingIsNotReachableOnce`, `TestUnreadableHoldingsAreNotReachableOnce` (replace `TestAnUnreadableDesiredMembershipIsNotReachable`, whose case is gone)                         |
+| 4. nit: UnitStates matched by position          | fixed | `lxcfreeze` `TestUnitStatesAsksEveryUnitInOneCall` (answers out of order), `TestUnitStatesRefusesAnAnswerForAnotherUnit`                                                                                   |
+| 5. nit: red proof command not recorded          | done  | re-run below                                                                                                                                                                                               |
+
+### Items 1, 2 and 3
+
+- **One answer to "which seats does session X hold":** `seat.HeldBy(holdings, session)`, the
+  complete holdings whose `held.json` names the session. `Verbs.end` (the launcher's exit) and
+  the launcher's `heldBy` (a take already held) now call it, and so does the shutdown, so the
+  three cannot drift apart.
+- **Read-only holdings:** `seat.ReadHoldings(store, checkout)` is `Store.Holdings` without a
+  store opened for allocation (no clock, credential or announcer; nothing made; no store means
+  no holdings). The shutdown reads every checkout of the pool with it.
+- **The shutdown's v2 host path** (`v2host.go`) no longer reads `desired.json`:
+  - a live ccy tmux session that `HeldBy` gives seats of the team is one job, closed as before;
+  - a seat held by a session not live on ccy's tmux is not reachable, naming that session
+    (`whyV2HeldOffTmux`); this covers a session started outside tmux, whose seats are held
+    under its container's name;
+  - a held seat whose `held.json` cannot be read is not reachable (`whyV2HeldUnread`);
+  - a free seat of the pool has no session; a seat not in the pool is elsewhere, as before;
+  - holdings that cannot be read decide nothing: every member left is named once as not
+    reachable, never also idle. Exit 1 in each out-of-reach case.
+- **Image:** `src-go/internal/teamchat/seat/` is an image source path, so the container version
+  moved with CCY: 3.122.41, container 2.84.41, one changelog entry.
+
+DBF: a design gap (the wrong record taken as the deciding fact). No detector can tell which file
+is the authority for a question; the shared `seat.HeldBy` is the structural guard instead.
+
+### Item 4
+
+`UnitStates` asks `systemctl show --property=Id,LoadState,ActiveState` and matches each block to
+its unit by `Id`. A block with no Id, an Id named twice or not asked, or a unit with no block or
+no state is an error. The fakes in `lxcsession` and `picker` now answer with Ids (the picker's
+in reverse order). DBF: a nit in one parser; no class beyond it.
+
+### Item 5: the rule's red proof on the real tree
+
+```
+cd src-go/qa && go build -o <dir>/driver ./driver
+git archive 2d2c7f042^ src-go | tar -x -C <dir>/old      # 2d2c7f042^ = adfe1d2a1
+cd <dir>/old/src-go && go vet -vettool=<dir>/driver ./...
+cd <dir>/old/src-go && go vet -vettool=<dir>/driver -tags ccyteamstest ./...
+```
+
+Both runs printed the same fourteen `project_tmux_gone_text` findings at seven sites:
+`tmuxccy/panes.go:23` (2), `:96` (3), `tmuxccy/submit.go:93` (2), `tmuxccy/tmuxccy.go:130` (2),
+`:160` (3), `sessclose/sessclose.go:504` (1), `teams/winddown/windstep.go:220` (1). The command
+is now in the rule's catalogue entry in `CLAUDE/GoProjectRules.md`.
