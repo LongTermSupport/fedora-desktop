@@ -95,7 +95,7 @@ class Bad(Handler):
 // The real semgrep, with the project's rule file, passes a clean tree and reads only Python.
 func TestRealSemgrepPassesACleanTree(t *testing.T) {
 	got := realRun(t, nil)
-	if got.code != sttrules.ExitOK || got.stdout != "passed: 1 failed: 0\n" {
+	if got.code != sttrules.ExitOK || got.stdout != "proved: hook-path-resolved-against-cwd, hook-regex-over-command-parameter, hook-regex-over-raw-command\npassed: 1 failed: 0\n" {
 		t.Fatalf("exit %d\n%s%s", got.code, got.stdout, got.stderr)
 	}
 }

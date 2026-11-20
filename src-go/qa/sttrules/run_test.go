@@ -57,11 +57,11 @@ func TestAStdoutThatCannotBeWrittenIsExitTwo(t *testing.T) {
 	w.wantStderr("ERROR: cannot write to stdout: closed")
 }
 
-// S2: nothing but the payload reaches stdout.
+// S2: nothing but the payload reaches stdout: the rules proved, then the count.
 func TestStdoutHoldsOnlyThePayload(t *testing.T) {
 	w := newWorld(t, nil)
 	w.wantExit(ExitOK, w.run())
-	if w.stdout.String() != "passed: 2 failed: 0\n" || w.stderr.Len() != 0 {
+	if w.stdout.String() != "proved: dropdown-label-carries-explanation, model-present-without-weights\npassed: 2 failed: 0\n" || w.stderr.Len() != 0 {
 		t.Fatalf("stdout %q stderr %q", w.stdout.String(), w.stderr.String())
 	}
 }
@@ -724,7 +724,8 @@ func TestFindingsAreSortedByPathThenNumericLineWithoutDuplicates(t *testing.T) {
 		return reportFor(t, files, []jsonResult{hit("helpers/mod.py", 10), hit("helpers/mod.py", 9), hit("helpers/mod.py", 9)}, nil)
 	}
 	w.wantExit(ExitFailed, w.run())
-	want := "extensions/panel.js:3: model-present-without-weights\n" +
+	want := "proved: dropdown-label-carries-explanation, model-present-without-weights\n" +
+		"extensions/panel.js:3: model-present-without-weights\n" +
 		"helpers/mod.py:9: model-present-without-weights\n" +
 		"helpers/mod.py:10: model-present-without-weights\n" +
 		"speech-to-text rules: 3 finding(s) in 2 file(s). See CLAUDE/QA.md under each identifier.\n" +
@@ -771,10 +772,21 @@ func TestSemgrepOutputNamingTheCheckoutIsScrubbed(t *testing.T) {
 }
 
 // S17
-func TestACleanRunPrintsThePassedLineOnly(t *testing.T) {
+func TestACleanRunPrintsTheProvedRulesAndThePassedLineOnly(t *testing.T) {
 	w := newWorld(t, nil)
 	w.wantExit(ExitOK, w.run())
-	if w.stdout.String() != "passed: 2 failed: 0\n" {
+	if w.stdout.String() != "proved: dropdown-label-carries-explanation, model-present-without-weights\npassed: 2 failed: 0\n" {
 		t.Fatalf("stdout %q", w.stdout.String())
+	}
+}
+
+// S18: the run names each rule it proved against its fixture, once, sorted, so a green run says
+// which rules it vouches for and a rule dropped from the file shows as a missing name.
+func TestTheRunNamesTheRulesItProved(t *testing.T) {
+	w := newWorld(t, nil)
+	w.wantExit(ExitOK, w.run())
+	w.wantStdout("proved: dropdown-label-carries-explanation, model-present-without-weights\n")
+	if strings.Count(w.stdout.String(), "model-present-without-weights") != 1 {
+		t.Fatalf("a rule named twice:\n%s", w.stdout.String())
 	}
 }
