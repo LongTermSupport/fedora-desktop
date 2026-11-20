@@ -25,7 +25,8 @@ Two version numbers move independently — see
   name. A seat lock not there yet (a launch writes the holding before its keeper makes the
   lock, so the session may still be starting), a lock the probe refuses, or a free lock with a
   live session of the same name is now not reachable (exit 1), with that reason, and nothing is
-  typed. Each holder's seat lock is checked again just before `/compact` is typed; one that
+  typed. Each holder's seat lock is checked again once the question is answered, just before
+  its close begins; one that
   changed while confirming is not reachable and not typed into. A seat store pool entry that is
   not a checkout's pool is named once and the other checkouts are still read, so a live holder
   there is closed (the run still exits 1). The message no longer says when the seat sweep

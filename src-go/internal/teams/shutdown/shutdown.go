@@ -136,7 +136,8 @@ A v2 (teamchat) team is shut down the same way: each LXC seat of its LXC record 
 container runs is closed in its session on the seat's own tmux server (tmux -S), and each
 ccy session on this host that holds a seat of the team (its holding record in the owner's
 seat store names the session, and its seat lock of the team is held: its run is live) is
-closed as above; its seat lock is checked again just before /compact is typed, and one no
+closed as above; its seat lock is checked again once the question is answered, just before
+its close begins (/compact, then /exit, or /exit alone with --no-compact), and one no
 longer held is not typed into (not reachable: changed while confirming). A v2 member whose
 seat nothing holds is named: with nothing to shut down when its seat is in this host's seat
 store, else as not reachable from here. A seat whose holder's seat lock is free, when no

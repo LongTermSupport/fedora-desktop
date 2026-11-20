@@ -208,8 +208,8 @@ entry of the team's LXC record names; a seat whose holder's seat lock is free, w
 session has the holder's name, has no session, and stays held in the seat store until the seat
 sweep releases it; a holder whose seat lock is not there yet (a session still starting), cannot
 be probed, or is free while a live ccy session has its name is not reachable, as is one whose
-lock changed while the question waited (each holder's lock is checked again just before
-`/compact` is typed)) and,
+lock changed while the question waited (each holder's lock is checked again once the question
+is answered, just before its close begins)) and,
 on an LXC seat's row where its container runs, its unit file is placed (`service: true`) and its
 session does not run, **Start its session in its LXC container**, which runs `sudo teamchat-admin lxc start --member <container>/<seat key>` and says so (systemd's start, which leaves a session
 that already runs as it is: a start never ends one). `ccy-teams restart` and `wind-down` act
