@@ -1,6 +1,7 @@
 # Fixture for .semgrep/hook-handlers.yml. `ruleid:` marks a line that must fire, `ok:` a line
 # that must stay silent.
 
+import _line_reader
 import fnmatch
 import os
 import re
@@ -18,6 +19,7 @@ from claude_code_hooks_daemon.utils.command_position import (
 )
 # ok: hook-sanctioned-name-impostor
 from _raw_command_judge import judge_raw_command_line
+from _readers import line_reader
 
 
 # ruleid: hook-sanctioned-name-impostor
@@ -264,9 +266,34 @@ def a_look_alike_judge_in_another_module(text, search):
     return search(text)
 
 
+def a_look_alike_called_through_its_module(hook_input):
+    # `module.func(command)` is the same hand-over as a bare call: the module is imported above.
+    command = get_bash_command(hook_input)
+    # ruleid: hook-regex-over-raw-command
+    return _line_reader.read_line_as_written(command, _FORBIDDEN.search)
+
+
+def a_look_alike_called_through_a_from_imported_module(hook_input):
+    command = get_bash_command(hook_input)
+    # ruleid: hook-regex-over-raw-command
+    return line_reader.read(command)
+
+
+def a_call_on_an_object_the_file_did_not_import_is_not_a_helper(hook_input, result):
+    command = get_bash_command(hook_input)
+    # ok: hook-regex-over-raw-command
+    return result.deny(command)
+
+
+def a_module_that_does_not_search_text(hook_input):
+    command = get_bash_command(hook_input)
+    # ok: hook-regex-over-raw-command
+    return os.path.basename(command)
+
+
 def a_renamed_look_alike_of_the_sanctioned_judge(hook_input):
-    # The judge's own module is excluded by path, so a copy of it anywhere else is judged: the
-    # call that hands it the line is the finding, whatever the copy is called.
+    # The judge is trusted by its name at the call site, so a copy of it under another name is
+    # judged: the call that hands it the line is the finding, whatever the copy is called.
     command = get_bash_command(hook_input)
     # ruleid: hook-regex-over-raw-command
     return a_look_alike_judge_in_another_module(command, _FORBIDDEN.search)

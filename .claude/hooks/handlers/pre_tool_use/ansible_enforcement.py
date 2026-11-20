@@ -4,23 +4,16 @@ Blocks direct package management, system configuration, and service management
 commands. All system changes must go through Ansible playbooks.
 
 The line is judged as WRITTEN, exactly as the original handler did: any forbidden pattern
-anywhere in the Bash text denies it. That default cannot regress, because it is the original
-reading, and a line that runs a script it wrote, hands text to a shell, or wraps a change in
-anything (`sudo`, `script -c`, `watch`, `find -exec`, `perl -e system(...)`) names the change
-in its text.
+anywhere in the Bash text denies it. That cannot regress, because the original patterns are
+kept verbatim and the additions only add denials (options before the verb, `dnf5`, absolute or
+quoted tool names, pip variants, `systemctl --system`, quote-split words such as `d''nf`).
 
-One exception answers issue #294 (a commit message, an echo or a grep pattern that merely NAMES
-`dnf install` was denied). It lives in its own module, `_raw_command_judge`, the one sanctioned
-judge of a raw line (the Semgrep rule hook-regex-over-raw-command excludes that module by path):
-a line that is ALL INERT is judged by the commands it runs instead of its raw text. All inert
-means the line writes no file (any redirect but /dev/null and the standard streams), holds no
-`$(...)`, backtick or process substitution, runs only `echo`, `printf`, `grep`, `rg`, `cat`, `jq`,
-`wc`, `cd`, `true`, `false`, a few git subcommands (commit, log, show, diff, status, add) and
-`gh issue|pr comment|create` with a body, each with an EXACT option allow-list (an option not on
-it, an abbreviated long option, or any git option before the subcommand sends the raw text to the
-judge), and no word of those commands can expand to an option. Over-blocking is accepted: a line
-that writes a file, substitutes, or runs a wrapper, shell, interpreter, `find`, `xargs`, `make`,
-`watch`, `git push` or anything unknown is judged as the original judged it.
+Known limit (issue #294, left open): a command that only MENTIONS such a tool in text (a commit
+message, an echo, a grep pattern) is denied too. Four rounds of an exception for text-only
+mentions each opened a real run the original denied, so the exception was dropped. The way
+round is to put the text in a file written with the Write tool and pass it by path
+(`git commit -F`, `gh ... --body-file`). The one raw judge, `judge_raw_command_line`, lives in
+the module `_raw_command_judge`.
 """
 
 import re
@@ -38,11 +31,17 @@ from claude_code_hooks_daemon.core.handler_bases import PreToolUseHandlerBase
 from claude_code_hooks_daemon.core.rule import Rule
 from claude_code_hooks_daemon.core.utils import get_bash_command
 
-from _raw_command_judge import INERT_COMMANDS, every_command_is_inert, judge_raw_command_line
+from _raw_command_judge import judge_raw_command_line
 
 RULE_ID = "R-ANSIBLE-DIRECT-SYSTEM-CHANGE"
 
-__all__ = ["INERT_COMMANDS", "RULE_ID", "AnsibleEnforcementHandler", "every_command_is_inert", "judge_raw_command_line"]
+__all__ = ["RULE_ID", "AnsibleEnforcementHandler", "judge_raw_command_line"]
+
+_KNOWN_LIMIT = (
+    "KNOWN LIMIT (issue #294): a command that only MENTIONS one of these tools in text (a commit\n"
+    "message, an echo, a grep pattern) is blocked too. Put the text in a file written with the\n"
+    "Write tool and pass it by path: `git commit -F <file>`, `gh issue comment --body-file <file>`."
+)
 
 _RULE = Rule(
     rule_id=RULE_ID,
@@ -57,12 +56,7 @@ _RULE = Rule(
         "`bash -c 'dnf install x'`, a script the line writes and then runs, and text piped into\n"
         "a shell are blocked, whatever options sit before the verb (`dnf -y install`) and\n"
         "however the tool is spelled (`dnf5`, `/usr/bin/dnf`, `d''nf`, behind `sudo`, `env`).\n\n"
-        "Only a line that is ALL INERT is judged by what it runs, so a commit message or an echo\n"
-        "that merely names `dnf install` is not blocked. All inert: no file written (any redirect\n"
-        "but /dev/null), no `$(...)` or backtick, only echo, printf, grep, rg, cat, jq, wc, cd, a\n"
-        "git commit/log/show/diff/status/add or a gh comment with a body, each with listed options\n"
-        "only. A shell, wrapper, interpreter, `find`, `xargs`, `make`, a write or a substitution\n"
-        "on the line puts the whole line back to its raw text.\n\n"
+        f"{_KNOWN_LIMIT}\n\n"
         "ALLOWED (read-only queries): dnf info/list/search, rpm -q, systemctl status,\n"
         "systemctl --user, gsettings get, dconf read, flatpak list."
     ),
@@ -106,9 +100,30 @@ _SYSTEMCTL_VERBS = (
     "|reboot|poweroff|halt|suspend|hibernate"
 )
 
-# Forbidden command patterns, matched case-insensitively against the text of the line.
-_FORBIDDEN_PATTERNS: tuple[str, ...] = (
-    # Package management - install/remove operations
+# The patterns of the original handler, verbatim: nothing they deny can pass.
+_ORIGINAL_PATTERNS: tuple[str, ...] = (
+    r'\bdnf\s+(install|remove|erase|update|upgrade|downgrade|reinstall)',
+    r'\byum\s+(install|remove|erase|update|upgrade)',
+    r'\brpm\s+(-[iUeFh]*[iUeF][iUeFh]*|--install|--upgrade|--erase|--freshen)',
+    r'\bpip3?\s+install\b',
+    r'\bnpm\s+install\s+-g',
+    r'\bflatpak\s+(install|remove|uninstall|update)',
+    r'\bsnap\s+(install|remove)',
+    r'\bsystemctl\s+(?!--user)(enable|disable|start|stop|restart|reload|mask|unmask)',
+    r'\bgsettings\s+set',
+    r'\bdconf\s+write',
+    r'\bgconftool(-2)?\s+--set',
+    r'\bfirewall-cmd\s+.*--(add|remove|zone)',
+    r'\buseradd\b',
+    r'\busermod\b',
+    r'\buserdel\b',
+    r'\bgroupadd\b',
+    r'\bgroupmod\b',
+    r'\bgroupdel\b',
+)
+
+# Patterns that ADD denials over the original ones; none is needed to keep an original denial.
+_ADDED_PATTERNS: tuple[str, ...] = (
     _tool("dnf5?", _PACKAGE_VERBS + r"|system-upgrade|builddep|copr\s+(?:enable|disable|remove)", _DNF_VALUE_OPTIONS),
     _tool("yum", _PACKAGE_VERBS, _DNF_VALUE_OPTIONS),
     rf"\brpm\s+(?:(?:{_RPM_VALUE_OPTIONS})\s+\S+\s+|--(?!install\b|upgrade\b|erase\b|freshen\b|query\b|verify\b)\S+\s+|-v+\s+)*"
@@ -119,26 +134,14 @@ _FORBIDDEN_PATTERNS: tuple[str, ...] = (
     rf"\bnpm\s+(?:-\S*\s+)*?{_NPM_GLOBAL}\s+(?:-\S*\s+)*{_NPM_VERB}",
     _tool("flatpak", "install|remove|uninstall|update"),
     _tool("snap", "install|remove|refresh"),
-    # System services - state changes (not queries). A --user unit is the user's own, but the last
-    # scope flag wins, so any --system on the line makes it a system change.
+    # A --user unit is the user's own, but the last scope flag wins, so any --system on the line
+    # makes it a system change.
     _tool("systemctl", _SYSTEMCTL_VERBS, _SYSTEMCTL_VALUE_OPTIONS, not_before_option=r"--user\b"),
     rf"\bsystemctl\s+{_options(_SYSTEMCTL_VALUE_OPTIONS)}--system\s+{_options(_SYSTEMCTL_VALUE_OPTIONS)}(?:{_SYSTEMCTL_VERBS})\b",
-    # System configuration
     _tool("gsettings", "set|reset|reset-recursively", ("--schemadir",)),
     _tool("dconf", "write|reset|load"),
-    r"\bgconftool(-2)?\s+--set",
-    r"\bfirewall-cmd\s+.*--(add|remove|zone)",
-    # User/group management
-    r"\buseradd\b",
-    r"\busermod\b",
-    r"\buserdel\b",
-    r"\bgroupadd\b",
-    r"\bgroupmod\b",
-    r"\bgroupdel\b",
 )
 
-#: A quoted word that is one plain name or path: `'dnf'`, `"/usr/bin/systemctl"`.
-_QUOTED_NAME = re.compile(r"""(?<![\w'"])(['"])([\w./+-]+)\1(?![\w'"])""")
 
 class AnsibleEnforcementHandler(PreToolUseHandlerBase):
     """Block direct system management commands - enforce Ansible deployment.
@@ -148,16 +151,16 @@ class AnsibleEnforcementHandler(PreToolUseHandlerBase):
     - System services: systemctl enable/start/stop/restart/disable
     - System config: gsettings set, dconf write, firewall-cmd modifications
     - User management: useradd, usermod, groupadd
+    - Text that only names a blocked command (a known limit, issue #294)
 
     Allows:
     - Query commands: dnf info/list/search, systemctl status, gsettings get, etc.
     - Ansible playbook execution
     - Container operations (podman, docker)
-    - Text that only names a blocked command, when every command on the line is inert
     """
 
-    # Forbidden command patterns (case-insensitive)
-    FORBIDDEN_PATTERNS: ClassVar[tuple[str, ...]] = _FORBIDDEN_PATTERNS
+    # Forbidden command patterns (case-insensitive): the original ones, then the additions
+    FORBIDDEN_PATTERNS: ClassVar[tuple[str, ...]] = _ORIGINAL_PATTERNS + _ADDED_PATTERNS
 
     def __init__(self) -> None:
         super().__init__(name="enforce-ansible-deployment", priority=10, terminal=True)
@@ -166,16 +169,32 @@ class AnsibleEnforcementHandler(PreToolUseHandlerBase):
         self._compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in self.FORBIDDEN_PATTERNS]
 
     def _search(self, text: str) -> str | None:
-        """The matched text of the first forbidden pattern in ``text`` (a quoted plain name read unquoted)."""
-        text = _QUOTED_NAME.sub(r"\2", text)
+        """The matched text of the first forbidden pattern in ``text``, or None."""
         for pattern in self._compiled_patterns:
             match = pattern.search(text)
             if match:
                 return match.group(0)
         return None
 
+    def _offending(self, hook_input: dict[str, Any]) -> str | None:
+        """The forbidden text the Bash line holds, judged on the raw text first.
+
+        The daemon's own reading joins a backslash-newline (`echo x\\<newline>dnf install`
+        becomes `echo xdnf install`), which can hide a tool name from the raw text; the raw text
+        is judged first, then the daemon's reading, so no denial of either is lost.
+        """
+        command = get_bash_command(hook_input)
+        if not command:
+            return None
+        raw = hook_input.get("tool_input", {}).get("command")
+        for line in (raw, command):
+            found = judge_raw_command_line(line, self._search) if line else None
+            if found is not None:
+                return found
+        return None
+
     def matches(self, hook_input: dict[str, Any]) -> bool:
-        """Check if the Bash line names a direct system management command that runs.
+        """Check if the Bash line names a direct system management command.
 
         Args:
             hook_input: Hook input dict with tool_name and tool_input
@@ -183,10 +202,7 @@ class AnsibleEnforcementHandler(PreToolUseHandlerBase):
         Returns:
             True if the line is a forbidden system command, False otherwise
         """
-        command = get_bash_command(hook_input)
-        if not command:
-            return False
-        return judge_raw_command_line(command, self._search) is not None
+        return self._offending(hook_input) is not None
 
     def handle(self, hook_input: dict[str, Any]) -> GatingResult:
         """Block the operation with guidance on Ansible workflow.
@@ -199,11 +215,10 @@ class AnsibleEnforcementHandler(PreToolUseHandlerBase):
             the line is not a system change
         """
         command = get_bash_command(hook_input)
-        offending = judge_raw_command_line(command, self._search) if command else None
+        offending = self._offending(hook_input)
         if command is None or offending is None:
             return GatingResult(decision=Decision.ALLOW)
 
-        # Guidance follows the change the line names, not the text around it.
         category = self._categorize_command(offending)
         guidance = self._get_category_guidance(category)
 
@@ -221,6 +236,7 @@ class AnsibleEnforcementHandler(PreToolUseHandlerBase):
             f"  - Changes are documented in playbook files\n"
             f"  - Changes are reproducible on fresh installs\n"
             f"  - Configuration remains consistent\n\n"
+            f"{_KNOWN_LIMIT}\n\n"
             f"ALLOWED COMMANDS (read-only queries):\n"
             f"  - dnf info/list/search, rpm -q\n"
             f"  - systemctl status, systemctl --user\n"
@@ -239,10 +255,10 @@ class AnsibleEnforcementHandler(PreToolUseHandlerBase):
             "## ansible_enforcement — no direct system management commands\n\n"
             "Direct package management, service management, and system configuration "
             "commands are blocked ([R-ANSIBLE-DIRECT-SYSTEM-CHANGE]). All system changes "
-            "must go through Ansible playbooks. The line is judged as written; only a line "
-            "that writes no file, substitutes nothing and runs only inert commands with listed "
-            "options (echo, grep, cat, a git commit) is judged by what it runs, so a message "
-            "that merely names one passes.\n\n"
+            "must go through Ansible playbooks. The line is judged as written, so a command "
+            "that only mentions one of these tools in text (a commit message, an echo) is "
+            "blocked too (known limit, #294): put the text in a file written with the Write "
+            "tool and pass it by path (`git commit -F`, `--body-file`).\n\n"
             "**Blocked**: `dnf install`, `systemctl enable/start/stop`, `gsettings set`, "
             "`useradd`, `pip install` (system), `npm install -g`, `flatpak install`\n\n"
             "**Allowed** (read-only queries): `dnf info/list/search`, `systemctl status`, "
@@ -255,9 +271,9 @@ class AnsibleEnforcementHandler(PreToolUseHandlerBase):
         """Return acceptance tests for AnsibleEnforcementHandler.
 
         Each denied probe is judged on its raw text. It names a package or unit that does not
-        exist and answers no to every prompt (`--assumeno`), or is a shell that only parses its
-        body (`bash -n`), so it changes nothing even if the guard missed it. The allowed probes
-        only print or query.
+        exist and answers no to every prompt (`--assumeno`), or only prints (`echo`) or only
+        parses (`bash -n`), so it changes nothing even if the guard missed it. The allowed probe
+        only queries.
         """
         return [
             AcceptanceTest(
@@ -284,20 +300,20 @@ class AnsibleEnforcementHandler(PreToolUseHandlerBase):
                 title="Block a dnf install behind a shell, judged as written",
                 command="bash -n -c 'dnf install --assumeno nonexistent-pkg-zz-safe-test'",
                 dispatch_as_bash=True,
-                description="A shell is not inert, so the line is judged on its raw text",
+                description="The line is judged on its raw text, whatever wraps the change",
                 expected_decision=Decision.DENY,
                 expected_message_patterns=[rf"BLOCKED \[{RULE_ID}\]", r"CORRECT APPROACH"],
                 safety_notes="bash -n only parses its body and runs nothing; the package does not exist either",
                 test_type=TestType.BLOCKING,
             ),
             AcceptanceTest(
-                title="Allow text that only names dnf install",
+                title="Block text that only names dnf install (known limit, issue 294)",
                 command='echo "dnf install vim"',
                 dispatch_as_bash=True,
-                description="Every command on the line is inert: an echo argument is printed, not run",
-                expected_decision=Decision.ALLOW,
-                expected_message_patterns=[],
-                safety_notes="echo prints its argument",
+                description="A mention in text is judged like a run; the deny names the file-and-path workaround",
+                expected_decision=Decision.DENY,
+                expected_message_patterns=[rf"BLOCKED \[{RULE_ID}\]", r"KNOWN LIMIT", r"Write tool"],
+                safety_notes="echo prints its argument and runs nothing, so nothing changes even if the guard missed it",
                 test_type=TestType.BLOCKING,
             ),
             AcceptanceTest(

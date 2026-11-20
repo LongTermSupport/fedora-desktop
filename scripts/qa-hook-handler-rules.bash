@@ -6,9 +6,11 @@
 #   hook-regex-over-command-parameter    the same, one function away (a parameter named command)
 #   hook-sanctioned-name-impostor        a function or import borrowing a name the exemption trusts
 #
-# hook-regex-over-raw-command excludes by path the one sanctioned judge of a raw line, the module
-# .claude/hooks/handlers/pre_tool_use/_raw_command_judge.py (all-inert lines pass, the rest is
-# judged as the original handler judged it); a rename or copy elsewhere is a finding.
+# hook-regex-over-raw-command trusts by name the one sanctioned judge of a raw line,
+# judge_raw_command_line in .claude/hooks/handlers/pre_tool_use/_raw_command_judge.py (the line is
+# judged as written, as the original handler judged it); hook-sanctioned-name-impostor keeps that
+# name from being defined or imported anywhere else, and a copy under another name is a finding
+# at the call that hands it the line, `module.func(line)` included.
 #
 # Code the hooks daemon loads (the project's handlers in .claude/hooks/handlers/) runs in the
 # daemon's process, whose working directory is not the agent's project. Each rule's reasoning,

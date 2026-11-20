@@ -157,8 +157,9 @@ const hookUsageText = `usage: qa-hook-handler-rules [--root DIR] [--scripts DIR]
 The rules in .semgrep/hook-handlers.yml (hook-path-resolved-against-cwd: code the hooks daemon
 loads that resolves a path against the daemon's working directory; hook-regex-over-raw-command and
 hook-regex-over-command-parameter: a handler that matches text against the raw Bash command line,
-except through the one sanctioned judge, the module _raw_command_judge, which the first excludes by
-path; hook-sanctioned-name-impostor: a function or import that borrows a name the exemption trusts)
+except through the one sanctioned judge, judge_raw_command_line of the module _raw_command_judge,
+trusted by its name; hook-sanctioned-name-impostor: a function or import that borrows a name the
+exemption trusts)
 over every Python file git would publish, after proving each rule against its fixture in
 .semgrep/. The run names the rules it proved on a "proved:" line before the verdict.
 
