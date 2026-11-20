@@ -102,7 +102,7 @@ func New(h *host.Host, kit *flow.Kit, b *board.Collector) *Shutdown {
 	return &Shutdown{
 		Kit: kit, Collect: b.Collect, Closer: sessclose.New(h.Tmux, h.Registry, h.Getenv), Bus: h.Bus,
 		Lxc: &lxcfreeze.Lister{Sudo: h.Sudo, LookPath: h.LookPath}, Sudo: h.Sudo, AppliedDir: h.AppliedDir,
-		TeamchatRoot: h.TeamchatRoot,
+		TeamchatRoot: h.TeamchatRoot, Keeper: seat.KeeperOf,
 		SeatStore: func() (paths.Store, error) {
 			state, err := paths.StateHome(h.Getenv("HOME"), h.Getenv("XDG_STATE_HOME"))
 			if err != nil {
@@ -110,7 +110,6 @@ func New(h *host.Host, kit *flow.Kit, b *board.Collector) *Shutdown {
 			}
 			return paths.SeatStore(state)
 		},
-		Keeper: seat.KeeperOf,
 		Term: h.Term, Out: h.Out, Stderr: h.Stderr, Payload: h.Payload, Stdin: h.Stdin, IsTerminal: h.IsTerminal, Home: h.Home,
 		Now: time.Now, Sleep: time.Sleep, Waits: DefaultWaits,
 	}
@@ -137,14 +136,16 @@ A v2 (teamchat) team is shut down the same way: each LXC seat of its LXC record 
 container runs is closed in its session on the seat's own tmux server (tmux -S), and each
 ccy session on this host that holds a seat of the team (its holding record in the owner's
 seat store names the session, and its seat lock of the team is held: its run is live) is
-closed as above. A v2 member whose seat nothing holds is named: with nothing to shut down
-when its seat is in this host's seat store, else as not reachable from here. A seat whose
-holder's run ended without releasing it (a crash or a reboot: its seat lock is free) has no
-session, even when a later ccy session carries the same name; the seat sweep keeps such a
-seat for that session's restore while its session record remains, and releases it once the
-record is gone. A seat held by a live session outside ccy's tmux, a seat whose holding
-record cannot be read, and an LXC member no entry of the team's LXC record names are not
-reachable from here.
+closed as above; its seat lock is checked again just before /compact is typed, and one no
+longer held is not typed into (not reachable: changed while confirming). A v2 member whose
+seat nothing holds is named: with nothing to shut down when its seat is in this host's seat
+store, else as not reachable from here. A seat whose holder's seat lock is free, when no
+live ccy session has the holder's name, has no session; the seat stays held in the seat
+store until the seat sweep releases it. A holder whose seat lock is not there yet (a session
+still starting), cannot be probed, or is free while a live ccy session has its name, a seat
+held by a live session outside ccy's tmux, a seat whose holding record cannot be read, a
+seat store pool entry that is not a checkout's pool, and an LXC member no entry of the
+team's LXC record names are not reachable from here.
 
 Exit codes:
   0   every session exited cleanly or stopped, or nothing was shut down on request
@@ -222,6 +223,10 @@ func (s *Shutdown) forTeam(ctx context.Context, team string, yes, noCompact bool
 	}
 	if code, proceed := s.confirm(ctx, team, len(p.jobs), yes); !proceed {
 		return code
+	}
+	s.recheck(&p)
+	if len(p.jobs) == 0 {
+		return s.report(team, p)
 	}
 	s.stopAll(ctx, p.jobs, noCompact)
 	s.checkSeats(ctx, p.jobs)

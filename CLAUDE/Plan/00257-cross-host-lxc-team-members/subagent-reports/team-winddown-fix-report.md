@@ -52,12 +52,12 @@ For item 2, the session name is verified: it is the ccy tmux session name.
 Findings 2, 3 and 4 and the picker nit are fixed. B.13 stays ticked; its line now says how v2
 host seats are found. Each test below was seen failing before its code.
 
-| Item                                   | State | Commit    | Tests                                                                                                                                                                                                                          |
-| -------------------------------------- | ----- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 4. tmux "not there" read loosely       | fixed | 2d2c7f042 | rule `project_tmux_gone_text` (`TestTmuxGoneText`); `tmuxccy` `TestListReadsOnlyTmuxsOwnNoServerAsEmpty`, `TestCapturePaneIsGoneOnlyOnTmuxsOwnAnswer`; `shutdown` `TestAV2SeatWhoseTmuxCannotBeReachedIsNotReachable`         |
+| Item                                   | State | Commit    | Tests                                                                                                                                                                                                                                                 |
+| -------------------------------------- | ----- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 4. tmux "not there" read loosely       | fixed | 2d2c7f042 | rule `project_tmux_gone_text` (`TestTmuxGoneText`); `tmuxccy` `TestListReadsOnlyTmuxsOwnNoServerAsEmpty`, `TestCapturePaneIsGoneOnlyOnTmuxsOwnAnswer`; `shutdown` `TestAV2SeatWhoseTmuxCannotBeReachedIsNotReachable`                                 |
 | 2. v2 host seats closed                | fixed | 5cb21944e | `shutdown` `TestAV2HostSeatsSessionIsClosed`, `TestAV2HostSeatWithNoSessionHasNothingToShutDown`, `TestAV2HostMemberOfAnotherMachineIsOutOfReach`, `TestAnUnreadableDesiredMembershipIsNotReachable`; `seatsweep` `TestDesiredReadGivesTheMembership` |
-| 3. lxc member with no LXC record entry | fixed | 5cb21944e | `shutdown` `TestAV2LxcMemberNoLxcRecordNamesIsNotReachable` (no record file; no entry for it)                                                                                                                                  |
-| Nit: picker sudo calls per refresh     | fixed | 16413ab40 | `picker` `TestAV2TeamsStartLinesAreAskedOnceARefresh`; `lxcfreeze` `TestUnitStatesAsksEveryUnitInOneCall`                                                                                                                       |
+| 3. lxc member with no LXC record entry | fixed | 5cb21944e | `shutdown` `TestAV2LxcMemberNoLxcRecordNamesIsNotReachable` (no record file; no entry for it)                                                                                                                                                         |
+| Nit: picker sudo calls per refresh     | fixed | 16413ab40 | `picker` `TestAV2TeamsStartLinesAreAskedOnceARefresh`; `lxcfreeze` `TestUnitStatesAsksEveryUnitInOneCall`                                                                                                                                             |
 
 ### Finding 4 (Defence Before Fix)
 
@@ -136,13 +136,13 @@ TC2 and TC12, `docs/agent-bus.md` and the shutdown help text now say that v2 hos
 by the seat store's holdings. Each test below was seen failing before its code
 (`untracked/scratch/b13-fix3-red.log` holds the shutdown run).
 
-| Item                                            | State | Tests                                                                                                                                                                                                      |
-| ----------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Item                                            | State | Tests                                                                                                                                                                                                              |
+| ----------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 1. leftover desired.json closes another session | fixed | `shutdown` `TestALeftoverDesiredMembershipDoesNotMakeASessionTheTeams`, `TestAV2HostSeatsSessionIsClosed` (now by holding); `seat` `TestHeldByIsTheSessionsCompleteHoldings`, `TestReadHoldingsIsHoldingsReadOnly` |
-| 2. seat held outside ccy tmux read as idle      | fixed | `shutdown` `TestAV2HostSeatHeldOutsideCcyTmuxIsOutOfReach`                                                                                                                                                  |
-| 3. unreadable membership reported twice         | fixed | `shutdown` `TestAnUnreadableHoldingIsNotReachableOnce`, `TestUnreadableHoldingsAreNotReachableOnce` (replace `TestAnUnreadableDesiredMembershipIsNotReachable`, whose case is gone)                         |
-| 4. nit: UnitStates matched by position          | fixed | `lxcfreeze` `TestUnitStatesAsksEveryUnitInOneCall` (answers out of order), `TestUnitStatesRefusesAnAnswerForAnotherUnit`                                                                                   |
-| 5. nit: red proof command not recorded          | done  | re-run below                                                                                                                                                                                               |
+| 2. seat held outside ccy tmux read as idle      | fixed | `shutdown` `TestAV2HostSeatHeldOutsideCcyTmuxIsOutOfReach`                                                                                                                                                         |
+| 3. unreadable membership reported twice         | fixed | `shutdown` `TestAnUnreadableHoldingIsNotReachableOnce`, `TestUnreadableHoldingsAreNotReachableOnce` (replace `TestAnUnreadableDesiredMembershipIsNotReachable`, whose case is gone)                                |
+| 4. nit: UnitStates matched by position          | fixed | `lxcfreeze` `TestUnitStatesAsksEveryUnitInOneCall` (answers out of order), `TestUnitStatesRefusesAnAnswerForAnotherUnit`                                                                                           |
+| 5. nit: red proof command not recorded          | done  | re-run below                                                                                                                                                                                                       |
 
 ### Items 1, 2 and 3
 
@@ -198,12 +198,12 @@ that a holder is closed only while its run is live, and name the crashed-holder 
 below was seen failing before its code (`untracked/scratch/b13-fix4-red-shutdown.log` and
 `b13-fix4-red-seat.log`).
 
-| Item                                                | State | Tests                                                                                                                                         |
-| --------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. a crashed holder's reused name is closed         | fixed | `shutdown` `TestALeftoverHoldingDoesNotMakeAReusedNameTheTeams`; `seat` `TestKeeperLiveIsTheSessionsSeatLockHeld`                             |
-| 2. a crashed holder reported as outside tmux, exit 1 | fixed | `shutdown` `TestACrashedHoldersSeatHasNoSession`, `TestAV2HostSeatHeldOutsideCcyTmuxIsOutOfReach` (its holder now keeps its seat lock)         |
-| 3. nit: `seatsweep.Desired.Read` a dead export      | fixed | `seatsweep` `TestDesiredReadGivesTheMembership` (now of `read`)                                                                               |
-| 4. nit: `checkouts()` skips a strange pool entry    | fixed | `shutdown` `TestAPoolEntryThatIsNotACheckoutIsNotSkipped` (a name no checkout has; a file under a checkout's name)                            |
+| Item                                                 | State | Tests                                                                                                                                  |
+| ---------------------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. a crashed holder's reused name is closed          | fixed | `shutdown` `TestALeftoverHoldingDoesNotMakeAReusedNameTheTeams`; `seat` `TestKeeperLiveIsTheSessionsSeatLockHeld`                      |
+| 2. a crashed holder reported as outside tmux, exit 1 | fixed | `shutdown` `TestACrashedHoldersSeatHasNoSession`, `TestAV2HostSeatHeldOutsideCcyTmuxIsOutOfReach` (its holder now keeps its seat lock) |
+| 3. nit: `seatsweep.Desired.Read` a dead export       | fixed | `seatsweep` `TestDesiredReadGivesTheMembership` (now of `read`)                                                                        |
+| 4. nit: `checkouts()` skips a strange pool entry     | fixed | `shutdown` `TestAPoolEntryThatIsNotACheckoutIsNotSkipped` (a name no checkout has; a file under a checkout's name)                     |
 
 ### Items 1 and 2
 
@@ -241,3 +241,83 @@ detector can tell which fact decides liveness; the shared `seat.KeeperLive` is t
 DBF: item 3 is YAGNI cleanup, with no class. Item 4 is the "skip what does not parse" pattern in
 one function. The class (a `continue` on a parse error) is too general for a detector without
 false positives, so it gets a test.
+
+## Fix round, part 5
+
+The review of part 4 (`team-winddown-fix4-review.md`, committed with the RED tests in ef7c28ebe)
+found four should-fix items and two nits. The coordinator asked for a minimal, safe final round
+that prefers "not reachable, exit 1" over any finer classification. All six are done. The RED
+tests and the seat API came first (ef7c28ebe; `untracked/scratch/b13-fix5-red-shutdown.log`, and
+`b13-fix5-red-seat.log` for the seat test, which did not build before `seat.Keeper` existed). The
+fix, docs and plan follow in the next commit.
+
+| Item                                                       | State | Tests                                                                                                                                                                                                                                                                                   |
+| ---------------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. a starting session reported as crashed                  | fixed | `seat` `TestKeeperOfIsWhatTheSessionsSeatLockSays`; `shutdown` `TestAHolderWithNoSeatLockYetIsNotReachable` (two subtests), `TestAHolderWhoseSeatLockIsRefusedIsNotReachable`, `TestALeftoverHoldingDoesNotMakeAReusedNameTheTeams` (now exit 1), `TestACrashedHoldersSeatHasNoSession` |
+| 2. the seat sweep's handling of the seat described wrongly | fixed | `shutdown` `TestACrashedHoldersSeatHasNoSession` (the new words, and the old ones absent)                                                                                                                                                                                               |
+| 3. live check before the prompt only (TOCTOU)              | fixed | `shutdown` `TestAHolderThatEndsWhileConfirmingIsNotTypedInto` (a prompt runner that frees the real lock before it answers)                                                                                                                                                              |
+| 4. unreadable seat locks untested                          | fixed | `shutdown` `TestUnreadableSeatLocksAreNotReachableOnce` (through the new `Shutdown.Keeper` seam)                                                                                                                                                                                        |
+| 5. nit: one bad pool entry blocks every host seat          | fixed | `shutdown` `TestAPoolEntryThatIsNotACheckoutIsNotSkipped` (a live holder in a valid checkout is closed; exit 1)                                                                                                                                                                         |
+| 6. nit: `KeeperLive` builds a zero Store                   | noted | not changed (see Item 6 below)                                                                                                                                                                                                                                                          |
+
+- **Item 1.** `seat.KeeperOf(store, session, team)` replaces `KeeperLive` and returns what the
+  probe found: `KeeperNoLock` (also the zero value, and the answer for a store that does not
+  exist), `KeeperEnded` (free), `KeeperRunning` (held) or `KeeperRefused`. The store's own
+  `keeperLive` (a take's `sessionHolds`) is now `keeper() == KeeperRunning`, so there is still
+  one probe and its logic is not copied. Shutdown says "no session running" (exit 0) only for a
+  free lock when no live ccy session has the holder's name. Every other holder whose lock is not
+  held is not reachable, exit 1, and nothing is typed. The reason is "whose seat lock is not there
+  yet (still starting?)", "cannot be probed", or "is free, while a live ccy session carries that
+  name". The words "a crash or a reboot" and "not the team's" are gone.
+- **Item 2.** Checked against `sweep.one()`: a complete holding is kept only while its session
+  record is restorable and its desired membership names the seat; otherwise it is released (as
+  a leave in the second case). So the message now says only that the seat stays held in this
+  host's seat store until the seat sweep releases it, or a restore of that session resumes it.
+  It makes no claim about when. The restore clause is there because a restore re-takes the
+  holding, and the launcher's exit, not the sweep, then releases it. The same wording is in the
+  help text, SPEC TC2 and TC12, `docs/agent-bus.md` and the changelog.
+- **Item 3.**
+  - Each v2 host job carries its holder (store, session, team).
+  - `Shutdown.recheck` asks `Keeper` again after `confirm` and before `stopAll`, which also
+    covers `--yes`.
+  - A job whose lock is no longer held, or whose lock cannot be read, is dropped and reported
+    not reachable: "whose seat lock changed while confirming: it is free now; it is not typed
+    into".
+  - If no job is left, the run goes straight to the report.
+  - The test frees a real flock in the prompt runner, between plan and close.
+- **Item 4.** `Shutdown.Keeper` is a new field (default `seat.KeeperOf`), following the package's
+  rule that every dependency is a field. Running as root on tmpfs, no real probe error can be
+  produced without one: EACCES and links are refused, not errors. The test makes the seam return
+  an error. The member is named once as "the seat store's seat locks: …", exit 1, nothing typed.
+- **Item 5.**
+  - `checkouts()` now returns the valid checkout keys and one not-reachable entry for each bad
+    pool entry, named by its path: "not a checkout's pool (…), so no seat in it is read; the
+    seat sweep reports it too".
+  - `teamHoldings` and `inPool` read only the valid keys, so a verified live holder is still
+    closed.
+  - The run still exits 1, because the bad entry is not reachable.
+  - A checkout whose own holdings cannot be read (a bad team directory) still makes every member
+    not reachable (`TestUnreadableHoldingsAreNotReachableOnce`, unchanged).
+- **Item 6, not changed.**
+  - `KeeperOf` cannot take only the lock's path. The probe opens the lock beneath the store root,
+    through no link (`openat2` with `RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS` from the root fd), and
+    that root fd is what makes it safe against a container-planted link.
+  - So it still runs on a read-only `Store`. `readOnly`'s comment now says that store has no
+    sessions, and a zero checkout when the caller reads no pool, so only code that reads neither
+    (as `probe` does) may run on it.
+- **Image:** CCY 3.122.43 and container 2.84.43; the pre-commit hook demanded the container bump
+  (`seat/` is an image input). One changelog entry.
+- **Coverage.** The first qa-changed run failed go-qa's 90% statement floor over the diff scope
+  (89.2%; `shutdown` was already at 88.5% before this round). These tests cover the new and the
+  old unread branches:
+  - `TestEverySeatLockStateHasItsOwnWords`;
+  - `TestARecheckThatCannotReadTheLockClosesNothing`, a lock that cannot be read at the recheck;
+  - `TestASeatStoreThatCannotBeReadDecidesNothing`, no seat store, or a pool that is a file;
+  - `TestTheMenuLineShutsDownAndGoesBackToTheList`, `Offer`, which had no test;
+  - `TestAFailedQuestionShutsNothingDown`, a prompt that cannot run.
+
+DBF: items 1 and 3 are design gaps (a probe state taken for a fact it does not prove; a check made
+too early to cover the act). No detector can say which state proves liveness or when a check is
+stale, so each gets regression tests and one shared answer, `seat.KeeperOf`. Item 2 is wrong
+documentation, which has no detector. Item 4 is a missing test. Item 5 has the same class as
+part 4's item 4 and is covered by its test.

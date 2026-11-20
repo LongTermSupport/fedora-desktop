@@ -23,15 +23,20 @@ Each expectation below is numbered and held by a test, written first.
     names for the seat (discover), on ccy's tmux server (`tmux -L ccy`); for a v2 team, the
     seat store's holding: a live session whose name a complete holding of the team's seat
     records (`held/held.json`, `seat.HeldBy`, the same answer the launcher's exit acts on), and
-    only while that session's seat lock of the team is held (`seat.KeeperLive`, the store's own
-    live-keeper test, which a take asks first). A desired membership (`Store.DesiredFile`) is
-    never asked, and a holding with a free seat lock is a crashed or rebooted run's, which the
-    store keeps for a restore: both outlive their session and tmux reuses names, so either could
-    name a later, unrelated session. A v2 host seat held by a live session that is not on ccy's
-    tmux (one started outside tmux holds its seats under its container's name), or whose holding
-    record cannot be read, is out of reach; a crashed holder's seat and a seat of this host's
-    pool that nothing holds have no session; a member whose seat is not in the pool is out of
-    reach (another machine);
+    only while that session's seat lock of the team is held (`seat.KeeperOf` is
+    `KeeperRunning`, the store's own live-keeper test, which a take asks first), asked again
+    just before the close: a holder whose lock is no longer held then is not typed into and is
+    out of reach, changed while confirming. A desired membership (`Store.DesiredFile`) is never
+    asked, and a holding whose lock is not held may be a run's that ended: both outlive their
+    session and tmux reuses names, so either could name a later, unrelated session. A holder
+    whose seat lock is free and whose name no live ccy session has has no session. Any other
+    holder whose lock is not held is out of reach: no lock yet (a v2 launch writes the holding
+    before its keeper makes the lock, so the session may still be starting), a lock the probe
+    refuses, or a free lock while a live ccy session has the name (a later session, or the same
+    one restarting). A v2 host seat held by a live session that is not on ccy's tmux (one
+    started outside tmux holds its seats under its container's name), or whose holding record
+    cannot be read, is out of reach; a seat of this host's pool that nothing holds has no
+    session; a member whose seat is not in the pool is out of reach (another machine);
   - a v1 LXC seat: the tmux session `agent-bus-claude` on the server of the same name inside
     the running container, as the member's user, through `sudo lxc-attach`
     (`lxcfreeze.Lister.InContainer`, as the wind-down reaches it);
@@ -86,16 +91,18 @@ Each expectation below is numbered and held by a test, written first.
   was: not found (its tmux session is not there), busy past the bound (its prompt was not ready
   within 30 s), its compaction never finished (600 s), exit refused (it did not end within 60 s
   of `/exit`), unreachable (sudo, `lxc-ls` or `lxc-attach` failed, or an LXC record or the seat
-  store's holdings unreadable), out of reach (another machine, a seat no record names, a v2 LXC
+  store's holdings or seat locks unreadable), out of reach (another machine, a seat no record names, a v2 LXC
   member no entry of the team's LXC record names, a missing record included, a v2 host seat held
   by a live session not on ccy's tmux (its seat lock held), named with that session, or held with
-  a record that cannot be read; a pool entry that is not a checkout's pool makes the holdings
-  unreadable, never skipped), or a crashed holder (a v2 host seat whose holding names a session
-  whose seat lock is free: it crashed or did not survive a reboot). A crashed holder's seat is
-  named under "no session running", exit 0, since nothing runs: with the session the holding
-  names, a live ccy session under that name said to be a later one, not the team's, and what the
-  seat store does with the holding (the seat sweep keeps it for that session's restore while its
-  session record remains, and releases it once the record is gone). Each member is named once,
+  a record that cannot be read, or a holder whose seat lock is not there yet, cannot be probed,
+  is free while a live ccy session has its name, or changed while confirming; a pool entry that
+  is not a checkout's pool is named as such, never skipped, and the other checkouts are still
+  read, as the seat sweep does), or a crashed holder (a v2 host seat whose holding names a
+  session whose seat lock is free, with no live ccy session of that name). A crashed holder's
+  seat is named under "no session running", exit 0, since nothing runs: with the session the
+  holding names, and that the seat stays held in the seat store until the seat sweep releases
+  it (or a restore of that session resumes it); when the sweep does so is its own rule, not
+  said here. Each member is named once,
   with one reason. "Not there" is tmux's own answer only (exit
   1 and its exact wording); the same words from lxc-attach, runuser or env are unreachable.
 - **TC13.** The last line counts: `<team>: X exited cleanly, Y stopped, Z failed`, then `; N members not reachable from here` and `; N members offline` when there are any.

@@ -1,6 +1,8 @@
 package shutdown
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -8,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -277,4 +280,49 @@ func TestAStoppedSessionLosesItsRecord(t *testing.T) {
 	if got != term.ExitOK {
 		t.Fatalf("exit %d: a stopped session with its seat released is shut down", got)
 	}
+}
+
+// SD2: the team row's menu line runs the same flow with the picker's yes/no, names a failed run
+// with its exit code, and then waits for Enter before the list is drawn again.
+func TestTheMenuLineShutsDownAndGoesBackToTheList(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	m.interactive("|YES")
+	if _, err := m.s.Offer(t.Context(), "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(m.typedInto("ccy-proj"), []string{"/exit"}) {
+		t.Fatal("not typed")
+	}
+	m.errHas(t, "Press Enter to go back to the list.")
+	m.errLacks(t, "failed, exit")
+
+	m = newMachine(t)
+	m.interactive()
+	if _, err := m.s.Offer(t.Context(), "nosuchteam"); err != nil {
+		t.Fatal(err)
+	}
+	m.errHas(t, "(ccy-teams shutdown nosuchteam failed, exit 1: see above.)", "Press Enter to go back to the list.")
+}
+
+// SD8: a question that cannot be asked (fzf fails to run) shuts nothing down, and the run
+// fails.
+func TestAFailedQuestionShutsNothingDown(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	m.interactive()
+	m.Host.Picker.Runner = failingRunner{}
+	if got := m.run("alpha"); got != term.ExitFailure {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	if len(m.typedInto("ccy-proj")) != 0 {
+		t.Fatal("something was typed after a failed question")
+	}
+}
+
+// failingRunner is a prompt runner whose program cannot be run.
+type failingRunner struct{}
+
+func (failingRunner) Run(context.Context, execx.Cmd) (execx.Result, error) {
+	return execx.Result{}, errors.New("fzf: cannot run")
 }

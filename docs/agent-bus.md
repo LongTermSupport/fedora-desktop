@@ -204,10 +204,12 @@ owner's seat store, as its holding record names it, while its run is live (its s
 team held); a member whose seat nothing holds has nothing to shut down when its seat is in this
 host's seat store, and is named as not reachable from here otherwise, as is a seat held by a live
 session outside ccy's tmux, a seat whose holding record cannot be read, and an LXC member no
-entry of the team's LXC record names; a seat whose holder crashed or did not survive a reboot
-(its seat lock free) has no session, even when a later ccy session has the same tmux name, and
-the seat sweep keeps it for that session's restore while its session record remains, then
-releases it) and,
+entry of the team's LXC record names; a seat whose holder's seat lock is free, when no live ccy
+session has the holder's name, has no session, and stays held in the seat store until the seat
+sweep releases it; a holder whose seat lock is not there yet (a session still starting), cannot
+be probed, or is free while a live ccy session has its name is not reachable, as is one whose
+lock changed while the question waited (each holder's lock is checked again just before
+`/compact` is typed)) and,
 on an LXC seat's row where its container runs, its unit file is placed (`service: true`) and its
 session does not run, **Start its session in its LXC container**, which runs `sudo teamchat-admin lxc start --member <container>/<seat key>` and says so (systemd's start, which leaves a session
 that already runs as it is: a start never ends one). `ccy-teams restart` and `wind-down` act

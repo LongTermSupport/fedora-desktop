@@ -9,6 +9,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
@@ -25,18 +26,35 @@ const (
 		"no session can be named for it; the seat sweep settles it, or end the session where it runs"
 )
 
-// whyV2Ended is why a v2 host seat whose holding names a session with no live keeper (its seat
-// lock free: the run crashed, or the host rebooted) has no session to shut down, and what the
-// seat store does with the holding; reused is a live ccy session under that name now, a later
-// one tmux gave the same name.
-func whyV2Ended(session string, reused bool) string {
-	why := whyNoSession + " on this host: the seat's holding names session " + session +
-		", whose run ended without releasing it (its seat lock is free: a crash or a reboot)"
-	if reused {
-		why += ", and the live ccy session " + session + " is a later one under the same name, not the team's"
+// whyV2Ended is why a v2 host seat whose holding names a session whose seat lock is free (its
+// run ended) and whose name no live ccy session has has no session to shut down. The seat sweep
+// decides what becomes of the holding (kept while the session record remains and its desired
+// membership names the seat, else released), so only that it releases it is said, never when.
+func whyV2Ended(session string) string {
+	return whyNoSession + " on this host: the seat's holding names session " + session +
+		", whose seat lock is free (its run ended without releasing the seat); the seat stays held " +
+		"in this host's seat store until the seat sweep releases it, or a restore of " + session + " resumes it"
+}
+
+// whyV2NotLive is why a v2 host seat whose holder's seat lock is not held cannot be shut down
+// from here, when that is not a free lock with no live session of the name (whyV2Ended): whether
+// the holder runs, and is the team's, cannot be told.
+func whyV2NotLive(k seat.Keeper) string {
+	switch k {
+	case seat.KeeperNoLock:
+		return "whose seat lock is not there yet (still starting?): a launch writes the holding before " +
+			"its keeper makes the lock, so whether its run is live cannot be told; run the shutdown again " +
+			"once it has joined, or end it where it runs"
+	case seat.KeeperRefused:
+		return "whose seat lock cannot be probed (a link, or a mode or owner its container set), so " +
+			"whether its run is live cannot be told; end it where it runs"
+	case seat.KeeperEnded:
+		return "whose seat lock is free, while a live ccy session carries that name (a later session, " +
+			"or the same one restarting), so whether it is the team's cannot be told and it is not typed " +
+			"into; end it where it runs"
+	case seat.KeeperRunning:
 	}
-	return why + "; the seat sweep keeps the seat for that session's restore while its session record " +
-		"remains, and releases it once the record is gone"
+	return "whose seat lock is held"
 }
 
 // resolveV2Lxc sorts a v2 team's LXC seats (SPEC-team-close TC2-TC4): every entry of its LXC

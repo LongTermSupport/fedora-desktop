@@ -156,8 +156,10 @@ Related plans:
   teams are on the board with their LXC seats' on-demand start. Spec:
   [SPEC-team-close.md](SPEC-team-close.md) (TC1-TC17; D1-D3 with the coordinator). A v2 host
   seat is found through the owner's seat store (the live ccy session its holding names, as the
-  launcher's exit decides, while its seat lock is held; never a desired membership or a crashed
-  run's holding, which outlive their session) and closed.
+  launcher's exit decides, while its seat lock is held, checked again just before the close;
+  never a desired membership or a holding whose lock is not held, which outlive their session)
+  and closed. Only a free lock with no live session of the name is "no session"; no lock yet,
+  a refused lock or a free lock with a live same-name session is not reachable.
   Reports: `subagent-reports/team-winddown-report.md`, review fixes
   `subagent-reports/team-winddown-fix-report.md`.
 - [ ] 🔄 **Task B.14**: the project hook guard and issue #294 (a commit message, an echo or a

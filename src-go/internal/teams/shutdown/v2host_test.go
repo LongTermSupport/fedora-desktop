@@ -42,13 +42,14 @@ func (m *machine) seatStore() paths.Store {
 // v2Checkout is the fake machine's one checkout of the seat store's pool.
 var v2Checkout = strings.Repeat("a", 32)
 
-// withV2HostSession puts a live session named name on ccy's tmux that holds the v2 team's seat
-// handle in the owner's seat store (its pool seat's held/held.json names the session) and whose
-// keeper holds the session's seat lock of the team; release frees that lock, as the keeper's
-// end does.
-func (m *machine) withV2HostSession(name, handle string) (release func()) {
+// withV2HostSession puts a live session named ccy-v2host on ccy's tmux that holds the v2 team's
+// seat v2HostHandle in the owner's seat store (its pool seat's held/held.json names the
+// session) and whose keeper holds the session's seat lock of the team; release frees that
+// lock, as the keeper's end does.
+func (m *machine) withV2HostSession() (release func()) {
 	m.t.Helper()
-	m.withV2Holding(handle, heldBy(name))
+	const name = "ccy-v2host"
+	m.withV2Holding(v2HostHandle, heldBy(name))
 	release = m.keepSeatLock(name)
 	m.sessions = append(m.sessions, &session{name: name, dir: "/srv/proj", pane: paneReady})
 	return release
@@ -165,7 +166,7 @@ func TestAV2HostSeatsSessionIsClosed(t *testing.T) {
 	m.withV2(lxcstate.StatusJoined, "", teamtest.V2Member(v2HostHandle, "podman", false))
 	m.withContainers(true)
 	m.withV2Session()
-	m.withV2HostSession("ccy-v2host", v2HostHandle)
+	m.withV2HostSession()
 	if got := m.run(teamtest.V2Team, "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}
@@ -337,7 +338,7 @@ func TestUnreadableSeatLocksAreNotReachableOnce(t *testing.T) {
 	m := newMachine(t)
 	m.withV2(lxcstate.StatusJoined, "", teamtest.V2Member(v2HostHandle, "podman", false))
 	m.withContainers(false)
-	m.withV2HostSession("ccy-v2host", v2HostHandle)
+	m.withV2HostSession()
 	m.s.Keeper = func(paths.Store, paths.SessionName, paths.TeamID) (seat.Keeper, error) {
 		return seat.KeeperNoLock, errors.New("flock: no locks available")
 	}
@@ -372,7 +373,7 @@ func TestAHolderThatEndsWhileConfirmingIsNotTypedInto(t *testing.T) {
 	m := newMachine(t)
 	m.withV2(lxcstate.StatusJoined, "", teamtest.V2Member(v2HostHandle, "podman", false))
 	m.withContainers(false)
-	release := m.withV2HostSession("ccy-v2host", v2HostHandle)
+	release := m.withV2HostSession()
 	c := m.interactive("|YES")
 	m.Host.Picker.Runner = promptThen{Runner: c.Script, then: release}
 	if got := m.run(teamtest.V2Team); got != term.ExitFailure {
@@ -398,7 +399,7 @@ func TestAPoolEntryThatIsNotACheckoutIsNotSkipped(t *testing.T) {
 			m.withV2(lxcstate.StatusJoined, "", teamtest.V2Member(v2HostHandle, "podman", false),
 				teamtest.V2Member(v2OtherHandle, "podman", false))
 			m.withContainers(false)
-			m.withV2HostSession("ccy-v2host", v2HostHandle)
+			m.withV2HostSession()
 			if err := os.MkdirAll(m.seatStore().Pool()+"/"+v2Checkout+"/"+teamtest.V2Team+"/"+v2OtherHandle, 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -453,5 +454,81 @@ func TestUnreadableHoldingsAreNotReachableOnce(t *testing.T) {
 	m.errHas(t, v2HostHandle+": not shut down: "+whyUnreachable+"the seat store's holdings: ")
 	if n := strings.Count(m.ErrOut.String(), v2HostHandle+":"); n != 1 {
 		t.Fatalf("the member is reported %d times:\n%s", n, m.ErrOut.String())
+	}
+}
+
+// TC12: every state a seat lock can be in has its own words, both where a holder is named not
+// reachable and where a recheck finds its lock changed.
+func TestEverySeatLockStateHasItsOwnWords(t *testing.T) {
+	keepers := []seat.Keeper{seat.KeeperNoLock, seat.KeeperEnded, seat.KeeperRunning, seat.KeeperRefused}
+	for name, words := range map[string]func(seat.Keeper) string{"whyV2NotLive": whyV2NotLive, "keeperNow": keeperNow} {
+		seen := map[string]seat.Keeper{}
+		for _, k := range keepers {
+			w := words(k)
+			if prev, dup := seen[w]; dup || w == "" {
+				t.Errorf("%s(%v) = %q, the same as for %v", name, k, w, prev)
+			}
+			seen[w] = k
+		}
+	}
+}
+
+// TC12: a seat lock that cannot be read when it is asked again just before the close is not
+// typed into: the holder is not reachable, with why.
+func TestARecheckThatCannotReadTheLockClosesNothing(t *testing.T) {
+	m := newMachine(t)
+	m.withV2(lxcstate.StatusJoined, "", teamtest.V2Member(v2HostHandle, "podman", false))
+	m.withContainers(false)
+	m.withV2HostSession()
+	asked := 0
+	m.s.Keeper = func(store paths.Store, n paths.SessionName, team paths.TeamID) (seat.Keeper, error) {
+		if asked++; asked > 1 {
+			return seat.KeeperNoLock, errors.New("flock: no locks available")
+		}
+		return seat.KeeperOf(store, n, team)
+	}
+	if got := m.run(teamtest.V2Team, "--yes"); got != term.ExitFailure {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	if got := m.typedInto("ccy-v2host"); len(got) != 0 {
+		t.Fatalf("typed into %q", got)
+	}
+	m.errHas(t, v2HostHandle+": not shut down: held by session ccy-v2host, whose seat lock changed while confirming: "+
+		"it cannot be read now: flock: no locks available")
+}
+
+// TC12: a seat store that cannot be found, or whose pool cannot be listed, decides nothing:
+// each host member is named once as not reachable, with why, and the run exits 1.
+func TestASeatStoreThatCannotBeReadDecidesNothing(t *testing.T) {
+	for name, tc := range map[string]struct {
+		plant func(m *machine)
+		why   string
+	}{
+		"no seat store": {func(m *machine) {
+			m.s.SeatStore = func() (paths.Store, error) { return paths.Store{}, errors.New("no state home") }
+		}, "the seat store: no state home"},
+		"a pool that is a file": {func(m *machine) {
+			pool := m.seatStore().Pool()
+			if err := os.MkdirAll(filepath.Dir(pool), 0o700); err != nil {
+				m.t.Fatal(err)
+			}
+			if err := os.WriteFile(pool, nil, 0o600); err != nil {
+				m.t.Fatal(err)
+			}
+		}, "the seat store's pool: "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := newMachine(t)
+			m.withV2(lxcstate.StatusJoined, "", teamtest.V2Member(v2HostHandle, "podman", false))
+			m.withContainers(false)
+			tc.plant(m)
+			if got := m.run(teamtest.V2Team, "--yes"); got != term.ExitFailure {
+				t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+			}
+			m.errHas(t, v2HostHandle+": not shut down: "+whyUnreachable+tc.why)
+			if n := strings.Count(m.ErrOut.String(), v2HostHandle+":"); n != 1 {
+				t.Fatalf("the member is reported %d times:\n%s", n, m.ErrOut.String())
+			}
+		})
 	}
 }

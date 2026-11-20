@@ -16,6 +16,8 @@ type job struct {
 	// container (SPEC-team-close TC2).
 	where string
 	guest *sessclose.Guest
+	// holder is a v2 host seat's: its seat lock, asked again just before the close (recheck).
+	holder *v2Holder
 
 	result   sessclose.Outcome
 	note     string
