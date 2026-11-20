@@ -22,8 +22,9 @@ Two version numbers move independently — see
 - **ccy-teams offers Start its session in its LXC container only where it can work**
   (Plan 00257). The line shows only on this host's LXC member whose `agent_bus_lxc_members`
   entry has `service: true`. Other hosts' members and members without a unit no longer show
-  it. The image changes only because the declaration reader it shares gained the `service`
-  flag.
+  it. Nothing in the image changed: the declaration reader that gained the `service` flag
+  (`src-go/internal/bus/declare`) is not built into the image, so the container version bump to
+  2.84.40 was not needed, and it costs one image rebuild that changes nothing inside.
 
 ## 3.122.33 — container 2.84.39
 

@@ -71,7 +71,8 @@ The script is `lxc-no-autostart-acceptance.bash`.
 - DBF: this is a design rule about when the menu offers the line, not a pattern a detector
   can express, so it is fixed with regression tests.
 - `bus/declare` is image source, so this needed a bump: ccy 3.122.34, container 2.84.40, with
-  a changelog entry. Commit 559481d83.
+  a changelog entry. Commit 559481d83. (Correction, `noauto-fix3-report.md`: `bus/declare` is
+  not image source; only the ccy bump was needed.)
 
 ### G: Plan 00203's R9, and Plan 00205's proposal
 
