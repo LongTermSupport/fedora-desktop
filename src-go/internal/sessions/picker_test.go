@@ -526,12 +526,12 @@ func TestCloseOnASessionClosesItThroughSessclose(t *testing.T) {
 		said             string
 	}{
 		{
-			"Close it:", "Close ccy-a? It is compacted (/compact), then sent /exit.", false,
+			"Close it:", "Close ccy-a? It is compacted (/compact), then sent /exit. A session in the middle of a turn is given up to 300 s to finish it; it is never interrupted.", false,
 			sessclose.Result{Outcome: sessclose.Exited, Note: "compacted first"},
 			"Closed 'ccy-a': exited cleanly; compacted first.",
 		},
 		{
-			"Close it without", "Close ccy-a? It is sent /exit, without compacting.", true,
+			"Close it without", "Close ccy-a? It is sent /exit, without compacting. A session in the middle of a turn is given up to 300 s to finish it; it is never interrupted.", true,
 			sessclose.Result{Outcome: sessclose.Failed, Note: "its input box holds unsent text"},
 			"'ccy-a' was not closed: its input box holds unsent text.",
 		},
@@ -553,7 +553,7 @@ func TestCloseOnASessionClosesItThroughSessclose(t *testing.T) {
 		if h.count("tmux -L ccy kill-session") != 0 || rig.n != 4 {
 			t.Fatalf("%s: picks %d ran %v", tc.choice, rig.n, h.ran())
 		}
-		contains(t, "said", h.stderr(), tc.said)
+		contains(t, "said", h.stderr(), tc.said, "A session in the middle of a turn is given up to 300 s to finish it; it is never interrupted.")
 	}
 }
 

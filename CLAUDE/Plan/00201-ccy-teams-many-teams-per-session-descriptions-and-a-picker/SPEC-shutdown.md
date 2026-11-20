@@ -151,15 +151,17 @@ both.
   - **ready** (claude's prompt, input box empty): `/exit` is typed (`send-keys -l /exit`), then
     Enter after the submit delay (200 ms). Its exit wait (60 s) starts.
   - **busy** (a turn running): the turn is never interrupted (no Escape); the pane is read
-    again until it is ready (prompt wait, 300 s, the team wind-down's bound for a busy
-    session). Changed by Plan 00257 Q52 (the owner): it was Escape once, then a 30 s wait, which
+    again until it is ready. Seeing the turn extends the prompt wait to the turn wait, 300 s
+    from the wait's start (the team wind-down's bound for a busy session), and it is never cut
+    back. Changed by Plan 00257 Q52 (the owner): it was Escape once, then a 30 s wait, which
     cut a working turn off mid-step (sessclose C4).
   - **text in the input box**, before `/exit` was typed: nothing is typed over it; the
     session **failed**: "its input box holds unsent text; attach it (ccy-sessions), send or
     clear it, and run shutdown again". It is not stopped.
   - **text in the input box** after `/exit` was typed (the completion menu took the Enter):
     Enter is pressed once more.
-  - **not drawn** (starting, a dialog): read again until ready (prompt wait).
+  - **not drawn** (starting, a dialog): read again until ready (prompt wait, 30 s, or the turn
+    wait once a turn has been seen).
   - **at a launcher question** (`screen.KnownPrompts`) other than compose-stop: claude is not
     running; the session is **stopped** at once (SD12), "it was at the launcher's <name>
     question, so claude was not running".
@@ -178,7 +180,9 @@ both.
   `kill-session`, as its Enter would). A session that ends by itself before `/exit` was typed
   is exited too ("ended by itself").
 - **SD12** The **hard stop**, only when the session has not ended within its wait: `tmux kill-session`, then the session's registry record removed, as ccy-sessions' End. The line
-  says why: "did not end within 60 s of /exit" or "its prompt was not ready within 300 s". A
+  says why: "did not end within 60 s of /exit", "a turn was still running after 300 s" (busy
+  when the turn wait ran out) or "its prompt was not ready within 30 s" (no prompt drawn; "within
+  300 s" when a turn had been seen before it). A
   session already gone at the kill is exited, not stopped.
 - **SD13** Each step that fails (a tmux or registry error) makes that session **failed**, with
   the tool's words; the other sessions carry on. A pane that cannot be read is failed with

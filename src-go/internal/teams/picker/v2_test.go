@@ -23,7 +23,7 @@ func (h rig) withV2(t *testing.T) {
 	h.OnErr("sudo -n lxc-ls", "sudo: a password is required\n", 1)
 }
 
-// TC1, TC17: a v2 team's row offers only what reaches a v2 team, its Shut down among them; no
+// TC1, TC17: a v2 team's row offers only what reaches a v2 team, its Close every session among them; no
 // v1 flow (apply, remove, restart, wind-down, Element, adding a member) is offered on it.
 func TestAV2TeamsRowOffersOnlyWhatReachesIt(t *testing.T) {
 	h := newRig(t)

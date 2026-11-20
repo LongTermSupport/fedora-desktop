@@ -378,8 +378,9 @@ func (s *Shutdown) preview(team string, p plan, noCompact bool) {
 	first := "Each session is compacted (/compact, as if typed) and then sent /exit; one whose compaction has not " +
 		"completed within " + sessclose.Seconds(w.Compact) + " is left running and named. "
 	if noCompact {
-		first = "Each session is sent /exit, as if typed, without compacting; "
+		first = "Each session is sent /exit, as if typed, without compacting. "
 	}
+	first += sessclose.TurnWait(w) + " "
 	guests := ""
 	if slices.ContainsFunc(p.jobs, func(j *job) bool { return j.guest != nil }) {
 		guests = " A session in an LXC container is never stopped, nor its container or unit: one that does not end " +

@@ -17,6 +17,22 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.46 — container 2.84.43
+
+- **Closing a session waits up to 300 s only for a turn it has seen running; a pane with no
+  prompt still gets 30 s** (Plan 00257 SPEC-team-close D2, TC8, TC12; sessclose C4, C8, G2; Plan
+  00201 SPEC-shutdown SD10, SD12). This applies to `ccy-teams shutdown` (the team row's Close every
+  session), `ccy --stop` and ccy-sessions' Close, with or without `--no-compact` (Close it
+  without compacting): each waits for a running turn to end, up to 300 s, never interrupting it,
+  before it types `/compact` or `/exit`, and `--no-compact` no longer cuts a turn off. A pane that
+  shows no prompt and has not been seen in a turn (claude starting, a dialog, a hung screen) is
+  given 30 s, as before 3.122.45, which had made it wait 300 s too. Once a turn has been seen,
+  the wait stays 300 s even if the pane then shows no prompt (a dialog of that turn). The note
+  says which case it was: on the host "a turn was still running after 300 s" or "its prompt was
+  not ready within 30 s" (then the session is stopped); in an LXC container "busy past the bound"
+  or "no prompt", left running. `ccy --stop`, the Close question and progress line, and the
+  shutdown's preview now say that a turn is given up to 300 s. The image is unchanged.
+
 ## 3.122.45 — container 2.84.43
 
 - **Closing a session never interrupts a turn** (Plan 00257 SPEC-team-close D2, TC8, TC12, the

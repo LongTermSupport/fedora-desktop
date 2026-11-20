@@ -56,6 +56,7 @@ func (f Front) stopSessions(ctx context.Context) term.ExitCode {
 		p.Print(f.Stderr, "Each session is compacted (/compact), then sent /exit; a compaction is waited for, "+
 			sessclose.Seconds(closer.Limits().Compact)+" at most.\n")
 	}
+	p.Print(f.Stderr, sessclose.TurnWait(closer.Limits())+"\n")
 	code := term.ExitOK
 	for _, r := range closer.Close(ctx, targets) {
 		line, ok := resultLine(r)

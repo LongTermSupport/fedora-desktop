@@ -103,8 +103,10 @@ Compact every session of <team> (stays open) is in a team row's menu too
 (`ccy-teams wind-down <team>`): each running session of the team on this desktop, its
 coordinator included, gets /goal clear typed in at an idle moment, then the wind-down: we are
 about to shut down, the work is not done, so commit it, stop sub-agents, push what passes its QA
-gate, write down where unfinished work stands, and stop; then /compact. Nothing is ended. An LXC
-member in a running container gets the same in its session there (through sudo lxc-attach); one
+gate, write down where unfinished work stands, and stop; then /compact, when its context is at
+or above the compact floor (ccy_restore_compact_floor_tokens; a smaller one is not compacted). Nothing
+is ended. An LXC member in a running container gets the same in its session there (through sudo
+lxc-attach), compacted whatever its size; one
 whose container is stopped, or a member on another machine, is named, with the text to give it.
 It asks first.
 

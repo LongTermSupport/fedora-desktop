@@ -328,9 +328,10 @@ func (a *App) confirmEnd(ctx context.Context, name string) step {
 // default): /compact, then /exit once the compaction is recorded, or /exit alone, through
 // sessclose. A failure leaves the session running and says why; the list comes back either way.
 func (a *App) confirmClose(ctx context.Context, name string, noCompact bool) step {
-	how := "It is compacted (/compact), then sent /exit."
+	turn := sessclose.TurnWait(a.Closer.Limits())
+	how := "It is compacted (/compact), then sent /exit. " + turn
 	if noCompact {
-		how = "It is sent /exit, without compacting."
+		how = "It is sent /exit, without compacting. " + turn
 	}
 	end := a.Picker.Destructive()
 	yes, err := a.Picker.Confirm(ctx, sessionHeading(name, "Close", "session "+name), "Close "+name+"? "+how, "close '"+name+"'", false)
@@ -343,9 +344,11 @@ func (a *App) confirmClose(ctx context.Context, name string, noCompact bool) ste
 		a.sayf("Kept '%s'.\n", name)
 		return redraw
 	}
-	if !noCompact {
-		a.sayf("Closing '%s': /compact, then /exit; its compaction is waited for, %s at most.\n",
-			name, sessclose.Seconds(a.Closer.Limits().Compact))
+	if noCompact {
+		a.sayf("Closing '%s': /exit. %s\n", name, turn)
+	} else {
+		a.sayf("Closing '%s': /compact, then /exit; its compaction is waited for, %s at most. %s\n",
+			name, sessclose.Seconds(a.Closer.Limits().Compact), turn)
 	}
 	results := a.Closer.Close(ctx, []sessclose.Target{{Name: name, NoCompact: noCompact}})
 	if len(results) != 1 {

@@ -15,9 +15,10 @@
 //     never the newest in a shared folder); one that has not grown since its last compaction
 //     (transcript.CompactedLast) goes straight to /exit, with no compaction noted.
 //   - C4. At a ready, empty box /compact is typed with the close instruction, then Enter after
-//     the submit pause. A busy box is never interrupted (no Escape): its turn is waited for, up
-//     to Waits.Prompt, and a box holding unsent text is never typed over: Failed, untouched. A
-//     /compact left in the box gets one more Enter.
+//     the submit pause. A busy box is never interrupted (no Escape): once a turn is seen
+//     running, the wait for the box is extended from Waits.Prompt to Waits.Turn, both counted
+//     from the wait's start, and never cut back. A box holding unsent text is never typed over:
+//     Failed, untouched. A /compact left in the box gets one more Enter.
 //   - C5. The compaction's end is its compact_boundary in the transcript after the time it was
 //     typed. A session that records no conversation (no record, or launched without the agent
 //     team bus) is watched on its pane instead: busy then ready again, or ready for the settle
@@ -30,8 +31,9 @@
 //   - C8. Then /exit (ccy-teams shutdown's SD10-SD13, moved here): typed at a ready box; claude's
 //     "Background work is running" question answered "Exit and stop tasks" once when the cursor
 //     is on it; a launcher that has exited has its window closed; a session at a launcher
-//     question, whose prompt never readies within Waits.Prompt or that has not ended within
-//     Waits.Exit of /exit, is stopped: its tmux session killed and its record removed.
+//     question, whose prompt never readies within its bound (C4) or that has not ended within
+//     Waits.Exit of /exit, is stopped: its tmux session killed and its record removed. The note
+//     says which: a turn still running after Waits.Turn, or a prompt not ready within the bound.
 //   - C9. Live is the sessions on ccy's tmux server; Limits the bounds the Closer works to.
 //   - C10. Seconds is a bound as a sentence reads it ("60 s").
 //
@@ -42,7 +44,8 @@
 //     compaction's end is read from its pane (C5), the note saying so.
 //   - G2. It is never killed and nothing of it is stopped: where a host session would be stopped
 //     (C8), it fails, named as left running in its container. Not ended within Waits.Exit of
-//     /exit is "exit refused"; a prompt not ready within Waits.Prompt is "busy past the bound".
+//     /exit is "exit refused"; a turn still running after Waits.Turn is "busy past the bound"; a
+//     prompt not ready within its bound with no turn last seen is "no prompt".
 //   - G3. A container whose server cannot be listed fails its own sessions as "unreachable",
 //     and no other.
 //   - G4. A pane with no claude running (ended, at a launcher question) fails it untouched.
@@ -132,9 +135,12 @@ type Waits struct {
 	Submit time.Duration
 	// Poll is how often the panes are read again.
 	Poll time.Duration
-	// Prompt bounds the wait for claude's prompt before a line can be typed: a turn running is
-	// waited for, never interrupted, so it is the team wind-down's bound for a busy session.
+	// Prompt bounds the wait for claude's prompt before a line can be typed, for a pane never
+	// seen in a turn: one starting, showing a dialog or hung.
 	Prompt time.Duration
+	// Turn bounds the same wait once a turn has been seen running: it is waited for, never
+	// interrupted, as long as the team wind-down waits for a busy session.
+	Turn time.Duration
 	// Compact bounds the wait for a typed /compact to complete.
 	Compact time.Duration
 	// Settle bounds a ready pane with no compact_boundary yet, a pane ready with no busy look
@@ -146,8 +152,8 @@ type Waits struct {
 
 // DefaultWaits are the production waits.
 var DefaultWaits = Waits{
-	Submit: 200 * time.Millisecond, Poll: time.Second, Prompt: 300 * time.Second,
-	Compact: 600 * time.Second, Settle: 30 * time.Second, Exit: 60 * time.Second,
+	Submit: 200 * time.Millisecond, Poll: time.Second, Prompt: 30 * time.Second,
+	Turn: 300 * time.Second, Compact: 600 * time.Second, Settle: 30 * time.Second, Exit: 60 * time.Second,
 }
 
 // Transcripts reads a conversation's compactions (transcript.Cache).
@@ -269,6 +275,11 @@ func Seconds(d time.Duration) string {
 	return strconv.FormatFloat(d.Seconds(), 'f', -1, 64) + " s"
 }
 
+// TurnWait is the sentence a caller shows before a close: how long a turn is waited for (C4).
+func TurnWait(w Waits) string {
+	return "A session in the middle of a turn is given up to " + Seconds(w.Turn) + " to finish it; it is never interrupted."
+}
+
 // phase is how far a session's close has gone.
 type phase int
 
@@ -301,6 +312,9 @@ type job struct {
 	// the box after its second Enter does.
 	boundaryBy, stuckBy time.Time
 	deadline            time.Time
+	// waitFrom is when the wait for a ready box began; inTurn a turn seen running since (C4).
+	waitFrom time.Time
+	inTurn   bool
 
 	result      Outcome
 	note        string
@@ -353,9 +367,10 @@ func (j *job) untouched() string {
 // Close closes every target and returns their results in order (C1).
 func (c *Closer) Close(ctx context.Context, targets []Target) []Result {
 	jobs := make([]*job, len(targets))
-	by := c.Now().Add(c.Waits.Prompt)
+	now := c.Now()
 	for i, t := range targets {
-		jobs[i] = c.newJob(t, by)
+		jobs[i] = c.newJob(t, now.Add(c.Waits.Prompt))
+		jobs[i].waitFrom = now
 	}
 	return c.results(ctx, jobs)
 }
@@ -603,15 +618,23 @@ func (c *Closer) look(ctx context.Context, j *job, pane string) error {
 	return nil
 }
 
-// ready types line at a ready box, waits on a busy one (its turn is never interrupted), and fails
-// over unsent text (C4, C8).
+// ready types line at a ready box, waits on a busy one (its turn is never interrupted, and the
+// first sight of it extends the wait to the turn bound), and fails over unsent text (C4, C8).
 func (c *Closer) ready(ctx context.Context, j *job, state screen.State, line string) error {
+	j.last = state
 	switch state {
 	case screen.Ready:
 		return c.typeLine(ctx, j, line)
 	case screen.Typed:
 		j.done(Failed, whyUnsent)
-	case screen.Busy, screen.NotDrawn:
+	case screen.Busy:
+		if !j.inTurn {
+			j.inTurn = true
+			if by := j.waitFrom.Add(c.Waits.Turn); by.After(j.deadline) {
+				j.deadline = by
+			}
+		}
+	case screen.NotDrawn:
 	}
 	return nil
 }
@@ -740,7 +763,8 @@ func (c *Closer) compacted(j *job, note string) {
 		return
 	}
 	j.phase, j.compacted, j.compactNote = phaseExit, true, note
-	j.deadline = c.Now().Add(c.Waits.Prompt)
+	j.waitFrom, j.inTurn = c.Now(), false
+	j.deadline = j.waitFrom.Add(c.Waits.Prompt)
 }
 
 // timedOut ends a session whose wait is over, saying which wait it was: a compaction is never
@@ -760,13 +784,26 @@ func (c *Closer) timedOut(ctx context.Context, j *job) {
 		}
 		c.hardStop(ctx, j, late+noteKilledSuffix)
 	default:
-		late := "its prompt was not ready within " + Seconds(c.Waits.Prompt)
+		label, late := c.notReady(j)
 		if j.Guest != nil {
-			j.done(Failed, "busy past the bound: "+late+j.leftIn())
+			j.done(Failed, label+late+j.leftIn())
 			return
 		}
 		c.hardStop(ctx, j, late+noteKilledSuffix)
 	}
+}
+
+// notReady words a prompt wait that ran out from the box as last seen (C8, G2): a turn still
+// running, or no prompt within the bound in force; label is a container session's case.
+func (c *Closer) notReady(j *job) (label, late string) {
+	if j.last == screen.Busy {
+		return "busy past the bound: ", "a turn was still running after " + Seconds(c.Waits.Turn)
+	}
+	bound := c.Waits.Prompt
+	if j.inTurn {
+		bound = c.Waits.Turn
+	}
+	return "no prompt: ", "its prompt was not ready within " + Seconds(bound)
 }
 
 // answerBackgroundWork answers claude's "Background work is running" question, which /exit

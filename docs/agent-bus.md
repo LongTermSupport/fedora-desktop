@@ -170,11 +170,12 @@ coordinator first, and the whole wind-down is bounded by a 15-minute window: a s
 answering or compacting at its end is named, never interrupted. Nothing is ended. Spec: Plan
 00203 `SPEC-team-wind-down.md` sections 1 to 4 and 7.
 
-**Shut down a team's sessions** (the team stays up). `ccy-teams shutdown <team>` (or Enter on
+**Close every session of a team** (the team stays up). `ccy-teams shutdown <team>` (or Enter on
 the team, then **Close every session of `<team>` (compact, then exit)**) lists the team's sessions on this host
 and the members it cannot reach, asks (default No; `--yes` where there is no terminal), then
 closes each session as you would: `/compact` typed into its tmux pane (a turn running is
-waited for, up to 300 s, never interrupted), and once its transcript records the compaction, `/exit`. Compacting at close, while the
+waited for, up to 300 s, never interrupted; a pane with no prompt, starting or at a dialog, is
+given 30 s), and once its transcript records the compaction, `/exit`. Compacting at close, while the
 prompt cache is warm, costs a cache read of the conversation; the next resume then starts from
 the summary instead of writing the whole conversation to the cache again. A session with
 nothing to compact since its last compaction gets `/exit` alone, and so does every session
@@ -186,8 +187,9 @@ free. The same close is `ccy --stop SESSION...` and a session's **Close it** in
 `ccy-sessions`: one package, `src-go/internal/sessclose`. An LXC member whose container runs is
 closed the same way in its session there, through `sudo lxc-attach` as its user: its
 compaction's end is read from its pane, and it is never stopped, nor its container or unit (one
-that does not end after `/exit` is left running and fails as "exit refused"; one whose prompt is
-not ready in 300 s as "busy past the bound"). Each member is reported: exited cleanly, stopped,
+that does not end after `/exit` is left running and fails as "exit refused"; one still in a turn
+after 300 s as "busy past the bound", and one that shows no prompt within 30 s as "no
+prompt"). Each member is reported: exited cleanly, stopped,
 failed, not shut down (a session on another machine, a `cc --teams <team>` session whose record
 lacks its seat, a container `lxc-attach` cannot reach: end those where they run), or "no
 session running, nothing to shut down" (a free seat whose session has ended already, or a

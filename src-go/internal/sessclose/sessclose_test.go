@@ -22,6 +22,8 @@ var (
 	paneReady = strings.Join([]string{" ▐▛███▜▌   Claude Code", "", rule, "❯ ", rule, "  ⏵⏵ bypass permissions on"}, "\n")
 	paneBusy  = strings.Join([]string{"✻ Compacting conversation… (12s · esc to interrupt)", "", rule, "❯ ", rule}, "\n")
 	paneTyped = strings.Join([]string{rule, "❯ half a thought", rule}, "\n")
+	// paneStarting draws no box: screen.ClaudeState reads it NotDrawn.
+	paneStarting = "Building image...\n"
 )
 
 // fakeSession is one tmux session: its pane, and what a typed line does to it.
@@ -34,8 +36,10 @@ type fakeSession struct {
 	noBoundary bool
 	// turn is a turn running when the session is first looked at: busy for busyLeft looks,
 	// then ready with nothing written to the transcript.
-	turn            bool
-	busyLeft        int
+	turn     bool
+	busyLeft int
+	// afterTurn is the pane a turn leaves when it ends ("" for a ready box).
+	afterTurn       string
 	enters, escapes int
 	// server is the key of the tmux server the session is on, "" for ccy's; ignoreExit leaves
 	// it running after /exit.
@@ -190,6 +194,9 @@ func (w *world) look(s *fakeSession) {
 	s.pane, s.busyLeft = paneReady, -1
 	if s.turn {
 		s.turn = false
+		if s.afterTurn != "" {
+			s.pane = s.afterTurn
+		}
 		return
 	}
 	if !s.noBoundary {
@@ -369,11 +376,12 @@ func TestACompactionWithNoBoundaryFails(t *testing.T) {
 }
 
 // C4 (Plan 00257 Q52): a session in a turn is never interrupted: its turn is waited for, past
-// the old 30 s and within the prompt bound, then it is compacted and exits. No Escape is sent.
+// the prompt bound and within the turn bound (ready at 200 s), then it is compacted and exits.
+// No Escape is sent.
 func TestABusySessionIsWaitedForNeverInterrupted(t *testing.T) {
 	w := newWorld(t, "ccy-proj")
 	s := w.find("ccy-proj")
-	s.pane, s.busyLeft, s.turn = paneBusy, 120, true
+	s.pane, s.busyLeft, s.turn = paneBusy, 200, true
 	start := w.now
 	r := one(t, w.close(Target{Name: "ccy-proj"}))
 	if r.Outcome != Exited || !r.Compacted || s.escapes != 0 || w.killed("ccy-proj") {
@@ -382,8 +390,56 @@ func TestABusySessionIsWaitedForNeverInterrupted(t *testing.T) {
 	if got := w.typedInto("ccy-proj"); !slices.Equal(got, []string{CompactText, "/exit"}) {
 		t.Fatalf("typed %q", got)
 	}
-	if w.now.Sub(start) < 120*DefaultWaits.Poll {
+	if w.now.Sub(start) < 200*DefaultWaits.Poll {
 		t.Fatalf("the turn was not waited for: %v", w.now.Sub(start))
+	}
+}
+
+// C2, C4 (Q52): a --no-compact close waits out a running turn too, then types /exit alone.
+func TestANoCompactCloseWaitsForARunningTurn(t *testing.T) {
+	w := newWorld(t, "ccy-proj")
+	s := w.find("ccy-proj")
+	s.pane, s.busyLeft, s.turn = paneBusy, 200, true
+	r := one(t, w.close(Target{Name: "ccy-proj", NoCompact: true}))
+	if r.Outcome != Exited || s.escapes != 0 || !slices.Equal(w.typedInto("ccy-proj"), []string{"/exit"}) {
+		t.Fatalf("result %+v escapes %d typed %q", r, s.escapes, w.typedInto("ccy-proj"))
+	}
+}
+
+// C8 (Q52): a pane that never draws a prompt (starting, a dialog, hung) and was never seen in a
+// turn keeps the prompt bound, 30 s: stopped then, untyped.
+func TestAPaneWithNoPromptIsStoppedAtThePromptBound(t *testing.T) {
+	w := newWorld(t, "ccy-proj")
+	w.find("ccy-proj").pane = paneStarting
+	start := w.now
+	r := one(t, w.close(Target{Name: "ccy-proj"}))
+	if r.Outcome != Stopped || len(w.typedInto("ccy-proj")) != 0 || !w.killed("ccy-proj") {
+		t.Fatalf("result %+v typed %q", r, w.typedInto("ccy-proj"))
+	}
+	if r.Note != "its prompt was not ready within 30 s, so its tmux session was killed" {
+		t.Fatalf("note %q", r.Note)
+	}
+	if took := w.now.Sub(start); took < DefaultWaits.Prompt || took > DefaultWaits.Prompt+DefaultWaits.Poll {
+		t.Fatalf("stopped after %v", took)
+	}
+}
+
+// C8 (Q52): a turn seen running keeps the turn bound even when its pane then shows no box (a
+// dialog of the turn, a redraw): the bound a turn earned is never cut back to the prompt's.
+func TestATurnThatLeavesNoPromptKeepsTheTurnBound(t *testing.T) {
+	w := newWorld(t, "ccy-proj")
+	s := w.find("ccy-proj")
+	s.pane, s.busyLeft, s.turn, s.afterTurn = paneBusy, 10, true, paneStarting
+	start := w.now
+	r := one(t, w.close(Target{Name: "ccy-proj"}))
+	if r.Outcome != Stopped || len(w.typedInto("ccy-proj")) != 0 {
+		t.Fatalf("result %+v typed %q", r, w.typedInto("ccy-proj"))
+	}
+	if r.Note != "its prompt was not ready within 300 s, so its tmux session was killed" {
+		t.Fatalf("note %q", r.Note)
+	}
+	if took := w.now.Sub(start); took < DefaultWaits.Turn || took > DefaultWaits.Turn+DefaultWaits.Poll {
+		t.Fatalf("stopped after %v", took)
 	}
 }
 
@@ -398,11 +454,11 @@ func TestABusySessionPastTheBoundIsStoppedNeverInterrupted(t *testing.T) {
 	if r.Outcome != Stopped || s.escapes != 0 || len(w.typedInto("ccy-proj")) != 0 || !w.killed("ccy-proj") {
 		t.Fatalf("result %+v escapes %d typed %q", r, s.escapes, w.typedInto("ccy-proj"))
 	}
-	if r.Note != "its prompt was not ready within 300 s, so its tmux session was killed" {
+	if r.Note != "a turn was still running after 300 s, so its tmux session was killed" {
 		t.Fatalf("note %q", r.Note)
 	}
-	if w.now.Sub(start) < DefaultWaits.Prompt {
-		t.Fatalf("stopped before the bound: %v", w.now.Sub(start))
+	if took := w.now.Sub(start); took < DefaultWaits.Turn || took > DefaultWaits.Turn+DefaultWaits.Poll {
+		t.Fatalf("stopped after %v", took)
 	}
 }
 
@@ -438,8 +494,16 @@ func TestLiveAndLimits(t *testing.T) {
 	if err != nil || !live["ccy-a"] || !live["cc-b"] || len(live) != 2 {
 		t.Fatalf("live %v err %v", live, err)
 	}
-	if w.c.Limits() != DefaultWaits || DefaultWaits.Compact != 600*time.Second || DefaultWaits.Prompt != 300*time.Second {
+	if w.c.Limits() != DefaultWaits || DefaultWaits.Compact != 600*time.Second || DefaultWaits.Prompt != 30*time.Second ||
+		DefaultWaits.Turn != 300*time.Second {
 		t.Fatalf("limits %+v", w.c.Limits())
+	}
+}
+
+// C4: TurnWait says, as a sentence, how long a turn is waited for.
+func TestTurnWait(t *testing.T) {
+	if got := TurnWait(DefaultWaits); got != "A session in the middle of a turn is given up to 300 s to finish it; it is never interrupted." {
+		t.Fatalf("%q", got)
 	}
 }
 
@@ -717,9 +781,29 @@ func TestAGuestBusyPastTheBoundIsLeftRunning(t *testing.T) {
 	if r.Outcome != Failed || s.escapes != 0 || len(w.typedInto(guestSession)) != 0 || w.fake.Called("tmux -S "+guestSock+" kill-session") {
 		t.Fatalf("result %+v escapes %d", r, s.escapes)
 	}
-	want := "busy past the bound: its prompt was not ready within 300 s, so it was left running in container box1: attach it there and type /exit"
+	want := "busy past the bound: a turn was still running after 300 s, so it was left running in container box1: attach it there and type /exit"
 	if r.Note != want {
 		t.Fatalf("note %q", r.Note)
+	}
+}
+
+// G2 (TC12, Q52): a session in a container that never draws a prompt is not "busy": it fails at
+// the prompt bound, 30 s, as having no prompt, left running.
+func TestAGuestWithNoPromptFailsAtThePromptBound(t *testing.T) {
+	w := newWorld(t)
+	target := w.guest()
+	w.find(guestSession).pane = paneStarting
+	start := w.now
+	r := one(t, w.close(target))
+	if r.Outcome != Failed || len(w.typedInto(guestSession)) != 0 || w.fake.Called("tmux -S "+guestSock+" kill-session") {
+		t.Fatalf("result %+v", r)
+	}
+	want := "no prompt: its prompt was not ready within 30 s, so it was left running in container box1: attach it there and type /exit"
+	if r.Note != want {
+		t.Fatalf("note %q", r.Note)
+	}
+	if took := w.now.Sub(start); took > DefaultWaits.Prompt+DefaultWaits.Poll {
+		t.Fatalf("failed after %v", took)
 	}
 }
 
