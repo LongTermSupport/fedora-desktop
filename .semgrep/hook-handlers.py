@@ -144,10 +144,67 @@ def text_that_is_not_the_command(script_text):
     return _FORBIDDEN.search(script_text)
 
 
-def a_helper_that_judges_what_it_is_given(hook_input, judge):
+def a_helper_of_its_own_that_judges_what_it_is_given(hook_input, judge):
+    # A helper that takes the line under any parameter name is the escape the rule closes: the
+    # line leaves the function, so the call is the finding.
+    command = get_bash_command(hook_input)
+    # ruleid: hook-regex-over-raw-command
+    return judge(command)
+
+
+def _scan(text):
+    # ok: hook-regex-over-raw-command
+    return _FORBIDDEN.search(text)
+
+
+def renamed_parameter_hides_the_search(hook_input):
+    command = get_bash_command(hook_input)
+    # ruleid: hook-regex-over-raw-command
+    return _scan(command)
+
+
+def helper_called_on_the_call_itself(hook_input):
+    # ruleid: hook-regex-over-raw-command
+    return _scan(get_bash_command(hook_input))
+
+
+class FixtureJudge:
+    def _judge(self, line):
+        # ok: hook-regex-over-raw-command
+        return _FORBIDDEN.search(line)
+
+    def method_helper_gets_the_line(self, hook_input):
+        command = get_bash_command(hook_input)
+        # ruleid: hook-regex-over-raw-command
+        return self._judge(command)
+
+
+def read_from_tool_input_without_the_helper(hook_input):
+    command = hook_input["tool_input"]["command"]
+    # ruleid: hook-regex-over-raw-command
+    return _FORBIDDEN.search(command)
+
+
+def read_from_tool_input_with_get(hook_input):
+    command = hook_input.get("tool_input", {}).get("command", "")
+    # ruleid: hook-regex-over-raw-command
+    return _FORBIDDEN.search(command)
+
+
+def the_one_sanctioned_judge(hook_input, search):
+    # judge_raw_command_line is the one function that judges the line as written, on purpose, with
+    # its reason in its docstring: a visible exception, not a gap.
     command = get_bash_command(hook_input)
     # ok: hook-regex-over-raw-command
-    return judge(command)
+    return judge_raw_command_line(command, search)
+
+
+def builtins_and_messages_are_not_helpers(hook_input, result):
+    command = get_bash_command(hook_input)
+    # ok: hook-regex-over-raw-command
+    size = len(command)
+    # ok: hook-regex-over-raw-command
+    return result.deny(f"Command: {command}"), size
 
 
 def no_command_text(hook_input):
