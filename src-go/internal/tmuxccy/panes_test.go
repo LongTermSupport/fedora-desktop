@@ -149,6 +149,29 @@ func TestSocketIsConfigurable(t *testing.T) {
 	}
 }
 
+// A server named by its socket's path (a v2 LXC seat's own, SPEC-team-close TC2) is reached
+// with -S, and the path wins over a socket name.
+func TestSocketPathIsReachedWithS(t *testing.T) {
+	const sock = "/run/teamchat-session-0123456789abcdef/tmux.sock"
+	f := &execx.Fake{}
+	f.On([]string{"tmux", "-S", sock, "list-sessions"}, ok("seat-a 0 /srv/proj\n"))
+	f.On([]string{"tmux", "-S", sock, "capture-pane", "-p", "-t", "=seat-a:"}, ok("plain"))
+	tm := newTmux(f)
+	tm.Socket, tm.SocketPath = "ignored", sock
+	list, err := tm.List(context.Background())
+	if err != nil || len(list) != 1 || list[0].Name != "seat-a" {
+		t.Fatalf("list %+v, %v", list, err)
+	}
+	if got, err := tm.CapturePane(context.Background(), "seat-a", false); err != nil || got != "plain" {
+		t.Fatalf("pane %q, %v", got, err)
+	}
+	for _, c := range f.Calls() {
+		if c.Args[0] != "-S" || c.Args[1] != sock {
+			t.Fatalf("a command not on the socket path: %v", c.Args)
+		}
+	}
+}
+
 // typeAndSee types text and Enter into a pane running cat and waits for it to be echoed back.
 func typeAndSee(t *testing.T, tm *tmuxccy.Tmux, name, text string) {
 	t.Helper()

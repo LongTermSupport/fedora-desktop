@@ -81,6 +81,9 @@ type Tmux struct {
 	// Socket is the tmux server name; empty means the CCY server (Socket). A test points it at a
 	// private server.
 	Socket string
+	// SocketPath is a server named by its socket's path (`tmux -S`), such as a v2 LXC seat's own
+	// server; it wins over Socket.
+	SocketPath string
 	// Now, Sleep and LookPath are seams for take-over's waits and start-up's tool checks; nil
 	// means the real clock, time.Sleep and exec.LookPath.
 	Now      func() time.Time
@@ -88,9 +91,14 @@ type Tmux struct {
 	LookPath func(string) (string, error)
 }
 
-// Run is tmux -L <socket> <args>, the socket being ccy unless the Tmux was given another.
+// Run is tmux -L <socket> <args>, the socket being ccy unless the Tmux was given another, or
+// tmux -S <path> <args> on a server named by its socket's path.
 func (t *Tmux) Run(ctx context.Context, args ...string) (execx.Result, error) {
-	res, err := t.Runner.Run(ctx, execx.Cmd{Name: tmuxBinary, Args: append([]string{"-L", t.socket()}, args...)})
+	server := []string{"-L", t.socket()}
+	if t.SocketPath != "" {
+		server = []string{"-S", t.SocketPath}
+	}
+	res, err := t.Runner.Run(ctx, execx.Cmd{Name: tmuxBinary, Args: append(server, args...)})
 	if err != nil {
 		return res, fmt.Errorf("tmux %s: %w", strings.Join(args, " "), err)
 	}

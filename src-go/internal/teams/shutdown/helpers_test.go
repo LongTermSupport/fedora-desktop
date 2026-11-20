@@ -59,6 +59,9 @@ type session struct {
 	ignoreExit bool
 	// keepSeat leaves the seats held when the session ends.
 	keepSeat bool
+	// server is the tmux server the session is on: "" for ccy's, else its -L name or -S path in
+	// an LXC container.
+	server string
 }
 
 // machine is teamtest's populated world with a stateful tmux, seat list and clock.
@@ -154,36 +157,39 @@ func target(args []string) string {
 }
 
 func (m *machine) fakeTmux() {
-	m.Fake.OnFunc([]string{"tmux", "-L", "ccy", "list-sessions"}, func(execx.Cmd) (execx.Result, error) {
+	m.Fake.OnFunc([]string{"tmux", "-L", "ccy"}, func(c execx.Cmd) (execx.Result, error) {
+		return m.tmuxOn("", c.Args[2:]), nil
+	})
+}
+
+// tmuxOn answers a tmux command on the server whose sessions have server key ("" for ccy's).
+func (m *machine) tmuxOn(key string, args []string) execx.Result {
+	if len(args) == 0 {
+		return execx.Result{ExitCode: 1, Stderr: []byte("no tmux command")}
+	}
+	var s *session
+	if args[0] != "list-sessions" {
+		if s = m.find(target(args)); s == nil || s.server != key {
+			return execx.Result{ExitCode: 1, Stderr: []byte("can't find session: " + target(args))}
+		}
+	}
+	switch args[0] {
+	case "list-sessions":
 		var b strings.Builder
 		for _, s := range m.sessions {
-			b.WriteString(s.name + " " + strconv.Itoa(s.attached) + " " + s.dir + "\n")
+			if s.server == key {
+				b.WriteString(s.name + " " + strconv.Itoa(s.attached) + " " + s.dir + "\n")
+			}
 		}
-		return execx.Result{Stdout: []byte(b.String())}, nil
-	})
-	m.Fake.OnFunc([]string{"tmux", "-L", "ccy", "capture-pane"}, func(c execx.Cmd) (execx.Result, error) {
-		s := m.find(target(c.Args))
-		if s == nil {
-			return execx.Result{ExitCode: 1, Stderr: []byte("can't find pane: " + target(c.Args))}, nil
-		}
-		return execx.Result{Stdout: []byte(s.pane + "\n")}, nil
-	})
-	m.Fake.OnFunc([]string{"tmux", "-L", "ccy", "send-keys"}, func(c execx.Cmd) (execx.Result, error) {
-		s := m.find(target(c.Args))
-		if s == nil {
-			return execx.Result{ExitCode: 1, Stderr: []byte("can't find pane: " + target(c.Args))}, nil
-		}
-		m.press(s, c.Args[len(c.Args)-2:])
-		return execx.Result{}, nil
-	})
-	m.Fake.OnFunc([]string{"tmux", "-L", "ccy", "kill-session"}, func(c execx.Cmd) (execx.Result, error) {
-		s := m.find(target(c.Args))
-		if s == nil {
-			return execx.Result{ExitCode: 1, Stderr: []byte("can't find session: " + target(c.Args))}, nil
-		}
+		return execx.Result{Stdout: []byte(b.String())}
+	case "capture-pane":
+		return execx.Result{Stdout: []byte(s.pane + "\n")}
+	case "send-keys":
+		m.press(s, args[len(args)-2:])
+	case "kill-session":
 		m.end(s)
-		return execx.Result{}, nil
-	})
+	}
+	return execx.Result{}
 }
 
 // press is one send-keys: the last two arguments are "-l <text>" or "<target> <key>".

@@ -4,13 +4,18 @@
 // tmux pane (only /exit with --no-compact), stopped only when it has not ended in time, and left
 // running, named as failed, when its compaction does not complete; each seat it held is then
 // read again until it is free.
-// Members this host cannot reach (an LXC container's agent in a running container, a session
-// on another machine, a held seat no record names) are listed as not shut down, never acted
-// on. An LXC member whose container is stopped, or that the last apply held back for it, is
-// offline: named, with nothing to shut down, and never a failure.
+// An LXC member whose container runs is closed the same way in its session there, through
+// `sudo lxc-attach` as its user (Plan 00257 SPEC-team-close.md TC1-TC14): its compaction's end is
+// read from its pane, and it is never killed, nor its container or unit stopped; one that does
+// not end is left running and named as failed. One with no session in its container has nothing
+// to shut down. Members this host cannot reach (a session on another machine, a held seat no
+// record names, a container lxc-attach cannot reach) are listed as not shut down, never acted on.
+// An LXC member whose container is stopped, or that the last apply held back for it, is offline:
+// named, with nothing to shut down, and never a failure.
 //
-// It is local only: it acts through tmux, the session registry and `agent-bus seat list` as
-// the user. Nothing goes on the bus, and nothing from the bus can start it.
+// It is local only: it acts through tmux (in a container through lxc-attach), the session
+// registry and `agent-bus seat list` as the user. Nothing goes on the bus, and nothing from the
+// bus can start it.
 package shutdown
 
 import (
@@ -49,8 +54,6 @@ var DefaultWaits = Waits{Poll: time.Second, Release: 30 * time.Second}
 const (
 	whyHeld = "held by a session ccy-teams cannot name (a cc session started with --teams <team> alone, " +
 		"or one outside ccy's tmux); attach it (ccy-sessions) and type /exit"
-	whyLxc = "its session runs inside the LXC container, out of reach of this host's tmux; " +
-		"in the container, type /exit in its session"
 	whyElsewhere = "not a session on this host's ccy tmux (another machine, or a checkout ccy-teams " +
 		"does not know); end it where it runs"
 	whyNoSession = "no session running"
@@ -105,15 +108,19 @@ nothing to compact since its last compaction is sent /exit alone; so is every se
 --no-compact. A compaction that does not complete within 600 s fails that session: /exit
 is not typed and it is left running, named. A session that has not ended within 60 s of
 /exit is stopped (its tmux session killed), and its seat is released. The homeserver
-keeps running. Without --yes it asks first. An LXC member whose container is stopped is
-offline, and a seat whose session has ended has no session: each is named, with nothing
-to shut down.
+keeps running. Without --yes it asks first. An LXC member whose container runs is closed
+the same way in its session there, through sudo lxc-attach, and is never stopped: one
+that does not end is left running and named, and its container and unit are untouched.
+An LXC member whose container is stopped is offline, and a seat whose session has ended
+(or a container with no session in it) has no session: each is named, with nothing to
+shut down.
 
 Exit codes:
   0   every session exited cleanly or stopped, or nothing was shut down on request
       (offline members and seats with no session included)
-  1   a session failed (its compaction among them), or a member is not reachable from
-      here (an LXC member whose container runs)
+  1   a session failed (its compaction among them, or an LXC session that did not end),
+      or a member is not reachable from here (another machine, a container lxc-attach
+      cannot reach)
   64  usage error
 `
 
@@ -299,6 +306,9 @@ func (s *Shutdown) preview(team string, p plan, noCompact bool) {
 	}
 	for _, j := range p.jobs {
 		line := "  " + j.name + "   seat " + j.seat + " (" + j.handle + ") in " + term.AbbrevHome(j.dir, s.Home)
+		if j.guest != nil {
+			line = "  " + j.name + "   " + j.where
+		}
 		if j.attached > 0 {
 			line += ", open on a terminal"
 		}
@@ -325,8 +335,13 @@ func (s *Shutdown) preview(team string, p plan, noCompact bool) {
 	if noCompact {
 		first = "Each session is sent /exit, as if typed, without compacting; "
 	}
+	guests := ""
+	if slices.ContainsFunc(p.jobs, func(j *job) bool { return j.guest != nil }) {
+		guests = " A session in an LXC container is never stopped, nor its container or unit: one that does not end " +
+			"is left running and named."
+	}
 	s.tell(first + "One that has not ended within " + sessclose.Seconds(w.Exit) +
-		" of /exit is stopped (its tmux session killed). The homeserver keeps running.")
+		" of /exit is stopped (its tmux session killed)." + guests + " The homeserver keeps running.")
 }
 
 // listed is a heading and one line per member under it, when there is any.

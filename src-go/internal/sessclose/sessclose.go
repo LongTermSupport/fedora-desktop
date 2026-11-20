@@ -35,6 +35,18 @@
 //   - C9. Live is the sessions on ccy's tmux server; Limits the bounds the Closer works to.
 //   - C10. Seconds is a bound as a sentence reads it ("60 s").
 //
+// A session in an LXC container (a Target with a Guest; Plan 00257 SPEC-team-close.md TC2, TC9)
+// is closed the same way on the tmux server it is on there:
+//
+//   - G1. No session record is read for it: its conversation is in the container, so its
+//     compaction's end is read from its pane (C5), the note saying so.
+//   - G2. It is never killed and nothing of it is stopped: where a host session would be stopped
+//     (C8), it fails, named as left running in its container. Not ended within Waits.Exit of
+//     /exit is "exit refused"; a prompt not ready within Waits.Prompt is "busy past the bound".
+//   - G3. A container whose server cannot be listed fails its own sessions as "unreachable",
+//     and no other.
+//   - G4. A pane with no claude running (ended, at a launcher question) fails it untouched.
+//
 // The wind-down before a planned reboot (fedora-desktop#290) is the same compaction without the
 // close: the session is compacted while its prompt cache is warm and left running, and the
 // reboot ends it; the restore brings it back.
@@ -86,6 +98,10 @@ const WindDownText = "/compact The machine is going down and this session will b
 
 // exitCommand is what a person types to end claude.
 const exitCommand = "/exit"
+
+// prefixDirect is restore.Judge's word for claude run with no launcher, as it runs in a
+// container.
+const prefixDirect = "cc"
 
 // composeStop is the launcher's "Stop compose services?" question (screen.KnownPrompts): it is
 // asked after claude has ended.
@@ -151,10 +167,21 @@ type WindingDown interface {
 	CompactAll(ctx context.Context, names []string, by time.Time) []Result
 }
 
-// Target is one session to close.
+// Target is one session to close: on ccy's tmux server by its session name, or, with Guest, in
+// an LXC container.
 type Target struct {
 	Name      string
 	NoCompact bool
+	Guest     *Guest
+}
+
+// Guest is a session in an LXC container (G1-G5): the tmux server it is on there (reached
+// through lxc-attach), its session's name on it, and where it is, in words ("container box1").
+// Name is then only the result's label.
+type Guest struct {
+	Tmux    *tmuxccy.Tmux
+	Session string
+	Where   string
 }
 
 // Outcome is where a session's close stands.
@@ -211,8 +238,21 @@ func New(t *tmuxccy.Tmux, reg func() (*registry.Store, error), getenv func(strin
 func (c *Closer) Limits() Waits { return c.Waits }
 
 // Live is the sessions on ccy's tmux server, by name (C9).
-func (c *Closer) Live(ctx context.Context) (map[string]bool, error) {
-	list, err := c.Tmux.List(ctx)
+func (c *Closer) Live(ctx context.Context) (map[string]bool, error) { return liveOn(ctx, c.Tmux) }
+
+// unwatched fails a session whose server could not be listed: a container's as unreachable
+// (G3).
+func (c *Closer) unwatched(j *job, err error) {
+	if j.Guest != nil {
+		j.done(Failed, "unreachable: "+err.Error()+"; the session could not be watched any further")
+		return
+	}
+	j.done(Failed, err.Error()+"; the sessions could not be watched any further")
+}
+
+// liveOn is the sessions on the tmux server t, by name.
+func liveOn(ctx context.Context, t *tmuxccy.Tmux) (map[string]bool, error) {
+	list, err := t.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -237,9 +277,13 @@ const (
 	phaseExit
 )
 
-// job is one session being closed.
+// job is one session being closed: tmux is the server it is on and pane its session's name
+// there.
 type job struct {
 	Target
+
+	tmux *tmuxccy.Tmux
+	pane string
 
 	phase phase
 	// file is the transcript the compaction is read from; "" when it is read from the pane,
@@ -273,10 +317,28 @@ func (j *job) done(result Outcome, note string) { j.result, j.note = result, not
 
 // left is what a failure after the /compact went in says of the session (C7, W5).
 func (j *job) left() string {
-	if j.stay {
+	switch {
+	case j.Guest != nil:
+		return "/exit was not typed and it is still running in " + j.Guest.Where + ": attach it there"
+	case j.stay:
 		return noteLeftStay
 	}
 	return noteLeftClose
+}
+
+// leftIn ends the note on a session in a container that is left running where a host session
+// would be stopped (G2).
+func (j *job) leftIn() string {
+	return ", so it was left running in " + j.Guest.Where + ": attach it there and type /exit"
+}
+
+// newJob is a target's job, on the server its session is on.
+func (c *Closer) newJob(t Target, by time.Time) *job {
+	j := &job{Target: t, tmux: c.Tmux, pane: t.Name, deadline: by}
+	if t.Guest != nil {
+		j.tmux, j.pane = t.Guest.Tmux, t.Guest.Session
+	}
+	return j
 }
 
 // untouched ends a note on a session nothing was typed into.
@@ -292,7 +354,7 @@ func (c *Closer) Close(ctx context.Context, targets []Target) []Result {
 	jobs := make([]*job, len(targets))
 	by := c.Now().Add(c.Waits.Prompt)
 	for i, t := range targets {
-		jobs[i] = &job{Target: t, deadline: by}
+		jobs[i] = c.newJob(t, by)
 	}
 	return c.results(ctx, jobs)
 }
@@ -308,7 +370,8 @@ func (c *Closer) Compact(ctx context.Context, name string, by time.Time) Result 
 func (c *Closer) CompactAll(ctx context.Context, names []string, by time.Time) []Result {
 	jobs := make([]*job, len(names))
 	for i, name := range names {
-		jobs[i] = &job{Target: Target{Name: name}, stay: true, deadline: by}
+		jobs[i] = c.newJob(Target{Name: name}, by)
+		jobs[i].stay = true
 	}
 	return c.results(ctx, jobs)
 }
@@ -340,8 +403,12 @@ func join(a, b string) string {
 func (c *Closer) prepare(jobs []*job) {
 	var compacting []*job
 	for _, j := range jobs {
-		if j.NoCompact {
+		switch {
+		case j.NoCompact:
 			j.phase = phaseExit
+			continue
+		case j.Guest != nil:
+			j.paneWhy = "it runs in " + j.Guest.Where + ", whose conversation this host does not read"
 			continue
 		}
 		compacting = append(compacting, j)
@@ -395,21 +462,27 @@ func (c *Closer) prepareOne(store *registry.Store, j *job) {
 // failed.
 func (c *Closer) run(ctx context.Context, jobs []*job) {
 	for {
-		live, err := c.Live(ctx)
-		if err != nil {
-			for _, j := range jobs {
-				if j.result == Pending {
-					j.done(Failed, err.Error()+"; the sessions could not be watched any further")
-				}
-			}
-			return
-		}
+		lives := map[*tmuxccy.Tmux]map[string]bool{}
+		failed := map[*tmuxccy.Tmux]error{}
 		left := false
 		for _, j := range jobs {
-			if j.result == Pending {
-				c.step(ctx, j, live)
-				left = left || j.result == Pending
+			if j.result != Pending {
+				continue
 			}
+			live, read := lives[j.tmux]
+			if _, bad := failed[j.tmux]; !read && !bad {
+				var err error
+				if live, err = liveOn(ctx, j.tmux); err != nil {
+					failed[j.tmux] = err
+				}
+				lives[j.tmux] = live
+			}
+			if err := failed[j.tmux]; err != nil {
+				c.unwatched(j, err)
+				continue
+			}
+			c.step(ctx, j, live)
+			left = left || j.result == Pending
 		}
 		if !left {
 			return
@@ -420,11 +493,11 @@ func (c *Closer) run(ctx context.Context, jobs []*job) {
 
 // step is one look at a session and what follows from it.
 func (c *Closer) step(ctx context.Context, j *job, live map[string]bool) {
-	if !live[j.Name] {
+	if !live[j.pane] {
 		c.ended(j)
 		return
 	}
-	pane, err := c.Tmux.CapturePane(ctx, j.Name, true)
+	pane, err := j.tmux.CapturePane(ctx, j.pane, true)
 	if err != nil {
 		// A session that ended since the list was read is seen gone on the next pass. Any other
 		// failure kills nothing: the pane may hold unsent text.
@@ -434,7 +507,10 @@ func (c *Closer) step(ctx context.Context, j *job, live map[string]bool) {
 		return
 	}
 	prefix, _, found := strings.Cut(j.Name, "-")
-	if !found {
+	switch {
+	case j.Guest != nil:
+		prefix = prefixDirect
+	case !found:
 		prefix = j.Name
 	}
 	verdict := restore.Judge(prefix, true, screen.Plain(pane), restore.ContainerUp, restore.GoingOutcome{})
@@ -467,6 +543,10 @@ func (c *Closer) notClaude(ctx context.Context, j *job, verdict restore.Verdict)
 	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing:
 		return false
 	}
+	if j.Guest != nil {
+		c.guestNotClaude(j, verdict)
+		return true
+	}
 	switch {
 	case verdict.State != restore.StateWaitingAtPrompt:
 		c.closeWindow(ctx, j, verdict)
@@ -476,6 +556,20 @@ func (c *Closer) notClaude(ctx context.Context, j *job, verdict restore.Verdict)
 		c.hardStop(ctx, j, "it was at the launcher's "+verdict.Detail+" question, so claude was not running; its tmux session was killed")
 	}
 	return true
+}
+
+// guestNotClaude is a session in a container whose pane shows no claude running: after /exit
+// it ended; otherwise it fails. Its window is left as it is either way (G4).
+func (c *Closer) guestNotClaude(j *job, verdict restore.Verdict) {
+	if j.typed && verdict.Ended() {
+		j.done(Exited, "claude ended; its window is left in "+j.Guest.Where)
+		return
+	}
+	untouched := "; nothing was stopped"
+	if j.phase == phaseCompact {
+		untouched = "; nothing was typed or stopped"
+	}
+	j.done(Failed, "claude is not running in it ("+verdict.Detail+")"+untouched)
 }
 
 // look is what the session's phase and screen call for.
@@ -501,7 +595,7 @@ func (c *Closer) look(ctx context.Context, j *job, pane string) error {
 	case screen.Typed:
 		if !j.reentered {
 			j.reentered = true
-			return c.Tmux.SendEnter(ctx, j.Name)
+			return j.tmux.SendEnter(ctx, j.pane)
 		}
 	case screen.Ready, screen.Busy, screen.NotDrawn:
 	}
@@ -517,7 +611,7 @@ func (c *Closer) ready(ctx context.Context, j *job, state screen.State, line str
 	case screen.Busy:
 		if !j.escaped {
 			j.escaped = true
-			return c.Tmux.SendEscape(ctx, j.Name)
+			return j.tmux.SendEscape(ctx, j.pane)
 		}
 	case screen.Typed:
 		j.done(Failed, whyUnsent)
@@ -578,8 +672,11 @@ func (c *Closer) stayed(j *job, note string) {
 // screen it knows and is bounded.
 func (c *Closer) typeLine(ctx context.Context, j *job, line string) error {
 	at := c.Now()
-	err := c.Tmux.Submit(ctx, j.Name, line, tmuxccy.SubmitPace{Pause: c.Waits.Submit, Sleep: c.Sleep})
+	err := j.tmux.Submit(ctx, j.pane, line, tmuxccy.SubmitPace{Pause: c.Waits.Submit, Sleep: c.Sleep})
 	if errors.Is(err, tmuxccy.ErrNotSubmitted) {
+		if j.Guest != nil {
+			return errors.New(err.Error() + "; it is still running in " + j.Guest.Where + ": attach it there")
+		}
 		return errors.New(err.Error() + "; it is still running: attach it (ccy-sessions)")
 	}
 	if err != nil && !errors.Is(err, tmuxccy.ErrBoxNotDrawn) {
@@ -604,7 +701,7 @@ func (c *Closer) compacting(ctx context.Context, j *job, state screen.State) err
 	case screen.Typed:
 		if !j.compactReentered {
 			j.compactReentered, j.stuckBy = true, now.Add(c.Waits.Settle)
-			return c.Tmux.SendEnter(ctx, j.Name)
+			return j.tmux.SendEnter(ctx, j.pane)
 		}
 		if !now.Before(j.stuckBy) {
 			j.done(Failed, "its /compact stayed in its input box after a second Enter, so "+j.left())
@@ -655,16 +752,24 @@ func (c *Closer) compacted(j *job, note string) {
 func (c *Closer) timedOut(ctx context.Context, j *job) {
 	switch {
 	case j.phase == phaseCompacting:
-		j.done(Failed, "its /compact did not complete within "+Seconds(c.Waits.Compact)+
-			", so /exit was not typed and it is still running: attach it (ccy-sessions)")
+		j.done(Failed, "its /compact did not complete within "+Seconds(c.Waits.Compact)+", so "+j.left())
 	case j.typed:
 		late := "it did not end within " + Seconds(c.Waits.Exit) + " of /exit"
 		if j.asked && !j.answered {
 			late += noteAskedOffExit
 		}
+		if j.Guest != nil {
+			j.done(Failed, "exit refused: "+late+j.leftIn())
+			return
+		}
 		c.hardStop(ctx, j, late+noteKilledSuffix)
 	default:
-		c.hardStop(ctx, j, "its prompt was not ready within "+Seconds(c.Waits.Prompt)+noteKilledSuffix)
+		late := "its prompt was not ready within " + Seconds(c.Waits.Prompt)
+		if j.Guest != nil {
+			j.done(Failed, "busy past the bound: "+late+j.leftIn())
+			return
+		}
+		c.hardStop(ctx, j, late+noteKilledSuffix)
 	}
 }
 
@@ -681,7 +786,7 @@ func (c *Closer) answerBackgroundWork(ctx context.Context, j *job, pane string) 
 	if !exitFocused {
 		return nil
 	}
-	if err := c.Tmux.SendEnter(ctx, j.Name); err != nil {
+	if err := j.tmux.SendEnter(ctx, j.pane); err != nil {
 		return err
 	}
 	j.answered = true
@@ -710,7 +815,7 @@ func (c *Closer) closeWindow(ctx context.Context, j *job, verdict restore.Verdic
 		j.done(Failed, "its pane cannot be judged ("+verdict.Detail+")")
 		return
 	}
-	if err := c.Tmux.KillSession(ctx, j.Name); err != nil && !errors.Is(err, tmuxccy.ErrSessionGone) {
+	if err := j.tmux.KillSession(ctx, j.pane); err != nil && !errors.Is(err, tmuxccy.ErrSessionGone) {
 		j.done(Failed, err.Error())
 		return
 	}
@@ -724,7 +829,7 @@ func (c *Closer) closeWindow(ctx context.Context, j *job, verdict restore.Verdic
 // hardStop is ccy-sessions' End: the tmux session killed, then its record removed, since a
 // killed pane never reaches the trampoline that would remove it.
 func (c *Closer) hardStop(ctx context.Context, j *job, note string) {
-	err := c.Tmux.KillSession(ctx, j.Name)
+	err := j.tmux.KillSession(ctx, j.pane)
 	if errors.Is(err, tmuxccy.ErrSessionGone) {
 		c.ended(j)
 		return

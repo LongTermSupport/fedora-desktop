@@ -1136,8 +1136,8 @@ check "  having typed /exit into the session's pane" "yes" "$(logged 'tmux send-
 check "  then Enter" "yes" "$(logged 'tmux send-keys -t =ccy-proj: Enter')"
 check "  and not killed it, since it ended" "no" "$(logged 'kill-session')"
 check_has "  saying it exited and its seat is free" "ccy-proj: exited cleanly; seat 1@alpha released" "$(cat "$SCRATCH/err")"
-check_has "  and that the LXC agent was not shut down" "proj.box+role.lxc: not shut down: its session runs inside the LXC container" \
-    "$(cat "$SCRATCH/err")"
+check_has "  and that the LXC agent no member record of this host names was not shut down" \
+    "proj.box+role.lxc: not shut down: no LXC member record of this host names it" "$(cat "$SCRATCH/err")"
 check "  sending nothing on the bus" "no no" "$(logged 'agent-bus send') $(logged_command 'pingbus')"
 check "  stdout stays empty" "" "$(cat "$SCRATCH/out")"
 reset

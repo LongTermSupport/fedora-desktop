@@ -72,11 +72,12 @@ func TestEverySessionIsSentExitAndItsSeatReleased(t *testing.T) {
 		"Team alpha: 1 session to shut down.",
 		"  ccy-proj   seat 1 (proj.1+local.podman) in ~/proj",
 		"Not reachable from here, so not shut down:",
-		"  proj.box+role.lxc   its session runs inside the LXC container, out of reach of this host's tmux; in the container, type /exit in its session",
+		"  proj.box+role.lxc   no LXC member record of this host names it (a container on another machine, or one joined by hand); "+
+			"in its container, type /exit in its session",
 		"Each session is compacted (/compact, as if typed) and then sent /exit; one whose compaction has not completed within 600 s "+
 			"is left running and named. One that has not ended within 60 s of /exit is stopped (its tmux session killed). The homeserver keeps running.",
 		"ccy-proj: exited cleanly; seat 1@alpha released",
-		"proj.box+role.lxc: not shut down: its session runs inside the LXC container",
+		"proj.box+role.lxc: not shut down: no LXC member record of this host names it",
 		"alpha: 1 exited cleanly, 0 stopped, 0 failed; 1 member not reachable from here.",
 	)
 	if got != term.ExitFailure {

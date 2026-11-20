@@ -37,6 +37,10 @@ type fakeSession struct {
 	turn            bool
 	busyLeft        int
 	enters, escapes int
+	// server is the key of the tmux server the session is on, "" for ccy's; ignoreExit leaves
+	// it running after /exit.
+	server     string
+	ignoreExit bool
 }
 
 // world is a scripted tmux server, the session records, the transcripts and a clock that
@@ -53,14 +57,16 @@ type world struct {
 	last     map[string]bool
 	readErr  error
 	findErr  error
-	c        *Closer
+	// listErr fails the session list of the servers it names, by key.
+	listErr map[string]bool
+	c       *Closer
 }
 
 func newWorld(t *testing.T, names ...string) *world {
 	t.Helper()
 	w := &world{
 		t: t, fake: &execx.Fake{}, store: registry.New(t.TempDir()), now: time.Unix(1_800_000_000, 0),
-		boundary: map[string]int64{}, last: map[string]bool{},
+		boundary: map[string]int64{}, last: map[string]bool{}, listErr: map[string]bool{},
 	}
 	for _, n := range names {
 		w.sessions = append(w.sessions, &fakeSession{name: n, pane: paneReady, compactLooks: 3})
@@ -127,15 +133,25 @@ func gone(name string) execx.Result {
 	return execx.Result{ExitCode: 1, Stderr: []byte("can't find session: " + name)}
 }
 
-func (w *world) fakeTmux() {
-	w.fake.OnFunc([]string{"tmux", "-L", "ccy", "list-sessions"}, func(execx.Cmd) (execx.Result, error) {
+func (w *world) fakeTmux() { w.fakeServer("", "-L", "ccy") }
+
+// fakeServer scripts the tmux server reached with server (its -L or -S argument), holding the
+// sessions whose server field is key ("" for ccy's).
+func (w *world) fakeServer(key string, server ...string) {
+	on := func(cmd string) []string { return append(append([]string{"tmux"}, server...), cmd) }
+	w.fake.OnFunc(on("list-sessions"), func(execx.Cmd) (execx.Result, error) {
+		if w.listErr[key] {
+			return execx.Result{ExitCode: 1, Stderr: []byte("lxc-attach: container is not running")}, nil
+		}
 		var b strings.Builder
 		for _, s := range w.sessions {
-			b.WriteString(s.name + " 0 /srv/proj\n")
+			if s.server == key {
+				b.WriteString(s.name + " 0 /srv/proj\n")
+			}
 		}
 		return execx.Result{Stdout: []byte(b.String())}, nil
 	})
-	w.fake.OnFunc([]string{"tmux", "-L", "ccy", "capture-pane"}, func(c execx.Cmd) (execx.Result, error) {
+	w.fake.OnFunc(on("capture-pane"), func(c execx.Cmd) (execx.Result, error) {
 		s := w.find(targetOf(c.Args))
 		if s == nil {
 			return gone(targetOf(c.Args)), nil
@@ -143,7 +159,7 @@ func (w *world) fakeTmux() {
 		w.look(s)
 		return execx.Result{Stdout: []byte(s.pane + "\n")}, nil
 	})
-	w.fake.OnFunc([]string{"tmux", "-L", "ccy", "send-keys"}, func(c execx.Cmd) (execx.Result, error) {
+	w.fake.OnFunc(on("send-keys"), func(c execx.Cmd) (execx.Result, error) {
 		s := w.find(targetOf(c.Args))
 		if s == nil {
 			return gone(targetOf(c.Args)), nil
@@ -151,7 +167,7 @@ func (w *world) fakeTmux() {
 		w.press(s, c.Args[len(c.Args)-2:])
 		return execx.Result{}, nil
 	})
-	w.fake.OnFunc([]string{"tmux", "-L", "ccy", "kill-session"}, func(c execx.Cmd) (execx.Result, error) {
+	w.fake.OnFunc(on("kill-session"), func(c execx.Cmd) (execx.Result, error) {
 		s := w.find(targetOf(c.Args))
 		if s == nil {
 			return gone(targetOf(c.Args)), nil
@@ -199,7 +215,7 @@ func (w *world) press(s *fakeSession, last []string) {
 		typed := s.typed
 		s.typed = ""
 		switch {
-		case typed == "/exit":
+		case typed == "/exit" && !s.ignoreExit:
 			w.end(s)
 		case strings.HasPrefix(typed, "/compact "):
 			s.pane, s.busyLeft = paneBusy, s.compactLooks
@@ -592,5 +608,109 @@ func TestCompactAllWatchesThemTogether(t *testing.T) {
 	}
 	if got[0].Busy || !got[1].Busy {
 		t.Fatalf("busy %+v", got)
+	}
+}
+
+// guestSock is a v2 LXC seat's own tmux server, reached in the tests as the host's is.
+const guestSock = "/run/teamchat-session-0123456789abcdef/tmux.sock"
+
+// guestSession is the seat's tmux session in its container.
+const guestSession = "teamchat-session-alpha-proj-1-0123456789abcdef"
+
+// guest adds a session in an LXC container, on its own server, with no session record, and
+// returns its target.
+func (w *world) guest() Target {
+	w.sessions = append(w.sessions, &fakeSession{name: guestSession, pane: paneReady, compactLooks: 3, server: guestSock})
+	w.fakeServer(guestSock, "-S", guestSock)
+	tm := &tmuxccy.Tmux{Runner: w.fake, Term: &term.Term{Err: io.Discard}, SocketPath: guestSock}
+	return Target{Name: "box1/0123456789abcdef", Guest: &Guest{Tmux: tm, Session: guestSession, Where: "container box1"}}
+}
+
+// G1 (SPEC-team-close TC2, TC8): a session in an LXC container is closed on its own server:
+// /compact, its end read from its pane (its conversation is in the container), then /exit. No
+// session record is read for it.
+func TestAGuestIsCompactedOnItsPaneThenExited(t *testing.T) {
+	w := newWorld(t)
+	w.c.Registry = func() (*registry.Store, error) { return nil, errors.New("must not be read") }
+	target := w.guest()
+	r := one(t, w.close(target))
+	if r.Outcome != Exited || !r.Compacted || r.Name != target.Name {
+		t.Fatalf("result %+v", r)
+	}
+	if got := w.typedInto(guestSession); !slices.Equal(got, []string{CompactText, "/exit"}) {
+		t.Fatalf("typed %q", got)
+	}
+	if !strings.Contains(r.Note, "its end read from its pane: it runs in container box1, whose conversation this host does not read") {
+		t.Fatalf("note %q", r.Note)
+	}
+	for _, c := range w.fake.Calls() {
+		if c.Args[0] != "-S" || c.Args[1] != guestSock {
+			t.Fatalf("a command off the guest's server: %v", c.Args)
+		}
+	}
+}
+
+// G2 (TC9): a session in a container that does not end after /exit is never killed: it fails,
+// named as still running there.
+func TestAGuestThatDoesNotEndIsLeftRunning(t *testing.T) {
+	w := newWorld(t)
+	target := w.guest()
+	w.find(guestSession).ignoreExit = true
+	r := one(t, w.close(target))
+	if r.Outcome != Failed || w.fake.Called("tmux -S "+guestSock+" kill-session") {
+		t.Fatalf("result %+v", r)
+	}
+	want := "exit refused: it did not end within 60 s of /exit, so it was left running in container box1: attach it there and type /exit"
+	if r.Note != want {
+		t.Fatalf("note %q", r.Note)
+	}
+}
+
+// G3 (TC9, TC12): a session in a container whose prompt is not ready within the bound fails as
+// busy past the bound, untouched by a kill.
+func TestAGuestBusyPastTheBoundIsLeftRunning(t *testing.T) {
+	w := newWorld(t)
+	target := w.guest()
+	s := w.find(guestSession)
+	s.pane, s.stuck = paneBusy, true
+	s.busyLeft = 0
+	w.fake.OnFunc([]string{"tmux", "-S", guestSock, "send-keys", "-t", "=" + guestSession + ":", "Escape"},
+		func(execx.Cmd) (execx.Result, error) { s.escapes++; return execx.Result{}, nil })
+	r := one(t, w.close(target))
+	if r.Outcome != Failed || s.escapes != 1 || len(w.typedInto(guestSession)) != 0 || w.fake.Called("tmux -S "+guestSock+" kill-session") {
+		t.Fatalf("result %+v escapes %d", r, s.escapes)
+	}
+	want := "busy past the bound: its prompt was not ready within 30 s, so it was left running in container box1: attach it there and type /exit"
+	if r.Note != want {
+		t.Fatalf("note %q", r.Note)
+	}
+}
+
+// G4 (TC12): a container whose server cannot be listed fails only its own sessions, as
+// unreachable; the host's are closed.
+func TestAnUnreachableGuestFailsOnlyItself(t *testing.T) {
+	w := newWorld(t, "ccy-proj")
+	target := w.guest()
+	w.listErr[guestSock] = true
+	got := w.close(Target{Name: "ccy-proj"}, target)
+	if len(got) != 2 || got[0].Outcome != Exited || got[1].Outcome != Failed {
+		t.Fatalf("results %+v", got)
+	}
+	if !strings.HasPrefix(got[1].Note, "unreachable: ") || !strings.Contains(got[1].Note, "container is not running") {
+		t.Fatalf("note %q", got[1].Note)
+	}
+}
+
+// G5 (TC9): a session in a container whose claude has ended is left as it is, never killed.
+func TestAGuestWhoseClaudeEndedIsNotKilled(t *testing.T) {
+	w := newWorld(t)
+	target := w.guest()
+	w.find(guestSession).pane = "\nccy exited with status 1. Press Enter to close this session.\n"
+	r := one(t, w.close(target))
+	if r.Outcome != Failed || w.fake.Called("tmux -S "+guestSock+" kill-session") || len(w.typedInto(guestSession)) != 0 {
+		t.Fatalf("result %+v", r)
+	}
+	if !strings.Contains(r.Note, "claude is not running in it") || !strings.Contains(r.Note, "nothing was typed or stopped") {
+		t.Fatalf("note %q", r.Note)
 	}
 }

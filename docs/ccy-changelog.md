@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.35 — container 2.84.40
+
+- **ccy-teams' Shut down closes the team's LXC members' sessions too** (Plan 00257
+  SPEC-team-close.md). An LXC member whose container runs is sent `/compact`, waited for, then
+  `/exit`, in its session in the container through `sudo lxc-attach`, as a host session is. It
+  is never stopped, nor its container or its unit: one that does not end is left running and
+  named as failed ("exit refused", "busy past the bound"). A running container with no session
+  in it has nothing to shut down; one `lxc-attach` cannot reach is named as unreachable.
+  `sessclose` gained the container target and `tmuxccy` a server named by its socket's path
+  (`tmux -S`), for a v2 LXC seat's own server.
+
 ## 3.122.34 — container 2.84.40
 
 - **ccy-teams offers Start its session in its LXC container only where it can work**

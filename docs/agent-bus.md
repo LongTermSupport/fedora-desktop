@@ -183,10 +183,15 @@ running and named (attach it with `ccy-sessions`); it is never killed. When Clau
 answers "Background work is running", it chooses **Exit and stop tasks**. A session still
 running 60 s after `/exit` is stopped as ccy-sessions' End stops it; each seat must then be
 free. The same close is `ccy --stop SESSION...` and a session's **Close it** in
-`ccy-sessions`: one package, `src-go/internal/sessclose`. Each member is reported: exited cleanly, stopped, failed, not shut down (an LXC
-agent, a session on another machine, a `cc --teams <team>` session whose record lacks its seat:
-end those where they run), or "no session running, nothing to shut down" (a free seat whose
-session has ended already; it never fails the run). A session with unsent text in its input box, or whose screen cannot
+`ccy-sessions`: one package, `src-go/internal/sessclose`. An LXC member whose container runs is
+closed the same way in its session there, through `sudo lxc-attach` as its user: its
+compaction's end is read from its pane, and it is never stopped, nor its container or unit (one
+that does not end after `/exit` is left running and fails as "exit refused"; one whose prompt is
+not ready in 30 s as "busy past the bound"). Each member is reported: exited cleanly, stopped,
+failed, not shut down (a session on another machine, a `cc --teams <team>` session whose record
+lacks its seat, a container `lxc-attach` cannot reach: end those where they run), or "no
+session running, nothing to shut down" (a free seat whose session has ended already, or a
+running container with no session in it; it never fails the run). A session with unsent text in its input box, or whose screen cannot
 be read, is left alone. Local only: nothing goes on the bus. Spec: Plan 00201 `SPEC-shutdown.md`.
 
 **Restart a team's desktop sessions**, after a reboot or whenever. `ccy-teams restart <team>`

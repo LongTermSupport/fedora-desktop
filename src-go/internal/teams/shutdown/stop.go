@@ -12,6 +12,10 @@ type job struct {
 	name, dir, seat, handle string
 	attached                int
 	seats                   []seatRef
+	// where and guest are an LXC seat's: the preview's words for it, and its session in its
+	// container (SPEC-team-close TC2).
+	where string
+	guest *sessclose.Guest
 
 	result   sessclose.Outcome
 	note     string
@@ -25,7 +29,7 @@ func (j *job) done(result sessclose.Outcome, note string) { j.result, j.note = r
 func (s *Shutdown) stopAll(ctx context.Context, jobs []*job, noCompact bool) {
 	targets := make([]sessclose.Target, len(jobs))
 	for i, j := range jobs {
-		targets[i] = sessclose.Target{Name: j.name, NoCompact: noCompact}
+		targets[i] = sessclose.Target{Name: j.name, NoCompact: noCompact, Guest: j.guest}
 	}
 	results := s.Closer.Close(ctx, targets)
 	for i, j := range jobs {
