@@ -464,22 +464,19 @@ lastpass_accounts:
 
 A name is letters, digits, `-` and `_` only; the play stops on any other.
 
+**No login.** The play never logs in or out. It installs `lastpass-cli`, writes the shell
+configuration and prints how to log in by hand when you need it: `lpass login <email>`, or
+`lpass-login <name>` with several accounts.
+
 **Unattended runs.** A run is unattended when `run.bash --yes` (as `run.bash --changed --yes`
 and meta-deploy's `changed-plays` use) exported `ASSUME_YES=true`, when `RUN_BASH_HEADLESS` is
-set to on, or when there is no terminal. Such a run never asks, logs in or logs out. With
-`lastpass_accounts` undeclared or empty it stops before installing anything, naming the
-variable and this shape, so declare it first. Otherwise it installs `lastpass-cli`, writes the
-shell configuration and prints how to log in by hand: `lpass login <email>`, or
-`lpass-login <name>` with several accounts. At a terminal with the variable undeclared, the
-play asks for the accounts and writes this block itself.
+set to on, or when there is no terminal. Such a run never asks; with `lastpass_accounts`
+undeclared or empty it stops before installing anything, naming the variable and this shape,
+so declare it first. At a terminal with the variable undeclared, the play asks for the
+accounts and writes this block itself.
 
 The shell configuration exports `LPASS_AGENT_DISABLE=1`, so lpass keeps no decryption-key
 agent and every command asks for the master password.
-
-**Setup login.** On a run that is not unattended the play asks "Type y to log in" (a person
-who has just entered the accounts is not asked). `y` logs every account in (master password
-and MFA) and syncs; then every account that holds a session is logged out, even when a login
-or sync failed, which still fails the play. ENTER skips it and prints the by-hand login.
 
 ### Audio Configuration
 

@@ -1310,16 +1310,13 @@ LastPass CLI password manager:
 - Account-specific aliases (lpass-work, lpass-personal)
 
 **Setup**: accounts come from `lastpass_accounts` in host_vars, a mapping of name to email
-(`default: user@example.com` for one account); its shape and the login behaviour are in
+(`default: user@example.com` for one account); its shape is in
 [Configuration → LastPass Accounts](configuration.md#lastpass-accounts). Undeclared, a run at
-a terminal prompts for it and saves it; an unattended run stops before installing anything,
+a terminal prompts for it and saves it; an unattended run (`run.bash --yes`, which exports
+`ASSUME_YES`; `RUN_BASH_HEADLESS` on; or no terminal) stops before installing anything,
 naming the variable.
 
-- An unattended run (`run.bash --yes`, which exports `ASSUME_YES`; `RUN_BASH_HEADLESS` on; or
-  no terminal) never asks, logs in or logs out: it installs and configures, and says how to
-  log in by hand
-- Otherwise the play asks whether to log in (proving password and MFA), then logs every
-  account out again, even when the login failed
+- The play never logs in or out: it installs and configures, and says how to log in by hand
 - The shell exports `LPASS_AGENT_DISABLE=1`: no key agent, every command asks for the
   master password
 
