@@ -55,26 +55,22 @@ commercial restrictions, and one with no licence at all.
 
 ### Phase 2: One process
 
-**Held, by the owner's decision:** this session does research and planning only, because other
-agents are working in the repository. Tasks 2.1 and 2.2 are built and pushed on the branch
-`agent-a07b6a68b067a55cb-d018c313` and are not merged. They change shared code (`internal/gitx`,
-which ccy links, with a CCY version bump), so they land only when the owner says so. Until then,
-F44's `/watchlist` and `Watchlist.tsv` are the old ones.
+The tooling was held on a branch while this session did research and planning only, and was
+merged on the owner's go.
 
-- [ ] 🔄 **Task 2.1**: Watchlist.md, the `watchlist` skill and the `watchlist-scout` agent
-  rewritten for runs, with the separate stars skill folded in. On the branch (`57d794f9f`).
-- [ ] 🔄 **Task 2.2**: The `watchlist` command extended per [SPEC-watchlist-runs.md](SPEC-watchlist-runs.md)
+- [x] ✅ **Task 2.1**: Watchlist.md, the `watchlist` skill and the `watchlist-scout` agent
+  rewritten for runs, so one skill covers stars, sync, baseline and diff (`57d794f9f`).
+- [x] ✅ **Task 2.2**: The `watchlist` command extended per [SPEC-watchlist-runs.md](SPEC-watchlist-runs.md)
   (`sync` from stars, `add`, `set`, `run new|rows|mark|status`), with the list migrated to the new
-  format. On the branch (`e1d24967b`, `b0767d737`); its targeted QA is running.
-- [ ] ⬜ **Task 2.3**: After the merge: `play-claude-yolo` queued for the host (the CCY bump), the
-  baseline manifest checked by `run status` and marked by `run mark`, and the old mirrors in
+  format (`e1d24967b`, `b0767d737`).
+- [x] ✅ **Task 2.3**: The CCY bump queued for the host (`changed-plays` in `meta-deploy.list`),
+  the baseline manifest marked by `run mark` for all nine groups, and the old mirrors in
   `untracked/watchlist/` retired.
 
 ### Phase 3: The baseline run
 
-- [ ] 🔄 **Task 3.1**: One study per group, in `CLAUDE/WatchlistRuns/baseline-20261120-1050/`.
-  All nine reports are written and every section names its manifest commit (checked by hand);
-  marking the manifest `done` waits for `watchlist run mark` (Task 2.2).
+- [x] ✅ **Task 3.1**: One study per group, in `CLAUDE/WatchlistRuns/baseline-20261120-1050/`.
+  `watchlist run status` shows all nine groups done (56 repositories).
 - [x] ✅ **Task 3.2**: `SYNTHESIS.md` for the run.
 - [x] ✅ **Task 3.3**: Act: issues #356, #357, #358; Plans 00259, 00260, 00261; journal entries in
   ten existing plans (SYNTHESIS.md section 8). New-plan candidates 5-9 wait for the owner.
@@ -85,7 +81,7 @@ F44's `/watchlist` and `Watchlist.tsv` are the old ones.
 
 ## Success Criteria
 
-- [ ] `watchlist run status baseline-20261120-1050` shows every group done.
+- [x] `watchlist run status baseline-20261120-1050` shows every group done.
 - [ ] Every proposal to copy code names a permissive licence; no clean-room idea carries code.
 - [ ] A diff run can start from the baseline with one skill call.
 - [ ] The synthesis is turned into issues and plans the owner has seen.
