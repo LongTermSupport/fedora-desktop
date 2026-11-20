@@ -166,6 +166,8 @@ WRITTEN_SCRIPT_RUN = [
     "setsid bash s.sh",
     "cat s.sh | sudo bash",
     "chmod +x s.sh && sudo ./s.sh",
+    'eval "$(cat s.sh)"',
+    "exec ./s.sh",
 ]
 WRITTEN_SCRIPT_LINES = [_WRITE_SCRIPT + run for run in WRITTEN_SCRIPT_RUN] + [
     "echo 'dnf install x' | sudo tee s.sh; sudo bash s.sh",
@@ -308,6 +310,8 @@ INERT_TEXT_THE_DAEMON_KEEPS = [
     "cat <<-EOF > notes.md\n\tsudo dnf install x\nEOF",
     "jq '.\"dnf install\"' f",
     "jq -r '.[] | select(.n == \"pip install x\")' f",
+    "(jq '.\"dnf install\"' f)",
+    "if true; then jq '.\"dnf install\"' f; fi",
     "python3 -c \"print('pip install x')\"",
     "python3 -c 'print(\"systemctl restart y\")'",
     "bash -n -c 'sudo dnf install x'",

@@ -257,7 +257,7 @@ def _runs_shell_or_script(words: list[str], written: set[str]) -> bool:
     head = _basename(words[lead])
     if head in DATA_HEADS:
         return False
-    if head in SHELL_NAMES or head in _SOURCE_NAMES or words[lead] in _SOURCE_NAMES:
+    if head in SHELL_NAMES or head in _SOURCE_NAMES or head == "eval":
         return True
     if _basename(words[lead]) in written:
         return True
@@ -397,6 +397,15 @@ def _heredoc_end(text: str, body_start: int, operator: re.Match[str]) -> tuple[i
     return None
 
 
+def _swap_head_for_echo(segment: str, name: str) -> str:
+    """``segment`` with its first word that resolves to ``name`` spelled `echo`."""
+    for start, end in shell_word_spans(segment):
+        word = resolve_shell_word(segment[start:end])
+        if word is not None and _basename(_without_group_parens(word)) == name:
+            return segment[:start] + segment[start:end].replace(name, "echo", 1) + segment[end:]
+    return segment
+
+
 def _inert_form(segment: str) -> str:
     """``segment`` rewritten to a form the daemon's view blanks, when what it holds cannot run.
 
@@ -413,9 +422,8 @@ def _inert_form(segment: str) -> str:
     if _is_syntax_check_only(words):
         return " echo _ "
     head = _basename(words[lead])
-    spans = shell_word_spans(segment)
-    if head == "jq" and len(spans) > lead:
-        segment = segment[: spans[lead][0]] + "echo" + segment[spans[lead][1] :]
+    if head == "jq":
+        segment = _swap_head_for_echo(segment, "jq")
         head = "echo"
     elif _PYTHON.fullmatch(head) and words[lead + 1 :] == ["-c", words[-1]] and (match := _PRINT_LITERAL.fullmatch(words[-1])):
         return f" echo '{match.group('single') or match.group('double') or ''}' "
