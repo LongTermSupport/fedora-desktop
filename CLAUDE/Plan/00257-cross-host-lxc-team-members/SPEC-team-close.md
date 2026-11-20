@@ -72,13 +72,14 @@ Each expectation below is numbered and held by a test, written first.
 ## Each seat
 
 - **TC8.** A seat is closed by `sessclose.Close`: `/compact` with the close instruction at a
-  ready, empty box (a busy box is given Escape once; unsent text is never typed over), its end
+  ready, empty box (a busy box is never given Escape: its turn is waited for, up to 300 s; unsent
+  text is never typed over), its end
   waited for up to 600 s, then `/exit`. A host seat with a recorded conversation is watched in
   its transcript; an LXC seat's conversation is in the container, so its compaction's end is
   read from its pane (C5), and the note says so.
 - **TC9.** An LXC seat is never killed and nothing of it is stopped: no `tmux kill-session`, no
   `systemctl stop`, no `lxc-stop`. Where a host seat would be stopped (C8: its prompt not ready
-  within 30 s, or not ended within 60 s of `/exit`, or at a launcher question), the LXC seat
+  within 300 s, or not ended within 60 s of `/exit`, or at a launcher question), the LXC seat
   fails instead, named as still running in its container.
 - **TC10.** Host seats keep every behaviour they have (SD1-SD16): stopped when they do not end,
   then their seats read again until released.
@@ -90,7 +91,7 @@ Each expectation below is numbered and held by a test, written first.
   follow (`; seat 1@alpha released`).
 - **TC12.** Every seat that did not close is named with why, in words that say which case it
   was: not found (its tmux session is not there), busy past the bound (its prompt was not ready
-  within 30 s), its compaction never finished (600 s), exit refused (it did not end within 60 s
+  within 300 s, a turn still running), its compaction never finished (600 s), exit refused (it did not end within 60 s
   of `/exit`), unreachable (sudo, `lxc-ls` or `lxc-attach` failed, or an LXC record or the seat
   store's holdings or seat locks unreadable), out of reach (another machine, a seat no record names, a v2 LXC
   member no entry of the team's LXC record names, a missing record included, a v2 host seat held
@@ -140,7 +141,11 @@ Each expectation below is numbered and held by a test, written first.
   open)" (was "Wind down the team's sessions"), their confirmations' crumbs `<team> › Close`
   and `<team> › Compact`. The commands keep their verbs: `ccy-teams shutdown` and `ccy-teams
   wind-down`.
-- **D2.** A busy box is given Escape once before the `/compact`, as the host shutdown already
-  does (C4), for LXC seats too. "Busy past the bound" is a box not ready within 30 s after it.
+- **D2.** A busy box is never given Escape, host and LXC seats alike (the owner's answer to Q52,
+  which also changes the host close, sessclose C4 and Plan 00201 SPEC-shutdown SD10): the close
+  waits for the box to be ready and empty, up to the prompt bound, 300 s, the same bound the
+  team wind-down gives a busy session before it types (its Idle wait), long enough for most
+  turns to end on their own. "Busy past the bound" is a box not ready within those 300 s: a host
+  seat is then stopped (C8), an LXC seat fails (TC9). The wind-down never sends Escape either.
 - **D3.** An LXC seat that will not end is left running and failed (TC9), never killed. The
   owner confirmed it (Q52).

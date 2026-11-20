@@ -157,7 +157,9 @@ Usage:
                                    cannot reach from here (another machine), then asks
                                    (default No; with no terminal, --yes is required).
                                    Each session gets /compact typed into its tmux pane
-                                   (Escape first when busy), then /exit once the
+                                   (a busy one is waited for, up to 300 s, never
+                                   interrupted; still busy then, a host one is stopped
+                                   and an LXC one fails), then /exit once the
                                    compaction is in its transcript (--no-compact: /exit
                                    only); a compaction not done within 600 s fails it and
                                    leaves it running. It is stopped only if it has not

@@ -110,8 +110,8 @@ It asks first.
 
 Close every session of <team> (compact, then exit) is in a team row's menu too
 (`ccy-teams shutdown <team>`): each running session of the team, its LXC seats' included, gets
-/compact typed in at a ready, empty box, then /exit once the compaction has finished. It asks
-first.
+/compact typed in at a ready, empty box (a busy one is waited for, up to 300 s, never
+interrupted), then /exit once the compaction has finished. It asks first.
 
 A seat marked "(coordinator)" is its team's coordinator: the agent that takes the humans'
 requests, dispatches them to the workers and is copied on what workers tell humans. A team

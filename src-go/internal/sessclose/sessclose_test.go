@@ -368,14 +368,41 @@ func TestACompactionWithNoBoundaryFails(t *testing.T) {
 	}
 }
 
-// C4: a busy session is interrupted once before /compact is typed.
-func TestABusySessionIsInterruptedBeforeTheCompact(t *testing.T) {
+// C4 (Plan 00257 Q52): a session in a turn is never interrupted: its turn is waited for, past
+// the old 30 s and within the prompt bound, then it is compacted and exits. No Escape is sent.
+func TestABusySessionIsWaitedForNeverInterrupted(t *testing.T) {
 	w := newWorld(t, "ccy-proj")
 	s := w.find("ccy-proj")
-	s.pane, s.busyLeft = paneBusy, -1
+	s.pane, s.busyLeft, s.turn = paneBusy, 120, true
+	start := w.now
 	r := one(t, w.close(Target{Name: "ccy-proj"}))
-	if r.Outcome != Exited || s.escapes != 1 || !slices.Equal(w.typedInto("ccy-proj"), []string{CompactText, "/exit"}) {
+	if r.Outcome != Exited || !r.Compacted || s.escapes != 0 || w.killed("ccy-proj") {
+		t.Fatalf("result %+v escapes %d killed %v", r, s.escapes, w.killed("ccy-proj"))
+	}
+	if got := w.typedInto("ccy-proj"); !slices.Equal(got, []string{CompactText, "/exit"}) {
+		t.Fatalf("typed %q", got)
+	}
+	if w.now.Sub(start) < 120*DefaultWaits.Poll {
+		t.Fatalf("the turn was not waited for: %v", w.now.Sub(start))
+	}
+}
+
+// C4, C8 (Q52): a host session still in its turn at the prompt bound is stopped as before, and
+// was never sent Escape nor typed into.
+func TestABusySessionPastTheBoundIsStoppedNeverInterrupted(t *testing.T) {
+	w := newWorld(t, "ccy-proj")
+	s := w.find("ccy-proj")
+	s.pane, s.stuck = paneBusy, true
+	start := w.now
+	r := one(t, w.close(Target{Name: "ccy-proj"}))
+	if r.Outcome != Stopped || s.escapes != 0 || len(w.typedInto("ccy-proj")) != 0 || !w.killed("ccy-proj") {
 		t.Fatalf("result %+v escapes %d typed %q", r, s.escapes, w.typedInto("ccy-proj"))
+	}
+	if r.Note != "its prompt was not ready within 300 s, so its tmux session was killed" {
+		t.Fatalf("note %q", r.Note)
+	}
+	if w.now.Sub(start) < DefaultWaits.Prompt {
+		t.Fatalf("stopped before the bound: %v", w.now.Sub(start))
 	}
 }
 
@@ -411,7 +438,7 @@ func TestLiveAndLimits(t *testing.T) {
 	if err != nil || !live["ccy-a"] || !live["cc-b"] || len(live) != 2 {
 		t.Fatalf("live %v err %v", live, err)
 	}
-	if w.c.Limits() != DefaultWaits || DefaultWaits.Compact != 600*time.Second {
+	if w.c.Limits() != DefaultWaits || DefaultWaits.Compact != 600*time.Second || DefaultWaits.Prompt != 300*time.Second {
 		t.Fatalf("limits %+v", w.c.Limits())
 	}
 }
@@ -666,21 +693,31 @@ func TestAGuestThatDoesNotEndIsLeftRunning(t *testing.T) {
 	}
 }
 
-// G3 (TC9, TC12): a session in a container whose prompt is not ready within the bound fails as
-// busy past the bound, untouched by a kill.
+// G1 (TC8, Q52): a session in a container in a turn is waited for, never interrupted, then
+// compacted and exited.
+func TestAGuestInATurnIsWaitedForThenClosed(t *testing.T) {
+	w := newWorld(t)
+	target := w.guest()
+	s := w.find(guestSession)
+	s.pane, s.busyLeft, s.turn = paneBusy, 120, true
+	r := one(t, w.close(target))
+	if r.Outcome != Exited || !r.Compacted || s.escapes != 0 || !slices.Equal(w.typedInto(guestSession), []string{CompactText, "/exit"}) {
+		t.Fatalf("result %+v escapes %d typed %q", r, s.escapes, w.typedInto(guestSession))
+	}
+}
+
+// G3 (TC9, TC12, Q52): a session in a container whose prompt is not ready within the bound fails
+// as busy past the bound, untouched by a kill and never sent Escape.
 func TestAGuestBusyPastTheBoundIsLeftRunning(t *testing.T) {
 	w := newWorld(t)
 	target := w.guest()
 	s := w.find(guestSession)
 	s.pane, s.stuck = paneBusy, true
-	s.busyLeft = 0
-	w.fake.OnFunc([]string{"tmux", "-S", guestSock, "send-keys", "-t", "=" + guestSession + ":", "Escape"},
-		func(execx.Cmd) (execx.Result, error) { s.escapes++; return execx.Result{}, nil })
 	r := one(t, w.close(target))
-	if r.Outcome != Failed || s.escapes != 1 || len(w.typedInto(guestSession)) != 0 || w.fake.Called("tmux -S "+guestSock+" kill-session") {
+	if r.Outcome != Failed || s.escapes != 0 || len(w.typedInto(guestSession)) != 0 || w.fake.Called("tmux -S "+guestSock+" kill-session") {
 		t.Fatalf("result %+v escapes %d", r, s.escapes)
 	}
-	want := "busy past the bound: its prompt was not ready within 30 s, so it was left running in container box1: attach it there and type /exit"
+	want := "busy past the bound: its prompt was not ready within 300 s, so it was left running in container box1: attach it there and type /exit"
 	if r.Note != want {
 		t.Fatalf("note %q", r.Note)
 	}

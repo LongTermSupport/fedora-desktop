@@ -321,3 +321,82 @@ too early to cover the act). No detector can say which state proves liveness or 
 stale, so each gets regression tests and one shared answer, `seat.KeeperOf`. Item 2 is wrong
 documentation, which has no detector. Item 4 is a missing test. Item 5 has the same class as
 part 4's item 4 and is covered by its test.
+
+## Q52 D1-D3
+
+The owner's answer to Q52 (SPEC-team-close "Decisions taken here") was "all as recommended".
+Journal: `JOURNAL/2026-11-20/092749Z-decision-c50a6c.md`.
+
+### D1: the two team-row lines are named by what they do (commit 1177f2ea8)
+
+- "Shut down every session of `<team>`" is now **Close every session of `<team>` (compact, then
+  exit)**. Its confirmation's crumbs are `<team> › Close`, and it asks "Close N sessions of
+  `<team>`?" (the one row: "Yes, close N sessions").
+- "Wind down the team's sessions" is now **Compact every session of `<team>` (stays open)**,
+  with `<team> › Compact` and "Compact N sessions of `<team>`?".
+- The footers say "close/compact `<team>`'s sessions". The picker help now has a paragraph for
+  each line. `ccy-teams --help` and docs/agent-bus.md are updated, as are the specs that name
+  the rows: 00201 SPEC-shutdown SD2 and SD8 and its acceptance step 12; 00203
+  SPEC-team-wind-down W4 and W12, SPEC-team-add-and-restart A2 and B1, and its PLAN Task 3.14;
+  00257 SPEC-team-close TC1, TC6 and D1, and PLAN B.13.
+- **Not renamed:** the CLI verbs `ccy-teams shutdown` and `ccy-teams wind-down`. The owner asked
+  for the row names, and scripts call the verbs. The preview and report wording ("nothing to
+  shut down", "Nothing was shut down.") also stays, because TC4, TC12 and SD8 name it.
+- **Worth the owner's notice:** the new wind-down name says only "Compact". The action also
+  types `/goal clear` and the stop-and-push instruction first. The help paragraph and the
+  confirmation preview still say so.
+- Tests: menu_test, order_test (a destructive line is now read as "Close every session "),
+  v2_test, addrunning_test (help names both lines and their verbs), picker_test (footer),
+  shutdown_test and winddown_test (question, row and crumbs). All were RED before the rename.
+- CCY 3.122.44. The container is unchanged: no image input changed
+  (`ccy-image-source-paths.bash` names neither `teams/` nor `sessclose/`).
+
+### D2: a busy box is waited for, never given Escape (commit: see the final message)
+
+- `sessclose` `ready()` no longer presses Escape at a busy box, in either the `/compact` or the
+  `/exit` phase. The box is read every poll until it is ready and empty, up to `Waits.Prompt`.
+- Unsent text is still never typed over (Failed, untouched).
+- Busy past the bound keeps its outcome. A host session is stopped (C8: "its prompt was not
+  ready within 300 s, so its tmux session was killed"). An LXC seat fails as "busy past the
+  bound … left running in container C" (TC9).
+- **Bound: `Waits.Prompt` is 300 s (was 30 s).** It is the same bound the team wind-down
+  (`winddown.DefaultWaits.Idle`, 300 s) already gives a busy session before it types, so both
+  team actions wait the same. It is long enough for most turns to end on their own, and short
+  enough that a stuck box is reported within minutes. Host and LXC use the one bound.
+- The new bound also applies to `ccy --stop` and ccy-sessions' Close, which share sessclose, and
+  to the wait for a prompt that never draws: such a session is now stopped after 300 s, not
+  30 s.
+- The wind-down path never sends Escape: `waitTurn` waits (W2), and `winddown` has no Escape of
+  its own. Nothing changed there.
+- `tmuxccy.SendEscape` had no caller left, so it and its test are removed.
+- Docs: sessclose C4 (package doc) and the `Prompt` field comment; Plan 00201 SPEC-shutdown
+  SD10's busy bullet (marked as changed by Q52) and SD12's wording, and its acceptance step 12;
+  SPEC-team-close TC8, TC9, TC12 and D2; docs/agent-bus.md; `ccy-teams --help` and the picker
+  help.
+- Note: "host C4" is the sessclose package doc's C4. Plan 00201 SPEC-shutdown has no C4; its
+  text for this is SD10.
+- Tests, all through the existing tmux-pane fakes, all RED before the fix:
+  - sessclose: `TestABusySessionIsWaitedForNeverInterrupted` (a turn of 120 looks, past the old
+    30 s: compacted, exited, no Escape); `TestABusySessionPastTheBoundIsStoppedNeverInterrupted`
+    (stopped, 300 s wording, nothing typed, no Escape); `TestAGuestInATurnIsWaitedForThenClosed`;
+    `TestAGuestBusyPastTheBoundIsLeftRunning` (no Escape, 300 s); and `TestLiveAndLimits`
+    (`Prompt` is 300 s).
+  - shutdown: the fake's busy pane can now end after N looks (`busyLooks`).
+    `TestABusySessionIsWaitedForNeverInterrupted` replaces `TestABusySessionIsInterruptedFirst`.
+    `TestABusySessionPastTheBoundIsStopped` is new, and `TestAPromptThatNeverDrawsIsStopped`
+    uses the 300 s wording.
+- CCY 3.122.45. The container is unchanged.
+
+### D3
+
+D3 is recorded in SPEC-team-close as confirmed by the owner (Q52). It needs no code.
+
+### QA
+
+- `go test -race` over `./internal/sessclose/... ./internal/teams/... ./internal/tmuxccy/... ./internal/sessions/... ./internal/ccylaunch/... ./cmd/...` passes.
+- golangci-lint over sessclose, tmuxccy, teams/shutdown and teams/picker reports 0 issues.
+- `qa-changed.bash --base 232bac0f6` (both commits): result in the final message, log
+  `untracked/scratch/q52-qa.log`.
+
+DBF: D1 and D2 are owner decisions (a rename and a behaviour change), not defects, so there is
+no class to detect.

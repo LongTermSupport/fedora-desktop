@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.45 — container 2.84.43
+
+- **Closing a session never interrupts a turn** (Plan 00257 SPEC-team-close D2, TC8, TC12, the
+  owner's answer to Q52; sessclose C4, Plan 00201 SPEC-shutdown SD10). `ccy-teams shutdown`
+  (the team row's Close every session), `ccy --stop` and ccy-sessions' Close no longer press
+  Escape at a busy box: they wait for the turn to end and the box to be ready and empty, up to
+  300 s (was 30 s after the Escape), the same bound the team's Compact every session gives a busy
+  session. A box still busy then is stopped as before on the host ("its prompt was not ready
+  within 300 s"), and in an LXC container fails as "busy past the bound", left running. Unsent
+  text is still never typed over. The image is unchanged.
+
 ## 3.122.44 — container 2.84.43
 
 - **ccy-teams' team row names its two lines that act on every session by what they do**

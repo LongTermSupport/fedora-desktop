@@ -72,8 +72,25 @@ func TestASessionIsCompactedBeforeItsExit(t *testing.T) {
 	m.errHas(t, "ccy-proj: exited cleanly; compacted first; seat 1@alpha released")
 }
 
-// SD10: a busy session is interrupted once, then sent /exit when its prompt is back.
-func TestABusySessionIsInterruptedFirst(t *testing.T) {
+// SD10 (Plan 00257 Q52): a busy session is never interrupted: its turn is waited for, past the
+// old 30 s, and it is sent /exit when its prompt is back.
+func TestABusySessionIsWaitedForNeverInterrupted(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	s := m.sessions[0]
+	s.pane, s.busyLooks = paneBusy, 90
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	if s.escapes != 0 || !slices.Equal(m.typedInto("ccy-proj"), []string{"/exit"}) || m.killed() {
+		t.Fatalf("escapes %d typed %q killed %v", s.escapes, m.typedInto("ccy-proj"), m.killed())
+	}
+	m.errHas(t, "ccy-proj: exited cleanly")
+}
+
+// SD10, SD12 (Q52): a session still in its turn at the prompt bound is stopped, never sent
+// Escape nor typed into.
+func TestABusySessionPastTheBoundIsStopped(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
 	s := m.sessions[0]
@@ -81,9 +98,10 @@ func TestABusySessionIsInterruptedFirst(t *testing.T) {
 	if got := m.run("alpha", "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}
-	if s.escapes != 1 || !slices.Equal(m.typedInto("ccy-proj"), []string{"/exit"}) {
-		t.Fatalf("escapes %d typed %q", s.escapes, m.typedInto("ccy-proj"))
+	if s.escapes != 0 || len(m.typedInto("ccy-proj")) != 0 || !m.killed() {
+		t.Fatalf("escapes %d typed %q killed %v", s.escapes, m.typedInto("ccy-proj"), m.killed())
 	}
+	m.errHas(t, "ccy-proj: stopped: its prompt was not ready within 300 s, so its tmux session was killed")
 }
 
 // SD10: unsent text is never typed over, and the session is not stopped.
@@ -163,7 +181,7 @@ func TestAPromptThatNeverDrawsIsStopped(t *testing.T) {
 	if len(m.typedInto("ccy-proj")) != 0 || !m.killed() {
 		t.Fatal("not stopped untyped")
 	}
-	m.errHas(t, "ccy-proj: stopped: its prompt was not ready within 30 s, so its tmux session was killed")
+	m.errHas(t, "ccy-proj: stopped: its prompt was not ready within 300 s, so its tmux session was killed")
 }
 
 // SD10: at a launcher question claude is not running: stopped at once.

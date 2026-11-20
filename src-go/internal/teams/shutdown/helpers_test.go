@@ -55,6 +55,8 @@ type session struct {
 	seats []string
 	// enters counts Enter presses, escapes Escape presses.
 	enters, escapes int
+	// busyLooks is how many looks a busy pane's turn runs for before the box is ready again.
+	busyLooks int
 	// ignoreExit leaves the pane as it is after /exit, as a session that does not end.
 	ignoreExit bool
 	// keepSeat leaves the seats held when the session ends.
@@ -183,7 +185,13 @@ func (m *machine) tmuxOn(key string, args []string) execx.Result {
 		}
 		return execx.Result{Stdout: []byte(b.String())}
 	case "capture-pane":
-		return execx.Result{Stdout: []byte(s.pane + "\n")}
+		pane := s.pane
+		if s.pane == paneBusy && s.busyLooks > 0 {
+			if s.busyLooks--; s.busyLooks == 0 {
+				s.pane = paneReady
+			}
+		}
+		return execx.Result{Stdout: []byte(pane + "\n")}
 	case "send-keys":
 		m.press(s, args[len(args)-2:])
 	case "kill-session":

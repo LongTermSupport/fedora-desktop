@@ -143,7 +143,7 @@ team covers, whose own status line is a hooks daemon's.
     terminal you can see. In `ccy-teams`, press Enter on the team's row and choose **Close every
     session of `<team>` (compact, then exit)**. It lists each session (and any LXC agent as not reachable),
     then asks, with No highlighted: choose Yes. In the attached terminal you see `/exit` typed
-    and the session end; the working one is interrupted first, then ends the same way. Each
+    and the session end; the working one is never interrupted: its turn is finished first (up to 300 s), then it ends the same way. Each
     line reads `exited cleanly; seat N@<team> released`; a seat whose session had ended
     already (a cc session from step 09) is listed as `no session running, nothing to shut down`, and the run does not fail on it. The list then shows those seats with SESSION
     **free** (STATE stays `active`: the member is still on the team), and the team row still

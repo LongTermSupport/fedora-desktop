@@ -15,9 +15,9 @@
 //     never the newest in a shared folder); one that has not grown since its last compaction
 //     (transcript.CompactedLast) goes straight to /exit, with no compaction noted.
 //   - C4. At a ready, empty box /compact is typed with the close instruction, then Enter after
-//     the submit pause; a busy box is interrupted with Escape once first, and a box holding
-//     unsent text is never typed over: Failed, untouched. A /compact left in the box gets one
-//     more Enter.
+//     the submit pause. A busy box is never interrupted (no Escape): its turn is waited for, up
+//     to Waits.Prompt, and a box holding unsent text is never typed over: Failed, untouched. A
+//     /compact left in the box gets one more Enter.
 //   - C5. The compaction's end is its compact_boundary in the transcript after the time it was
 //     typed. A session that records no conversation (no record, or launched without the agent
 //     team bus) is watched on its pane instead: busy then ready again, or ready for the settle
@@ -132,7 +132,8 @@ type Waits struct {
 	Submit time.Duration
 	// Poll is how often the panes are read again.
 	Poll time.Duration
-	// Prompt bounds the wait for claude's prompt before a line can be typed.
+	// Prompt bounds the wait for claude's prompt before a line can be typed: a turn running is
+	// waited for, never interrupted, so it is the team wind-down's bound for a busy session.
 	Prompt time.Duration
 	// Compact bounds the wait for a typed /compact to complete.
 	Compact time.Duration
@@ -145,7 +146,7 @@ type Waits struct {
 
 // DefaultWaits are the production waits.
 var DefaultWaits = Waits{
-	Submit: 200 * time.Millisecond, Poll: time.Second, Prompt: 30 * time.Second,
+	Submit: 200 * time.Millisecond, Poll: time.Second, Prompt: 300 * time.Second,
 	Compact: 600 * time.Second, Settle: 30 * time.Second, Exit: 60 * time.Second,
 }
 
@@ -290,7 +291,7 @@ type job struct {
 	// paneWhy saying why.
 	file, paneWhy string
 
-	escaped, compactReentered, typed, reentered bool
+	compactReentered, typed, reentered bool
 	// asked is claude's background work question seen after /exit; answered, its "Exit and
 	// stop tasks" chosen.
 	asked, answered bool
@@ -602,20 +603,15 @@ func (c *Closer) look(ctx context.Context, j *job, pane string) error {
 	return nil
 }
 
-// ready types line at a ready box, presses Escape once on a busy one, and fails over unsent
-// text (C4, C8).
+// ready types line at a ready box, waits on a busy one (its turn is never interrupted), and fails
+// over unsent text (C4, C8).
 func (c *Closer) ready(ctx context.Context, j *job, state screen.State, line string) error {
 	switch state {
 	case screen.Ready:
 		return c.typeLine(ctx, j, line)
-	case screen.Busy:
-		if !j.escaped {
-			j.escaped = true
-			return j.tmux.SendEscape(ctx, j.pane)
-		}
 	case screen.Typed:
 		j.done(Failed, whyUnsent)
-	case screen.NotDrawn:
+	case screen.Busy, screen.NotDrawn:
 	}
 	return nil
 }
@@ -744,7 +740,7 @@ func (c *Closer) compacted(j *job, note string) {
 		return
 	}
 	j.phase, j.compacted, j.compactNote = phaseExit, true, note
-	j.escaped, j.deadline = false, c.Now().Add(c.Waits.Prompt)
+	j.deadline = c.Now().Add(c.Waits.Prompt)
 }
 
 // timedOut ends a session whose wait is over, saying which wait it was: a compaction is never
