@@ -1,9 +1,27 @@
 # Plan 00256: ccy session idle stand-down
 
-**Status**: In Progress
+**Status**: Dormant
 **Created**: 2026-11-13
 **Owner**: joseph
-**Priority**: Medium
+**Priority**: Low
+
+## Scope decision (owner, Q34)
+
+Kept for possible later use; the owner says it is not a priority now.
+
+The idle trigger is dropped. It came from issue #270, filed for a downstream consumer, and the
+owner did not recall asking for it. The owner's request is an **explicit** wind-down (issues
+#290 and #291). This plan keeps only the stand-down's **end state**, for when it is picked up again:
+
+- a stand-down is asked for explicitly, by a `ccy-sessions` command or by #291's coordinator
+  wind-down. Nothing measures idleness;
+- the session ends as `ccy --stop` does, its compose services are stopped (`stop`, not `down`),
+  and its record is kept and marked stood-down;
+- `ccy-sessions wake NAME` brings it back, and the reporting reads the stood-down state.
+
+So gates 1 and 2 are gone, and so is any hooks-daemon change. Gates 3 to 5 stand as
+recommendations, to be settled when the plan resumes. The idle-trigger text below is kept as
+history, and is superseded where it conflicts with this section.
 
 ## Overview
 
@@ -100,7 +118,8 @@ Facts read from the tree at the time of planning:
 
 ### Phase 2: Owner decisions
 
-- [ ] ⬜ **Task 2.1**: Decision gates 1 to 5 below, answered by the owner.
+- [x] ✅ **Task 2.1**: Scope decided by the owner in Q34: explicit wind-down only, no idle
+  trigger, so gates 1 and 2 are dropped. Gates 3 to 5 are settled when the plan resumes.
 
 ### Phase 3: Build (test first, per decision)
 
@@ -158,12 +177,12 @@ Facts read from the tree at the time of planning:
 
 - Depends on: the issue #270 defect fixes (branch `ci/issue-270-restore-check`). A session that
   never took a turn must restore fresh, or the reboot after an idle stand-down cannot restore it.
-- Gate 1 (a) depends on an upstream hooks-daemon change to the supervisor's plugin API.
+- Relates to issues #290 and #291 (the owner's explicit wind-down), which would trigger it.
 
 ## Success Criteria
 
-- [ ] An idle session with `--idle-stand-down` ends by itself after DURATION. Its compose
-  services are stopped and not removed, and its record is kept and marked stood-down.
+- [ ] A session asked to stand down ends. Its compose services are stopped and not removed, and
+  its record is kept and marked stood-down.
 - [ ] `ccy-sessions wake NAME` and the next boot's restore bring it back with its services
   started.
 - [ ] `--list`, `verify-restore` and `notify` report it as the goals say.

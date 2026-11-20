@@ -42,7 +42,7 @@ Use these Unicode icons in plan documents:
 
 - [00258-starred-repos-deep-dive](00258-starred-repos-deep-dive/) - In Progress. The watch list extended to the owner's GitHub stars: full clones under `untracked/starred-repos/<licence>/<owner>/<repo>` (licence read from the licence file: lift or clean room), studied in baseline or diff runs that record the commit studied per repository; the first run is an in-depth baseline.
 
-- [00256-ccy-session-idle-stand-down](00256-ccy-session-idle-stand-down/) - In Progress (triage script queued for the host; owner decisions 1-5 after). Issue #270 Problem 2: `--idle-stand-down DURATION` ends an idle ccy session as `ccy --stop` does, stops its compose services, keeps its record; `ccy-sessions wake NAME`, and `stood-down` in `--list` and `verify-restore`.
+- [00256-ccy-session-idle-stand-down](00256-ccy-session-idle-stand-down/) - Dormant (parked by the owner, not a priority). Explicit stand-down only (no idle trigger): end a ccy session, stop its compose services, keep its record, `ccy-sessions wake NAME`; triggered by #290/#291's wind-down.
 
 - [00255-cc-session-sandbox-and-deploy-broker](00255-cc-session-sandbox-and-deploy-broker/) - In Progress (host triage read into RESEARCH.md §13; owner decisions D1-D9 open). Issue #101, options 3 + 4: a root-owned deploy broker runs committed plays at a commit on GitHub for cc agents, then cc seals each session (Matrix clients' data, browsers, password store and keyring hidden; the session bus filtered), and passwordless sudo goes last, so the owner can run plays at every step.
 
