@@ -1,6 +1,6 @@
 # Plan 00146: ccy token switch through the supervisor
 
-**Status**: Not Started (transport and front ends decided by the owner; decisions 3, 5-8 open, then the Phase 0 spike)
+**Status**: Not Started (transport, placement and front ends decided by the owner; Phase 0 next; decision 3 gates only Task 2.4)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -37,7 +37,7 @@ how a switch is asked for:
 - `ccy-teams`: automatic failover to the next token in a set the team defines, when a
   session reaches its usage limit.
 
-**Placement for ccy (decision 2):** the proxy runs **on the host**, one per session, started by
+**Placement for ccy (decided, decision 2):** the proxy runs **on the host**, one per session, started by
 the launcher like ccy's one-key ssh agent (Plan 00163). It listens on a unix socket in a
 mode-0700 directory under `$XDG_RUNTIME_DIR`, which is bind-mounted into the container. The
 container network policy refuses the host's own addresses, so the container cannot reach a
@@ -81,19 +81,24 @@ Decided:
   a new token), and automatic failover across a team's defined token set in `ccy-teams`. The
   proof of concept is the simplest: `ccy-sessions`.
 - **1. Proxy first, spike first.** Taken as answered by 9 and 10. The respawn is the fallback.
+- **2. The proxy runs on the host.** The only alternative was inside the container, with the
+  token in container tmpfs, which breaks the requirement that ccy never sees a real token. So
+  it was never a real choice (owner: "where else could it run?").
 
 Open (each can be answered in a line; my recommendation follows each):
 
-2. **Where the ccy proxy runs:** (a) on the host, per session, over a mounted unix socket
-   plus an in-container relay; (b) inside the container, with the token in container tmpfs,
-   delivered by `podman exec -i`. Recommend (a): the real token leaves the container
-   entirely, and a switch is a host-only write.
-3. **Terms:** do you accept, on your own reading of the Consumer Terms and the Claude Code
-   legal page, that switching between your own accounts through your own local proxy is
-   ordinary use? (Quotes are in the research file.) Decision 10 asks for automatic failover in
-   `ccy-teams`. That is the use the community proxies report bans for, so it is built last
-   (Phase 2, Task 2.4), stays off unless a team turns it on, and needs your explicit yes here
-   first. Manual switching does not wait on it. Never anyone else's traffic.
+3. **Account-ban risk of automatic failover.** Every token is one of the owner's own Claude
+   subscriptions; nobody else's account or traffic is involved. The risk is Anthropic's view
+   of one person using several subscriptions to get past usage limits. The Claude Code legal
+   page says advertised limits "assume ordinary, individual usage" and reserves enforcement
+   "without prior notice". Community proxies warn that "using multiple Max subscriptions to
+   increase throughput may violate the ToS" and report bans for "unusual OAuth usage
+   patterns" (quotes in the research file). A manual switch by the owner is the same thing in
+   kind, but rare and owner-driven. Automatic failover across a team's token set (Task 2.4)
+   is the pattern those warnings describe. Does the owner accept that risk for Task 2.4?
+   Recommend: build the manual front ends first, leave Task 2.4 off by default, and decide
+   when it is reached. This is a risk the owner chooses to take, not a legal reading the
+   plan makes.
 4. **Host `cc` in this plan** (Phase 3, after ccy) or in a follow-up? Recommend in this plan.
    It is the same binary, and Plan 00048 already gave `cc` the named-token pool.
 5. **Live usage from the forwarder:** it records the last `anthropic-ratelimit-unified-*`
@@ -138,8 +143,8 @@ Open (each can be answered in a line; my recommendation follows each):
   and the next turn succeeds on B in the same session; the status line reads a 1,000,000-token
   context window for a native-1M model; no token value in the proxy log, any argv, or any
   `/proc/*/environ` in the container; `/status` shows a subscription login. **Fail** on the
-  switch or on the context window means the plan stops for the owner. Blocked on decisions 2
-  and 3.
+  switch or on the context window means the plan stops for the owner. The spike is a manual
+  switch, so it does not wait on decision 3.
 
 ### Phase 1: ccy wiring
 
