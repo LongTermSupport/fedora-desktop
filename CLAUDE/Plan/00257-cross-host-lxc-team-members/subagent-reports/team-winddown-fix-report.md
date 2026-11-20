@@ -402,3 +402,95 @@ D3 is recorded in SPEC-team-close as confirmed by the owner (Q52). It needs no c
 
 DBF: D1 and D2 are owner decisions (a rename and a behaviour change), not defects, so there is
 no class to detect.
+
+## Q52 review fixes
+
+This round answers the review in `q52-review.md` (should-fix items 1-3 and the four nits). It is
+in commit 03bedb9da, which also commits the review.
+
+### Item 1: two deadlines
+
+- **The bounds.** `Waits.Prompt` is 30 s again, and the new `Waits.Turn` is 300 s.
+  - `Close` starts each wait at `waitFrom` with the deadline `waitFrom + Prompt`.
+  - In `ready()`, the first `Busy` look sets `inTurn` and extends the deadline to
+    `waitFrom + Turn`. The deadline is never shortened.
+  - After a compaction, the `/exit` wait starts again from `Prompt`. A turn seen then extends it
+    the same way.
+- **The timeout note** comes from the last state seen (`notReady`):
+  - a host session: "a turn was still running after 300 s", or "its prompt was not ready
+    within 30 s" ("300 s" if a turn had been seen before it);
+  - an LXC session: "busy past the bound: …" or "no prompt: …", and it is left running.
+- **Busy, then NotDrawn, keeps 300 s.** That is deliberate. A box that disappears in the middle
+  of a turn is mostly Claude's own dialog inside that turn (a permission question, say), so the
+  session is working. Cutting the bound back to 30 s, which has already passed, would stop or
+  fail it at once. The test `TestATurnThatLeavesNoPromptKeepsTheTurnBound` holds this. The
+  timeout note then says "its prompt was not ready within 300 s", not "a turn was still
+  running".
+- **Tests** (sessclose). All were RED with the 30 s Prompt and no extension: 7 failed.
+  - `TestAPaneWithNoPromptIsStoppedAtThePromptBound`: a NotDrawn pane is stopped at 30 s.
+  - `TestABusySessionIsWaitedForNeverInterrupted`: a turn that ends at 200 s is closed.
+  - `TestANoCompactCloseWaitsForARunningTurn`.
+  - `TestABusySessionPastTheBoundIsStoppedNeverInterrupted`: stopped at 300 s, with the turn
+    wording.
+  - `TestATurnThatLeavesNoPromptKeepsTheTurnBound`.
+  - `TestAGuestWithNoPromptFailsAtThePromptBound`.
+  - `TestAGuestBusyPastTheBoundIsLeftRunning`: the new wording.
+  - `TestLiveAndLimits`.
+- **The 30 s wording** is restored in shutdown's `TestAPromptThatNeverDrawsIsStopped`.
+  `TestABusySessionPastTheBoundIsStopped` now pins the turn wording.
+
+### Item 2: the wait is said where people see it
+
+`sessclose.TurnWait` returns one sentence: "A session in the middle of a turn is given up to
+300 s to finish it; it is never interrupted." (`TestTurnWait`). It is shown in three places:
+
+- `ccy --stop` prints it on every run, `--no-compact` included.
+- ccy-sessions' Close puts it in its question and in its progress line, for both choices. A
+  `--no-compact` close now prints a progress line too.
+- ccy-teams shutdown's preview, for both choices. The `--no-compact` preview's "without
+  compacting; One" becomes two sentences.
+
+Tests: `TestStopClosesThroughSessclose`, `TestCloseOnASessionClosesItThroughSessclose`,
+`TestEverySessionIsSentExitAndItsSeatReleased` and `TestShutdownClosesThroughSessclose`. All
+four were RED before the callers changed.
+
+### Item 3: changelog
+
+CCY 3.122.46. Its changelog entry gives the full reach:
+
+- which commands wait for a turn: shutdown, `ccy --stop` and ccy-sessions' Close, with or
+  without `--no-compact`;
+- that the wait is up to 300 s;
+- that a pane with no prompt gets 30 s, which 3.122.45 had made 300 s;
+- that a Busy-then-NotDrawn pane keeps 300 s;
+- both sets of wording.
+
+The container is unchanged.
+
+### Item 4: nits
+
+- `picker/help.txt`: the Compact paragraph names the compact floor
+  (`ccy_restore_compact_floor_tokens`; a smaller session is not compacted), and says an LXC
+  member is compacted whatever its size.
+- The `v2_test.go` comment says "Close every session".
+- `docs/agent-bus.md`: the bold lead is **Close every session of a team**. The CLI verb is still
+  named in the next sentence.
+- SPEC-team-close TC1 is rewrapped.
+
+### Item 5: specs
+
+- SPEC-team-close: TC8, TC9, TC12 (a new "no prompt" case) and D2 (the two bounds, and why a
+  turn seen keeps 300 s).
+- Plan 00201 SPEC-shutdown: SD10 (the busy and not-drawn bullets) and SD12 (the three wordings).
+- `docs/agent-bus.md` and the sessclose package doc (C4, C8, G2).
+
+DBF: which bound applies to which screen state is a design choice, not a defect class a
+detector can express. It is fixed conventionally, with the regression tests above.
+
+### QA
+
+- `go test -race` over sessclose, teams, tmuxccy, sessions, ccylaunch and screen: 39 packages
+  ok, none failed.
+- golangci-lint 2.14.0 (the pinned version) over sessclose, teams/shutdown, teams/picker,
+  sessions and ccylaunch: 0 issues.
+- `bash scripts/test-ccy-teams-command.bash`: passed 397, failed 0.
