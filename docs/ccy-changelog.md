@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.40 — container 2.84.40
+
+- **The ccy-teams board asks its v2 LXC seats' start lines once a refresh** (Plan 00257
+  SPEC-team-close TC16). Whether each v2 LXC seat's row offers Start its session is asked in one
+  round for the whole board: one container listing, one LXC path and one `systemctl show` per
+  container for all its seats' units, instead of the three root calls per row. What is offered
+  is unchanged. The image is unchanged.
+
 ## 3.122.39 — container 2.84.40
 
 - **Shutting down a v2 (teamchat) team closes its host seats too** (Plan 00257 SPEC-team-close

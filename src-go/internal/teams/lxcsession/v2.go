@@ -40,35 +40,81 @@ func unitRuns(active string) bool {
 	return active == systemd.ActiveStateActive || slices.Contains([]string{"activating", "reloading", "refreshing"}, active)
 }
 
-// offersV2 is Offers for a v2 team's LXC seat (SPEC-team-close TC16): the seat is an entry of
-// the team's LXC record, its container runs, its session unit's file is placed (service: true;
-// LoadState not "not-found") and the unit does not run. The containers and the unit are asked
-// as root without a password; what cannot be asked keeps the line, so choosing it says why.
-func (s *Starter) offersV2(ctx context.Context, row board.Row) bool {
-	e, seat, found, err := s.v2Seat(row)
-	if err != nil {
-		return true
+// v2Ask is a v2 row whose start line depends on its unit's state: its index, container and unit.
+type v2Ask struct {
+	i         int
+	box, unit string
+}
+
+// offersV2 is Offers for v2 teams' LXC seats (SPEC-team-close TC16), each row's answer in out:
+// the seat is an entry of the team's LXC record, its container runs, its session unit's file is
+// placed (service: true; LoadState not "not-found") and the unit does not run. The containers
+// are listed once, the LXC path read once and each container's units asked in one systemctl
+// show, as root without a password; what cannot be asked keeps the line, so choosing it says why.
+func (s *Starter) offersV2(ctx context.Context, rows []board.Row, out []bool, at []int) {
+	var asks []v2Ask
+	for k, row := range rows {
+		e, seat, found, err := s.v2Seat(row)
+		switch {
+		case err != nil:
+			out[at[k]] = true
+		case !found || e.Status == lxcstate.StatusDeferred:
+		default:
+			asks = append(asks, v2Ask{i: at[k], box: e.Container.String(), unit: v2Unit(seat)})
+		}
 	}
-	if !found || e.Status == lxcstate.StatusDeferred {
-		return false
+	if len(asks) == 0 {
+		return
 	}
 	running, _, err := s.Lxc.Containers(ctx)
 	if err != nil {
-		return true
+		keepAll(out, asks)
+		return
 	}
-	box := e.Container.String()
-	if !slices.Contains(running, box) {
-		return false
+	asks = slices.DeleteFunc(asks, func(a v2Ask) bool { return !slices.Contains(running, a.box) })
+	if len(asks) == 0 {
+		return
 	}
 	lxcPath, err := s.Lxc.LxcPath(ctx)
 	if err != nil {
-		return true
+		keepAll(out, asks)
+		return
 	}
-	load, active, err := s.Lxc.UnitState(ctx, lxcPath, box, v2Unit(seat))
+	var boxes []string
+	for _, a := range asks {
+		if !slices.Contains(boxes, a.box) {
+			boxes = append(boxes, a.box)
+		}
+	}
+	for _, box := range boxes {
+		s.askBox(ctx, lxcPath, box, asks, out)
+	}
+}
+
+// askBox asks the units of one container's rows in one systemctl show.
+func (s *Starter) askBox(ctx context.Context, lxcPath, box string, asks []v2Ask, out []bool) {
+	var inBox []v2Ask
+	var units []string
+	for _, a := range asks {
+		if a.box == box {
+			inBox, units = append(inBox, a), append(units, a.unit)
+		}
+	}
+	states, err := s.Lxc.UnitStates(ctx, lxcPath, box, units...)
 	if err != nil {
-		return true
+		keepAll(out, inBox)
+		return
 	}
-	return load != "not-found" && !unitRuns(active)
+	for j, a := range inBox {
+		out[a.i] = states[j].Load != "not-found" && !unitRuns(states[j].Active)
+	}
+}
+
+// keepAll keeps the start line of every asked row: what could not be asked is said on choosing it.
+func keepAll(out []bool, asks []v2Ask) {
+	for _, a := range asks {
+		out[a.i] = true
+	}
 }
 
 // startV2 is Start for a v2 team's LXC seat: `teamchat-admin lxc start --member

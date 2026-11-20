@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcsession"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
@@ -139,5 +141,40 @@ func TestChoosingStartItsSessionStartsTheUnitInItsContainer(t *testing.T) {
 	}
 	if !strings.Contains(h.ErrOut.String(), "Started agent-bus-claude-agent.service in container box") {
 		t.Fatalf("stderr:\n%s", h.ErrOut.String())
+	}
+}
+
+// The B.13 review's nit: the start line of v2 LXC seats is asked once a refresh, not once a row:
+// one lxc-ls pass (its running and full listings), one LXC path, and one lxc-attach systemctl
+// show per container for all its seats' units.
+func TestAV2TeamsStartLinesAreAskedOnceARefresh(t *testing.T) {
+	h := newRig(t)
+	h.WriteV2Status(t, teamtest.V2Team, true,
+		teamtest.V2Member("proj.1+desk.lxc", status.KindLXC, false), teamtest.V2Member("proj.2+desk.lxc", status.KindLXC, false))
+	h.WriteV2Lxc(t, teamtest.V2Team,
+		teamtest.V2Seat(t, "box", "agent", "/srv/proj", 1, "proj.1+desk.lxc", lxcstate.StatusJoined, ""),
+		teamtest.V2Seat(t, "box", "agent", "/srv/proj", 2, "proj.2+desk.lxc", lxcstate.StatusJoined, ""))
+	h.On("systemctl is-active teamchat-server@"+teamtest.V2Team+".service", "active\n", 0)
+	h.On("sudo -n lxc-config lxc.lxcpath", "/var/lib/lxc\n", 0)
+	h.On("sudo -n lxc-ls -1 --running", "box\n", 0)
+	h.On("sudo -n lxc-ls -1", "box\n", 0)
+	h.On("sudo -n lxc-attach", "LoadState=loaded\nActiveState=inactive\n\nLoadState=loaded\nActiveState=active\n", 0)
+	h.Host.LookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
+	h.p.LxcSession = lxcsession.New(h.Host, h.p.Kit)
+	r := h.run1(t)
+	if !r.lxcStarts[lxcStartKey(h.row(t, r.snap, "proj.1+desk.lxc"))] || r.lxcStarts[lxcStartKey(h.row(t, r.snap, "proj.2+desk.lxc"))] {
+		t.Fatalf("offers %v", r.lxcStarts)
+	}
+	count := func(prefix string) int {
+		n := 0
+		for _, c := range h.Fake.Calls() {
+			if strings.HasPrefix(strings.Join(append([]string{c.Name}, c.Args...), " "), prefix) {
+				n++
+			}
+		}
+		return n
+	}
+	if a, ls, path := count("sudo -n lxc-attach"), count("sudo -n lxc-ls"), count("sudo -n lxc-config"); a != 1 || ls != 2 || path != 1 {
+		t.Fatalf("lxc-attach %d, lxc-ls %d, lxc-config %d times; want 1, 2, 1: %v", a, ls, path, h.Fake.Calls())
 	}
 }

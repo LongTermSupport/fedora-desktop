@@ -55,20 +55,46 @@ func (r containerTmux) Run(ctx context.Context, c execx.Cmd) (execx.Result, erro
 // path> systemctl show --property=LoadState,ActiveState -- <unit>`. A unit with no file is
 // loaded "not-found". An answer missing either is an error. sudo must be ready first.
 func (l *Lister) UnitState(ctx context.Context, lxcPath, container, unit string) (string, string, error) {
-	res, err := l.Sudo.Capture(ctx, "lxc-attach", "-P", lxcPath, "-n", container, "--clear-env", "--",
-		"env", "-i", "PATH="+guestPath, "systemctl", "show", "--property=LoadState,ActiveState", "--", unit)
+	states, err := l.UnitStates(ctx, lxcPath, container, unit)
 	if err != nil {
-		return "", "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(res.Stderr)))
+		return "", "", err
 	}
-	props := map[string]string{}
-	for line := range strings.SplitSeq(string(res.Stdout), "\n") {
-		if key, value, ok := strings.Cut(line, "="); ok {
-			props[key] = value
+	return states[0].Load, states[0].Active, nil
+}
+
+// UnitStatus is a unit's LoadState and ActiveState.
+type UnitStatus struct {
+	Load, Active string
+}
+
+// UnitStates is UnitState for every unit given, asked in one systemctl show inside the
+// container; systemd answers one block per unit, blank-line separated, in argument order. An
+// answer with another number of blocks, or a block missing either state, is an error.
+func (l *Lister) UnitStates(ctx context.Context, lxcPath, container string, units ...string) ([]UnitStatus, error) {
+	res, err := l.Sudo.Capture(ctx, append([]string{
+		"lxc-attach", "-P", lxcPath, "-n", container, "--clear-env", "--",
+		"env", "-i", "PATH=" + guestPath, "systemctl", "show", "--property=LoadState,ActiveState", "--",
+	}, units...)...)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(res.Stderr)))
+	}
+	var states []UnitStatus
+	for block := range strings.SplitSeq(strings.TrimSpace(string(res.Stdout)), "\n\n") {
+		props := map[string]string{}
+		for line := range strings.SplitSeq(block, "\n") {
+			if key, value, ok := strings.Cut(line, "="); ok {
+				props[key] = value
+			}
+		}
+		states = append(states, UnitStatus{Load: props["LoadState"], Active: props["ActiveState"]})
+	}
+	if len(states) != len(units) {
+		return nil, fmt.Errorf("systemctl show in container %s answered %d units of %d (%s)", container, len(states), len(units), strings.Join(units, " "))
+	}
+	for i, unit := range units {
+		if states[i].Load == "" || states[i].Active == "" {
+			return nil, fmt.Errorf("systemctl show in container %s gave no LoadState or ActiveState for %s", container, unit)
 		}
 	}
-	load, active := props["LoadState"], props["ActiveState"]
-	if load == "" || active == "" {
-		return "", "", fmt.Errorf("systemctl show in container %s gave no LoadState or ActiveState for %s", container, unit)
-	}
-	return load, active, nil
+	return states, nil
 }

@@ -109,3 +109,25 @@ func TestUnitStateFailsOnAnAnswerItCannotRead(t *testing.T) {
 		t.Fatalf("err %v", err)
 	}
 }
+
+// Every unit of a container is asked in one systemctl show; its blocks come back in argument
+// order, and an answer with another number of blocks is refused.
+func TestUnitStatesAsksEveryUnitInOneCall(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "lxc-attach"}, execx.Result{Stdout: []byte(
+		"LoadState=loaded\nActiveState=inactive\n\nLoadState=not-found\nActiveState=inactive\n")})
+	got, err := newLister(f).UnitStates(context.Background(), "/srv/lxc", "box", "a.service", "b.service")
+	if err != nil || len(got) != 2 || got[0] != (UnitStatus{Load: "loaded", Active: "inactive"}) ||
+		got[1] != (UnitStatus{Load: "not-found", Active: "inactive"}) {
+		t.Fatalf("%v %v", got, err)
+	}
+	calls := f.Calls()
+	if len(calls) != 1 || !slices.Equal(calls[0].Args[len(calls[0].Args)-3:], []string{"--", "a.service", "b.service"}) {
+		t.Fatalf("ran %v", calls)
+	}
+	f = &execx.Fake{}
+	f.On([]string{"sudo", "-n", "lxc-attach"}, execx.Result{Stdout: []byte("LoadState=loaded\nActiveState=inactive\n")})
+	if _, err = newLister(f).UnitStates(context.Background(), "/srv/lxc", "box", "a.service", "b.service"); err == nil {
+		t.Fatal("one block read for two units")
+	}
+}

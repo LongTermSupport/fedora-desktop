@@ -42,6 +42,7 @@ type Containers interface {
 	Containers(ctx context.Context) (running, stopped []string, err error)
 	StartUnit(ctx context.Context, lxcPath, container, unit string) error
 	UnitState(ctx context.Context, lxcPath, container, unit string) (load, active string, err error)
+	UnitStates(ctx context.Context, lxcPath, container string, units ...string) ([]lxcfreeze.UnitStatus, error)
 }
 
 // Declared is the host_vars' agent_bus_lxc_members entries, as the play reads them.
@@ -83,9 +84,29 @@ func recorded(rec lxcrecord.Record, row board.Row) int {
 // Another host's member is in no record here, and a service: false member has no unit. A
 // record or declaration that cannot be read keeps the line, so choosing it says why.
 func (s *Starter) Offers(ctx context.Context, row board.Row) bool {
-	if row.V2 {
-		return s.offersV2(ctx, row)
+	return s.OffersAll(ctx, []board.Row{row})[0]
+}
+
+// OffersAll is Offers for every row, in their order, asked once for all of them: a v1 row from
+// its files, the v2 rows' containers, LXC path and units each asked once (per container), so a
+// board refresh costs one round of root calls, not one a row.
+func (s *Starter) OffersAll(ctx context.Context, rows []board.Row) []bool {
+	out := make([]bool, len(rows))
+	var v2 []board.Row
+	var at []int
+	for i, row := range rows {
+		if row.V2 {
+			v2, at = append(v2, row), append(at, i)
+			continue
+		}
+		out[i] = s.offersV1(ctx, row)
 	}
+	s.offersV2(ctx, v2, out, at)
+	return out
+}
+
+// offersV1 is Offers for a v1 member's row.
+func (s *Starter) offersV1(ctx context.Context, row board.Row) bool {
 	rec, _, err := lxcrecord.Read(s.AppliedDir, row.Team)
 	if err != nil {
 		return true

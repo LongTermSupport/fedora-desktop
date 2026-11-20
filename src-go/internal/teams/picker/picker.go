@@ -116,17 +116,21 @@ type run struct {
 func lxcStartKey(row board.Row) string { return row.Team + "\x00" + row.Handle }
 
 // setSnap makes s the pass shown, with which of its LXC member rows offer starting a session
-// (lxcsession.Starter.Offers); none where no Starter is wired.
+// (lxcsession.Starter.OffersAll, asked once for the pass); none where no Starter is wired.
 func (r *run) setSnap(ctx context.Context, s *board.Snapshot) {
 	r.snap = s
 	r.lxcStarts = map[string]bool{}
 	if r.p.LxcSession == nil {
 		return
 	}
+	var rows []board.Row
 	for _, row := range s.Rows {
 		if row.Kind == lxcMemberKind && row.Handle != "" && row.Handle != "-" {
-			r.lxcStarts[lxcStartKey(row)] = r.p.LxcSession.Offers(ctx, row)
+			rows = append(rows, row)
 		}
+	}
+	for i, offers := range r.p.LxcSession.OffersAll(ctx, rows) {
+		r.lxcStarts[lxcStartKey(rows[i])] = offers
 	}
 }
 
