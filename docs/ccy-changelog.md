@@ -17,6 +17,21 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.43 — container 2.84.43
+
+- **Shutting down a v2 (teamchat) team says a host seat's run ended only when it can tell**
+  (Plan 00257 SPEC-team-close TC2, TC12). A seat whose holding names a session is "no session
+  running" (exit 0) only when that session's seat lock is free and no live ccy session has its
+  name. A seat lock not there yet (a launch writes the holding before its keeper makes the
+  lock, so the session may still be starting), a lock the probe refuses, or a free lock with a
+  live session of the same name is now not reachable (exit 1), with that reason, and nothing is
+  typed. Each holder's seat lock is checked again just before `/compact` is typed; one that
+  changed while confirming is not reachable and not typed into. A seat store pool entry that is
+  not a checkout's pool is named once and the other checkouts are still read, so a live holder
+  there is closed (the run still exits 1). The message no longer says when the seat sweep
+  releases a crashed holder's seat. The image is rebuilt: the seat store package it builds from
+  answers what a seat lock says of its keeper.
+
 ## 3.122.42 — container 2.84.42
 
 - **Shutting down a v2 (teamchat) team closes a host seat's holder only while its run is live**

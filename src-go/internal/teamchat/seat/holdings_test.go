@@ -105,32 +105,51 @@ func TestReadHoldingsIsHoldingsReadOnly(t *testing.T) {
 	}
 }
 
-// KeeperLive is the store's live-keeper test read without a store opened for allocation: the
-// session's seat lock of the team held is true; missing or free (a crashed run's) is false, as
-// is a seat store that does not exist, which reading does not make.
-func TestKeeperLiveIsTheSessionsSeatLockHeld(t *testing.T) {
+// KeeperOf is what the session's seat lock of the team says of its keeper, read without a store
+// opened for allocation: no lock yet (a launch writes the holding before its keeper makes the
+// lock), held (its run is live), free (its run ended), or refused (a link or the like, so
+// nothing is known). A seat store that does not exist has no lock, and reading does not make it.
+func TestKeeperOfIsWhatTheSessionsSeatLockSays(t *testing.T) {
 	w := newWorld(t)
 	w.seed()
 	w.writeRecord(fmt.Sprintf(recordFmt, w.hs.URL()))
 	w.take("s1")
 	s1 := mustSession(t, "s1")
-	if live, err := KeeperLive(w.store.store, s1, w.seat.Team); err != nil || live {
-		t.Fatalf("no lock file: live %v, %v", live, err)
+	of := func(store paths.Store) Keeper {
+		t.Helper()
+		k, err := KeeperOf(store, s1, w.seat.Team)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return k
+	}
+	if got := of(w.store.store); got != KeeperNoLock {
+		t.Fatalf("no lock file: %v", got)
 	}
 	end := w.keep("s1", "")
-	if live, err := KeeperLive(w.store.store, s1, w.seat.Team); err != nil || !live {
-		t.Fatalf("lock held: live %v, %v", live, err)
+	if got := of(w.store.store); got != KeeperRunning {
+		t.Fatalf("lock held: %v", got)
 	}
 	end()
-	if live, err := KeeperLive(w.store.store, s1, w.seat.Team); err != nil || live {
-		t.Fatalf("lock free: live %v, %v", live, err)
+	if got := of(w.store.store); got != KeeperEnded {
+		t.Fatalf("lock free: %v", got)
+	}
+	lock := w.store.store.SessionSeat(s1, w.seat.Team).Lock()
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/dev/null", lock); err != nil {
+		t.Fatal(err)
+	}
+	if got := of(w.store.store); got != KeeperRefused {
+		t.Fatalf("a link where the lock is: %v", got)
 	}
 	missing, err := paths.SeatStore(t.TempDir() + "/state")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if live, err := KeeperLive(missing, s1, w.seat.Team); err != nil || live {
-		t.Errorf("no seat store: live %v, %v", live, err)
+	if got := of(missing); got != KeeperNoLock {
+		t.Errorf("no seat store: %v", got)
 	}
 	if _, err = os.Stat(missing.Root()); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("reading made the seat store: %v", err)

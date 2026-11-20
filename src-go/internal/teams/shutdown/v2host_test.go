@@ -1,21 +1,29 @@
 package shutdown
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"golang.org/x/sys/unix"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-const v2HostHandle = "proj.9+local.podman"
+const (
+	v2HostHandle  = "proj.9+local.podman"
+	v2OtherHandle = "proj.8+local.podman"
+)
 
 // seatStore is the owner's seat store of the fake machine (its HOME's XDG state home).
 func (m *machine) seatStore() paths.Store {
@@ -36,12 +44,14 @@ var v2Checkout = strings.Repeat("a", 32)
 
 // withV2HostSession puts a live session named name on ccy's tmux that holds the v2 team's seat
 // handle in the owner's seat store (its pool seat's held/held.json names the session) and whose
-// keeper holds the session's seat lock of the team.
-func (m *machine) withV2HostSession(name, handle string) {
+// keeper holds the session's seat lock of the team; release frees that lock, as the keeper's
+// end does.
+func (m *machine) withV2HostSession(name, handle string) (release func()) {
 	m.t.Helper()
 	m.withV2Holding(handle, heldBy(name))
-	m.keepSeatLock(name)
+	release = m.keepSeatLock(name)
 	m.sessions = append(m.sessions, &session{name: name, dir: "/srv/proj", pane: paneReady})
+	return release
 }
 
 // heldBy is a complete held.json naming the session.
@@ -49,9 +59,31 @@ func heldBy(session string) string {
 	return `{"v":1,"session":"` + session + `","claim":"0123456789abcdef","since_ms":1760000000000}`
 }
 
-// keepSeatLock holds the session's seat lock of the v2 team as its live keeper does, until the
-// test ends.
-func (m *machine) keepSeatLock(session string) {
+// keepSeatLock holds the session's seat lock of the v2 team as its live keeper does, until
+// release or the test's end.
+func (m *machine) keepSeatLock(session string) (release func()) {
+	m.t.Helper()
+	f, err := os.OpenFile(m.sessionSeatLock(session), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		m.t.Fatal(err)
+	}
+	var once sync.Once
+	release = func() {
+		once.Do(func() {
+			if err := f.Close(); err != nil {
+				m.t.Error(err)
+			}
+		})
+	}
+	m.t.Cleanup(release)
+	if err = unix.Flock(int(f.Fd()), unix.LOCK_EX); err != nil {
+		m.t.Fatal(err)
+	}
+	return release
+}
+
+// sessionSeatLock is the path of the session's seat lock of the v2 team, its directory made.
+func (m *machine) sessionSeatLock(session string) string {
 	m.t.Helper()
 	n, err := paths.ParseSessionName(session)
 	if err != nil {
@@ -61,18 +93,7 @@ func (m *machine) keepSeatLock(session string) {
 	if err = os.MkdirAll(seat.Dir(), 0o700); err != nil {
 		m.t.Fatal(err)
 	}
-	f, err := os.OpenFile(seat.Lock(), os.O_RDWR|os.O_CREATE, 0o600)
-	if err != nil {
-		m.t.Fatal(err)
-	}
-	m.t.Cleanup(func() {
-		if err := f.Close(); err != nil {
-			m.t.Error(err)
-		}
-	})
-	if err = unix.Flock(int(f.Fd()), unix.LOCK_EX); err != nil {
-		m.t.Fatal(err)
-	}
+	return seat.Lock()
 }
 
 // withCrashedHolding gives the pool seat handle a complete holding naming session whose run
@@ -80,15 +101,7 @@ func (m *machine) keepSeatLock(session string) {
 func (m *machine) withCrashedHolding(handle, session string) {
 	m.t.Helper()
 	m.withV2Holding(handle, heldBy(session))
-	n, err := paths.ParseSessionName(session)
-	if err != nil {
-		m.t.Fatal(err)
-	}
-	seat := m.seatStore().SessionSeat(n, v2Team(m.t))
-	if err = os.MkdirAll(seat.Dir(), 0o700); err != nil {
-		m.t.Fatal(err)
-	}
-	if err = os.WriteFile(seat.Lock(), nil, 0o600); err != nil {
+	if err := os.WriteFile(m.sessionSeatLock(session), nil, 0o600); err != nil {
 		m.t.Fatal(err)
 	}
 }
@@ -232,29 +245,30 @@ func TestAV2HostSeatHeldOutsideCcyTmuxIsOutOfReach(t *testing.T) {
 	m.errLacks(t, whyNoSession)
 }
 
-// TC2, TC12: a holding outlives a crashed or rebooted session (the seat store keeps it for a
-// restore), and tmux reuses names. A later ccy session under the holder's name, whose seat lock
-// of the team is free, is not the holder: it is never typed into, and the seat is named as a
-// crashed holder's, with nothing to shut down.
+// TC2, TC12: a holding outlives a crashed or rebooted session (the seat store keeps it), and
+// tmux reuses names. A live ccy session under the holder's name, whose seat lock of the team is
+// free, may be a later, unrelated session or the holder restarting: which cannot be told, so it
+// is never typed into, and the seat is not reachable, exit 1.
 func TestALeftoverHoldingDoesNotMakeAReusedNameTheTeams(t *testing.T) {
 	m := newMachine(t)
 	m.withV2(lxcstate.StatusJoined, "", teamtest.V2Member(v2HostHandle, "podman", false))
 	m.withContainers(false)
 	m.withCrashedHolding(v2HostHandle, "ccy-reused")
 	m.sessions = append(m.sessions, &session{name: "ccy-reused", dir: "/srv/proj", pane: paneReady})
-	if got := m.run(teamtest.V2Team, "--yes"); got != term.ExitOK {
+	if got := m.run(teamtest.V2Team, "--yes"); got != term.ExitFailure {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}
 	if got := m.typedInto("ccy-reused"); len(got) != 0 {
 		t.Fatalf("a later session under a crashed holder's name was typed into: %q", got)
 	}
-	m.errHas(t, v2HostHandle+": "+whyV2Ended("ccy-reused", true)+", nothing to shut down")
-	m.errLacks(t, "not reachable")
+	m.errHas(t, v2HostHandle+": not shut down: held by session ccy-reused, whose seat lock is free, while a live "+
+		"ccy session carries that name")
+	m.errLacks(t, whyNoSession, "not the team's")
 }
 
 // TC4, TC12: a crashed holder (its holding kept, its seat lock free) with no live session under
-// its name has no session running, never "a session outside tmux": named with what the seat
-// store does with the holding, and the run exits 0.
+// its name has no session running, never "a session outside tmux": named with the holding's
+// session and that the seat stays held until the seat sweep releases it, and the run exits 0.
 func TestACrashedHoldersSeatHasNoSession(t *testing.T) {
 	m := newMachine(t)
 	m.withV2(lxcstate.StatusJoined, "", teamtest.V2Member(v2HostHandle, "podman", false))
@@ -263,12 +277,117 @@ func TestACrashedHoldersSeatHasNoSession(t *testing.T) {
 	if got := m.run(teamtest.V2Team, "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}
-	m.errHas(t, v2HostHandle+": "+whyV2Ended("ccy-gone", false)+", nothing to shut down")
-	m.errLacks(t, whyV2HeldOffTmux, "not reachable")
+	m.errHas(t,
+		v2HostHandle+": "+whyNoSession+" on this host: the seat's holding names session ccy-gone, whose seat lock is free",
+		"the seat stays held in this host's seat store until the seat sweep releases it",
+		", nothing to shut down")
+	m.errLacks(t, whyV2HeldOffTmux, "not reachable", "keeps the seat for")
 }
 
-// TC12: a pool entry that is not a checkout's pool is never skipped: the seat store's holdings
-// are unreadable, so each member is named once as not reachable, and the run exits 1.
+// TC12: a v2 launch writes the holding before its keeper makes the seat lock, so a holding with
+// no seat lock yet may be a session still starting, the team's own: whether there is a session
+// or not, nothing is typed and the seat is not reachable, exit 1, never "no session running".
+func TestAHolderWithNoSeatLockYetIsNotReachable(t *testing.T) {
+	for name, live := range map[string]bool{"a live session of that name": true, "no session of that name": false} {
+		t.Run(name, func(t *testing.T) {
+			m := newMachine(t)
+			m.withV2(lxcstate.StatusJoined, "", teamtest.V2Member(v2HostHandle, "podman", false))
+			m.withContainers(false)
+			m.withV2Holding(v2HostHandle, heldBy("ccy-starting"))
+			if live {
+				m.sessions = append(m.sessions, &session{name: "ccy-starting", dir: "/srv/proj", pane: paneStart})
+			}
+			if got := m.run(teamtest.V2Team, "--yes"); got != term.ExitFailure {
+				t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+			}
+			if got := m.typedInto("ccy-starting"); len(got) != 0 {
+				t.Fatalf("typed into %q", got)
+			}
+			m.errHas(t, v2HostHandle+": not shut down: held by session ccy-starting, whose seat lock is not there yet "+
+				"(still starting?)")
+			m.errLacks(t, whyNoSession, "crash")
+		})
+	}
+}
+
+// TC12: a seat lock the probe refuses (a link, or a mode or owner its container set) says
+// nothing of its keeper: the seat is not reachable, exit 1, and nothing is typed.
+func TestAHolderWhoseSeatLockIsRefusedIsNotReachable(t *testing.T) {
+	m := newMachine(t)
+	m.withV2(lxcstate.StatusJoined, "", teamtest.V2Member(v2HostHandle, "podman", false))
+	m.withContainers(false)
+	m.withV2Holding(v2HostHandle, heldBy("ccy-v2host"))
+	if err := os.Symlink("/dev/null", m.sessionSeatLock("ccy-v2host")); err != nil {
+		t.Fatal(err)
+	}
+	m.sessions = append(m.sessions, &session{name: "ccy-v2host", dir: "/srv/proj", pane: paneReady})
+	if got := m.run(teamtest.V2Team, "--yes"); got != term.ExitFailure {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	if got := m.typedInto("ccy-v2host"); len(got) != 0 {
+		t.Fatalf("typed into %q", got)
+	}
+	m.errHas(t, v2HostHandle+": not shut down: held by session ccy-v2host, whose seat lock cannot be probed")
+	m.errLacks(t, whyNoSession)
+}
+
+// TC12: seat locks that cannot be read decide nothing: every host member left is named once as
+// not reachable, exit 1, and nothing is typed.
+func TestUnreadableSeatLocksAreNotReachableOnce(t *testing.T) {
+	m := newMachine(t)
+	m.withV2(lxcstate.StatusJoined, "", teamtest.V2Member(v2HostHandle, "podman", false))
+	m.withContainers(false)
+	m.withV2HostSession("ccy-v2host", v2HostHandle)
+	m.s.Keeper = func(paths.Store, paths.SessionName, paths.TeamID) (seat.Keeper, error) {
+		return seat.KeeperNoLock, errors.New("flock: no locks available")
+	}
+	if got := m.run(teamtest.V2Team, "--yes"); got != term.ExitFailure {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	if got := m.typedInto("ccy-v2host"); len(got) != 0 {
+		t.Fatalf("typed into %q", got)
+	}
+	m.errHas(t, v2HostHandle+": not shut down: "+whyUnreachable+"the seat store's seat locks: ", "no locks available")
+	if n := strings.Count(m.ErrOut.String(), v2HostHandle+":"); n != 1 {
+		t.Fatalf("the member is reported %d times:\n%s", n, m.ErrOut.String())
+	}
+}
+
+// promptThen is a prompt runner that runs then before it answers, as a holder that ends while
+// the question waits.
+type promptThen struct {
+	execx.Runner
+	then func()
+}
+
+func (p promptThen) Run(ctx context.Context, c execx.Cmd) (execx.Result, error) {
+	p.then()
+	return p.Runner.Run(ctx, c)
+}
+
+// TC2, TC12: the live keeper is asked again just before the close. A holder whose seat lock is
+// freed while the question waits is not typed into: it is not reachable, changed while
+// confirming, and the run exits 1.
+func TestAHolderThatEndsWhileConfirmingIsNotTypedInto(t *testing.T) {
+	m := newMachine(t)
+	m.withV2(lxcstate.StatusJoined, "", teamtest.V2Member(v2HostHandle, "podman", false))
+	m.withContainers(false)
+	release := m.withV2HostSession("ccy-v2host", v2HostHandle)
+	c := m.interactive("|YES")
+	m.Host.Picker.Runner = promptThen{Runner: c.Script, then: release}
+	if got := m.run(teamtest.V2Team); got != term.ExitFailure {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	if got := m.typedInto("ccy-v2host"); len(got) != 0 {
+		t.Fatalf("a holder whose seat lock was freed while confirming was typed into: %q", got)
+	}
+	m.errHas(t, v2HostHandle+": not shut down: held by session ccy-v2host, whose seat lock changed while confirming: "+
+		"it is free now")
+}
+
+// TC12: a pool entry that is not a checkout's pool is never skipped: it is named once as not
+// reachable, and the run exits 1; the seat sweep reports it the same way and goes on, so the
+// valid checkouts are still read: a live holder there is closed and a free seat has no session.
 func TestAPoolEntryThatIsNotACheckoutIsNotSkipped(t *testing.T) {
 	for name, plant := range map[string]func(string) error{
 		"a name no checkout has": func(pool string) error { return os.MkdirAll(pool+"/Not-A-Checkout", 0o700) },
@@ -276,18 +395,26 @@ func TestAPoolEntryThatIsNotACheckoutIsNotSkipped(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := newMachine(t)
-			m.withV2(lxcstate.StatusJoined, "", teamtest.V2Member(v2HostHandle, "podman", false))
+			m.withV2(lxcstate.StatusJoined, "", teamtest.V2Member(v2HostHandle, "podman", false),
+				teamtest.V2Member(v2OtherHandle, "podman", false))
 			m.withContainers(false)
-			m.withV2PoolSeat()
+			m.withV2HostSession("ccy-v2host", v2HostHandle)
+			if err := os.MkdirAll(m.seatStore().Pool()+"/"+v2Checkout+"/"+teamtest.V2Team+"/"+v2OtherHandle, 0o700); err != nil {
+				t.Fatal(err)
+			}
 			if err := plant(m.seatStore().Pool()); err != nil {
 				t.Fatal(err)
 			}
 			if got := m.run(teamtest.V2Team, "--yes"); got != term.ExitFailure {
 				t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 			}
-			m.errHas(t, v2HostHandle+": not shut down: "+whyUnreachable+"the seat store's holdings: ", "not a checkout's pool")
-			if n := strings.Count(m.ErrOut.String(), v2HostHandle+":"); n != 1 {
-				t.Fatalf("the member is reported %d times:\n%s", n, m.ErrOut.String())
+			if got := m.typedInto("ccy-v2host"); len(got) != 2 || got[1] != "/exit" {
+				t.Fatalf("the live holder in a valid checkout was not closed: %q", got)
+			}
+			m.errHas(t, "ccy-v2host: exited cleanly", "not a checkout's pool",
+				v2OtherHandle+": "+whyNoSession+" on this host, nothing to shut down")
+			if n := strings.Count(m.ErrOut.String(), "not a checkout's pool"); n != 2 {
+				t.Fatalf("the bad entry is not named once in the preview and once in the result:\n%s", m.ErrOut.String())
 			}
 		})
 	}

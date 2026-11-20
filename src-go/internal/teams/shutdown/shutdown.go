@@ -32,6 +32,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
@@ -79,6 +80,8 @@ type Shutdown struct {
 	// SeatStore is the owner's teamchat seat store, whose holdings name the session holding each
 	// v2 host seat.
 	SeatStore func() (paths.Store, error)
+	// Keeper is what a session's seat lock of a team says of its keeper (seat.KeeperOf).
+	Keeper func(paths.Store, paths.SessionName, paths.TeamID) (seat.Keeper, error)
 
 	Term   *term.Term
 	Out    *term.Printer
@@ -107,6 +110,7 @@ func New(h *host.Host, kit *flow.Kit, b *board.Collector) *Shutdown {
 			}
 			return paths.SeatStore(state)
 		},
+		Keeper: seat.KeeperOf,
 		Term: h.Term, Out: h.Out, Stderr: h.Stderr, Payload: h.Payload, Stdin: h.Stdin, IsTerminal: h.IsTerminal, Home: h.Home,
 		Now: time.Now, Sleep: time.Sleep, Waits: DefaultWaits,
 	}

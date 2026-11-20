@@ -62,30 +62,66 @@ func ReadHoldings(store paths.Store, checkout paths.CheckoutKey) ([]Holding, err
 	return holdings, err
 }
 
-// KeeperLive is the store's live-keeper test (keeperLive, which a take's sessionHolds asks first)
-// read without a store opened for allocation, as ReadHoldings reads: whether the session's seat
-// lock of the team is held now. ccy-teams shutdown asks it, so a holding a crashed run left, which
-// the store keeps for a restore, never makes a later session under the same name the holder. A
-// seat store that does not exist has no keeper, and nothing is made.
-func KeeperLive(store paths.Store, session paths.SessionName, team paths.TeamID) (bool, error) {
-	live := false
+// Keeper is what a session's seat lock of a team says of its keeper (the L3 probe).
+type Keeper int
+
+const (
+	// KeeperNoLock is no seat lock: no keeper has made it. A v2 launch writes the holding before
+	// its keeper makes the lock, so a session still starting is in this state too.
+	KeeperNoLock Keeper = iota
+	// KeeperEnded is a seat lock there and free: the run that held it has ended.
+	KeeperEnded
+	// KeeperRunning is a seat lock held: the session's keeper runs now.
+	KeeperRunning
+	// KeeperRefused is a seat lock the probe would not open (n2c-D14): nothing is known of its
+	// keeper.
+	KeeperRefused
+)
+
+// KeeperOf is what the session's seat lock of the team says of its keeper, read without a store
+// opened for allocation, as ReadHoldings reads; the store's live-keeper test (keeperLive, which a
+// take's sessionHolds asks first) is KeeperRunning. ccy-teams shutdown asks it, so a holding a
+// run left never makes a later session under the same name the holder. A seat store that does
+// not exist has no lock, and nothing is made.
+func KeeperOf(store paths.Store, session paths.SessionName, team paths.TeamID) (Keeper, error) {
+	got := KeeperNoLock
 	err := readOnly(store, paths.CheckoutKey{}, func(s *Store) error {
 		var err error
-		live, err = s.keeperLive(session, team)
+		got, err = s.keeper(session, team)
 		return err
 	})
-	return live, err
+	return got, err
+}
+
+// keeper is KeeperOf on an open store.
+func (s *Store) keeper(session paths.SessionName, team paths.TeamID) (Keeper, error) {
+	got, err := s.probe(s.store.SessionSeat(session, team))
+	if err != nil {
+		return KeeperNoLock, err
+	}
+	switch got.state {
+	case lockHeld:
+		return KeeperRunning, nil
+	case lockFree:
+		return KeeperEnded, nil
+	case lockRefused:
+		return KeeperRefused, nil
+	case lockMissing:
+	}
+	return KeeperNoLock, nil
 }
 
 // keeperLive is whether the session's seat lock of the team is held: its keeper runs now. A lock
 // that is missing, free or refused (n2c-D14) has no live keeper.
 func (s *Store) keeperLive(session paths.SessionName, team paths.TeamID) (bool, error) {
-	got, err := s.probe(s.store.SessionSeat(session, team))
-	return err == nil && got.state == lockHeld, err
+	got, err := s.keeper(session, team)
+	return err == nil && got == KeeperRunning, err
 }
 
 // readOnly runs f on the seat store opened with no part made beyond where it is, for one
-// checkout; a seat store that does not exist runs nothing.
+// checkout; a seat store that does not exist runs nothing. The Store f is given has no sessions,
+// and a zero checkout when the caller reads no pool (KeeperOf): only what reads neither may run
+// on it, as probe does.
 func readOnly(store paths.Store, checkout paths.CheckoutKey, f func(*Store) error) error {
 	root, err := openDir(store.Root(), false)
 	if errors.Is(err, unix.ENOENT) {

@@ -60,7 +60,7 @@ func (s *Shutdown) resolveV2Host(snap *board.Snapshot, team string, p *plan) {
 		p.notReached(whyUnreachable+"the seat store's holdings: "+err.Error(), rows...)
 		return
 	}
-	live, ended, err := byKeeper(store, holdings)
+	live, ended, err := s.byKeeper(store, holdings)
 	if err != nil {
 		p.notReached(whyUnreachable+"the seat store's seat locks: "+err.Error(), rows...)
 		return
@@ -87,16 +87,16 @@ func (s *Shutdown) resolveV2Host(snap *board.Snapshot, team string, p *plan) {
 
 // byKeeper splits the complete holdings by whether the session each names has a live keeper
 // (seat.KeeperLive): live, or ended (a crashed or rebooted run's, its seat lock free).
-func byKeeper(store paths.Store, holdings []seat.Holding) (live, ended []seat.Holding, err error) {
+func (s *Shutdown) byKeeper(store paths.Store, holdings []seat.Holding) (live, ended []seat.Holding, err error) {
 	for _, h := range holdings {
 		if !h.Complete {
 			continue
 		}
-		kept, err := seat.KeeperLive(store, h.Record.Session, h.Seat.Team)
+		kept, err := s.Keeper(store, h.Record.Session, h.Seat.Team)
 		if err != nil {
 			return nil, nil, fmt.Errorf("session %s: %w", h.Record.Session, err)
 		}
-		if kept {
+		if kept == seat.KeeperRunning {
 			live = append(live, h)
 		} else {
 			ended = append(ended, h)
