@@ -408,6 +408,8 @@ Full detail on any rule: `.claude/hooks-daemon/bin/hooks-daemon explain-rule <ID
 
 <!-- handler: docs-qa-edit -->
 
+<!-- handler: enforce-ansible-deployment -->
+
 <!-- handler: enforce-lsp-usage -->
 
 <!-- handler: enforce-markdown-organization -->
@@ -449,6 +451,8 @@ Full detail on any rule: `.claude/hooks-daemon/bin/hooks-daemon explain-rule <ID
 <!-- handler: plan-qa-edit -->
 
 <!-- handler: prevent-destructive-git -->
+
+<!-- handler: prevent-system-file-edits -->
 
 <!-- handler: prevent-worktree-file-copying -->
 
@@ -556,6 +560,7 @@ Full detail on any rule: `.claude/hooks-daemon/bin/hooks-daemon explain-rule <ID
 | R-DISPATCH-DECLARATION-MISSING     | a `Task` dispatch prompt that declares no plan folder and no non-plan destination (strict mode)                                                                                                    | A subagent's long-form reply travels over a bounded channel that silently elides an oversized inline report, so its output must go to a declared file                                             | Name the plan folder the dispatch belongs to, or say 'not plan work' and declare where its files go                                                                                                                                                        |
 | R-DOCS-QA-COMMIT                   | a git commit violates a block-level docs QA staged-tree check                                                                                                                                      | Most doc rot that matters at commit time is cross-file drift a single-file edit hook cannot see                                                                                                   | Fix the content per each finding's remediation below and amend the commit                                                                                                                                                                                  |
 | R-DOCS-QA-EDIT                     | a documentation Write/Edit violates a block-level docs QA check                                                                                                                                    | A finding only denies the write when it is BLOCK severity AND the resolved mode for that check is block                                                                                           | Fix the content per each finding's remediation below and retry                                                                                                                                                                                             |
+| R-ANSIBLE-DIRECT-SYSTEM-CHANGE     | a command that changes the system directly: dnf/yum/rpm/pip/npm -g/flatpak/snap, systemctl state changes, gsettings/dconf/firewall-cmd writes, user and group management                           | The change lives outside version control: configuration drift that a fresh install does not reproduce                                                                                             | Put the change in an Ansible playbook under playbooks/imports/ and run the playbook                                                                                                                                                                        |
 | R-LSP-SYMBOL-LOOKUP                | a symbol-like Grep/Bash grep lookup                                                                                                                                                                | LSP tools give semantic ~50ms code intelligence; grep is slow and imprecise                                                                                                                       | Use goToDefinition/findReferences/workspaceSymbol/hover/documentSymbol instead                                                                                                                                                                             |
 | R-MARKDOWN-WRONG-LOCATION          | MARKDOWN FILE IN WRONG LOCATION — a new `.md` file written to an unrecognised location                                                                                                             | Markdown files must follow project organization rules                                                                                                                                             | Move it into an allowed location, declare its sub-project under `projects:`, or configure `extra_allowed_markdown_paths`                                                                                                                                   |
 | R-MARKDOWN-UNTRACKED-MEMORY        | UNTRACKED CLAUDE MEMORY IS DISABLED FOR THIS PROJECT — a write to `~/.claude/projects/*/memory/*.md`                                                                                               | That knowledge is per-checkout, un-reviewed, and invisible to teammates — it drifts from the repo and bypasses code review                                                                        | Document it in tracked project docs instead (CLAUDE.md, .claude/rules/\*.md, docs/)                                                                                                                                                                        |
@@ -605,6 +610,7 @@ Full detail on any rule: `.claude/hooks-daemon/bin/hooks-daemon explain-rule <ID
 | R-GIT-WORKTREE-REMOVE-FORCE        | `git worktree remove [--force]` of a worktree holding dirty files, unregenerable ignored content, or a HEAD no surviving ref holds (forced or not)                                                 | The removal deletes that work with no recovery                                                                                                                                                    | Commit, push or deliberately delete each listed path, then remove                                                                                                                                                                                          |
 | R-GIT-EVACUATE-THEN-DESTROY        | one command that copies a worktree's or branch's work to an untracked file (`git diff`/`format-patch`/`stash show -p`/`show` by redirect, `tee` or `-o`) and then destroys that worktree or branch | The work survives only as an unreviewed patch file outside history                                                                                                                                | Commit or push the work on the lane's branch, then remove it; or ask a human                                                                                                                                                                               |
 | R-GIT-DESTRUCTIVE-UNREADABLE       | a git command that may destroy changes and cannot be read in full                                                                                                                                  | Fail closed: a command this handler cannot parse might be any of the rules above                                                                                                                  | Rewrite it as one plain git command per call, or ask the user to run it manually                                                                                                                                                                           |
+| R-SYSTEM-PATH-DEPLOYED-FILE-EDIT   | a Write or Edit of a deployed system file under /etc, /var, /usr, /opt, /root or /home                                                                                                             | A deployed file edited in place bypasses version control and drifts from the project source                                                                                                       | Edit the project file under files/ and deploy it with an Ansible playbook                                                                                                                                                                                  |
 | R-WORKTREE-FILE-COPY               | `cp`/`mv`/`rsync` from a worktree into the main repo's code dirs                                                                                                                                   | Defeats worktree isolation, bypasses git tracking, and can nuke untracked work in the target directory                                                                                            | cd into the worktree, commit, then git merge back                                                                                                                                                                                                          |
 | R-QA-SUPPRESSION                   | a QA suppression directive (noqa, type: ignore, eslint-disable, ...)                                                                                                                               | Suppression comments hide real problems and create technical debt                                                                                                                                 | Fix the underlying issue; do not suppress the warning                                                                                                                                                                                                      |
 | R-REFERENCE-REPO-STALE             | a read of a governed reference clone that is behind or off its default branch                                                                                                                      | reasoning from a stale clone produces conclusions indistinguishable from correct ones -- no error, no failing test, just a wrong answer                                                           | Run the `fix:` command printed beside the repo, then retry the read                                                                                                                                                                                        |
@@ -701,10 +707,6 @@ One line each; these fire with their own guidance when relevant. Full text: `.cl
 
 - docs_qa_sweep — documentation drift report at session start
 
-<!-- handler: enforce-ansible-deployment -->
-
-- ansible_enforcement — no direct system management commands
-
 <!-- handler: evacuation-recorder -->
 
 - evacuation_recorder — an evacuated worktree or branch stays protected this turn
@@ -788,10 +790,6 @@ One line each; these fire with their own guidance when relevant. Full text: `.cl
 <!-- handler: plan-workflow-guidance -->
 
 - plan_workflow — PLAN.md, supporting docs and JOURNAL/ obey DIFFERENT contracts
-
-<!-- handler: prevent-system-file-edits -->
-
-- system_paths — do not edit deployed system files directly
 
 <!-- handler: project-handler-load-checker -->
 

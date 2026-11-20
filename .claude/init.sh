@@ -2263,33 +2263,44 @@ _hostname_suffix=$(_get_hostname_suffix)
 SOCKET_PATH="${CLAUDE_HOOKS_SOCKET_PATH:-$_untracked_dir/daemon${_hostname_suffix}.sock}"
 PID_PATH="${CLAUDE_HOOKS_PID_PATH:-$_untracked_dir/daemon${_hostname_suffix}.pid}"
 
-# Socket discovery file: when the default socket path exceeds the AF_UNIX
-# length limit (108 bytes), the Python daemon falls back to a shorter path
-# (XDG_RUNTIME_DIR, /run/user/, or /tmp) and writes the actual socket path
-# to a discovery file. Read it if the default socket doesn't exist.
-if [[ -z "${CLAUDE_HOOKS_SOCKET_PATH:-}" ]] && [[ ! -S "$SOCKET_PATH" ]]; then
-    _discovery_file="$_untracked_dir/daemon${_hostname_suffix}.socket-path"
-    if [[ -f "$_discovery_file" ]]; then
-        _discovered_path=$(cat "$_discovery_file" 2>/dev/null)
-        if [[ -n "$_discovered_path" ]] && [[ -S "$_discovered_path" ]]; then
-            SOCKET_PATH="$_discovered_path"
-            # The daemon that fell back put its PID file beside that socket
-            # under the same stem (paths.get_pid_path mirrors get_socket_path),
-            # so the PID path must follow too. Left at the long default,
-            # is_daemon_running finds no PID, `cli start` then sees a live
-            # socket that is "not ours" and refuses it, and every forwarder
-            # reports daemon_startup_failed while status shows RUNNING.
-            # Only when the PID path ITSELF overflows (paths.pid_path_for
-            # decides on the PID path's own length, 104 = _UNIX_SOCKET_PATH_LIMIT):
-            # its socket is one character longer, so at exactly the limit the
-            # socket falls back while the PID file stays in the untracked dir,
-            # and following the socket would look where nothing was written.
-            if [[ -z "${CLAUDE_HOOKS_PID_PATH:-}" ]] && ((${#PID_PATH} > 104)); then
-                PID_PATH="${_discovered_path%.sock}.pid"
-            fi
-        fi
+# Socket discovery file: when the socket path exceeds the AF_UNIX length
+# limit (104 = paths._UNIX_SOCKET_PATH_LIMIT), the daemon binds a short
+# fallback instead (paths.fit_socket_path, the one place that decides it) and,
+# once bound, publishes the path it bound in a discovery file. Followed when
+# no socket exists at SOCKET_PATH and the caller did not pin one that fits:
+# here, and again by start_daemon's readiness poll, so the hook that starts
+# the daemon also reaches it (Plan 00628).
+_hooks_daemon_follow_discovery() {
+    # ${#var} counts BYTES only in the C locale; the AF_UNIX limit is in bytes,
+    # as paths._over_socket_limit measures it.
+    local LC_ALL=C
+    [[ -S "$SOCKET_PATH" ]] && return 0
+    if [[ -n "${CLAUDE_HOOKS_SOCKET_PATH:-}" ]] && ((${#SOCKET_PATH} <= 104)); then
+        return 0
     fi
-fi
+    local discovery_file="$_untracked_dir/daemon${_hostname_suffix}.socket-path"
+    [[ -f "$discovery_file" ]] || return 0
+    local discovered
+    discovered=$(cat "$discovery_file" 2>/dev/null)
+    if [[ -z "$discovered" ]] || [[ ! -S "$discovered" ]]; then
+        return 0
+    fi
+    SOCKET_PATH="$discovered"
+    # The daemon that fell back put its PID file beside that socket under the
+    # same stem (paths.fit_pid_path mirrors fit_socket_path), so the PID path
+    # must follow too. Left at the long default, is_daemon_running finds no
+    # PID, `cli start` then sees a live socket that is "not ours" and refuses
+    # it, and every forwarder reports daemon_startup_failed while status shows
+    # RUNNING. Only when the PID path ITSELF overflows (fit_pid_path decides on
+    # the PID path's own length): its socket is one character longer, so at
+    # exactly the limit the socket falls back while the PID file stays in the
+    # untracked dir, and following the socket would look where nothing was
+    # written. A pinned PID path that fits is the caller's and stays.
+    if ((${#PID_PATH} > 104)); then
+        PID_PATH="${discovered%.sock}.pid"
+    fi
+}
+_hooks_daemon_follow_discovery
 
 # Daemon startup timeout (deciseconds - 1/10th second units).
 #
@@ -2778,6 +2789,11 @@ start_daemon() {
     # launcher still writing once the hook has answered gets EPIPE, which
     # only its parent meets, after the fork: the daemon keeps starting. Its
     # stdin is not the hook's, which carries the call to judge.
+    #
+    # A path over the AF_UNIX limit is fitted by the daemon
+    # (paths.fit_socket_path) to the same short fallback every other caller
+    # computes; the readiness poll below follows the discovery file it
+    # publishes once bound (Plan 00628).
     local launch_fd launch_output="" launch_done=false
     exec {launch_fd}< <(export -fn _hooks_daemon_recovery_py
         CLAUDE_HOOKS_SOCKET_PATH="$SOCKET_PATH" \
@@ -2804,6 +2820,7 @@ start_daemon() {
         deadline=$_HOOKS_DAEMON_NONBLOCKING_DEADLINE
     fi
     while ((SECONDS < deadline)); do
+        _hooks_daemon_follow_discovery
         if is_daemon_running && [[ -S "$SOCKET_PATH" ]]; then
             _hooks_daemon_end_launch
             return 0
@@ -2819,6 +2836,7 @@ start_daemon() {
     # Final retry: the daemon may have bound the socket on the very tick
     # the loop's `elapsed < TIMEOUT` check went false. One more probe
     # before declaring failure closes the boundary race.
+    _hooks_daemon_follow_discovery
     if is_daemon_running && [[ -S "$SOCKET_PATH" ]]; then
         _hooks_daemon_end_launch
         return 0

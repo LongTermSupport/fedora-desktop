@@ -235,7 +235,7 @@ if TYPE_CHECKING:
 # (see CLAUDE/development/RELEASING.md). Display-only for the banner and the
 # runtime status file; staleness detection (Plan 00164 Phase 3) uses a content
 # hash of THIS file so it is correct even between version bumps.
-__version__ = "3.75.0"
+__version__ = "3.76.0"
 
 # Absolute path to THIS running script — hashed for staleness detection so the
 # daemon can tell when the on-disk supervisor differs from the running one.
@@ -2294,15 +2294,18 @@ def _flag_compact_enabled_from_env() -> bool:
     return _parse_flag_compact_enabled(raw)
 
 
-# ── Idle compaction at a configurable percentage (Plan 00603) ────────────────
+# ── Idle compaction at a context tier (Plan 00603) ───────────────────────────
 # Supplements Claude Code's own `idleCompaction` (about an hour idle, past a
 # token threshold): when the session is in a TRUE idle and the context is at or
-# above this percentage, ONE armed `/compact` is injected, well before RED.
+# above the configured tier (default orange, the daemon's own classification,
+# so it follows the window size), ONE armed `/compact` is injected, before RED.
+# An explicit percentage, when set, replaces the tier gate.
 # The mode is a three-way toggle because the supervisor's own dry-run is global
 # (`--arm`), and a project that arms real compaction may still want this one
 # observed first. The shipped default is `dry-run`: a decision.log line and
 # nothing typed, so a client gets the data before it gets the behaviour.
 _IDLE_COMPACT_MODE_ENV_VAR = "CCY_IDLE_COMPACT"
+_IDLE_COMPACT_TIER_ENV_VAR = "CCY_IDLE_COMPACT_TIER"
 _IDLE_COMPACT_PCT_ENV_VAR = "CCY_IDLE_COMPACT_PCT"
 _IDLE_COMPACT_SETTLE_ENV_VAR = "CCY_IDLE_COMPACT_SETTLE_SECONDS"
 _IDLE_COMPACT_COOLDOWN_ENV_VAR = "CCY_IDLE_COMPACT_COOLDOWN_SECONDS"
@@ -2312,8 +2315,15 @@ _IDLE_COMPACT_DRY_RUN = "dry-run"
 _IDLE_COMPACT_ON = "on"
 _IDLE_COMPACT_MODES = (_IDLE_COMPACT_OFF, _IDLE_COMPACT_DRY_RUN, _IDLE_COMPACT_ON)
 _DEFAULT_IDLE_COMPACT_MODE = _IDLE_COMPACT_DRY_RUN
-_DEFAULT_IDLE_COMPACT_PCT = 30.0
-_DEFAULT_IDLE_COMPACT_SETTLE_SECONDS = 60.0
+# The sidecar's `tier` values, lowest first (the daemon's ContextTier). A tier
+# the sidecar writes that is not listed here ranks nowhere, so it never fires.
+_CONTEXT_TIER_ORDER = ("green", "yellow", "orange", "red", "critical")
+# What CCY_IDLE_COMPACT_TIER may name. Green would compact an empty session;
+# critical is RED's own business.
+_IDLE_COMPACT_TIERS = ("yellow", "orange", "red")
+_DEFAULT_IDLE_COMPACT_TIER = "orange"
+# Owner decision on Plan 00603: ten minutes of unbroken true idle.
+_DEFAULT_IDLE_COMPACT_SETTLE_SECONDS = 600.0
 _DEFAULT_IDLE_COMPACT_COOLDOWN_SECONDS = 1800.0
 # Absolute floor: 30% of a small window is not worth a compaction.
 _DEFAULT_IDLE_COMPACT_MIN_TOKENS = 100_000
@@ -2342,10 +2352,22 @@ def _idle_compact_number_from_env(
     return value if minimum < value < maximum else default
 
 
-def _idle_compact_pct_from_env() -> float:
-    return _idle_compact_number_from_env(
-        _IDLE_COMPACT_PCT_ENV_VAR, _DEFAULT_IDLE_COMPACT_PCT, minimum=0.0, maximum=100.0
-    )
+def _idle_compact_tier_from_env() -> str:
+    """Resolve CCY_IDLE_COMPACT_TIER; anything not in the allowed set is the default."""
+    value = os.environ.get(_IDLE_COMPACT_TIER_ENV_VAR, "").strip().lower()
+    return value if value in _IDLE_COMPACT_TIERS else _DEFAULT_IDLE_COMPACT_TIER
+
+
+def _idle_compact_pct_from_env() -> float | None:
+    """CCY_IDLE_COMPACT_PCT when set and valid; None (the tier gate) otherwise."""
+    raw = os.environ.get(_IDLE_COMPACT_PCT_ENV_VAR)
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    return value if 0.0 < value < 100.0 else None
 
 
 def _idle_compact_settle_from_env() -> float:
@@ -2375,6 +2397,13 @@ def _idle_compact_min_tokens_from_env() -> int:
             maximum=float("inf"),
         )
     )
+
+
+def _tier_at_or_above(tier: str, floor: str) -> bool:
+    """True when sidecar ``tier`` ranks at or above ``floor``; an unknown tier never does."""
+    if tier not in _CONTEXT_TIER_ORDER or floor not in _CONTEXT_TIER_ORDER:
+        return False
+    return _CONTEXT_TIER_ORDER.index(tier) >= _CONTEXT_TIER_ORDER.index(floor)
 
 
 def _model_family(model_id: str) -> str | None:
@@ -2485,10 +2514,12 @@ class CompactPolicy:
     focus_hold_escalate_seconds: tuple[float, float] = field(
         default_factory=_focus_hold_escalate_from_env
     )
-    # Plan 00603: idle compaction at a percentage. Env-resolved for host/worker
-    # agreement, like the toggles above.
+    # Plan 00603: idle compaction at a context tier (or an explicit percentage,
+    # which replaces the tier gate). Env-resolved for host/worker agreement,
+    # like the toggles above.
     idle_compact_mode: str = field(default_factory=_idle_compact_mode_from_env)
-    idle_compact_pct: float = field(default_factory=_idle_compact_pct_from_env)
+    idle_compact_tier: str = field(default_factory=_idle_compact_tier_from_env)
+    idle_compact_pct: float | None = field(default_factory=_idle_compact_pct_from_env)
     idle_compact_settle_seconds: float = field(default_factory=_idle_compact_settle_from_env)
     idle_compact_cooldown_seconds: float = field(default_factory=_idle_compact_cooldown_from_env)
     idle_compact_min_tokens: int = field(default_factory=_idle_compact_min_tokens_from_env)
@@ -6673,8 +6704,14 @@ class CompactStateMachine:
             return None
         if now - self._true_idle_since < policy.idle_compact_settle_seconds:
             return None
-        if reading.pct < policy.idle_compact_pct:
-            return None
+        if policy.idle_compact_pct is not None:
+            if reading.pct < policy.idle_compact_pct:
+                return None
+            gate = f"{policy.idle_compact_pct:.0f}%"
+        else:
+            if not _tier_at_or_above(reading.tier, policy.idle_compact_tier):
+                return None
+            gate = f"tier {reading.tier}"
         tokens = int(reading.pct / 100.0 * reading.window_size)
         if reading.window_size <= 0 or tokens < policy.idle_compact_min_tokens:
             return None
@@ -6686,8 +6723,8 @@ class CompactStateMachine:
             return None
         held = now - self._true_idle_since
         return (
-            f"idle for {held:.0f}s at {reading.pct:.0f}% "
-            f"(~{tokens // 1000}k of {reading.window_size // 1000}k tokens)"
+            f"idle for {held:.0f}s at {reading.pct:.0f}% ({gate}, "
+            f"~{tokens // 1000}k of {reading.window_size // 1000}k tokens)"
         )
 
     @property
@@ -8578,6 +8615,60 @@ def _usage_pause_outcome(
     )
 
 
+def _cron_reconcile_wanted(
+    machine: CompactStateMachine,
+    facts: TickFacts,
+    sidecar_dir: Path,
+    *,
+    own_sessions: frozenset[str] | None,
+) -> bool:
+    """True when the cron-expiry watchdog (Plan 00470) wants to prompt on this tick.
+
+    Quiet for a full watchdog window, a full window since its last prompt, and
+    every in-scope cron record past expiry. The injection cap is the caller's.
+    """
+    return (
+        facts.output_quiet_seconds >= _CRON_WATCHDOG_QUIET_SECONDS
+        and (
+            machine.cron_reconcile_last_ts is None
+            or facts.now_wall - machine.cron_reconcile_last_ts >= _CRON_WATCHDOG_QUIET_SECONDS
+        )
+        and _cron_records_all_expired(sidecar_dir, now=facts.now_wall, own_sessions=own_sessions)
+    )
+
+
+def _idle_compact_yields_to(
+    machine: CompactStateMachine,
+    facts: TickFacts,
+    *,
+    sidecar_dir: Path,
+    ttl_seconds: float,
+    own_sessions: frozenset[str] | None,
+) -> bool:
+    """True when a family placed below idle compaction has work queued (Plan 00603).
+
+    A standing-auth reminder or session-actions directive signal in scope, or a
+    cron-reconcile prompt the watchdog wants (and may still send). Those
+    families sit lower in `decide_once` because they are reminders, but a
+    compaction is not urgent at a true idle, so it waits for them rather than
+    pre-empting them.
+    """
+    sa_path, _, _ = load_standing_auth_signal(
+        sidecar_dir, now=facts.now_wall, ttl_seconds=ttl_seconds, own_sessions=own_sessions
+    )
+    if sa_path is not None:
+        return True
+    actions_path, _, _ = load_session_actions_signal(
+        sidecar_dir, now=facts.now_wall, ttl_seconds=ttl_seconds, own_sessions=own_sessions
+    )
+    if actions_path is not None:
+        return True
+    return (
+        machine.cron_reconcile_injections < _MAX_CRON_RECONCILE_INJECTIONS
+        and _cron_reconcile_wanted(machine, facts, sidecar_dir, own_sessions=own_sessions)
+    )
+
+
 def decide_once(
     machine: CompactStateMachine,
     *,
@@ -9352,6 +9443,17 @@ def decide_once(
         and can_inject
     ):
         idle_reason = machine.idle_compact_due(reading, now=facts.now_wall)
+        if idle_reason is not None and _idle_compact_yields_to(
+            machine,
+            facts,
+            sidecar_dir=sidecar_dir,
+            ttl_seconds=goal_signal_ttl_seconds,
+            own_sessions=own_sessions,
+        ):
+            # A lower-placed family has work queued: it goes on this tick and
+            # the compaction waits, so a reminder or cron prompt is never
+            # typed into a compacting session or lost to its TTL.
+            idle_reason = None
         if idle_reason is not None:
             armed = not dry_run and machine.policy_idle_compact_armed
             machine.mark_idle_compaction(now=facts.now_wall, armed=armed)
@@ -9595,12 +9697,7 @@ def decide_once(
         and evaluation.decision is Decision.NOOP
         and signal_path is None
         and machine.state is SupervisorState.MONITOR
-        and facts.output_quiet_seconds >= _CRON_WATCHDOG_QUIET_SECONDS
-        and (
-            machine.cron_reconcile_last_ts is None
-            or facts.now_wall - machine.cron_reconcile_last_ts >= _CRON_WATCHDOG_QUIET_SECONDS
-        )
-        and _cron_records_all_expired(sidecar_dir, now=facts.now_wall, own_sessions=own_sessions)
+        and _cron_reconcile_wanted(machine, facts, sidecar_dir, own_sessions=own_sessions)
     ):
         if own_line_blocks_text:
             noop_reason_log = (
