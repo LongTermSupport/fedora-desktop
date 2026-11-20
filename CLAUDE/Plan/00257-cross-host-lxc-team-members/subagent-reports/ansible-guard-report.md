@@ -98,3 +98,44 @@ Rounds 1 and 2 judged only the executed segments and won back what that loses th
 - The live (old) `ansible_enforcement` denied every Bash command of mine that merely named `dnf install` (a heredoc, a python one-liner), so every such text went through `Write`; this is #294's own symptom.
 - `Edit` was not available in this session; exact-string patch scripts under `untracked/scratch/edit_*.py` were used.
 - `qa-changed.bash` queues behind another session's run for the whole of a 590-second budget, with no way to see what the holder is doing beyond its pid; logged as a fault here for the coordinator.
+## Fix round 4
+
+Review: `ansible-guard-review3.md` (verdict BLOCK). Commits, all signed and pushed: `d7189e3a9` (RED: the review's shapes, the probe corpus, the Semgrep fixture cases), `ea1c10071` (the fix) and the commit of this report with the PLAN.md line. Issue #294 is commented and left open. The daemon is not restarted.
+
+### The design change
+
+The exception is rebuilt so each class of the review is closed by a rule, not a list of shapes. It lives in its own module, `.claude/hooks/handlers/pre_tool_use/_raw_command_judge.py` (the leading underscore keeps the daemon from loading it as a handler); `ansible_enforcement.py` keeps the patterns and the handler and re-exports the judge. A line is judged as written, as the original judged it, unless it is ALL INERT:
+
+- (a) no file is written: any redirect to anything but `/dev/null`, `/dev/stdout`, `/dev/stderr` or a descriptor (`>`, `>>`, `&>`, `>|`, `n>`, `<>`, `>&file`, `tee` and `-o`/`--output` forms are not on any list) sends the raw text to the judge. This kills items 1 and 3 together: nothing written on the line can be run by a later segment.
+- (b) each head has an exact option allow-list with the reason beside it (`TOOLS`, field `why`). Matching is by exact spelling: any other `--x` (an abbreviation included), any glued short letter not listed, any git option before the subcommand (`-c`, `-C`, `--exec-path`, `--git-dir`, `--work-tree`, `--config-env`) and any git subcommand outside commit, log, show, diff, status, add means the raw text is judged. grep and rg: `-n -i -l -r -E -F -e -w -c -v --color=never` only; `--pre`, `--pre-glob` and `--hostname-bin` are never listed. Dropped: sort, head, tail, ls, pwd, uniq, test, `[`, egrep, fgrep, and git push, fetch, tag, grep. Kept: echo, printf, cat, jq, wc, cd, true, false, `gh issue|pr comment|create` with a body option.
+- (c) a `$(...)`, backtick, `<(...)` or `>(...)` outside single quotes and quoted heredoc bodies voids the exception, double-quoted ones included. The daemon's helper does surface a substitution's inner command as a segment, but its view blanks the outer words, so the handler does not rely on it.
+- A fourth rule the review did not name: a word that can expand to an option (`for x in --output=f; do git log $x; done`, `git log {-1,--output=f}`, `"$OPT"`) voids the exception; found while writing (b).
+- Options are read from the line as written, not from the daemon's view, which blanks the arguments of grep, echo and a commit message, options included. An all-inert line is not searched at all, so the view's gaps (`git commit -am '...'`, `-m'...'`, a path after `--`) no longer matter.
+
+### Per item
+
+1. 14 write-then-git shapes: FIXED by (a); all 15 shapes in `WRITE_THEN_GIT_RUNS_IT`, times 7 changes, are denied.
+2. Abbreviated and glued program options: FIXED by (b); `RUNS_A_PROGRAM_OPTIONS` (24 shapes) and the reviewer's own list are denied, none by a deny-list.
+3. Startup-file writes: FIXED by (a), pinned in `STARTUP_FILE_WRITES`; they are no longer an undocumented narrowing, the original denied them and so does the handler.
+4. Semgrep exemption by name: FIXED. `hook-regex-over-raw-command` excludes the judge module by path (`paths: exclude`, reason in the comment); a copy or renamed look-alike elsewhere is a finding (proved: a copy of the module in another directory is flagged, the real one is not). New rule `hook-sanctioned-name-impostor` bans a local `def`, assignment, alias import or wrong-module import of `judge_raw_command_line`, `is_plain_data_command` and `command_position_*`. The taint rule gained the two-step `tool_input` read and the sinks find, rfind, count, index, partition and fnmatch. Red: the fixture proves every new `ruleid:` (renamed look-alike, local `command_position_*`, method, alias, find, count, fnmatch, two-step reads) and the rules gate also flags the round 3 `ansible_enforcement.py` (it defines the judge outside the excluded path); green: the whole-repo run and the three project handlers report nothing. Limit, as before: a value stored on `self` and read in another method is not followed.
+5. PLAN.md: Task B.14 tracks the #294 work.
+6. Nits: `_git_is_inert` is gone (`head_is_inert` returns a bool, tested); the gate descriptions (`scripts/qa-gates.tsv`, `src-go/qa/changed/checks.go` and its test, `src-go/qa/sttrules/run.go`, the script header, `CLAUDE/QA.md`) name the sanctioned exception, the excluded module and the new rule; the gate's `proved:` line names four rules.
+
+### Tests
+
+The probe shapes of the review (121, in `tests/review_probe_shapes.py`) times 7 changes, plus the classes of `tests/round4_shapes.py` (writes, startup files, program options, git global options, substitutions, expanded words, separators, unlisted heads and options, and 50 inert forms that must pass), join `INVARIANT_CORPUS`. The invariant is unchanged: a line the original denied is denied unless the line is all inert. RED: 1,934 tests failed against the round 3 handler (`d7189e3a9`); GREEN: 8,247 pass.
+
+### Accepted over-blocking, now judged as the original judged it
+
+A line that writes a file (an `echo ... >> meta-deploy.list`, a heredoc into `cat > file`), holds `$(...)` (the `git commit -m "$(cat <<'EOF'...)"` idiom: use `git commit -F file`), uses `git -C`/`-c`, push, fetch, tag or grep, or runs sort, ls, a shell, a wrapper or anything unknown, whenever it also names a blocked command in text. Pinned in `ACCEPTED_OVERBLOCKING` and `WRITES_BUT_RUNS_NOTHING`.
+
+### Results
+
+- `qa-hook-handlers.bash`: 8,247 passed. `qa-hook-handler-rules.bash`: `proved: hook-path-resolved-against-cwd, hook-regex-over-command-parameter, hook-regex-over-raw-command, hook-sanctioned-name-impostor`, `passed: 424 failed: 0`. `qa-python.bash` (ruff, 430 files) and `qa-docs.bash` (82 files): green. `cd src-go/qa && go test ./...`: every package ok.
+- `qa-changed.bash --files <14 files>` with the dummy vault word: see the issue comment for the verdict; it queues behind another session's run in this worktree.
+
+### Faults met (dogfooding)
+
+- The live (old) `ansible_enforcement` again denied every Bash command of mine that merely named `dnf install`, so each probe went through a file written with `Write`: #294's own symptom.
+- `Edit` was unavailable in this session; exact-string patch scripts under `untracked/scratch/guard4-patch-*.py` were used.
+- The sub-agent stop hook `subagent_report_path_verifier` misread a hyphenated filename in the round 3 review: logged on #353.

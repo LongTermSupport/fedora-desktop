@@ -159,6 +159,13 @@ Related plans:
   launcher's exit decides; never a desired membership, which outlives its session) and closed.
   Reports: `subagent-reports/team-winddown-report.md`, review fixes
   `subagent-reports/team-winddown-fix-report.md`.
+- [ ] 🔄 **Task B.14**: the project hook guard judges what a line runs, not the words it
+  mentions (issue #294: a commit message, an echo or a grep that only names `dnf install` was
+  denied). The three project handlers are swept (`ansible_enforcement`, `hidden_git_mutation`,
+  `system_paths`); a line is judged as written unless it is all inert (no file written, no
+  substitution, exact option lists), in the module `_raw_command_judge`; three Semgrep rules
+  defend the class. Reports: `subagent-reports/ansible-guard-report.md`, reviews
+  `subagent-reports/ansible-guard-review*.md`. Issue #294 stays open until a review passes.
 - [ ] ⬜ **Task B.6**: LXC apply robustness.
 - [ ] ⬜ **Task B.7**: durability (D1 for restore).
 - [ ] ⬜ **Task B.8**: agent-facing text (D2 for the unbuilt verbs).
