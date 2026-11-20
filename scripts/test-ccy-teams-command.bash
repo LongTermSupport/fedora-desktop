@@ -1149,7 +1149,7 @@ check "unsent text in the input box fails the session" "1" "$?"
 check "  and nothing is typed over it" "no" "$(logged 'send-keys')"
 check "  nor is it killed" "no" "$(logged 'kill-session')"
 reset
-out="$(run_picker "$OUTSIDE" "|port 6167" "|Shut down every session of alpha" "|EXIT" "|ABORT")"
+out="$(run_picker "$OUTSIDE" "|port 6167" "|Close every session of alpha (compact, then exit)" "|EXIT" "|ABORT")"
 check_has "a team's menu shuts its sessions down, after a question" "Nothing was shut down." "$out"
 check "  and a no types nothing" "no" "$(logged 'send-keys')"
 
