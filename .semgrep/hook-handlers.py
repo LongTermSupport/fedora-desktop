@@ -5,6 +5,7 @@ import _line_reader
 import fnmatch
 import os
 import re
+import readers.lines
 from pathlib import Path
 
 # hook-path-resolved-against-cwd judges only a module that imports the hooks daemon
@@ -277,6 +278,24 @@ def a_look_alike_called_through_a_from_imported_module(hook_input):
     command = get_bash_command(hook_input)
     # ruleid: hook-regex-over-raw-command
     return line_reader.read(command)
+
+
+def a_look_alike_called_through_a_dotted_module(hook_input):
+    command = get_bash_command(hook_input)
+    # ruleid: hook-regex-over-raw-command
+    return readers.lines.read(command)
+
+
+def a_look_alike_handed_the_line_by_keyword(hook_input):
+    command = get_bash_command(hook_input)
+    # ruleid: hook-regex-over-raw-command
+    return line_reader.read(line=command)
+
+
+def a_helper_handed_the_line_by_keyword(hook_input):
+    command = get_bash_command(hook_input)
+    # ruleid: hook-regex-over-raw-command
+    return a_look_alike_judge_in_another_module(text=command, search=_FORBIDDEN.search)
 
 
 def a_call_on_an_object_the_file_did_not_import_is_not_a_helper(hook_input, result):

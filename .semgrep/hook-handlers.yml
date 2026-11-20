@@ -110,9 +110,10 @@ rules:
   # rule has no exclusion for that reason). The trust is the NAME at the call site, a bare call of
   # judge_raw_command_line, and hook-sanctioned-name-impostor keeps that name from being defined or
   # imported from anywhere but its home. A copy of the judge under another name is a finding at the
-  # call that hands it the line: a plain name, `self.name`, or `module.func(...)` where the module is
-  # imported by the file (a lower-case `import mod` or `from pkg import mod`; stdlib modules that do
-  # not search text are left out). Not seen: a function object passed in and called as `fn(line)` from
+  # call that hands it the line, positionally or by keyword: a plain name, `self.name`,
+  # `module.func(...)` where the module is imported by the file (a lower-case `import mod` or
+  # `from pkg import mod`; stdlib modules that do not search text are left out), or
+  # `pkg.mod.func(...)` after `import pkg.mod`. Not seen: a function object passed in and called as `fn(line)` from
   # a name the file did not import, and a module reached by `importlib`. The sources include a
   # two-step read of tool_input (`ti = h["tool_input"]; command = ti["command"]`), and the sinks
   # include find, count, index, partition and fnmatch. Builtins (len, str, bool, isinstance, repr,
@@ -172,13 +173,17 @@ rules:
           - pattern: $NEEDLE in $X
           - focus-metavariable: $X
       - patterns:
-          - pattern: $HELPER(..., $X, ...)
+          - pattern-either:
+              - pattern: $HELPER(..., $X, ...)
+              - pattern: $HELPER(..., $K=$X, ...)
           - metavariable-regex:
               metavariable: $HELPER
               regex: '^(?!(?:len|str|bool|isinstance|repr|print|get_bash_command|judge_raw_command_line|is_plain_data_command|command_position_\w+)$)(?:self\.)?[A-Za-z_]\w*$'
           - focus-metavariable: $X
       - patterns:
-          - pattern: $MOD.$F(..., $X, ...)
+          - pattern-either:
+              - pattern: $MOD.$F(..., $X, ...)
+              - pattern: $MOD.$F(..., $K=$X, ...)
           - metavariable-regex:
               metavariable: $MOD
               regex: '^(?!(?:self|re|fnmatch|json|logging|logger|os|sys|shlex|textwrap|time)$)[a-z_]\w*$'
@@ -189,6 +194,14 @@ rules:
               - pattern-inside: |
                   from $PKG import $MOD
                   ...
+          - focus-metavariable: $X
+      - patterns:
+          - pattern-either:
+              - pattern: $PKG.$MOD.$F(..., $X, ...)
+              - pattern: $PKG.$MOD.$F(..., $K=$X, ...)
+          - pattern-inside: |
+              import $PKG.$MOD
+              ...
           - focus-metavariable: $X
     message: >
       hook-regex-over-raw-command: this matches text against the raw Bash command line, or hands

@@ -11,6 +11,7 @@ command to a shell.
 
 import re
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -574,6 +575,21 @@ class TestAnsibleEnforcementHandler:
         """The daemon joins a backslash-newline, the raw text does not: both are judged."""
         assert handler.matches(bash("echo x\\\ndnf install x")) is True
         assert handler.matches(bash("d\\\nnf install x")) is True
+
+    # A valued option's value never starts with `-`, so a run of options has one reading: a failed
+    # match cannot retry an exponential number of splits and outlast the hook's time limit.
+    @pytest.mark.parametrize(
+        ("tool", "option"),
+        [("systemctl", "-H"), ("systemctl", "--root"), ("dnf", "-c"), ("dnf5", "--setopt"), ("yum", "-d"),
+         ("rpm", "--root"), ("pip", "--proxy"), ("gsettings", "--schemadir")],
+    )  # fmt: skip
+    def test_a_flood_of_valued_options_is_judged_quickly(self, handler, tool, option):
+        allowed = f"{tool} " + f"{option} " * 40 + "x"
+        denied = f"{tool} " + f"{option} " * 40 + "x; sys\\\ntemctl restart sshd"
+        for line, expected in ((allowed, False), (denied, True)):
+            started = time.monotonic()
+            assert handler.matches(bash(line)) is expected, line
+            assert time.monotonic() - started < 1.0, line
 
     # The one raw judge
     def test_the_raw_judge_lives_in_its_own_module(self):
