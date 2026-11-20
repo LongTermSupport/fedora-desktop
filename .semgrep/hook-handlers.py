@@ -1,6 +1,7 @@
 # Fixture for .semgrep/hook-handlers.yml. `ruleid:` marks a line that must fire, `ok:` a line
 # that must stay silent.
 
+import fnmatch
 import os
 import re
 from pathlib import Path
@@ -8,12 +9,15 @@ from pathlib import Path
 # hook-path-resolved-against-cwd judges only a module that imports the hooks daemon
 from claude_code_hooks_daemon.core import Handler
 from claude_code_hooks_daemon.core.utils import get_bash_command
+
+# ok: hook-sanctioned-name-impostor
 from claude_code_hooks_daemon.utils.command_position import (
     command_position_code_segments,
     command_position_segments,
     is_plain_data_command,
 )
-from ansible_enforcement import judge_raw_command_line
+# ok: hook-sanctioned-name-impostor
+from _raw_command_judge import judge_raw_command_line
 
 
 def system_path_judged_from_cwd(file_path, blocked):
@@ -199,6 +203,88 @@ def the_one_sanctioned_judge(hook_input, search):
     command = get_bash_command(hook_input)
     # ok: hook-regex-over-raw-command
     return judge_raw_command_line(command, search)
+
+
+def find_over_the_line(hook_input):
+    command = get_bash_command(hook_input)
+    # ruleid: hook-regex-over-raw-command
+    return command.find("dnf install") >= 0
+
+
+def count_over_the_line(hook_input):
+    command = get_bash_command(hook_input)
+    # ruleid: hook-regex-over-raw-command
+    return command.count("dnf")
+
+
+def index_and_partition_over_the_line(hook_input):
+    command = get_bash_command(hook_input)
+    # ruleid: hook-regex-over-raw-command
+    head = command.partition(" ")
+    # ruleid: hook-regex-over-raw-command
+    return head, command.rfind("&&")
+
+
+def fnmatch_over_the_line(hook_input):
+    command = get_bash_command(hook_input)
+    # ruleid: hook-regex-over-raw-command
+    return fnmatch.fnmatch(command, "*dnf install*")
+
+
+def two_step_read_of_tool_input(hook_input):
+    tool_input = hook_input["tool_input"]
+    command = tool_input["command"]
+    # ruleid: hook-regex-over-raw-command
+    return _FORBIDDEN.search(command)
+
+
+def two_step_read_of_tool_input_with_get(hook_input):
+    tool_input = hook_input.get("tool_input", {})
+    command = tool_input.get("command", "")
+    # ruleid: hook-regex-over-raw-command
+    return _FORBIDDEN.search(command)
+
+
+def a_look_alike_judge_in_another_module(text, search):
+    # ok: hook-regex-over-raw-command
+    return search(text)
+
+
+def a_renamed_look_alike_of_the_sanctioned_judge(hook_input):
+    # The judge's own module is excluded by path, so a copy of it anywhere else is judged: the
+    # call that hands it the line is the finding, whatever the copy is called.
+    command = get_bash_command(hook_input)
+    # ruleid: hook-regex-over-raw-command
+    return a_look_alike_judge_in_another_module(command, _FORBIDDEN.search)
+
+
+# ruleid: hook-sanctioned-name-impostor
+def command_position_clean(text):
+    return text
+
+
+# ruleid: hook-sanctioned-name-impostor
+command_position_all_clean = lambda text: text
+
+
+class ImpostorJudges:
+    # ruleid: hook-sanctioned-name-impostor
+    def judge_raw_command_line(self, text, search):
+        return search(text)
+
+    # ruleid: hook-sanctioned-name-impostor
+    def is_plain_data_command(self, text):
+        return True
+
+
+# ruleid: hook-sanctioned-name-impostor
+from elsewhere import sneaky as command_position_segments_2
+
+# ruleid: hook-sanctioned-name-impostor
+from my_helpers import command_position_code_segments_2
+
+# ruleid: hook-sanctioned-name-impostor
+from ansible_enforcement import judge_raw_command_line as the_judge
 
 
 def the_daemons_whole_line_predicate_is_not_a_helper(hook_input):

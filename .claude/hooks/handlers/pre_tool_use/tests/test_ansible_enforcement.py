@@ -16,8 +16,10 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
 
 import ansible_enforcement
+import round4_shapes as r4
 from ansible_enforcement import AnsibleEnforcementHandler
 
 
@@ -117,27 +119,23 @@ RUNS_NO_SYSTEM_CHANGE = [
     "echo 'Use dnf install to add packages'",
     'echo "systemctl enable nginx"',
     "echo systemctl restart y",
-    "printf '%s\\n' \"... (flatpak update, changed ...\" >> CLAUDE/Plan/meta-deploy.list",
     "printf 'sudo dnf install x\\n'",
     # grep and rg search for their pattern
     "grep 'dnf install' logfile.txt",
     'grep -rn -i "flatpak update\\|flatpak-update" playbooks tasks',
     "rg 'systemctl restart' playbooks",
-    "git grep -n 'dnf install' -- playbooks",
     "git log --grep='dnf install' --oneline",
     # a message, a title or a body is prose
     "git commit -m 'document why dnf install is blocked'",
     'git commit -m "systemctl restart is ansible only"',
-    "git tag -a v1 -m 'flatpak update note'",
     "gh issue comment 294 --body 'sudo dnf install x is blocked'",
     "gh pr create --title 'pip install guard' --body 'pip install x'",
     # heredoc bodies written to a file or fed to cat
     "cat <<'EOF'\nsudo dnf install x\nEOF",
-    "cat > notes.md <<'EOF'\nrun systemctl restart y\nEOF",
     "git commit -F - <<'EOF'\nmention dnf install here\nEOF",
     # a comment is not run
     "true # sudo dnf install x",
-    "ls # systemctl restart y",
+    "echo ok # systemctl restart y",
     # words that are not the command
     "ls dnf-install-notes",
     "cat docs/pip-install.md",
@@ -189,13 +187,15 @@ PIPED_INTO_A_SHELL = [
     "git commit -m 'systemctl restart y' && git log -1 --format=%B | sudo bash -s",
 ]
 
-# A line that writes a file and runs no script and no shell: it only names the change in text.
+# A line that writes a file is judged as written, whatever else it runs (round 4, rule (a)): the
+# text written can be run by a later command of the same line, and no reading can tell.
 WRITES_BUT_RUNS_NOTHING = [
     "cat > notes.md <<'EOF'\nsudo dnf install x\nEOF\nls",
     "echo 'dnf install x' > notes.md && grep -c bash notes.md",
     "echo 'dnf install x' > notes.md && git add notes.md",
     "cat > notes.md <<'EOF'\nsudo dnf install x\nEOF\nls . && cat notes.md",
-    "git commit -m 'dnf install x' && git log -1 --format=%s | cat",
+    "printf '%s\\n' \"... (flatpak update, changed ...\" >> CLAUDE/Plan/meta-deploy.list",
+    "cat > notes.md <<'EOF'\nrun systemctl restart y\nEOF",
 ]
 
 # An option written between the tool and its verb used to hide the verb (`dnf -y install`).
@@ -321,6 +321,15 @@ INERT_TEXT_THE_DAEMON_KEEPS = [
 # on its raw text, exactly as the original handler did. `bash -n` would not run its body, but the
 # handler does not read option letters any more.
 ACCEPTED_OVERBLOCKING = [
+    # round 4: a write, a substitution, a git global option, push/fetch/tag/grep and sort are all
+    # judged as written, so each of these stays denied as the original denied it
+    "git -C sub commit -m 'dnf install x'",
+    "git commit -m 'dnf install x' && git push",
+    "git tag -a v1 -m 'flatpak update note'",
+    "git grep -n 'dnf install' -- playbooks",
+    "git commit -m \"$(cat <<'EOF'\nfoo dnf install bar\nEOF\n)\"",
+    "cat notes.md | grep 'pip install' | sort | uniq",
+    "ls && echo 'systemctl restart y' && true",
     "python3 -c \"print('pip install x')\"",
     "bash -n -c 'sudo dnf install x'",
     "bash -nc 'dnf install x'",
@@ -429,19 +438,18 @@ MORE_VERBS_ALLOWED = [
 # Lines whose every command is inert: text only, nothing can run. The original denied each.
 ALL_INERT_MENTIONS = [
     'echo "dnf install vim"',
-    "git commit -m 'document why dnf install is blocked' && git push",
-    "git -C sub commit -m 'systemctl restart y' && git log -1 --oneline",
+    "git commit -m 'document why dnf install is blocked' && git status",
+    "git commit -m 'systemctl restart y' && git log -1 --oneline",
     "gh issue comment 294 -b 'sudo dnf install x'",
     "gh pr create --title t --body-file notes.md",
     "gh issue comment 1 --body-file notes.md",
     "grep -rn 'dnf install' playbooks | wc -l",
-    "cat notes.md | grep 'pip install' | sort | uniq",
+    "cat notes.md | grep 'pip install' | wc -l",
     "git commit -F - <<'EOF'\nmention dnf install here\nEOF",
-    "cat > notes.md <<'EOF'\nsudo dnf install x\nEOF\nls",
     "for f in a b; do echo $f; done",
     "git add notes.md && git commit -m 'flatpak update'",
-    "git commit -m \"$(cat <<'EOF'\nfoo dnf install bar\nEOF\n)\"",
-    "ls && echo 'systemctl restart y' && true",
+    "cd sub && echo 'systemctl restart y' && true",
+    "git commit -m 'x' && git log -1 --format=%s | cat",
 ]
 # The same inert text with one command that is not inert: judged as written, so denied.
 ONE_NON_INERT_COMMAND_MAKES_IT_RAW = [
@@ -467,8 +475,9 @@ ALL_DENIED = (
     + MORE_VERBS
     + ONE_NON_INERT_COMMAND_MAKES_IT_RAW
     + ACCEPTED_OVERBLOCKING
-    + 
-    RUNS_A_SYSTEM_CHANGE
+    + WRITES_BUT_RUNS_NOTHING
+    + r4.ALL_DENIED
+    + RUNS_A_SYSTEM_CHANGE
     + WRITTEN_SCRIPT_LINES
     + PIPED_INTO_A_SHELL
     + OPTION_BEFORE_THE_VERB
@@ -477,7 +486,7 @@ ALL_DENIED = (
 )
 ALL_ALLOWED = (
     RUNS_NO_SYSTEM_CHANGE
-    + WRITES_BUT_RUNS_NOTHING
+    + r4.ALL_ALLOWED
     + OPTION_BEFORE_THE_VERB_ALLOWED
     + COMPUTED_COMMAND_WORDS_NOT_JUDGED
     + INERT_TEXT_THE_DAEMON_KEEPS
@@ -521,7 +530,7 @@ def original_denies(line):
 # round 2 word boundary after a verb, which frees a query that only starts with a verb's letters.
 DOCUMENTED_NARROWING = {"dnf updateinfo list"}
 
-_INERT_WORDS = {"echo", "printf", "grep", "egrep", "fgrep", "rg", "cat", "jq", "git", "gh", "true", "false", "test", "[", "wc", "sort", "head", "tail", "ls", "pwd", "cd", "uniq", "for", "done", "fi"}
+_INERT_WORDS = {"echo", "printf", "grep", "rg", "cat", "jq", "git", "gh", "true", "false", "wc", "cd", "for", "done", "fi"}
 
 
 def only_inert_words(line):
@@ -532,6 +541,8 @@ def only_inert_words(line):
     if "<<" in line or "$(" in line or "`" in line:
         return True
     unquoted = re.sub(r"'[^']*'|\"[^\"]*\"", "_", line)
+    if re.search(r"<>|>(?!&[0-9-]|\s*/dev/(?:null|stderr|stdout)(?![\w/.]))", unquoted):
+        return False
     pieces = re.split(r"&&|\|\||;|\||\n", unquoted)
     for piece in pieces:
         words = piece.replace("(", " ").split()
@@ -658,6 +669,10 @@ INVARIANT_CORPUS = (
     + MORE_VERBS_ALLOWED
     + ALL_INERT_MENTIONS
     + ONE_NON_INERT_COMMAND_MAKES_IT_RAW
+    + WRITES_BUT_RUNS_NOTHING
+    + r4.ALL_DENIED
+    + r4.ALL_ALLOWED
+    + r4.PROBE_CORPUS
 )
 
 
@@ -702,8 +717,8 @@ class TestAnsibleEnforcementHandler:
         assert handler.matches(bash(command)) is True
 
     @pytest.mark.parametrize("command", WRITES_BUT_RUNS_NOTHING)
-    def test_a_line_that_writes_a_file_but_runs_no_shell_is_not_judged_as_written(self, handler, command):
-        assert handler.matches(bash(command)) is False
+    def test_a_line_that_writes_a_file_is_judged_as_written(self, handler, command):
+        assert handler.matches(bash(command)) is True
 
     # matches() - an option before the verb, another spelling of the tool
     @pytest.mark.parametrize("command", OPTION_BEFORE_THE_VERB)
@@ -910,7 +925,7 @@ class TestAnsibleEnforcementHandler:
     def test_wrappers_shells_and_unknown_commands_are_not_inert(self, word):
         assert not ansible_enforcement.every_command_is_inert(f"{word} true")
 
-    @pytest.mark.parametrize("word", ["echo", "printf", "grep", "rg", "cat", "jq", "true", "wc", "ls"])
+    @pytest.mark.parametrize("word", ["echo", "printf", "grep", "rg", "cat", "jq", "true", "wc", "cd"])
     def test_the_inert_commands_are_inert(self, word):
         assert ansible_enforcement.every_command_is_inert(f"{word} x")
 
@@ -938,6 +953,75 @@ class TestAnsibleEnforcementHandler:
 
     def test_the_one_raw_judge_is_a_named_visible_function(self):
         assert callable(ansible_enforcement.judge_raw_command_line)
+
+    # Round 4: the review's shapes and the tightened exception
+    @pytest.mark.parametrize("line", r4.DENIED_NEVER_INERT)
+    def test_a_review_shape_is_denied_and_never_inert(self, handler, line):
+        assert not ansible_enforcement.every_command_is_inert(line), line
+        assert handler.matches(bash(line)) is True, line
+
+    @pytest.mark.parametrize("line", r4.INERT_ALLOWED_FILLED)
+    def test_text_with_only_listed_options_passes(self, handler, line):
+        assert ansible_enforcement.every_command_is_inert(line), line
+        assert handler.matches(bash(line)) is False, line
+
+    @pytest.mark.parametrize("line", r4.PROBE_CORPUS)
+    def test_a_probe_shape_the_original_denied_is_denied_unless_every_command_is_inert(self, handler, line):
+        if not original_denies(line) or handler.matches(bash(line)):
+            return
+        assert ansible_enforcement.every_command_is_inert(line), line
+        assert only_inert_words(line), line
+
+    def test_the_probe_corpus_is_the_review_s_121_shapes_times_every_change(self):
+        assert len(r4.probe_shapes()) == 121
+        assert len(r4.PROBE_CORPUS) == 121 * len(r4.CHANGES)
+
+    def test_the_raw_judge_lives_in_its_own_module_a_rename_cannot_fake(self):
+        import _raw_command_judge
+
+        assert ansible_enforcement.judge_raw_command_line is _raw_command_judge.judge_raw_command_line
+        assert ansible_enforcement.every_command_is_inert is _raw_command_judge.every_command_is_inert
+        assert _raw_command_judge.__file__.endswith("_raw_command_judge.py")
+        assert Path(_raw_command_judge.__file__).name.startswith("_")  # the daemon loads no handler from it
+
+    def test_the_handler_module_does_not_judge_raw_text_itself(self):
+        source = Path(ansible_enforcement.__file__).read_text()
+        assert "def judge_raw_command_line" not in source
+        assert "def every_command_is_inert" not in source
+
+    @pytest.mark.parametrize(
+        "words",
+        [["git"], ["git", "log"], ["git", "-c", "a=b", "log"], ["git", "push"], ["gh"], ["gh", "issue"], ["echo"], ["grep", "-P", "x"], ["sudo"], []],
+    )
+    def test_head_is_inert_returns_a_bool(self, words):
+        import _raw_command_judge
+
+        if not words:
+            return
+        assert isinstance(_raw_command_judge.head_is_inert(words), bool)
+
+    @pytest.mark.parametrize("head", ["egrep", "fgrep", "sort", "head", "tail", "ls", "pwd", "uniq", "test", "["])
+    def test_the_heads_the_text_mention_cases_do_not_need_are_gone(self, head):
+        assert head not in ansible_enforcement.INERT_COMMANDS
+
+    def test_every_inert_head_documents_why_its_options_are_safe(self):
+        import _raw_command_judge
+
+        for name, tool in _raw_command_judge.TOOLS.items():
+            assert tool.why.strip(), name
+        assert set(_raw_command_judge.TOOLS) >= {"echo", "printf", "grep", "rg", "cat", "jq", "wc", "cd", "git commit", "git log", "git show", "git diff", "git status", "git add", "gh issue comment", "gh issue create", "gh pr comment", "gh pr create"}
+
+    def test_rg_never_allows_its_program_options(self):
+        import _raw_command_judge
+
+        for option in ("--pre", "--pre-glob", "--hostname-bin", "-z"):
+            assert option not in _raw_command_judge.TOOLS["rg"].long
+            assert option not in _raw_command_judge.TOOLS["rg"].long_value
+
+    def test_the_gate_descriptions_name_the_sanctioned_exception(self):
+        root = Path(__file__).resolve().parents[5]
+        for relative in ("scripts/qa-gates.tsv", "src-go/qa/changed/checks.go", "src-go/qa/sttrules/run.go", "scripts/qa-hook-handler-rules.bash"):
+            assert "_raw_command_judge" in (root / relative).read_text(), relative
 
     # Integration Tests
     def test_comprehensive_system_management_enforcement(self, handler):
