@@ -538,6 +538,7 @@ func TestChoosingMakeCoordinatorChangesTheRoleThroughSudo(t *testing.T) {
 func TestEnterOnAnLxcMemberOffersItsRoleFirstAndParkingLast(t *testing.T) {
 	h := newRig(t)
 	h.inProject()
+	h.startable(t, "joined", true)
 	r := h.run1(t)
 	labels := h.labels(r, h.row(t, r.snap, "proj.box+role.lxc"))
 	want := []string{

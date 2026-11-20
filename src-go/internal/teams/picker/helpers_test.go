@@ -111,7 +111,9 @@ func (h rig) run1(t *testing.T) *run {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &run{p: h.p, snap: s, frame: above}
+	r := &run{p: h.p, frame: above}
+	r.setSnap(context.Background(), s)
+	return r
 }
 
 // row is the row of member in the pass.

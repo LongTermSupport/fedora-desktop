@@ -17,6 +17,7 @@ const members = `agent_bus_lxc_members:
     host: Work Laptop
     seat: 2
     role: orchestrator
+    service: true
   - team: alpha
     container: web-2
     user: agent
@@ -27,6 +28,7 @@ const members = `agent_bus_lxc_members:
     user: agent
     checkout: "/srv/agent/proj"
     human_text: false
+    service: true
 `
 
 func TestLxcMembers(t *testing.T) {
@@ -35,9 +37,9 @@ func TestLxcMembers(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []LxcMember{
-		{Team: "alpha", Container: "web-1", User: "agent", Host: "work-laptop", Role: "coordinator", State: "present", Checkout: "/srv/agent/proj", Seat: "2"},
+		{Team: "alpha", Container: "web-1", User: "agent", Host: "work-laptop", Role: "coordinator", State: "present", Checkout: "/srv/agent/proj", Seat: "2", Service: true},
 		{Team: "alpha", Container: "web-2", User: "agent", Role: "worker", State: "absent"},
-		{Team: "beta", Container: "web-1", User: "agent", Role: "worker", State: "present", Checkout: "/srv/agent/proj"},
+		{Team: "beta", Container: "web-1", User: "agent", Role: "worker", State: "present", Checkout: "/srv/agent/proj", Service: true},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got  %+v\nwant %+v", got, want)

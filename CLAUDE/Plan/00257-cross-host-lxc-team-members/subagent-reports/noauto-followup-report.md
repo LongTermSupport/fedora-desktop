@@ -13,7 +13,7 @@ signed and pushed, and `qa-changed` passed before each (logs `untracked/scratch/
 | A, E  | 8a13db870 | Acceptance script, see the next section. The `members.py` docstring no longer contains the "Start ..." wording (detector B is unchanged).                                                                                                                                                                                    | `test_offline_member_rule` failed on the old script and docstring and passes now                                                                         |
 | C     | fed306a72 | `localhost.yml.dist` no longer says the session is restarted after a reboot. `docs/agent-bus-lxc-members.md` (v2) says a service seat starts only through `teamchat-admin lxc restart --member <container>/<seat key>`, and where to find the key. The review report is committed with it.                                   | none needed (docs)                                                                                                                                       |
 | 4 / D | 295d4b228 | The `lxc.start.auto` requirement is gone from both generations. v1 drops `Host.autostarts` and `_autostarts`. v2 drops the `service()` check, and `guestfacts` no longer reads the key at all. Docs, SPEC-n3 LX4 and section 3.1, DESIGN-v2-C-host 3.9.2 and D item 7 are updated. PLAN.md records the coordinator's ruling. | v1 and v2 "does not start at boot takes a service seat" tests failed before and pass now                                                                 |
-| 3     | 202e04679   | `TestT9AFloodAtTheCapHoldsNoSlot` waits on a server-side point, the unexported `Config.admitted` hook: the held connection and all eight flood connections must be decided before the other source dials.                                                                                                                    | Old admit reconstructed by a scratch edit and reverted by editing back: 20 of 20 runs red under `-race`. Current code: `-race -count=50` passes 50 of 50 |
+| 3     | 202e04679 | `TestT9AFloodAtTheCapHoldsNoSlot` waits on a server-side point, the unexported `Config.admitted` hook: the held connection and all eight flood connections must be decided before the other source dials.                                                                                                                    | Old admit reconstructed by a scratch edit and reverted by editing back: 20 of 20 runs red under `-race`. Current code: `-race -count=50` passes 50 of 50 |
 
 ### The acceptance script (items A and E)
 
@@ -28,7 +28,7 @@ The script is `lxc-no-autostart-acceptance.bash`.
 
 ## Not done
 
-- **Item F (ccy-teams Start line only where it can work):** not started. I hit the context budget, so it needs a fresh agent. Handoff: `untracked/scratch/noauto-F-handoff.md` in the worktree.
+- **Item F (ccy-teams Start line only where it can work):** not started. I hit the context budget, so it needs a fresh agent. Handoff: `untracked/scratch/noauto-F-handoff.md` in the worktree. Done by a later agent; see "Follow-up: items F and G" below.
 
 ## Decisions for the coordinator
 
@@ -45,3 +45,30 @@ The script is `lxc-no-autostart-acceptance.bash`.
 - **lint_on_edit:** reports "ruff not found" in the hooks-daemon venv when a Python file is edited, so Python edits are not linted.
 - **ready-wait-ignores-child-exit vs offline-member-blocks:** the first requires a container-state ask inside a boot loop; the second forbids `lxc-info -s` in member scripts. Only `lxc-ls --running` satisfies both, and neither rule's docs say so.
 - **fix-brief.md:** not at the dispatch's path `/workspace/untracked/scratch/`; it is only in the worktree's `untracked/scratch/`.
+
+## Follow-up: items F and G
+
+### F: the ccy-teams Start line only where it can work
+
+- `declare.LxcMember` has `Service bool`, read from the entry's `service` (the Python
+  `declare.py` LXCMEMBER line is unchanged, so the parity oracle is untouched).
+  `teamtest.HostVarsWithLxc` writes `service: true`.
+- `lxcsession.Starter.Offers(ctx, row)`: true only for a member this host's record holds as
+  joined or stopped whose present entry for that container, user and team has
+  `service: true`. Another host's member (in no record here), a `service: false` member and a
+  deferred or left one get no line. A record or declaration that cannot be read keeps the line,
+  so choosing it says why rather than the line disappearing without a word.
+- The picker reads it once per pass (`run.setSnap`, `run.lxcStarts`), since menus and footers
+  have no context. If no Starter is wired, the line is not offered.
+- Help text and `docs/agent-bus-lxc-members.md` say the line is only for this host's
+  `service: true` members.
+- Tests: `TestOffersOnlyAServiceMemberThisHostRecords`, `TestAnotherHostsMemberIsNotOffered`,
+  `TestAnUnreadableRecordOrDeclarationKeepsTheLine` (lxcsession) and
+  `TestOnlyAServiceLxcMemberOfThisHostOffersStartingItsSession` (picker; it replaces
+  `TestOnlyAnLxcMembersRowOffersStartingItsSession`). Red proof: without the menu gate, the
+  no-record, `service: false` and deferred cases fail. `TestLxcMembers` and
+  `TestHostVarsWithLxcIsReadBackAsItsMembers` failed before the field existed.
+- DBF: this is a design rule about when the menu offers the line, not a pattern a detector
+  can express, so it is fixed with regression tests.
+- `bus/declare` is image source, so this needed a bump: ccy 3.122.34, container 2.84.40, with
+  a changelog entry.

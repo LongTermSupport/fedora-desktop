@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
@@ -142,6 +143,67 @@ func TestAStartSystemdRefusesIsSaidWithItsWords(t *testing.T) {
 	r.errHas("Its session was not started: systemctl start agent-bus-claude-agent.service in container box failed",
 		"Unit agent-bus-claude-agent.service not found.",
 		"service: true")
+}
+
+// declare writes agent@box's agent_bus_lxc_members entry of team alpha with service set so.
+func (r *rig) declare(service bool) {
+	r.WriteHostVars(r.t, teamtest.HostVarsWithLxc(declare.LxcMember{
+		Team: "alpha", Container: "box", User: "agent", Checkout: "/srv/proj", Service: service,
+	}))
+}
+
+// The line is offered only where the start can work: a member this host's record holds as
+// joined or stopped, whose entry has service: true (only then is there a unit to start).
+func TestOffersOnlyAServiceMemberThisHostRecords(t *testing.T) {
+	for _, tc := range []struct {
+		name, status string
+		service      bool
+		want         bool
+	}{
+		{"joined with service", "joined", true, true},
+		{"stopped with service", "stopped", true, true},
+		{"joined without service", "joined", false, false},
+		{"deferred", "deferred", true, false},
+		{"left", "left", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t, tc.status)
+			r.declare(tc.service)
+			if got := r.s.Offers(t.Context(), r.row()); got != tc.want {
+				t.Fatalf("offers %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// Another host's member is in no record of this host, so its row offers nothing to start here.
+func TestAnotherHostsMemberIsNotOffered(t *testing.T) {
+	r := newRig(t, "joined")
+	r.declare(true)
+	row := r.row()
+	row.Handle, row.Member = "proj.box+elsewhere.lxc", "proj.box+elsewhere.lxc"
+	if r.s.Offers(t.Context(), row) {
+		t.Fatal("offered for a member no record of this host names")
+	}
+	if r.s.Offers(t.Context(), board.Row{Team: "beta", Kind: "lxc", Handle: handle}) {
+		t.Fatal("offered for a team with no record")
+	}
+}
+
+// A record or a declaration that cannot be read keeps the line, so choosing it says why
+// rather than the line going missing without a word.
+func TestAnUnreadableRecordOrDeclarationKeepsTheLine(t *testing.T) {
+	r := newRig(t, "joined")
+	r.declare(true)
+	teamtest.MustWrite(t, filepath.Join(r.Host.AppliedDir, "lxc", "alpha.json"), "{not json")
+	if !r.s.Offers(t.Context(), r.row()) {
+		t.Fatal("an unreadable record hid the line")
+	}
+	r = newRig(t, "joined")
+	r.WriteHostVars(t, teamtest.HostVarsAlpha+"agent_bus_lxc_members:\n  - team: alpha\n")
+	if !r.s.Offers(t.Context(), r.row()) {
+		t.Fatal("an unreadable declaration hid the line")
+	}
 }
 
 func TestUnitIsTheSessionUnitThePlayWrites(t *testing.T) {

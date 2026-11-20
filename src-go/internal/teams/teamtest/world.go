@@ -253,7 +253,8 @@ func (w *World) OnDeclareEdit(sub, stdout, after string) {
 }
 
 // HostVarsWithLxc is HostVarsAlpha with these agent_bus_lxc_members entries, each written as
-// the entry the reader answers it from: an empty Host, Role, State, Checkout or Seat is left out.
+// the entry the reader answers it from: an empty Host, Role, State, Checkout or Seat, and a false
+// Service, are left out.
 func HostVarsWithLxc(members ...declare.LxcMember) string {
 	var text strings.Builder
 	text.WriteString(HostVarsAlpha)
@@ -266,6 +267,9 @@ func HostVarsWithLxc(members ...declare.LxcMember) string {
 			if kv[1] != "" {
 				fmt.Fprintf(&text, "    %s: %s\n", kv[0], kv[1])
 			}
+		}
+		if m.Service {
+			text.WriteString("    service: true\n")
 		}
 	}
 	return text.String()

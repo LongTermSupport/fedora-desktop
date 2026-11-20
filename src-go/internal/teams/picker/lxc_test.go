@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcsession"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
@@ -68,19 +69,50 @@ func TestTheHelpListsTheLxcAction(t *testing.T) {
 	}
 }
 
-// Plan 00257 (owner): an LXC member's session never starts with its container; its row offers
-// the one start, a named line, and only an LXC member's row does.
-func TestOnlyAnLxcMembersRowOffersStartingItsSession(t *testing.T) {
-	h := newRig(t)
-	r := h.run1(t)
-	for _, row := range r.snap.Rows {
-		offers := slices.Contains(h.labels(r, row), "Start its session in its LXC container")
-		if offers != (row.Kind == lxcMemberKind && row.Handle != "" && row.Handle != "-") {
-			t.Fatalf("%s (%s): offers %v, menu %q", row.Member, row.Kind, offers, h.labels(r, row))
-		}
+// startable makes proj.box+role.lxc, agent in container box, a member of alpha this host's
+// record holds with status, declared with service; "" writes no record.
+func (h rig) startable(t *testing.T, status string, service bool) {
+	t.Helper()
+	if status != "" {
+		teamtest.MustWrite(t, filepath.Join(h.Host.AppliedDir, "lxc", "alpha.json"),
+			`{"version": 1, "team": "alpha", "members": [{"container": "box", "user": "agent", "state": "present", `+
+				`"status": "`+status+`", "handle": "proj.box+role.lxc", "checkout": "/srv/proj", "why": "", "since": 1}]}`)
 	}
-	if footer := r.footerFor(h.row(t, r.snap, "proj.box+role.lxc")); !strings.Contains(footer, "start its session") {
-		t.Fatalf("footer %q", footer)
+	h.WriteHostVars(t, teamtest.HostVarsWithLxc(declare.LxcMember{
+		Team: "alpha", Container: "box", User: "agent", Checkout: "/srv/proj", Service: service,
+	}))
+}
+
+// Plan 00257 (owner): an LXC member's session never starts with its container; its row offers
+// the one start, a named line, and only where it can work: a member of this host (its record
+// holds it as joined or stopped) declared with service: true, the one kind with a unit.
+func TestOnlyAServiceLxcMemberOfThisHostOffersStartingItsSession(t *testing.T) {
+	for _, tc := range []struct {
+		name, status string
+		service      bool
+		want         bool
+	}{
+		{"no record (another host's member)", "", true, false},
+		{"joined with service", "joined", true, true},
+		{"stopped with service", "stopped", true, true},
+		{"joined without service", "joined", false, false},
+		{"deferred", "deferred", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newRig(t)
+			h.startable(t, tc.status, tc.service)
+			r := h.run1(t)
+			for _, row := range r.snap.Rows {
+				offers := slices.Contains(h.labels(r, row), "Start its session in its LXC container")
+				if want := tc.want && row.Member == "proj.box+role.lxc"; offers != want {
+					t.Fatalf("%s (%s): offers %v, menu %q", row.Member, row.Kind, offers, h.labels(r, row))
+				}
+			}
+			footer := r.footerFor(h.row(t, r.snap, "proj.box+role.lxc"))
+			if strings.Contains(footer, "start its session") != tc.want {
+				t.Fatalf("footer %q", footer)
+			}
+		})
 	}
 }
 

@@ -202,8 +202,9 @@ func (r *run) memberActions(row board.Row, open, start, help action) []action {
 	handleless := row.Handle == "" || row.Handle == "-"
 	seat := row.Kind.IsSession() && row.Dir != "-"
 	acts := r.seatOwnActions(row)
-	if row.Kind == lxcMemberKind && !handleless {
-		// The one start of its session, which never starts with its container (Plan 00257).
+	if row.Kind == lxcMemberKind && !handleless && r.lxcStarts[lxcStartKey(row)] {
+		// The one start of its session, which never starts with its container (Plan 00257),
+		// offered only where it can work (lxcsession.Starter.Offers).
 		acts = append(acts, action{actStartLxc, "Start its session in its LXC container", "start its session"})
 	}
 	if !handleless {

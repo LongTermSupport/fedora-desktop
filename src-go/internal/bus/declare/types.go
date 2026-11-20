@@ -101,4 +101,7 @@ type LxcMember struct {
 	// name only its repo, and a seat is usually derived.
 	Checkout string
 	Seat     string
+	// Service is the entry's service flag (false where it leaves it out): whether the play writes
+	// the member's session unit in its container.
+	Service bool
 }

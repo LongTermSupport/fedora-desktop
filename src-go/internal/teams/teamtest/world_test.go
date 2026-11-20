@@ -169,7 +169,7 @@ func TestAScriptedEditLeavesTheFileTheReadsThenAnswerFrom(t *testing.T) {
 func TestHostVarsWithLxcIsReadBackAsItsMembers(t *testing.T) {
 	w := New(t)
 	members := []declare.LxcMember{
-		{Team: "alpha", Container: "container-a", User: "agent", Host: "worker", Role: "coordinator", State: "present", Checkout: "/srv/agent/one", Seat: "dev"},
+		{Team: "alpha", Container: "container-a", User: "agent", Host: "worker", Role: "coordinator", State: "present", Checkout: "/srv/agent/one", Seat: "dev", Service: true},
 		{Team: "alpha", Container: "container-b", User: "agent", Host: "worker", Role: "worker", State: "absent", Checkout: "/srv/agent/two"},
 	}
 	w.WriteHostVars(t, HostVarsWithLxc(members...))

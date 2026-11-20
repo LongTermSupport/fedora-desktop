@@ -106,6 +106,27 @@ type run struct {
 	// startRow is where the list's cursor starts on the next pass (from 1; 0 the top): after
 	// Esc then an arrow in a row's menu, the row the arrow moves to from the menu's row.
 	startRow int
+	// lxcStarts is the LXC member rows of the pass whose menu offers starting its session, by
+	// team and handle (lxcStartKey); read once a pass, as the menus and footers have no context.
+	lxcStarts map[string]bool
+}
+
+// lxcStartKey is a row's key in run.lxcStarts.
+func lxcStartKey(row board.Row) string { return row.Team + "\x00" + row.Handle }
+
+// setSnap makes s the pass shown, with which of its LXC member rows offer starting a session
+// (lxcsession.Starter.Offers); none where no Starter is wired.
+func (r *run) setSnap(ctx context.Context, s *board.Snapshot) {
+	r.snap = s
+	r.lxcStarts = map[string]bool{}
+	if r.p.LxcSession == nil {
+		return
+	}
+	for _, row := range s.Rows {
+		if row.Kind == lxcMemberKind && row.Handle != "" && row.Handle != "-" {
+			r.lxcStarts[lxcStartKey(row)] = r.p.LxcSession.Offers(ctx, row)
+		}
+	}
 }
 
 // Run is ccy-teams with no argument: the list of teams, seats and people, and a key for
@@ -260,7 +281,7 @@ func (r *run) once(ctx context.Context, first bool) error {
 	if err != nil {
 		return err
 	}
-	r.snap = s
+	r.setSnap(ctx, s)
 	if len(s.Rows) == 0 {
 		return p.offerCreate(ctx)
 	}

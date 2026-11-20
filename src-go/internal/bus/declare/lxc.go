@@ -68,7 +68,7 @@ func (h HostVars) LxcMembers() ([]LxcMember, error) {
 	for _, m := range found {
 		lm := LxcMember{
 			Team: m.team, Container: m.container, User: m.user, Host: m.host.text, Role: m.role,
-			State: m.state, Checkout: m.checkout.text, Seat: m.seat.text,
+			State: m.state, Checkout: m.checkout.text, Seat: m.seat.text, Service: m.service,
 		}
 		if err := printable(lm.Checkout); err != nil {
 			return nil, err

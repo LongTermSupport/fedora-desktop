@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.34 — container 2.84.40
+
+- **ccy-teams offers Start its session in its LXC container only where it can work**
+  (Plan 00257). The line shows only on this host's LXC member whose `agent_bus_lxc_members`
+  entry has `service: true`. Other hosts' members and members without a unit no longer show
+  it. The image changes only because the declaration reader it shares gained the `service`
+  flag.
+
 ## 3.122.33 — container 2.84.39
 
 - **The terminator's flood test is deterministic** (Plan 00257). `teamchat tls` has an

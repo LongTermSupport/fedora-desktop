@@ -158,7 +158,7 @@ Notes on the table:
    as the agent user in `checkout`, under tmux. It never starts with the container and the
    play never starts it: the unit has no `[Install]` section (nothing enables it) and
    `Restart=no`. Start it from ccy-teams: Enter on the member's row, then **Start its session
-   in its LXC container**. It then runs until it ends or is stopped. A unit an earlier play
+   in its LXC container** (offered only for this host's `service: true` members). It then runs until it ends or is stopped. A unit an earlier play
    enabled is disabled and stopped by the next run. The play refuses the entry, before
    changing anything, unless the container runs systemd as its init and has tmux. Whether the
    container starts with the host is up to its owner: membership neither needs nor changes
