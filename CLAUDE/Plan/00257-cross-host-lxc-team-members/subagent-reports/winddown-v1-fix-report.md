@@ -93,8 +93,8 @@ session (stays open)" behaviour, not a defect.
   the wind-down.
 - `go test -race` and golangci-lint pass on tmuxccy, picker, sessclose, sessions and winddown
   (0 issues).
-- `scripts/test-ccy-teams-command.bash` exits 0. The reboot suite and the `qa-changed` exit are
-  given in the journal entry and the commit that follows this report.
+- `scripts/test-ccy-teams-command.bash` and `scripts/test-ccy-sessions-reboot.bash` exit 0.
+- `qa-changed.bash --base origin/F44` exits 0 on commit 68e3b603f (64 checks and suites).
 
 ## A tool fault met while working
 
