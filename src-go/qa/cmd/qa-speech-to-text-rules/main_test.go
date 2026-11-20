@@ -103,7 +103,7 @@ const explainingDropdown = `class Panel {
 // S8, S11, S12, S17: the real semgrep, with the project's own rules, passes a clean tree.
 func TestRealSemgrepPassesACleanTree(t *testing.T) {
 	got := realRun(t, nil)
-	if got.code != sttrules.ExitOK || got.stdout != "passed: 2 failed: 0\n" {
+	if got.code != sttrules.ExitOK || !strings.HasSuffix(got.stdout, "passed: 2 failed: 0\n") {
 		t.Fatalf("exit %d\n%s%s", got.code, got.stdout, got.stderr)
 	}
 }
@@ -135,8 +135,10 @@ func TestRealSemgrepJudgesAnExtensionlessPythonScriptWithPythonRulesOnly(t *test
 	if got.code != sttrules.ExitFailed || !strings.Contains(got.stdout, "files/bin/stt-tool:3: model-present-without-weights\n") {
 		t.Fatalf("exit %d\n%s%s", got.code, got.stdout, got.stderr)
 	}
-	if strings.Contains(got.stdout, "dropdown-label") {
-		t.Fatalf("a JavaScript rule ran on a Python script:\n%s", got.stdout)
+	for _, line := range strings.Split(got.stdout, "\n") {
+		if strings.HasPrefix(line, "files/bin/stt-tool:") && strings.Contains(line, "dropdown-label") {
+			t.Fatalf("a JavaScript rule ran on a Python script:\n%s", got.stdout)
+		}
 	}
 }
 
@@ -163,7 +165,7 @@ func TestRealSemgrepRefusesAFixtureWithNoAnnotations(t *testing.T) {
 // S10: named files are the only ones judged.
 func TestRealSemgrepJudgesOnlyTheNamedFiles(t *testing.T) {
 	got := realRun(t, map[string]string{"helpers/bad.py": weightlessPython}, "helpers/clean.py")
-	if got.code != sttrules.ExitOK || got.stdout != "passed: 1 failed: 0\n" {
+	if got.code != sttrules.ExitOK || !strings.HasSuffix(got.stdout, "passed: 1 failed: 0\n") {
 		t.Fatalf("exit %d\n%s%s", got.code, got.stdout, got.stderr)
 	}
 	got = realRun(t, map[string]string{"helpers/bad.py": weightlessPython}, "helpers/bad.py")

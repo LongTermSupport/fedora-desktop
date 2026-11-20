@@ -99,7 +99,7 @@ var checkDefs = []checkDef{
 	{id: "stt-rules", fixed: "whole gate (no model judged present without its weights, no dropdown label that explains itself, no job end published before its cleanup)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runSttRules},
 	{id: "walk-open", fixed: "walk-opens-non-regular-file rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runWalkOpen},
 	{id: "stdin-wait", fixed: "stdin-read-unbounded rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runStdinWait},
-	{id: "hook-handler-rules", fixed: "whole gate (no code the hooks daemon loads resolves a path against the daemon's working directory)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runHookHandlerRules},
+	{id: "hook-handler-rules", fixed: "whole gate (no code the hooks daemon loads resolves a path against the daemon's working directory or matches text against the raw Bash command line)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runHookHandlerRules},
 	{id: "version-pins", fixed: "whole gate (the version-pin manifest is well formed and every pin still resolves to a declared var)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runVersionPins},
 	{id: "go-deps", fixed: "whole gate (src-go's dependencies allowlisted, pinned and vendored in step)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runGoDeps},
 	{id: "go-vuln", fixed: "whole gate (govulncheck finds no vulnerability src-go reaches)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runGoVuln},

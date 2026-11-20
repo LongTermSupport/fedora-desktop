@@ -99,6 +99,9 @@ func (g *gate) finish(got outcome) ExitCode {
 		return cmp.Or(strings.Compare(a.path, b.path), cmp.Compare(a.line, b.line), strings.Compare(a.rule, b.rule))
 	})
 	found = slices.Compact(found)
+	if len(g.proved) > 0 {
+		fmt.Fprintf(&g.stdout, "proved: %s\n", strings.Join(g.proved, ", "))
+	}
 	if len(found) == 0 {
 		fmt.Fprintf(&g.stdout, "passed: %d failed: 0\n", scanned)
 		return ExitOK

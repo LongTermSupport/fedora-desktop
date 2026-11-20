@@ -11,7 +11,9 @@ from claude_code_hooks_daemon.core.utils import get_bash_command
 from claude_code_hooks_daemon.utils.command_position import (
     command_position_code_segments,
     command_position_segments,
+    is_plain_data_command,
 )
+from ansible_enforcement import judge_raw_command_line
 
 
 def system_path_judged_from_cwd(file_path, blocked):
@@ -197,6 +199,12 @@ def the_one_sanctioned_judge(hook_input, search):
     command = get_bash_command(hook_input)
     # ok: hook-regex-over-raw-command
     return judge_raw_command_line(command, search)
+
+
+def the_daemons_whole_line_predicate_is_not_a_helper(hook_input):
+    command = get_bash_command(hook_input)
+    # ok: hook-regex-over-raw-command
+    return is_plain_data_command(command)
 
 
 def builtins_and_messages_are_not_helpers(hook_input, result):

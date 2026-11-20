@@ -3,24 +3,28 @@
 Blocks direct package management, system configuration, and service management
 commands. All system changes must go through Ansible playbooks.
 
-The handler judges the commands a Bash line RUNS, one command-position segment at a
-time (the daemon's `command_position_code_segments`). Text that only names a command
-runs nothing and is not judged: an echo or printf argument, a grep or rg pattern, a
-git or gh message, a heredoc body fed to a data sink, a comment, a shell that only
-checks syntax. A `bash -c '...'` body, a `$(...)` substitution, a pipeline stage and a
-script the line writes and then runs are judged as commands, and anything the daemon's
-view cannot read stays as written, so an unreadable shape is a false positive, never a
-bypass.
+The line is judged as WRITTEN, exactly as the original handler did: any forbidden pattern
+anywhere in the Bash text denies it. That default cannot regress, because it is the original
+reading, and a line that runs a script it wrote, hands text to a shell, or wraps a change in
+anything (`sudo`, `script -c`, `watch`, `find -exec`, `perl -e system(...)`) names the change
+in its text.
 
-Two shapes the daemon's view cannot follow are judged on the line as written: a script
-the line writes and then runs behind a wrapper (`sudo ./install.sh`, `timeout 9 bash s.sh`,
-`bash $PWD/s.sh`), and text piped into a shell (`git log -1 --format=%s | bash`). A
-computed command word (`$(echo dnf) install`) cannot be judged by any static reading and
-is not.
+One exception, `judge_raw_command_line` below, answers issue #294 (a commit message, an echo or
+a grep pattern that merely NAMES `dnf install` was denied): when EVERY command the line runs is
+inert, the line is judged by those commands instead of its raw text. An inert command executes
+none of its arguments as code: `echo`, `printf`, `grep`/`rg`, `cat`, `jq`, `git commit`/`log`/
+`show`/`diff`/`status`/`add`/`tag`/`grep`/`push`/`fetch`, `gh issue|pr comment|create` with a body
+given, `true`, `test`, `wc`, `sort`, `head`, `tail`, `ls`, `pwd`, `cd`, `uniq`. A wrapper (`sudo`,
+`env`, `timeout`, `nice`, `nohup`...), a shell, an interpreter, `find`, `xargs`, `make`, `watch`
+and anything unknown is NOT inert, so a line holding one is judged on its raw text, whatever else
+it holds. An all-inert line cannot run a system change, so the exception cannot let one through.
+Over-blocking is accepted: an inert write plus an unrelated shell run on one line is judged as the
+original judged it.
 """
 
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -34,16 +38,12 @@ from claude_code_hooks_daemon.core.rule import Rule
 from claude_code_hooks_daemon.core.utils import get_bash_command
 from claude_code_hooks_daemon.utils.command_position import (
     DATA_HEADS,
-    SHELL_NAMES,
-    SOURCE_HEADS,
     command_position_code_segments,
-    is_shell_command_option,
     segment_spans,
 )
 from claude_code_hooks_daemon.utils.shell_segmentation import (
     resolve_shell_word,
     shell_word_spans,
-    strip_inert_spans,
 )
 
 RULE_ID = "R-ANSIBLE-DIRECT-SYSTEM-CHANGE"
@@ -57,63 +57,77 @@ _RULE = Rule(
         "WHY: every system change must go through an Ansible playbook, so it is version\n"
         "controlled, documented in playbook files, reproducible on a fresh install and\n"
         "consistent with the rest of the configuration.\n\n"
-        "Only a command that RUNS is judged. A commit message, an echo, a grep pattern or a\n"
-        "heredoc body that names `dnf install` is not blocked; `sudo dnf install x`,\n"
-        "`a && systemctl restart y` and `bash -c 'dnf install x'` are, whatever options sit\n"
-        "before the verb (`dnf -y install`) and however the tool is spelled (`dnf5`,\n"
-        "`/usr/bin/dnf`, behind `sudo`, `env`, `xargs`, `eval`).\n\n"
-        "A script the line writes and then runs (`cat > s.sh <<EOF ... EOF` then\n"
-        "`sudo ./s.sh`), and text piped into a shell, are judged as written.\n\n"
+        "The line is judged as written: `sudo dnf install x`, `a && systemctl restart y`,\n"
+        "`bash -c 'dnf install x'`, a script the line writes and then runs, and text piped into\n"
+        "a shell are blocked, whatever options sit before the verb (`dnf -y install`) and\n"
+        "however the tool is spelled (`dnf5`, `/usr/bin/dnf`, `d''nf`, behind `sudo`, `env`).\n\n"
+        "Only a line whose every command is inert (echo, printf, grep, cat, jq, a git commit...)\n"
+        "is judged by what it runs, so a commit message or an echo that merely names `dnf install`\n"
+        "is not blocked. A shell, wrapper, interpreter, `find`, `xargs` or `make` on the line\n"
+        "puts the whole line back to its raw text.\n\n"
         "ALLOWED (read-only queries): dnf info/list/search, rpm -q, systemctl status,\n"
         "systemctl --user, gsettings get, dconf read, flatpak list."
     ),
 )
 
 
-def _tool(names: str, verbs: str, value_options: tuple[str, ...] = (), not_before_verb: str = "") -> str:
-    """A pattern for ``names`` followed by any options and then one of ``verbs``.
+def _options(value_options: tuple[str, ...] = (), not_before_option: str = "") -> str:
+    """A pattern for any number of options: the words that start with `-`.
 
-    Options are the words that start with `-`; ``value_options`` name the ones that take
-    the next word as their value (`dnf --releasever 40 install`). ``not_before_verb`` is a
-    lookahead an option must not start with: the `--user` of `systemctl --user enable`.
+    ``value_options`` name the ones that take the next word as their value
+    (`dnf --releasever 40 install`). ``not_before_option`` is a lookahead an option must not
+    start with: the `--user` of `systemctl --user enable`.
     """
-    guard = f"(?!{not_before_verb})" if not_before_verb else ""
+    guard = f"(?!{not_before_option})" if not_before_option else ""
     valued = "|".join(re.escape(option) for option in value_options)
-    skip = (rf"(?:{guard}(?:{valued})\s+\S+\s+|" if valued else "(?:") + rf"{guard}-\S*\s+)*"
-    return rf"\b(?:{names})\s+{skip}(?:{verbs})\b"
+    return (rf"(?:{guard}(?:{valued})\s+\S+\s+|" if valued else "(?:") + rf"{guard}-\S*\s+)*"
+
+
+def _tool(names: str, verbs: str, value_options: tuple[str, ...] = (), not_before_option: str = "") -> str:
+    """A pattern for ``names`` followed by any options and then one of ``verbs``."""
+    return rf"\b(?:{names})\s+{_options(value_options, not_before_option)}(?:{verbs})\b"
 
 
 _RPM_VALUE_OPTIONS = r"--root|--dbpath|--prefix|--relocate|--define|-D|--macros"
 _NPM_GLOBAL = r"(?:-g|--global)\b"
 _NPM_VERB = r"(?:install|i|add)\b"
+_DNF_VALUE_OPTIONS = (
+    "-c", "--config", "--releasever", "--enablerepo", "--disablerepo", "--repo", "--repoid", "--installroot", "-x", "--exclude",
+    "--forcearch", "--setopt", "-d", "--debuglevel", "-e", "--errorlevel", "--rpmverbosity", "--color",
+)  # fmt: skip
+_PACKAGE_VERBS = (
+    "install|remove|erase|update|upgrade|downgrade|reinstall|autoremove|distro-sync|distrosync|swap|mark"
+    r"|groupinstall|groupremove|groupupdate|group\s+(?:install|remove|erase|upgrade|update)"
+    r"|module\s+(?:install|remove|enable|disable|reset|switch-to|update)|history\s+(?:undo|redo|rollback)"
+)
+_SYSTEMCTL_VALUE_OPTIONS = ("-H", "--host", "-M", "--machine", "--root", "-t", "--type", "-p", "--property")
+_SYSTEMCTL_VERBS = (
+    "enable|disable|start|stop|restart|reload|mask|unmask|try-restart|reload-or-restart|try-reload-or-restart"
+    "|daemon-reload|daemon-reexec|set-default|isolate|preset|preset-all|link|edit|revert|set-property"
+    "|reset-failed|kill|add-wants|add-requires|import-environment|set-environment|unset-environment"
+    "|reboot|poweroff|halt|suspend|hibernate"
+)
 
-# Forbidden command patterns, matched case-insensitively against the text of a command that runs.
+# Forbidden command patterns, matched case-insensitively against the text of the line.
 _FORBIDDEN_PATTERNS: tuple[str, ...] = (
     # Package management - install/remove operations
-    _tool(
-        "dnf5?",
-        "install|remove|erase|update|upgrade|downgrade|reinstall",
-        ("-c", "--config", "--releasever", "--enablerepo", "--disablerepo", "--repo", "--installroot", "-x", "--exclude", "--forcearch", "--setopt"),
-    ),
-    _tool("yum", "install|remove|erase|update|upgrade", ("-c", "--config", "--installroot", "--enablerepo", "--disablerepo", "-x", "--exclude")),
+    _tool("dnf5?", _PACKAGE_VERBS + r"|system-upgrade|builddep|copr\s+(?:enable|disable|remove)", _DNF_VALUE_OPTIONS),
+    _tool("yum", _PACKAGE_VERBS, _DNF_VALUE_OPTIONS),
     rf"\brpm\s+(?:(?:{_RPM_VALUE_OPTIONS})\s+\S+\s+|--(?!install\b|upgrade\b|erase\b|freshen\b|query\b|verify\b)\S+\s+|-v+\s+)*"
     r"(?:-[iUeFhv]*[iUeF][iUeFhv]*|--install|--upgrade|--erase|--freshen)",
-    _tool("pip3?", "install", ("--proxy", "--cache-dir", "--log", "--timeout", "--retries", "--cert", "--client-cert", "--trusted-host", "--python", "--exists-action")),
+    _tool("pip[0-9.]*", "install|uninstall", ("--proxy", "--cache-dir", "--log", "--timeout", "--retries", "--cert", "--client-cert", "--trusted-host", "--python", "--exists-action")),
     # npm install -g, with the global flag after the verb or before it
     rf"\bnpm\s+(?:-\S*\s+)*{_NPM_VERB}[^;&|\n]*?\s+{_NPM_GLOBAL}",
     rf"\bnpm\s+(?:-\S*\s+)*?{_NPM_GLOBAL}\s+(?:-\S*\s+)*{_NPM_VERB}",
     _tool("flatpak", "install|remove|uninstall|update"),
-    _tool("snap", "install|remove"),
-    # System services - state changes (not queries); a --user unit is the user's own
-    _tool(
-        "systemctl",
-        "enable|disable|start|stop|restart|reload|mask|unmask",
-        ("-H", "--host", "-M", "--machine", "--root", "-t", "--type", "-p", "--property"),
-        not_before_verb=r"--user\b",
-    ),
+    _tool("snap", "install|remove|refresh"),
+    # System services - state changes (not queries). A --user unit is the user's own, but the last
+    # scope flag wins, so any --system on the line makes it a system change.
+    _tool("systemctl", _SYSTEMCTL_VERBS, _SYSTEMCTL_VALUE_OPTIONS, not_before_option=r"--user\b"),
+    rf"\bsystemctl\s+{_options(_SYSTEMCTL_VALUE_OPTIONS)}--system\s+{_options(_SYSTEMCTL_VALUE_OPTIONS)}(?:{_SYSTEMCTL_VERBS})\b",
     # System configuration
-    _tool("gsettings", "set", ("--schemadir",)),
-    _tool("dconf", "write"),
+    _tool("gsettings", "set|reset|reset-recursively", ("--schemadir",)),
+    _tool("dconf", "write|reset|load"),
     r"\bgconftool(-2)?\s+--set",
     r"\bfirewall-cmd\s+.*--(add|remove|zone)",
     # User/group management
@@ -128,31 +142,30 @@ _FORBIDDEN_PATTERNS: tuple[str, ...] = (
 #: A quoted word that is one plain name or path: `'dnf'`, `"/usr/bin/systemctl"`.
 _QUOTED_NAME = re.compile(r"""(?<![\w'"])(['"])([\w./+-]+)\1(?![\w'"])""")
 
-#: Commands that run what follows them (a wrapper): the line is judged for what they run.
-_WRAPPERS: frozenset[str] = frozenset(
+#: The commands that execute none of their arguments as code. The list is closed on purpose:
+#: a wrapper, a shell, an interpreter, `find`, `xargs`, `make`, `watch` and anything unknown is not
+#: in it, so a line holding one is judged on its raw text. `git` and `gh` are inert only with the
+#: subcommands below (`_git_is_inert`, `_gh_is_inert`).
+INERT_COMMANDS: frozenset[str] = frozenset(
     {
-        "sudo", "doas", "pkexec", "env", "command", "exec", "builtin", "nohup", "nice", "ionice",
-        "timeout", "time", "setsid", "stdbuf", "flock", "strace", "ltrace", "xargs", "eval",
-        "chroot", "unshare", "taskset", "chrt",
+        "echo", "printf", "grep", "egrep", "fgrep", "rg", "cat", "jq", "git", "gh", "true", "false", "test", "[",
+        "wc", "sort", "head", "tail", "ls", "pwd", "cd", "uniq",
     }
 )  # fmt: skip
+_GIT_INERT_SUBCOMMANDS = frozenset({"commit", "log", "show", "diff", "status", "add", "tag", "grep", "push", "fetch"})
+#: An argument that makes an otherwise inert command run another program.
+_RUNS_A_PROGRAM = ("--exec", "--receive-pack", "--upload-pack", "--open-files-in-pager", "--pre", "--hostname-bin", "--compress-program")
+_BODY_OPTIONS = frozenset({"-b", "--body", "-F", "--body-file"})
+_CLOSERS = frozenset({"done", "fi"})
+_HEREDOC_BODY = "HEREDOC_BODY"
 
-#: Wrappers whose options and values never name a command, so a shell behind them is the command.
-_PLAIN_WRAPPERS: frozenset[str] = frozenset({"sudo", "doas", "pkexec", "env", "command", "exec", "builtin", "nohup", "time", "setsid"})
+#: Words that open a shell construct before its command: `then echo x`.
+_RESERVED_PREFIX: frozenset[str] = frozenset({"then", "do", "else", "elif", "if", "while", "until", "!", "{", "(", "}", ")", ""})
 
-#: Words that open a shell construct before its command: `then dnf install x`.
-_RESERVED_PREFIX: frozenset[str] = frozenset({"then", "do", "else", "elif", "if", "while", "until", "!", "{", "(", "}", ")"})
-
-_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
-_REDIRECT_TO_FILE = re.compile(r"[0-9]*(?:>>?|&>>?)(?!&)(?P<path>.*)")
-_WRITERS = frozenset({"tee", "cp", "mv", "install"})
-_NO_FILE = frozenset({"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"})
-_SOURCE_NAMES = SOURCE_HEADS
-_PRINT_LITERAL = re.compile(r"""print\(\s*(?:'(?P<single>[^'"\\]*)'|"(?P<double>[^'"\\]*)")\s*\)""")
-_PYTHON = re.compile(r"python[0-9.]*")
+_PRINT_FREE = ("$(", "`", "<(", ">(")
 _SIMPLE_VARIABLE = re.compile(r"(?<!\\)\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)")
 _HEREDOC_OPERATOR = re.compile(r"<<(-?)[ \t]*([A-Za-z_][A-Za-z0-9_]*)(?=[\s;|&)<>]|$)")
-_SHELL_VALUE_OPTIONS = frozenset({"-o", "+o", "-O", "+O"})
+_ANY_HEREDOC_DELIMITER = re.compile(r"""<<-?[ \t]*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?""")
 
 
 def _basename(word: str) -> str:
@@ -167,162 +180,86 @@ def _without_group_parens(word: str) -> str:
     return word
 
 
-def _command_words(segment: str) -> list[str]:
-    """The segment's resolved words, without a construct opener, an unreadable word as ``""``."""
-    words = [resolve_shell_word(segment[start:end]) for start, end in shell_word_spans(segment)]
-    plain = ["" if word is None else _without_group_parens(word) for word in words]
-    while plain and (plain[0] in _RESERVED_PREFIX or not plain[0]):
-        plain = plain[1:]
-    return plain
+def _words(segment: str) -> list[str] | None:
+    """The segment's resolved words without a construct opener, or None when one cannot be read."""
+    resolved = [resolve_shell_word(segment[start:end]) for start, end in shell_word_spans(segment)]
+    if any(word is None for word in resolved):
+        return None
+    words = [_without_group_parens(word) for word in resolved if word is not None]
+    while words and words[0] in _RESERVED_PREFIX:
+        words = words[1:]
+    return words
 
 
-def _lead_index(words: list[str]) -> int | None:
-    """Index of the first word that is not a variable assignment or a construct opener."""
-    for index, word in enumerate(words):
-        if not (_ASSIGNMENT.fullmatch(word) or word in _RESERVED_PREFIX):
-            return index
+def _head_word(segment: str) -> str | None:
+    """The first word of the segment after a construct opener, None when it cannot be read.
+
+    Later words may be unreadable (`echo $X`): only the head decides what a print-only rewrite does.
+    """
+    for start, end in shell_word_spans(segment):
+        word = resolve_shell_word(segment[start:end])
+        if word is None:
+            return None
+        word = _without_group_parens(word)
+        if word not in _RESERVED_PREFIX:
+            return word
     return None
 
 
-def _is_syntax_check_only(words: list[str]) -> bool:
-    """Whether the segment is a shell run with `-n` (parse, never run), as plain wrappers lead it.
-
-    A word before the shell that is not a plain wrapper, an option or an assignment means the
-    shell is an argument of something else (`sudo dnf install bash -n`), so it is not read.
-    """
-    shell_at = None
-    for index, word in enumerate(words):
-        if _basename(word) in SHELL_NAMES:
-            shell_at = index
-            break
-        if not (
-            _ASSIGNMENT.fullmatch(word)
-            or word.startswith("-")
-            or word in _RESERVED_PREFIX
-            or _basename(word) in _PLAIN_WRAPPERS
-        ):
-            return False
-    if shell_at is None:
-        return False
-    index = shell_at + 1
-    while index < len(words):
-        word = words[index]
-        if not word.startswith(("-", "+")) or word in ("-", "--", "+"):
-            return False
-        if word in _SHELL_VALUE_OPTIONS:
-            if word == "-o" and words[index + 1 : index + 2] == ["noexec"]:
-                return True
-            index += 2
-            continue
-        if not word.startswith("--"):
-            if "n" in word[1:]:
-                return True
-            if is_shell_command_option(word):
-                return False
-        index += 1
-    return False
+def _normalised(text: str) -> str:
+    """``text`` with each word resolved the way the shell does (`d''nf` is `dnf`), words joined by a space."""
+    pieces = []
+    for start, end in shell_word_spans(text):
+        word = resolve_shell_word(text[start:end])
+        pieces.append(text[start:end] if word is None else word)
+    return " ".join(pieces)
 
 
-def _reads_stdin_as_shell(words: list[str]) -> bool:
-    """Whether the segment is a shell that runs its stdin: no `-c` string, no script operand."""
-    lead = _lead_index(words)
-    if lead is None:
-        return False
-    shell_at = None
-    for index in range(lead, len(words)):
-        if _basename(words[index]) in SHELL_NAMES:
-            shell_at = index
-            break
-        if not (words[index].startswith("-") or _basename(words[index]) in _WRAPPERS or re.fullmatch(r"[0-9]+[smhd]?", words[index])):
-            return False
-    if shell_at is None or _is_syntax_check_only(words):
-        return False
-    operands = []
-    for word in words[shell_at + 1 :]:
-        if word.startswith("-") and word != "-":
-            if not word.startswith("--") and is_shell_command_option(word):
-                return False
-            continue
-        operands.append(word)
-    return all(operand in ("-", "/dev/stdin") for operand in operands) or any(
-        word.startswith("-") and not word.startswith("--") and "s" in word[1:] for word in words[shell_at + 1 :]
-    )
+def _git_is_inert(rest: list[str]) -> bool:
+    """`git [-C dir] <subcommand>` with an inert subcommand and no argument that runs a program."""
+    index = 0
+    while rest[index : index + 1] == ["-C"]:
+        index += 2
+    return rest[index : index + 1] and rest[index] in _GIT_INERT_SUBCOMMANDS and not _names_a_program_to_run(rest)
 
 
-def _runs_shell_or_script(words: list[str], written: set[str]) -> bool:
-    """Whether the segment runs a shell, `source`, or a path a command of this line wrote."""
-    lead = _lead_index(words)
-    if lead is None or _is_syntax_check_only(words):
+def _gh_is_inert(rest: list[str]) -> bool:
+    """`gh issue|pr comment|create` with the text given by `-b`, `--body` or a body file."""
+    if len(rest) < 3 or rest[0] not in ("issue", "pr") or rest[1] not in ("comment", "create"):
         return False
-    head = _basename(words[lead])
-    if head in DATA_HEADS:
-        return False
-    if head in SHELL_NAMES or head in _SOURCE_NAMES or head == "eval":
+    return any(word in _BODY_OPTIONS or word.startswith(("--body=", "--body-file=")) for word in rest[2:])
+
+
+def _names_a_program_to_run(rest: list[str]) -> bool:
+    return any(word.startswith(_RUNS_A_PROGRAM) or word == "-O" for word in rest)
+
+
+def _head_is_inert(words: list[str]) -> bool:
+    head, rest = words[0], words[1:]
+    if head == "for":
         return True
-    if _basename(words[lead]) in written:
+    if head in _CLOSERS:
+        return not rest
+    if head not in INERT_COMMANDS:
+        return False
+    if head == "git":
+        return bool(_git_is_inert(rest))
+    if head == "gh":
+        return _gh_is_inert(rest)
+    return not _names_a_program_to_run(rest)
+
+
+def _segment_is_inert(segment: str, heredoc_delimiters: set[str]) -> bool:
+    """Whether the command one segment runs executes none of its arguments as code."""
+    if any(marker in segment for marker in _PRINT_FREE):
+        return False
+    text = segment.strip()
+    if heredoc_delimiters and (text == _HEREDOC_BODY or text in heredoc_delimiters):
         return True
-    if head in _WRAPPERS:
-        return any(
-            _basename(word) in SHELL_NAMES or word in _SOURCE_NAMES or (word and _basename(word) in written)
-            for word in words[lead + 1 :]
-        )
-    return False
-
-
-def _written_names(words: list[str]) -> set[str]:
-    """Basenames of the files one segment writes: a redirect target, `tee`, `cp`, `mv`, `install`."""
-    names: set[str] = set()
-    for index, word in enumerate(words):
-        match = _REDIRECT_TO_FILE.fullmatch(word)
-        if match is None:
-            continue
-        target = match.group("path") or (words[index + 1] if index + 1 < len(words) else "")
-        if target not in _NO_FILE:
-            names.add(_basename(target))
-    lead = _lead_index(words)
-    if lead is None:
-        return names
-    command = words[lead:]
-    while command and _basename(command[0]) in _PLAIN_WRAPPERS:
-        command = command[1:]
-        while command and command[0].startswith("-"):
-            command = command[1:]
-    if command and _basename(command[0]) in _WRITERS:
-        operands = [word for word in command[1:] if word and not word.startswith("-")]
-        if _basename(command[0]) == "tee":
-            names.update(_basename(word) for word in operands)
-        elif operands:
-            names.add(_basename(operands[-1]))
-    return names
-
-
-def _joined_by_pipe(command: str, previous_end: int, start: int) -> bool:
-    return command[previous_end:start].strip() in ("|", "|&")
-
-
-def _runs_what_the_daemons_view_cannot_follow(command: str) -> bool:
-    """Whether the line writes a file and then runs a shell or script, or pipes into a shell.
-
-    The daemon's view recognises a written script only when it is run bare with the path
-    spelled as written; behind a wrapper the heredoc body it blanked as data is lost. Text piped
-    into a shell is whatever the earlier stages print. Either way the line is judged as written.
-    """
-    stripped = strip_inert_spans(command)
-    written: set[str] = set()
-    wrote_any = False
-    previous_end: int | None = None
-    for start, end in segment_spans(stripped):
-        words = _command_words(stripped[start:end])
-        if previous_end is not None and _joined_by_pipe(stripped, previous_end, start) and _reads_stdin_as_shell(words):
-            return True
-        if wrote_any and _runs_shell_or_script(words, written):
-            return True
-        names = _written_names(words)
-        if names or any(_REDIRECT_TO_FILE.fullmatch(word) and word not in _NO_FILE for word in words):
-            wrote_any = True
-        written |= names
-        previous_end = end
-    return False
+    words = _words(segment)
+    if words is None:
+        return False
+    return not words or _head_is_inert(words)
 
 
 def _quote_inert_heredocs(text: str) -> str:
@@ -330,9 +267,8 @@ def _quote_inert_heredocs(text: str) -> str:
 
     An unquoted `<<EOF` body is expanded by the shell, so the daemon keeps it as text that may
     execute. A heredoc with no `$(` and no grave accent is plain data, so giving its delimiter
-    hands the daemon the same body to judge by its own rules (a data sink's body is blanked,
-    a shell's body is read as commands, a pipe into a shell keeps it). The text is only
-    judged, never executed, so the rewrite changes no behaviour.
+    quotes hands the daemon the same body to judge by its own rules. The text is only judged,
+    never executed, so the rewrite changes no behaviour.
     """
     pieces: list[str] = []
     position = 0
@@ -407,45 +343,76 @@ def _swap_head_for_echo(segment: str, name: str) -> str:
 
 
 def _inert_form(segment: str) -> str:
-    """``segment`` rewritten to a form the daemon's view blanks, when what it holds cannot run.
+    """``segment`` rewritten to a form the daemon's view blanks, when it only prints.
 
-    - a shell run with `-n` only parses its body: it becomes an echo;
-    - `jq` and `python -c "print('literal')"` print their program or literal: they become an echo
-      of the same text, so a pipe into a shell keeps the text exactly as before;
-    - an echo, printf, grep, rg or jq whose only expansions are plain `$NAME` or `${NAME}`
-      prints them, so the references are named `_V` and the daemon blanks the arguments.
+    `jq` prints its program, so it becomes an echo of the same text; an echo, printf, grep, rg or
+    jq whose only expansions are plain `$NAME` or `${NAME}` prints them, so the references are
+    named `_V` and the daemon blanks the arguments. The result is only ever judged for inertness
+    and searched; a line that is not all inert is judged on its raw text, never on this form.
     """
-    words = _command_words(segment)
-    lead = _lead_index(words)
-    if lead is None:
-        return segment
-    if _is_syntax_check_only(words):
-        return " echo _ "
-    head = _basename(words[lead])
+    head = _head_word(segment)
     if head == "jq":
         segment = _swap_head_for_echo(segment, "jq")
         head = "echo"
-    elif _PYTHON.fullmatch(head) and words[lead + 1 :] == ["-c", words[-1]] and (match := _PRINT_LITERAL.fullmatch(words[-1])):
-        return f" echo '{match.group('single') or match.group('double') or ''}' "
-    if head in DATA_HEADS or head == "echo":
-        if any(marker in segment for marker in ("$(", "`", "<(", ">(")):
+    if head is not None and (head in DATA_HEADS or head == "echo"):
+        if any(marker in segment for marker in _PRINT_FREE):
             return segment
         renamed = _SIMPLE_VARIABLE.sub("_V", segment)
         return segment if "$" in renamed else renamed
     return segment
 
 
-def _view_input(command: str) -> str:
-    """``command`` with the inert forms rewritten, ready for the daemon's command view."""
-    command = _quote_inert_heredocs(command)
+def _view_input(line: str) -> str:
+    """``line`` with the print-only forms rewritten, ready for the daemon's command view."""
+    line = _quote_inert_heredocs(line)
     pieces: list[str] = []
     previous_end = 0
-    for start, end in segment_spans(command):
-        pieces.append(command[previous_end:start])
-        pieces.append(_inert_form(command[start:end]))
+    for start, end in segment_spans(line):
+        pieces.append(line[previous_end:start])
+        pieces.append(_inert_form(line[start:end]))
         previous_end = end
-    pieces.append(command[previous_end:])
+    pieces.append(line[previous_end:])
     return "".join(pieces)
+
+
+def _inert_segments(line: str) -> list[str] | None:
+    """The command-position segments of ``line`` when every one runs an inert command, else None."""
+    segments = command_position_code_segments(_view_input(line))
+    delimiters = set(_ANY_HEREDOC_DELIMITER.findall(line))
+    if all(_segment_is_inert(segment, delimiters) for segment in segments):
+        return segments
+    return None
+
+
+def every_command_is_inert(line: str) -> bool:
+    """Whether every command ``line`` runs is inert (:data:`INERT_COMMANDS`)."""
+    return _inert_segments(line) is not None
+
+
+def judge_raw_command_line(line: str, search: Callable[[str], str | None]) -> str | None:
+    """The text of the system change ``line`` runs, or None. THE one place a line is judged as written.
+
+    This is the sanctioned raw-text judge (the Semgrep rule hook-regex-over-raw-command exempts a
+    call of it by name, so the choice stays one visible call). The default is the original
+    handler's reading: ``search`` over the whole raw text, then over each command-position segment
+    with its words resolved (`d''nf install`). The exception is a line whose every command is
+    inert: it is judged by those segments alone, so a message, an echo or a grep pattern that only
+    names a change passes.
+    """
+    inert = _inert_segments(line)
+    if inert is not None:
+        candidates = inert
+    else:
+        found = search(line)
+        if found is not None:
+            return found
+        candidates = command_position_code_segments(line)
+    for segment in candidates:
+        for text in (segment, _normalised(segment)):
+            found = search(text)
+            if found is not None:
+                return found if inert is None else segment
+    return None
 
 
 class AnsibleEnforcementHandler(PreToolUseHandlerBase):
@@ -461,7 +428,7 @@ class AnsibleEnforcementHandler(PreToolUseHandlerBase):
     - Query commands: dnf info/list/search, systemctl status, gsettings get, etc.
     - Ansible playbook execution
     - Container operations (podman, docker)
-    - Text that only names a blocked command (a message, an echo, a search pattern)
+    - Text that only names a blocked command, when every command on the line is inert
     """
 
     # Forbidden command patterns (case-insensitive)
@@ -473,43 +440,28 @@ class AnsibleEnforcementHandler(PreToolUseHandlerBase):
         # Compile patterns for performance
         self._compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in self.FORBIDDEN_PATTERNS]
 
-    def _search(self, text: str) -> re.Match[str] | None:
-        """The first forbidden pattern found in ``text`` (a quoted plain name read unquoted)."""
+    def _search(self, text: str) -> str | None:
+        """The matched text of the first forbidden pattern in ``text`` (a quoted plain name read unquoted)."""
         text = _QUOTED_NAME.sub(r"\2", text)
         for pattern in self._compiled_patterns:
             match = pattern.search(text)
-            if match:
-                return match
-        return None
-
-    def _offending_text(self, command: str) -> str | None:
-        """The text of the system change ``command`` runs, or None when it runs none.
-
-        A command-position segment that changes the system, else the matched text of the line
-        as written when it runs a script it wrote or a shell fed by a pipe.
-        """
-        for segment in command_position_code_segments(_view_input(command)):
-            if self._search(segment):
-                return segment
-        if _runs_what_the_daemons_view_cannot_follow(command):
-            match = self._search(command)
             if match:
                 return match.group(0)
         return None
 
     def matches(self, hook_input: dict[str, Any]) -> bool:
-        """Check if the command line RUNS a direct system management command.
+        """Check if the Bash line names a direct system management command that runs.
 
         Args:
             hook_input: Hook input dict with tool_name and tool_input
 
         Returns:
-            True if a command that runs is a forbidden system command, False otherwise
+            True if the line is a forbidden system command, False otherwise
         """
         command = get_bash_command(hook_input)
         if not command:
             return False
-        return self._offending_text(command) is not None
+        return judge_raw_command_line(command, self._search) is not None
 
     def handle(self, hook_input: dict[str, Any]) -> GatingResult:
         """Block the operation with guidance on Ansible workflow.
@@ -519,14 +471,14 @@ class AnsibleEnforcementHandler(PreToolUseHandlerBase):
 
         Returns:
             GatingResult denying under R-ANSIBLE-DIRECT-SYSTEM-CHANGE, or allow when
-            no command that runs is a system change
+            the line is not a system change
         """
         command = get_bash_command(hook_input)
-        offending = self._offending_text(command) if command else None
+        offending = judge_raw_command_line(command, self._search) if command else None
         if command is None or offending is None:
             return GatingResult(decision=Decision.ALLOW)
 
-        # Guidance follows the command that runs, not the text around it.
+        # Guidance follows the change the line names, not the text around it.
         category = self._categorize_command(offending)
         guidance = self._get_category_guidance(category)
 
@@ -562,8 +514,9 @@ class AnsibleEnforcementHandler(PreToolUseHandlerBase):
             "## ansible_enforcement — no direct system management commands\n\n"
             "Direct package management, service management, and system configuration "
             "commands are blocked ([R-ANSIBLE-DIRECT-SYSTEM-CHANGE]). All system changes "
-            "must go through Ansible playbooks. Only a command that runs is judged: text "
-            "that names one (a commit message, an echo, a grep pattern) is not blocked.\n\n"
+            "must go through Ansible playbooks. The line is judged as written; only a line "
+            "whose every command is inert (echo, grep, cat, a git commit) is judged by what it "
+            "runs, so a message that merely names one passes.\n\n"
             "**Blocked**: `dnf install`, `systemctl enable/start/stop`, `gsettings set`, "
             "`useradd`, `pip install` (system), `npm install -g`, `flatpak install`\n\n"
             "**Allowed** (read-only queries): `dnf info/list/search`, `systemctl status`, "
@@ -575,10 +528,10 @@ class AnsibleEnforcementHandler(PreToolUseHandlerBase):
     def get_acceptance_tests(self) -> list[AcceptanceTest]:
         """Return acceptance tests for AnsibleEnforcementHandler.
 
-        Each denied probe is a command that RUNS a system change, so the verdict is a real-run
-        judgement. It names a package or unit that does not exist and answers no to every prompt
-        (`--assumeno`), so it changes nothing even if the guard missed it. The allowed probes
-        only print, query, or parse.
+        Each denied probe is judged on its raw text. It names a package or unit that does not
+        exist and answers no to every prompt (`--assumeno`), or is a shell that only parses its
+        body (`bash -n`), so it changes nothing even if the guard missed it. The allowed probes
+        only print or query.
         """
         return [
             AcceptanceTest(
@@ -602,23 +555,23 @@ class AnsibleEnforcementHandler(PreToolUseHandlerBase):
                 test_type=TestType.BLOCKING,
             ),
             AcceptanceTest(
-                title="Allow text that only names dnf install",
-                command='echo "dnf install vim"',
+                title="Block a dnf install behind a shell, judged as written",
+                command="bash -n -c 'dnf install --assumeno nonexistent-pkg-zz-safe-test'",
                 dispatch_as_bash=True,
-                description="An echo argument is printed, not run",
-                expected_decision=Decision.ALLOW,
-                expected_message_patterns=[],
-                safety_notes="echo prints its argument",
+                description="A shell is not inert, so the line is judged on its raw text",
+                expected_decision=Decision.DENY,
+                expected_message_patterns=[rf"BLOCKED \[{RULE_ID}\]", r"CORRECT APPROACH"],
+                safety_notes="bash -n only parses its body and runs nothing; the package does not exist either",
                 test_type=TestType.BLOCKING,
             ),
             AcceptanceTest(
-                title="Allow a shell that only checks syntax",
-                command="bash -n -c 'dnf install nonexistent-pkg-zz-safe-test'",
+                title="Allow text that only names dnf install",
+                command='echo "dnf install vim"',
                 dispatch_as_bash=True,
-                description="bash -n parses its body and runs nothing, so a body that names dnf install is not a system change",
+                description="Every command on the line is inert: an echo argument is printed, not run",
                 expected_decision=Decision.ALLOW,
                 expected_message_patterns=[],
-                safety_notes="bash -n only parses its body; the package does not exist either",
+                safety_notes="echo prints its argument",
                 test_type=TestType.BLOCKING,
             ),
             AcceptanceTest(

@@ -220,14 +220,15 @@ def _changed_directory(tokens: list[str], cwd: str) -> str:
     return cwd
 
 
-def _operands(command: str, cwd: str) -> list[tuple[str, str]]:
-    """(directory, operand) for each script file the command names to run."""
+def _operands(segments: list[str], prints_only: bool, cwd: str) -> list[tuple[str, str]]:
+    """(directory, operand) for each script file the command-position ``segments`` name to run.
+
+    ``prints_only``: the whole command is a bare echo, printf or grep over literal words, which
+    prints or searches its text: one answer for the command, however many segments it has.
+    """
     operands: list[tuple[str, str]] = []
     previous: list[str] = []
-    # A bare echo, printf or grep over literal words prints or searches its text: one answer
-    # for the whole command, however many segments it has.
-    prints_only = is_plain_data_command(command)
-    for segment in command_position_segments(command):
+    for segment in segments:
         # Per command-position segment: a commit message or a gh body that only quotes
         # `bash -c "$(cat f)"` is blanked from its segment, so it names no script. The file is
         # read from the directory the earlier segments `cd` into.
@@ -334,7 +335,8 @@ class HiddenGitMutationHandler(PreToolUseHandlerBase):
             cwd = os.environ.get("CLAUDE_PROJECT_DIR") or str(Path(__file__).resolve().parents[4])
         offending: list[tuple[str, list[str]]] = []
         seen: set[str] = set()
-        pending = [(_absolute(directory, operand), 0) for directory, operand in _operands(command, cwd)]
+        operands = _operands(command_position_segments(command), is_plain_data_command(command), cwd)
+        pending = [(_absolute(directory, operand), 0) for directory, operand in operands]
         while pending:
             script, depth = pending.pop(0)
             if script in seen:
@@ -352,9 +354,8 @@ class HiddenGitMutationHandler(PreToolUseHandlerBase):
                 offending.append((script, lines))
             if not python and depth < _MAX_DEPTH:
                 for directory in dict.fromkeys((cwd, os.path.dirname(script))):
-                    pending.extend(
-                        (_absolute(directory, operand), depth + 1) for _d, operand in _operands(text, directory)
-                    )
+                    operands = _operands(command_position_segments(text), is_plain_data_command(text), directory)
+                    pending.extend((_absolute(directory, operand), depth + 1) for _d, operand in operands)
         return offending
 
     def matches(self, hook_input: dict[str, Any]) -> bool:

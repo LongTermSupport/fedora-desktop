@@ -248,6 +248,9 @@ func (g *gate) proveRules(ctx context.Context, set ruleSet) error {
 		if err != nil {
 			return errors.New(g.scrub(err.Error()))
 		}
+		g.proved = append(g.proved, set.ids[lang]...)
 	}
+	slices.Sort(g.proved)
+	g.proved = slices.Compact(g.proved)
 	return nil
 }

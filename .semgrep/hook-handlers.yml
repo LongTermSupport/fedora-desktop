@@ -80,8 +80,8 @@ rules:
     metadata:
       dbf-class: a path resolved against the hooks daemon's working directory
 
-  # Rule: a project handler never matches text against the raw command line (Defence Before
-  # Fix; CLAUDE/QA.md "hook-regex-over-raw-command").
+  # Rule: a project handler never matches text against the raw command line, except through
+  # the one sanctioned judge (Defence Before Fix; CLAUDE/QA.md "hook-regex-over-raw-command").
   #
   # A Bash command line holds text that is not run: a commit message, an echo, a grep pattern,
   # a heredoc body. A regex or a substring test over the whole line answers "does the text
@@ -94,18 +94,27 @@ rules:
   # RIGHT: segments = command_position_code_segments(command)
   #        return any(p.search(segment) for segment in segments for p in patterns)
   #
-  # Taint, inside one function: the source is a call of get_bash_command; the sinks are a regex
-  # method (search, match, fullmatch, findall, finditer, sub, subn, re.split) or an `in` test
-  # applied to the tainted value. A value that went through one of the daemon's
-  # command_position_* functions is a command-position segment, and is clean. A handler that
-  # judges the line as written on purpose passes it to a helper of its own (named for what it
-  # judges), where the text is a parameter, so the helper's regex is not tainted: the choice to
-  # judge raw text is then one visible call, reviewed with its reason, never an accident.
+  # Taint, inside one function. The sources are get_bash_command(...) and a read of
+  # tool_input["command"]. The sinks are a regex method (search, match, fullmatch, findall,
+  # finditer, sub, subn, re.split) or an `in` test applied to the tainted value, AND any call of a
+  # helper of the module's own (a plain name or `self.name`) that is handed the tainted value: a
+  # helper that takes the line under another parameter name (`text`) and searches it there is the
+  # same judgement one function away, so the call that hands the line over is the finding. A
+  # value that went through one of the daemon's command_position_* functions is a command-position
+  # segment, and is clean.
+  #
+  # The one sanctioned way to judge the line as written is a call of judge_raw_command_line (in
+  # ansible_enforcement.py): the choice to read raw text is then one visible, named call whose
+  # docstring carries the reason (an all-inert line is judged by what it runs, anything else as
+  # the original handler did, so no real-run command is lost). Builtins (len, str, bool, isinstance,
+  # repr, print), the daemon's own whole-line predicate is_plain_data_command and calls on other objects (GatingResult.deny(f"...")) are not helpers.
   - id: hook-regex-over-raw-command
     languages: [python]
     mode: taint
     pattern-sources:
       - pattern: get_bash_command(...)
+      - pattern: $H["tool_input"]["command"]
+      - pattern: $H.get("tool_input", ...).get("command", ...)
     pattern-sanitizers:
       - pattern-either:
           - pattern: command_position_segments(...)
@@ -113,6 +122,8 @@ rules:
           - pattern: command_position_code_segments_with_separators(...)
           - pattern: command_position_argument_segments(...)
           - pattern: command_position_view(...)
+          - pattern: judge_raw_command_line(...)
+          - pattern: is_plain_data_command(...)
     pattern-sinks:
       - patterns:
           - pattern: $RE.$METHOD(..., $X, ...)
@@ -126,11 +137,18 @@ rules:
       - patterns:
           - pattern: $NEEDLE in $X
           - focus-metavariable: $X
+      - patterns:
+          - pattern: $HELPER(..., $X, ...)
+          - metavariable-regex:
+              metavariable: $HELPER
+              regex: '^(?!(?:len|str|bool|isinstance|repr|print|get_bash_command|judge_raw_command_line|is_plain_data_command|command_position_\w+)$)(?:self\.)?[A-Za-z_]\w*$'
+          - focus-metavariable: $X
     message: >
-      hook-regex-over-raw-command: this matches text against the raw Bash command line, which
-      holds text that is not run (a message, an echo, a grep pattern, a heredoc body). Judge the
-      command-position segments (command_position_code_segments) instead. See CLAUDE/QA.md
-      "hook-regex-over-raw-command".
+      hook-regex-over-raw-command: this matches text against the raw Bash command line, or hands
+      it to a helper that can, and the line holds text that is not run (a message, an echo, a grep
+      pattern, a heredoc body). Judge the command-position segments (command_position_code_segments)
+      instead, or call judge_raw_command_line, the one sanctioned judge of the line as written.
+      See CLAUDE/QA.md "hook-regex-over-raw-command".
     severity: ERROR
     metadata:
       dbf-class: a project handler matching text against the raw Bash command line

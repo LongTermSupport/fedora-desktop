@@ -324,7 +324,6 @@ ACCEPTED_OVERBLOCKING = [
     "python3 -c \"print('pip install x')\"",
     "bash -n -c 'sudo dnf install x'",
     "bash -nc 'dnf install x'",
-    "bash -n script-that-holds-dnf-install.sh",
     "cat > notes.md <<'EOF'\nsudo dnf install x\nEOF\nbash -n notes.md",
     # an inert write and an unrelated shell run on one line (review of round 2, item 3)
     "echo 'dnf install vim' > notes.txt && bash other.sh",
@@ -532,9 +531,10 @@ def only_inert_words(line):
     """
     if "<<" in line or "$(" in line or "`" in line:
         return True
-    pieces = re.split(r"&&|\|\||;|\||\n", line)
+    unquoted = re.sub(r"'[^']*'|\"[^\"]*\"", "_", line)
+    pieces = re.split(r"&&|\|\||;|\||\n", unquoted)
     for piece in pieces:
-        words = piece.split()
+        words = piece.replace("(", " ").split()
         while words and words[0] in {"do", "then", "else", "if", "!", "{", "("}:
             words = words[1:]
         if words and words[0] not in _INERT_WORDS:

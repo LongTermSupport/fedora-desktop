@@ -154,9 +154,11 @@ not complete (semgrep missing or broken, a file handed to it not scanned).
 
 const hookUsageText = `usage: qa-hook-handler-rules [--root DIR] [--scripts DIR] [PATH...]
 
-The rules in .semgrep/hook-handlers.yml (code the hooks daemon loads that resolves a path against
-the daemon's working directory) over every Python file git would publish, after proving each rule
-against its fixture in .semgrep/.
+The rules in .semgrep/hook-handlers.yml (hook-path-resolved-against-cwd: code the hooks daemon
+loads that resolves a path against the daemon's working directory; hook-regex-over-raw-command and
+hook-regex-over-command-parameter: a handler that matches text against the raw Bash command line)
+over every Python file git would publish, after proving each rule against its fixture in
+.semgrep/. The run names the rules it proved on a "proved:" line before the verdict.
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
@@ -252,6 +254,8 @@ type gate struct {
 	root    string
 	scripts string
 	stdout  bytes.Buffer
+	// proved is each rule the fixture proved, once, sorted: the run names them before its verdict.
+	proved []string
 	// verdict is the exit status of a run that completed.
 	verdict ExitCode
 }

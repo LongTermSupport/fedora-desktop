@@ -146,7 +146,7 @@ func TestSummaries(t *testing.T) {
 		"ready-wait":            "whole gate (no wait ignores the exit of the process it waits for)",
 		"plan-script-logging":   "whole gate (no active plan script uses the un-waitable run-log pattern; no plan-local logs/ dir)",
 		"stt-rules":             "whole gate (no model judged present without its weights, no dropdown label that explains itself, no job end published before its cleanup)",
-		"hook-handler-rules":    "whole gate (no code the hooks daemon loads resolves a path against the daemon's working directory)",
+		"hook-handler-rules":    "whole gate (no code the hooks daemon loads resolves a path against the daemon's working directory or matches text against the raw Bash command line)",
 		"version-pins":          "whole gate (the version-pin manifest is well formed and every pin still resolves to a declared var)",
 		"vmtest-manifest":       "whole gate (the VM-test scenario manifest is valid and agrees with its guest scripts)",
 		"go-deps":               "whole gate (src-go's dependencies allowlisted, pinned and vendored in step)",

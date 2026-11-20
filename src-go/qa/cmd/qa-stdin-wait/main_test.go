@@ -93,7 +93,7 @@ func realRun(t *testing.T, files map[string]string, args ...string) outcome {
 // plan's script are left to the rule's own excludes, not reported as unread.
 func TestRealSemgrepPassesACleanTree(t *testing.T) {
 	got := realRun(t, nil)
-	if got.code != sttrules.ExitOK || got.stdout != "passed: 1 failed: 0\n" {
+	if got.code != sttrules.ExitOK || !strings.HasSuffix(got.stdout, "passed: 1 failed: 0\n") {
 		t.Fatalf("exit %d\n%s%s", got.code, got.stdout, got.stderr)
 	}
 }
@@ -122,7 +122,7 @@ func TestRealSemgrepReportsARawReadOfStdin(t *testing.T) {
 func TestANamedFileTheRuleExcludesIsSaidNotJudged(t *testing.T) {
 	got := realRun(t, nil, "helpers/stdin_text/stdin_text.py", "helpers/clean.py")
 	if got.code != sttrules.ExitOK ||
-		got.stdout != "helpers/stdin_text/stdin_text.py: not judged: the rules of .semgrep/stdin-wait.yml exclude it (paths.exclude)\npassed: 1 failed: 0\n" {
+		!strings.HasPrefix(got.stdout, "helpers/stdin_text/stdin_text.py: not judged: the rules of .semgrep/stdin-wait.yml exclude it (paths.exclude)\nproved: stdin-read-unbounded") || !strings.HasSuffix(got.stdout, "\npassed: 1 failed: 0\n") {
 		t.Fatalf("exit %d\n%s%s", got.code, got.stdout, got.stderr)
 	}
 }
