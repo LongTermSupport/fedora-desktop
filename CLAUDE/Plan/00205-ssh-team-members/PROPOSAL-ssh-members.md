@@ -21,7 +21,7 @@ them is needed for an ssh member:
 | LXC-specific today                                                       | Why it exists                                                                                  | For an ssh member                                                                                                                                               |
 | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Reading the checkout from the host's side through the container's rootfs | So root on the host never executes anything the container controls; it also works when stopped | Read it inside the member **as the agent user**: no privilege is crossed, so the reason goes away. Working while stopped is lost (section 4.2)                  |
-| `lxc-ls`/`lxc-info` state and `lxc.start.auto` for `service: true`       | A clear "stopped" message; a supervised session must come back after a host reboot             | "Unreachable" replaces "stopped". Whether the machine itself boots is outside ssh's view: a stated requirement, checked only where an adapter can (section 4.5) |
+| `lxc-ls`/`lxc-info` state and `lxc.start.auto` for `service: true` (Plan 00257 removed this; see the note in section 4.5) | A clear "stopped" message; a supervised session must come back after a host reboot             | "Unreachable" replaces "stopped". Whether the machine itself boots is outside ssh's view: a stated requirement, checked only where an adapter can (section 4.5) |
 | The source address must be on a bridge **of this host**                  | A local container is routed through `lxcbr0`, which every team admits                          | Keep only the part that matters: the member's source address towards the bus address is inside the team's `allow_from` (section 4.4)                            |
 
 The handle's `<type>` (`lxc`, `vm`, `host`, `docker`) is not the transport either. It is part of
@@ -50,7 +50,7 @@ From members.py (`run_present`, `_join`, `LxcGuest`) and `src-go/internal/lxcfre
 | Bundle: observe, remove, place       | `OBSERVE_PY`, `REMOVE_PY`, `PLACE_PY` (bundle tar on stdin)                                                 | agent user                | the same, stdin over the ssh channel (section 4.3)                                             |
 | Mint / park / set-role               | `agent-bus add-member --out=-`, `park-member`, `set-role`                                                   | host root                 | unchanged: the homeserver host's side                                                          |
 | Env file, `pingbus config check`     | `WRITE_ENV_PY`, `CONFIG_CHECK_SH`                                                                           | agent user                | the same                                                                                       |
-| `service: true`                      | `lxc.start.auto`, `SERVICE_NEEDS_SH`, `UNIT_WRITE_PY`, `systemctl`                                          | host root, container root | system unit with root in the member, or a user unit with linger (section 4.5)                  |
+| `service: true`                      | `lxc.start.auto` (Plan 00257 removed this; see the note in section 4.5), `SERVICE_NEEDS_SH`, `UNIT_WRITE_PY`, `systemctl`                                          | host root, container root | system unit with root in the member, or a user unit with linger (section 4.5)                  |
 
 `members.py` already separates the transport: `Host.guest` returns an object with `home`,
 `root(argv, what, stdin)` and `agent(user, home, cwd, argv, what, stdin, env)`, and `LxcGuest`
@@ -74,7 +74,8 @@ No. Following each LXC-specific dependency in turn:
 - **Starting at boot.** The one place knowing the virtualisation would add a check: for a local
   LXC container `lxc.start.auto`, for a libvirt guest `virsh dominfo` autostart, for a physical
   host nothing. This is an optional adapter keyed on the type the member reports. It is not a
-  transport concern (section 4.5).
+  transport concern (section 4.5). Plan 00257 removed the `lxc.start.auto` check and the unit's
+  boot start (note in section 4.5).
 
 What *is* lost by not knowing: reading a stopped member, and telling "stopped" from "sshd down"
 from "network down". Section 6 lists these.
@@ -92,7 +93,7 @@ from "network down". Section 6 lists these.
 - **One executor, two transports.** `run_present` and `_absent_one` stay. `Host` gains a
   per-entry way in: `LxcGuest` for `container:` entries, `SshGuest` for `ssh:` entries. The
   LXC-only probes (`container_state`, `autostarts`, `read_checkout`, `is_bridge`) move behind
-  the transport, with the ssh versions described here.
+  the transport, with the ssh versions described here. (Plan 00257 removed `autostarts`.)
 - **Python on the member.** Unchanged: every script runs as `python3 -I -c`, and the kit needs
   3.11 or later in the member anyway.
 - **ccy-teams.** `lxc-add` becomes one of two paths: "Add an agent reached over ssh" asks for
