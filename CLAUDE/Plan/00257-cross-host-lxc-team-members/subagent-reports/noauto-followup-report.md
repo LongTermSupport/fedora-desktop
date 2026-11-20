@@ -71,4 +71,28 @@ The script is `lxc-no-autostart-acceptance.bash`.
 - DBF: this is a design rule about when the menu offers the line, not a pattern a detector
   can express, so it is fixed with regression tests.
 - `bus/declare` is image source, so this needed a bump: ccy 3.122.34, container 2.84.40, with
-  a changelog entry.
+  a changelog entry. Commit 559481d83.
+
+### G: Plan 00203's R9, and Plan 00205's proposal
+
+- R9 is executable: `check_lxc_members` in Plan 00203's `_acceptance-robust.inc.bash`. For each
+  online declared `service: true` unit it now requires the unit to be not enabled (in any
+  form), to have no link under `/etc/systemd/system/*.wants/`, and to have `Restart=no`. It no
+  longer requires the unit to be active, `Restart=always` or enabled, and no longer reads
+  `lxc.start.auto`. The offline and not-judged handling is unchanged. The judgement is the pure
+  function `r9_unit_judged`.
+- Proof: the scratch harness `untracked/scratch/r9-judge-test.bash` (in the worktree) sources
+  the file and judges eight shapes. It was RED with the function holding the old rule (two
+  cases failed) and is GREEN with the new rule. shellcheck is clean, and
+  `tests.helpers.agent_bus_lxc.test_offline_member_rule` passes.
+- Text: ACCEPTANCE.md's R9 row and the owner's B2 reboot step, which also required the
+  session to come back by itself after a reboot, now state the B.12 expectations. The Task 2.4
+  line in PLAN.md says B.12 superseded the boot start. Plan 00203's journal records it.
+- Plan 00205 `PROPOSAL-ssh-members.md` section 4.5 has a one-line note at the top: Plan 00257
+  removed the `lxc.start.auto` check and the unit's enable and start. Nothing else is rewritten.
+- DBF: this is an acceptance expectation that a ruling made obsolete, not a defect class, so
+  no detector applies.
+- Decisions 1 and 2 above are resolved by this item.
+- Tooling faults met: a `cat >` with no stdin in a compound command hung a Bash call (my
+  mistake, not a tool fault). The `Write` tool refuses a scratch markdown file from a
+  subagent as a "report file", even under `untracked/scratch/`.

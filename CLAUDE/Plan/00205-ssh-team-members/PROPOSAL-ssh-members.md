@@ -191,6 +191,8 @@ liveness would hang on one ssh session from the desktop, which is the opposite o
 
 ### 4.5 `service: true` units in the member
 
+> Note: Plan 00257 (Task B.12 and its follow-up) removed the `lxc.start.auto` check and the unit's enable and start described below. The unit is now never enabled and starts only on demand.
+
 Today members.py refuses `service: true` unless `lxc.start.auto = 1`, systemd is the init
 (`/run/systemd/system`) and tmux is installed. It then writes
 `/etc/systemd/system/agent-bus-claude-<user>.service` (`render_member_unit`) as container root,

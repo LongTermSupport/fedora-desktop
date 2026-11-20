@@ -24,8 +24,8 @@
 #   R7 gap 10  a stale backup (the newest made three days old) shows in agent-bus health
 #              status and on the team's row of ccy-teams --list
 #   R8 gap 3   agent-bus seat check waits for a homeserver that is starting, saying so
-#   R9 gap 9   every LXC member unit (service: true) is enabled, running, restarted on any
-#              exit, in a container that starts at boot; none declared is said, not passed;
+#   R9 gap 9   every LXC member unit (service: true) never starts at boot (Plan 00257 B.12):
+#              not enabled, no wants link, Restart=no; none declared is said, not passed;
 #              an offline declared container is named and not judged, and with every one
 #              offline the verdict names R9 NOT JUDGED
 
@@ -58,7 +58,7 @@ acceptance_robust() {
     check_leg "R6 the health check notes systemd's restarts, with what to do" check_restarts_noted
     check_leg "R7 a stale backup shows in agent-bus health status and on ccy-teams' team row" check_stale_backup
     check_leg "R8 agent-bus seat check waits for a starting homeserver, saying so" check_seat_check_waits
-    check_leg "R9 LXC member units (service: true) enabled, running, Restart=always, autostarted" check_lxc_members
+    check_leg "R9 LXC member units (service: true) not enabled, no wants link, Restart=no" check_lxc_members
     plan_deploy_leg "remove the ${TEAM} team (--purge)" teardown
     note "robustness: $(robust_said); nothing of ${TEAM} remains"
 }
@@ -250,16 +250,23 @@ check_seat_check_waits() {
 }
 
 # check_lxc_members — the member unit of each present agent_bus_lxc_members entry with
-# service: true (members.py's agent-bus-claude-<user>.service), in its online container: enabled,
-# active and Restart=always, and the container started at boot. Only the declared containers
+# service: true (members.py's agent-bus-claude-<user>.service), in its online container: never
+# started at boot (Plan 00257 B.12), so not enabled, no wants link and Restart=no; whether it
+# runs, and whether the container starts at boot, is not judged. Only the declared containers
 # are asked, never every container lxc-ls lists. A container that is not running is offline
 # (plan_lxc_online_named): named, not judged, never a failure. With every declared one offline,
 # R9 judged nothing and sets R9_NOT_JUDGED=1 for the verdict; with some offline, R9_OFFLINE
 # counts them.
 R9_NOT_JUDGED=0
 R9_OFFLINE=0
+# r9_unit_judged — whether a member unit is as Plan 00257 B.12 requires: $1 its sorted
+# `systemctl show` Restart and UnitFileState (each line then a space), $2 the wants links to it
+# (one a line, "" for none). Restart=no, not enabled in any form, no wants link.
+r9_unit_judged() {
+    [[ "$1" == "Restart=no UnitFileState="* && "$1" != *"UnitFileState=enabled"* && -z "$2" ]]
+}
 check_lxc_members() {
-    local members="${PLAN_RUN_DIR}/lxc-members.json" args pairs containers online container user unit state autostart
+    local members="${PLAN_RUN_DIR}/lxc-members.json" args pairs containers online container user unit state links
     local -a names
     # agent_bus_lxc_members as the plays see it, through an ad-hoc Ansible copy (0600): the
     # inventory and vault are Ansible's, so nothing here parses YAML.
@@ -287,12 +294,12 @@ check_lxc_members() {
         fi
         unit="agent-bus-claude-${user}.service"
         state="$(sudo -n lxc-attach -n "${container}" --clear-env -- systemctl show \
-            --property=ActiveState --property=UnitFileState --property=Restart "${unit}")" || return 1
+            --property=UnitFileState --property=Restart "${unit}")" || return 1
         state="$(sort <<<"${state}" | tr '\n' ' ')" || return 1
-        autostart="$(sudo -n lxc-info -n "${container}" -c lxc.start.auto)" || return 1
-        note "container ${container} (online): ${unit}: ${state}; ${autostart}" || return 1
-        [[ "${state}" == "ActiveState=active Restart=always UnitFileState=enabled " ]] || return 1
-        [[ "${autostart}" == *"= 1" ]] || return 1
+        links="$(sudo -n lxc-attach -n "${container}" --clear-env -- \
+            find /etc/systemd/system -path '*.wants/*' -name "${unit}")" || return 1
+        note "container ${container} (online): ${unit}: ${state}; wants links: ${links:-none}" || return 1
+        r9_unit_judged "${state}" "${links}" || return 1
     done <<<"${pairs}"
 }
 
