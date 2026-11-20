@@ -86,6 +86,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_start_decision`          | a recorded session's start (resume or fresh) decided outside `conversation.StartPlan`, so the restore, its check and a team restart disagree on when a record starts fresh                                    | `ccy-sessions` restore: a declared session that never took a turn was unrestorable (fedora-desktop#270)                                                                                                                 |
 | `project_stdin_seam`              | a read of stdin outside `internal/stdinread` and the ui prompt seam, so an open pipe nothing writes to holds the command silently for ever                                                                    | teamchat `client/send.go` `readStdin` (`thread --close`'s Python twin waited minutes; issue #260)                                                                                                                       |
 | `project_screen_state_compared`   | what Claude's input box shows judged by `==` or `!=` against one `screen.State`, so every other screen, one the reader does not know included, takes the opposite verdict                                     | `ccy-sessions` set-going: a `/compact` held by Claude Code for review taken as submitted (fedora-desktop#288)                                                                                                           |
+| `project_tmux_gone_text`          | tmux's "not there" answer read by a loose match on a fragment, which another program in front of tmux (lxc-attach, runuser, env) also prints                                                                  | `ccy-teams shutdown`: a guest server lxc-attach never reached read as empty, "no session running", exit 0 (Plan 00257 B.13 review)                                                                                      |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
 `go vet -vettool=<driver> help ...` does not reach it) says what it does and
@@ -2494,6 +2495,46 @@ detail) decides a message, not whether text was taken; the owner decides whether
   to `screen` would land on whichever side the comparison's else gives it, unchosen. The sweep
   and Submit's fix share one commit because Submit's comparison is one of the eight findings and
   the gate is not green until every site is a switch.
+
+### project_tmux_gone_text
+
+**What it is about.** tmux says a server or a target is not there in a few exact forms, with
+exit 1: `no server running on <socket>`, `error connecting to <socket> (No such file or directory)`, `can't find session: <name>` (and for a pane command `can't find pane`/`window`).
+A match on a fragment of them (`No such file or directory`, `can't find`) takes any program's
+failure that prints the fragment for the answer. A server in an LXC container is reached through
+`lxc-attach`, `runuser` and `env`, and each of them prints `No such file or directory` when it
+cannot attach or cannot execute the next program.
+
+**Why it exists.** The Plan 00257 B.13 review, finding 4: `tmuxccy.List` read any stderr holding
+`No such file or directory` as an empty server, so ccy-teams shutdown named an LXC seat whose
+server it never reached as "no session running in container C" and exited 0.
+
+**What it flags**, in `internal/tmuxccy` and every package that imports it (the packages that
+hold a tmux answer; the program is tmuxccy's alone by `project_seam_commands`), in files that
+are not tests: a string literal containing `no server running`, `can't find`, `error connecting to` or `No such file or directory`, outside tmuxccy's function `goneAnswer`. Struct tags and
+import paths are not judged.
+
+**Not caught**: a fragment assembled at run time or split across literals, a match in a package
+that neither is nor imports tmuxccy, and a fragment of the same answers not on the list.
+
+**How to fix a violation.** Ask tmuxccy: `errors.Is(err, tmuxccy.ErrSessionGone)` (Clients,
+KillSession and CapturePane return it), or List and Panes, which read no server as empty.
+`goneAnswer` accepts only exit 1 with every stderr line one of tmux's own forms in the call's
+scope (server; session; pane or window).
+
+- Red, fixture: `testdata/src/fix/gone/internal/tmuxccy` (List as it was; the classifier and a
+  test file clean), `fix/gone/internal/badtmuxgone` (sessclose's `can't find`, constants, a
+  struct tag and a comment clean) and `fix/internal/notmuxgone` (lxcfreeze's own `nmcli` text in
+  a package holding no tmux answer: clean).
+- Red, real tree: fourteen findings at seven sites, `tmuxccy/tmuxccy.go:130` and `:160`,
+  `tmuxccy/panes.go:23` and `:96`, `tmuxccy/submit.go:93`, `sessclose/sessclose.go:504` and
+  `teams/winddown/windstep.go:220`; the `ccyteamstest` build adds none.
+- Green: every site asks `goneAnswer` through tmuxccy; CapturePane's not-there answer now
+  matches `ErrSessionGone`, which Submit, sessclose and winddown test. `tmuxccy`
+  `TestListReadsOnlyTmuxsOwnNoServerAsEmpty` and `TestCapturePaneIsGoneOnlyOnTmuxsOwnAnswer`
+  (lxc-attach, runuser and env failures, exit 127 and a mixed stderr) were red on the old code;
+  `shutdown` `TestAV2SeatWhoseTmuxCannotBeReachedIsNotReachable` was red with the loose match
+  put back (exit 0, "no session running").
 
 ## Defect classes that cannot be a rule
 

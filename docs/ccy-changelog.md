@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.38 — container 2.84.40
+
+- **A tmux server or session is read as gone only in tmux's own words** (Plan 00257
+  SPEC-team-close TC12). ccy-teams, ccy-sessions and the session close read "no server" or "no
+  session" only from tmux's exact answer with its exit 1. Before, any "No such file or directory"
+  counted, which lxc-attach, runuser or env print too when an LXC seat's tmux is never reached, so
+  shutdown named such a seat "no session running" and exited 0; it is now not reachable, with the
+  reason, and exits 1. A new project rule, `project_tmux_gone_text`, keeps the reading in one
+  place. The image is unchanged.
+
 ## 3.122.37 — container 2.84.40
 
 - **Starting a v2 LXC seat's session never restarts one that runs** (Plan 00257 SPEC-team-close

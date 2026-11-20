@@ -113,21 +113,12 @@ func stderrOf(err error) string {
 	return ""
 }
 
-func mentions(msg string, needles ...string) bool {
-	for _, n := range needles {
-		if strings.Contains(msg, n) {
-			return true
-		}
-	}
-	return false
-}
-
 // List is every session on the server. No server yet is the normal first-run state and an
 // empty list; any other failure is real.
 func (t *Tmux) List(ctx context.Context) ([]Session, error) {
 	res, err := t.Run(ctx, "list-sessions", "-F", "#{session_name} #{session_attached} #{session_path}")
 	if err != nil {
-		if mentions(stderrOf(err), "no server running", "No such file or directory") {
+		if goneAnswer(err, serverGone) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("tmux list-sessions failed: %w", err)
@@ -156,8 +147,7 @@ func (t *Tmux) List(ctx context.Context) ([]Session, error) {
 func (t *Tmux) Clients(ctx context.Context, name string) ([]Client, error) {
 	res, err := t.Run(ctx, "list-clients", "-t", "="+name, "-F", "#{client_tty} #{client_activity}")
 	if err != nil {
-		msg := stderrOf(err)
-		if mentions(msg, "can't find session", "no server running", "No such file or directory") {
+		if goneAnswer(err, sessionGone) {
 			return nil, ErrSessionGone
 		}
 		return nil, fmt.Errorf("could not list the terminals on '%s': %w", name, err)

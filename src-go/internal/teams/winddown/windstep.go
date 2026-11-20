@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/compactfloor"
@@ -217,7 +216,7 @@ func (w *WindDown) step(ctx context.Context, j *job, live map[string]bool) {
 	pane, err := j.tmux.CapturePane(ctx, j.pane, true)
 	if err != nil {
 		// A session that ended since the list was read is seen gone on the next pass.
-		if !strings.Contains(err.Error(), "can't find") {
+		if !errors.Is(err, tmuxccy.ErrSessionGone) {
 			j.fail(j.after(err.Error()))
 		}
 		return

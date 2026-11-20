@@ -131,7 +131,7 @@ func TestClientsMalformed(t *testing.T) {
 }
 
 func TestClientsGone(t *testing.T) {
-	for _, msg := range []string{"can't find session: alpha", "no server running on x", "x (No such file or directory)"} {
+	for _, msg := range []string{"can't find session: alpha", "no server running on x", "error connecting to x (No such file or directory)"} {
 		f := &execx.Fake{}
 		f.On(clientsArgs, fail(msg))
 		clients, err := newTmux(f).Clients(context.Background(), "alpha")

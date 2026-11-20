@@ -501,7 +501,7 @@ func (c *Closer) step(ctx context.Context, j *job, live map[string]bool) {
 	if err != nil {
 		// A session that ended since the list was read is seen gone on the next pass. Any other
 		// failure kills nothing: the pane may hold unsent text.
-		if !strings.Contains(err.Error(), "can't find") {
+		if !errors.Is(err, tmuxccy.ErrSessionGone) {
 			j.done(Failed, err.Error()+"; nothing was typed or stopped")
 		}
 		return

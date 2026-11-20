@@ -140,3 +140,21 @@ func TestAV2HostMemberIsOutOfReach(t *testing.T) {
 	}
 	m.errHas(t, "proj.9+local.podman", whyV2Host)
 }
+
+// TC12, the B.13 review's finding 4: a guest server lxc-attach cannot reach tmux on (runuser
+// could not execute it) is not reachable, never "no session running" with exit 0.
+func TestAV2SeatWhoseTmuxCannotBeReachedIsNotReachable(t *testing.T) {
+	m := newMachine(t)
+	m.withV2(lxcstate.StatusJoined, "")
+	m.withContainers(true)
+	m.On("sudo -n lxc-config lxc.lxcpath", "/var/lib/lxc\n", 0)
+	m.Fake.OnFunc([]string{"sudo", "-n", "lxc-attach"}, func(execx.Cmd) (execx.Result, error) {
+		return execx.Result{ExitCode: 127, Stderr: []byte("runuser: failed to execute tmux: No such file or directory\n")}, nil
+	})
+	m.build()
+	if got := m.run(teamtest.V2Team, "--yes"); got != term.ExitFailure {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	m.errHas(t, v2Box+": not shut down: "+whyUnreachable, "failed to execute tmux")
+	m.errLacks(t, "no session running in container box")
+}

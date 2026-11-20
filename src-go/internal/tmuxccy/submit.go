@@ -90,7 +90,7 @@ func (t *Tmux) boxTaken(ctx context.Context, name string, sleep func(time.Durati
 		sleep(submitLookEvery)
 		var err error
 		pane, err = t.CapturePane(ctx, name, true)
-		if err != nil && mentions(err.Error(), "can't find", "no server running") {
+		if errors.Is(err, ErrSessionGone) {
 			return "", true, nil
 		}
 		if err != nil {

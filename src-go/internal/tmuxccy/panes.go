@@ -20,7 +20,7 @@ type Pane struct {
 func (t *Tmux) Panes(ctx context.Context) ([]Pane, error) {
 	res, err := t.Run(ctx, "list-panes", "-a", "-F", "#{session_name} #{pane_pid}")
 	if err != nil {
-		if mentions(stderrOf(err), "no server running", "No such file or directory") {
+		if goneAnswer(err, serverGone) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("tmux list-panes failed: %w", err)
@@ -56,6 +56,9 @@ func (t *Tmux) CapturePane(ctx context.Context, name string, escapes bool) (stri
 		args = append(args, "-e")
 	}
 	res, err := t.Run(ctx, append(args, "-t", paneTarget(name))...)
+	if goneAnswer(err, paneGone) {
+		return "", &goneError{msg: "the screen of " + name + " could not be read: " + reason(err)}
+	}
 	if err != nil {
 		return "", fmt.Errorf("the screen of %s could not be read: %s", name, reason(err))
 	}
@@ -93,7 +96,7 @@ func (t *Tmux) KillSession(ctx context.Context, name string) error {
 	if err == nil {
 		return nil
 	}
-	if mentions(stderrOf(err), "can't find session", "no server running", "No such file or directory") {
+	if goneAnswer(err, sessionGone) {
 		return ErrSessionGone
 	}
 	return fmt.Errorf("could not end '%s': %w", name, err)
