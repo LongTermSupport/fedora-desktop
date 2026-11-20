@@ -223,14 +223,16 @@ def _changed_directory(tokens: list[str], cwd: str) -> str:
 def _operands(command: str, cwd: str) -> list[tuple[str, str]]:
     """(directory, operand) for each script file the command names to run."""
     operands: list[tuple[str, str]] = []
-    start = cwd
     previous: list[str] = []
+    # A bare echo, printf or grep over literal words prints or searches its text: one answer
+    # for the whole command, however many segments it has.
+    prints_only = is_plain_data_command(command)
     for segment in command_position_segments(command):
         # Per command-position segment: a commit message or a gh body that only quotes
-        # `bash -c "$(cat f)"` is blanked from its segment, so it names no script. A bare echo,
-        # printf or grep over literal words (is_plain_data_command) prints or searches its text.
-        if not is_plain_data_command(command):
-            operands.extend((start, match) for match in _SUBSTITUTED_FILE.findall(segment))
+        # `bash -c "$(cat f)"` is blanked from its segment, so it names no script. The file is
+        # read from the directory the earlier segments `cd` into.
+        if not prints_only:
+            operands.extend((cwd, match) for match in _SUBSTITUTED_FILE.findall(segment))
         tokens = _tokens(segment)
         cwd = _changed_directory(tokens, cwd)
         operand = _script_operand(tokens)

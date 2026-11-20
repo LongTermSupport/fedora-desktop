@@ -272,7 +272,6 @@ class SystemPathsHandler(PreToolUseHandlerBase):
 
         return GatingResult.deny(
             (
-                f"❌ BLOCKED: Direct editing of deployed system files is not allowed.\n\n"
                 f"Target: {file_path}\n\n"
                 f"This is a deployed file on the actual system filesystem. Directly editing\n"
                 f"deployed files bypasses version control and creates configuration drift.\n\n"
@@ -333,11 +332,13 @@ class SystemPathsHandler(PreToolUseHandlerBase):
             ),
             AcceptanceTest(
                 title="Allow Edit of a project path",
-                command="Use the Edit tool on untracked/scratch/zz-nonexistent-acceptance-safe-test.txt",
+                command="Use the Edit tool on a missing file under untracked/acceptance/ in the project",
                 tool_payload=ToolPayload(
                     tool_name="Edit",
                     tool_input={
-                        "file_path": "untracked/scratch/zz-nonexistent-acceptance-safe-test.txt",
+                        # Absolute (R-ABSOLUTE-PATH-REQUIRED denies a relative path first) and under
+                        # the one directory the harness lets a probe act in.
+                        "file_path": "$CLAUDE_PROJECT_DIR/untracked/acceptance/zz-nonexistent-acceptance-safe-test.txt",
                         "old_string": "a",
                         "new_string": "b",
                     },
