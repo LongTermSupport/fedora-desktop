@@ -59,15 +59,13 @@ that do the reviewing and the filing.
   clear win, issue cap, label, text scan and the recorded standing request, the qa-changed route
   for the list, tools, tests for W5, W13, W14, host pinned to github.com, hints for the two dead
   ends, comment note, go-binary-suites header.
-- [ ] ⬜ **Task 2.5**: First live use: `/watchlist` on coral (changes since the audit), after the
-  owner has seen this plan. It is a large first diff (the audit's commit is hundreds of commits
-  behind coral's head), so expect the cap of 3 issues to bind.
+- [x] ✅ **Task 2.5**: Superseded by Plan 00258: coral is studied in that plan's baseline run
+  (`baseline-20261120-1050`, group `teams`) instead of in a first diff from the audit.
 
 ### Phase 3: Recurrence (owner decision)
 
-- [ ] ⬜ **Task 3.1**: The owner chooses how scans recur: a persistent cron in the hooks daemon
-  configuration, a scheduled agent (`/schedule`), or a periodic prompt by hand. Until decided,
-  scans are run by hand with `/watchlist`.
+- [x] ✅ **Task 3.1**: Moved to Plan 00258, Task 4.1, which extends the watch list into the star
+  set and study runs.
 
 ## Success Criteria
 

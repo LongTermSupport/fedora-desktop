@@ -1,6 +1,6 @@
 # Plan 00254: Lightning as the default team client
 
-**Status**: In Progress (every reported fix merged upstream, awaiting a release; D4 open)
+**Status**: In Progress (v0.10.6 on Flathub carries the thread-root fix: Task 2.5's live check is next; D4 open)
 **Created**: 2026-11-13
 **Owner**: joseph
 **Priority**: High
@@ -92,8 +92,8 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
   All three closed or merged upstream the same day; two more raised since and fixed:
   [#78](https://github.com/Mizerd/lightning/issues/78) (text selection across messages) and
   [#79](https://github.com/Mizerd/lightning/issues/79) (thread list uses half its height).
-- [ ] 🔄 **Task 2.5** (waiting: every fix is on upstream `main`, but the latest release is still
-  v0.10.5, which carries none): When a release carries the fixes and reaches Flathub (the play
+- [ ] 🔄 **Task 2.5** (unblocked: v0.10.6, merged on Flathub 2026-11-16, carries #77 `76f334f8`
+  and #76 `020a214c`; #88 and #89 are on `main` after it, for the next tag): When a release carries the fixes and reaches Flathub (the play
   updates Lightning each run), confirm them live, a long root message first, and delete the
   patch file (keep the upstream link).
 - [ ] 🔄 **Task 2.7** (standing): Keep reporting what we find in Lightning upstream, one issue

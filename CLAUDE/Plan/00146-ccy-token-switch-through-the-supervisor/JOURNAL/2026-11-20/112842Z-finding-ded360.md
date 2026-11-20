@@ -1,0 +1,9 @@
+## 11:28 · finding · — — Placeholder-swapping HTTPS proxy: research for hot token switching
+
+The owner asked to explore an external proxy that swaps placeholders for real tokens, so ccy never sees a token and a session can move to another token when one runs out, without a teardown. Research only, no code: [RESEARCH-placeholder-proxy.md](../../RESEARCH-placeholder-proxy.md).
+
+- The watch-list baseline run (Plan 00258) found two costs in this plan's base-URL forwarder. Any `ANTHROPIC_BASE_URL` other than `api.anthropic.com` makes Claude Code budget 1M-context models at 200K; claude-unlimited measured it on 2.1.278, and the cause is in its ADR 0008. Several Claude Code features also call `api.anthropic.com` by name, bypassing the base URL.
+- Proposed instead: the same per-session host process, but as an HTTPS CONNECT proxy (`HTTPS_PROXY`, `NODE_EXTRA_CA_CERTS`, both documented on code.claude.com's network-config page). It terminates TLS only for the Anthropic hosts, under a name-constrained per-session CA, swaps the placeholder in `Authorization`, and passes every other host through blind. The base URL stays unset, so 1M is kept and nothing bypasses the swap. A switch is still the atomic `current` write. The same proxy becomes Plan 00252's first binding.
+- The spike questions are in the document (Q1 to Q8). New ones are whether 1M is kept, whether anything bypasses the proxy, and whether the startup `account_uuid` in `metadata.user_id` matters after a switch.
+- Running out of allowance: report, offer, or automatic switching. Automatic stays the owner's call under decision 3. A switch also loses the prompt cache, because the cache is per account.
+- Suggested owner decision 9: the transport (an intercepting HTTPS proxy instead of a base-URL forwarder), to be answered before the Phase 0 spike.
