@@ -258,7 +258,7 @@ Built on `fix/teams-server-robustness`; design and evidence in
   ([report](subagent-reports/261019-teams-open-speed-opus.md)).
 
 - [ ] 🔄 **Task 3.14** (owner request): wind a team down.
-  `ccy-teams wind-down <team> [--yes]` and the team menu's Wind down the team's sessions: every
+  `ccy-teams wind-down <team> [--yes]` and the team menu's Compact every session of `<team>` (stays open): every
   running desktop session of the team, the coordinator included, gets `/goal clear` typed into
   its pane at an idle moment, then the wind-down instruction (save and push work in progress,
   stop sub-agents, record where unfinished work stands, then stop), typed too, so it is the

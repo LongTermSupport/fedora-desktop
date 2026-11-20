@@ -151,7 +151,7 @@ Related plans:
   container (v1), `teamchat-admin lxc start --member` (v2). Host proof:
   `lxc-no-autostart-acceptance.bash`. Report: `subagent-reports/lxc-no-autostart-report.md`.
 - [x] ✅ **Task B.13**: close every active seat of a team (owner's request: "wind down a whole
-  team… all active seats get the compact and exit"): ccy-teams' Shut down reaches v1 and v2
+  team… all active seats get the compact and exit"): ccy-teams' Close every session reaches v1 and v2
   LXC seats (`/compact` then `/exit`, never killed, the container and unit untouched), and v2
   teams are on the board with their LXC seats' on-demand start. Spec:
   [SPEC-team-close.md](SPEC-team-close.md) (TC1-TC17; D1-D3 with the coordinator). A v2 host

@@ -61,8 +61,8 @@ are ccy-teams' own: 0, 1 refusal or failure, 64 usage, 130 cancelled.
 - **SD1** `ccy-teams shutdown <team> [--yes]`. No team, a second team, or an unknown option is
   a usage error (64). A team that is not on this machine's table (`board`) is refused (1),
   naming `ccy-teams --list`. `--yes` may come before or after the team.
-- **SD2** In the picker, the menu of a **team row** has `Shut down every session of <team>`
-  (no shortcut). It runs SD3 to SD14 for that team with the picker's yes/no, then waits for
+- **SD2** In the picker, the menu of a **team row** has `Close every session of <team> (compact,
+  then exit)` (no shortcut; named by what it does, Plan 00257 Q52). It runs SD3 to SD14 for that team with the picker's yes/no, then waits for
   Enter and shows the list again.
 - **SD3** Shutdown is local only. It acts through `tmux -L ccy`, the session registry and
   `agent-bus seat list` (as the user). It sends nothing on the bus or to Matrix, and nothing
@@ -111,8 +111,8 @@ are ccy-teams' own: 0, 1 refusal or failure, 64 usage, 130 cancelled.
 
 ### The confirmation
 
-- **SD8** The question defaults to No: "Shut down N session(s) of alpha?" with the one row
-  "Yes, shut down N session(s)". No, Esc or q: "Nothing was shut down.", exit 0.
+- **SD8** The question defaults to No, under the crumbs `alpha › Close`: "Close N session(s) of
+  alpha?" with the one row "Yes, close N session(s)" (Plan 00257 Q52). No, Esc or q: "Nothing was shut down.", exit 0.
 - **SD9** `--yes` skips the question. Without `--yes`, with no terminal on stdin and stderr,
   it is a usage error (64) that names `--yes`, and nothing is touched (InteractiveScripts).
   The preview is still printed.

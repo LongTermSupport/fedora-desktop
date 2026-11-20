@@ -152,7 +152,7 @@ launch does not start.
    so the team brought back present gets them again.
 
 **Wind a team down** before shutting it down. `ccy-teams wind-down <team>` (or Enter on the
-team, then **Wind down the team's sessions**) types `/goal clear` into each running session's
+team, then **Compact every session of `<team>` (stays open)**) types `/goal clear` into each running session's
 tmux pane on this desktop, the coordinator's included, then one instruction: we are about to
 shut down, the work is not done, so commit work in progress, stop sub-agents, push what passes
 its QA gate, write down where unfinished work stands, and stop. It waits for each session to be
@@ -171,7 +171,7 @@ answering or compacting at its end is named, never interrupted. Nothing is ended
 00203 `SPEC-team-wind-down.md` sections 1 to 4 and 7.
 
 **Shut down a team's sessions** (the team stays up). `ccy-teams shutdown <team>` (or Enter on
-the team, then **Shut down every session of `<team>`**) lists the team's sessions on this host
+the team, then **Close every session of `<team>` (compact, then exit)**) lists the team's sessions on this host
 and the members it cannot reach, asks (default No; `--yes` where there is no terminal), then
 closes each session as you would: `/compact` typed into its tmux pane (Escape first if it is
 busy), and once its transcript records the compaction, `/exit`. Compacting at close, while the
@@ -197,8 +197,8 @@ be read, is left alone. Local only: nothing goes on the bus. Spec: Plan 00201 `S
 **v2 (teamchat) teams on the board.** A v2 team is listed from its status record (the record
 `teamchat-admin status` reads), its STATE its homeserver unit's, and an expired or missing record
 said in WHERE; its members are the record's, an LXC seat's row naming its container and whether
-its session was on the bus at the last health check. A v2 team's menu offers only what reaches it: **Shut down every session of
-`<team>`** (its LXC seats' sessions, each closed on the seat's own tmux server in its running
+its session was on the bus at the last health check. A v2 team's menu offers only what reaches it: **Close every session of
+`<team>` (compact, then exit)** (its LXC seats' sessions, each closed on the seat's own tmux server in its running
 container, as above, and each ccy session on this host that holds a seat of the team in the
 owner's seat store, as its holding record names it, while its run is live (its seat lock of the
 team held); a member whose seat nothing holds has nothing to shut down when its seat is in this

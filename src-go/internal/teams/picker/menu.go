@@ -43,8 +43,15 @@ const (
 	actAskLimit       = "ask-limit"
 )
 
-// windDownLabel is the team row's wind-down line (Plan 00203 SPEC-team-wind-down.md W12).
-const windDownLabel = "Wind down the team's sessions (clear goals, save and push work, stop)"
+// closeLabel and compactLabel are a team row's two lines that act on every session of the team,
+// each named by what it does (Plan 00257 SPEC-team-close.md D1): the close (`ccy-teams shutdown`,
+// Plan 00201 SPEC-shutdown.md SD2) and the wind-down (`ccy-teams wind-down`, Plan 00203
+// SPEC-team-wind-down.md W12).
+func closeLabel(team string) string {
+	return "Close every session of " + team + " (compact, then exit)"
+}
+
+func compactLabel(team string) string { return "Compact every session of " + team + " (stays open)" }
 
 // lxcMemberKind is an LXC member's row (its handle's type).
 const lxcMemberKind = board.Kind("lxc")
@@ -78,21 +85,21 @@ func (r *run) actionsFor(row board.Row) []action {
 }
 
 // v2Actions are what reaches a row of a v2 (teamchat) team (SPEC-team-close TC1, TC16, TC17):
-// its team's Shut down, an LXC seat's start where it can work, and help. No v1 flow (apply,
+// its team's Close, an LXC seat's start where it can work, and help. No v1 flow (apply,
 // remove, restart, wind-down, Element, adding a member) is offered on one: each acts on
 // agent-bus.
 func (r *run) v2Actions(row board.Row) []action {
 	help := action{actHelp, helpLabel, "help"}
 	switch {
 	case row.Kind == board.KindTeam:
-		return []action{{actShutdown, "Shut down every session of " + row.Team, "shut down " + row.Team + "'s sessions"}, help}
+		return []action{{actShutdown, closeLabel(row.Team), "close " + row.Team + "'s sessions"}, help}
 	case row.Kind == lxcMemberKind && r.lxcStarts[lxcStartKey(row)]:
 		return []action{{actStartLxc, "Start its session in its LXC container", "start its session"}, help}
 	}
 	return []action{help}
 }
 
-// destructive is whether choosing a parks, removes, takes down, shuts down or makes a
+// destructive is whether choosing a parks, removes, takes down, closes sessions or makes a
 // coordinator a worker. Each still asks first, but none may be where the cursor starts.
 func (a action) destructive() bool {
 	return a.id == actRemove || a.id == actShutdown || a.id == actDemote
@@ -127,8 +134,8 @@ func (r *run) kindActions(row board.Row) []action {
 			{actSettings, "Edit settings", "edit " + team + "'s settings"},
 			{actUpdate, "Update every team that is out of date or not built", "update out-of-date teams"},
 			{actRestart, "Restart the team's desktop sessions", "restart " + team + "'s desktop sessions"},
-			{actWindDown, windDownLabel, "wind down " + team + "'s sessions"},
-			{actShutdown, "Shut down every session of " + team, "shut down " + team + "'s sessions"},
+			{actWindDown, compactLabel(team), "compact " + team + "'s sessions"},
+			{actShutdown, closeLabel(team), "close " + team + "'s sessions"},
 			{actRemove, "Take " + team + " down", "take " + team + " down"},
 		}, r.askAgainActions(team)...), help)
 	case board.KindHuman:

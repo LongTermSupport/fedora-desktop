@@ -140,8 +140,8 @@ team covers, whose own status line is a hooks daemon's.
 12. Shut a team's sessions down (Task 2.14, [SPEC-shutdown.md](SPEC-shutdown.md)). Use a
     throwaway team, or a real one whose sessions may end now, with a ccy session in a seat (two
     is better: leave one idle and one working on a long task). Keep one attached in a
-    terminal you can see. In `ccy-teams`, press Enter on the team's row and choose **Shut down
-    every session of `<team>`**. It lists each session (and any LXC agent as not reachable),
+    terminal you can see. In `ccy-teams`, press Enter on the team's row and choose **Close every
+    session of `<team>` (compact, then exit)**. It lists each session (and any LXC agent as not reachable),
     then asks, with No highlighted: choose Yes. In the attached terminal you see `/exit` typed
     and the session end; the working one is interrupted first, then ends the same way. Each
     line reads `exited cleanly; seat N@<team> released`; a seat whose session had ended

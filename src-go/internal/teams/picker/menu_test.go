@@ -107,15 +107,22 @@ func TestATeamsMenuNamesTheClientItOpensIn(t *testing.T) {
 	}
 }
 
+// closeAlpha and compactAlpha are alpha's row's two lines that act on every session of the team
+// (Plan 00257 SPEC-team-close D1, Q52): what each does, in its name.
+const (
+	closeAlpha   = "Close every session of alpha (compact, then exit)"
+	compactAlpha = "Compact every session of alpha (stays open)"
+)
+
 // SPEC-shutdown.md SD2: a team row's menu shuts the team's sessions down, after a question
 // whose default is No.
 func TestATeamsMenuShutsItsSessionsDown(t *testing.T) {
 	h := newRig(t)
-	h.Script.Fzf = []string{"|alpha", "|Shut down every session of alpha", "|EXIT", "|ABORT"}
+	h.Script.Fzf = []string{"|alpha", "|" + closeAlpha, "|EXIT", "|ABORT"}
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
-	if rows := h.menuRows(); !slices.Contains(rows, "Shut down every session of alpha") {
+	if rows := h.menuRows(); !slices.Contains(rows, closeAlpha) {
 		t.Fatalf("menu %q", rows)
 	}
 	for _, want := range []string{"Team alpha: 1 session to shut down.", "Nothing was shut down.", "Press Enter to go back to the list."} {
@@ -139,8 +146,8 @@ func TestATeamsMenuRestartsItsDesktopSessions(t *testing.T) {
 	if update := index(t, labels, "Update every team that is out of date or not built"); at != update+1 {
 		t.Fatalf("restart follows Update: %q", labels)
 	}
-	if shutdown := index(t, labels, "Shut down every session of alpha"); at > shutdown {
-		t.Fatalf("restart comes before Shut down: %q", labels)
+	if shutdown := index(t, labels, closeAlpha); at > shutdown {
+		t.Fatalf("restart comes before Close: %q", labels)
 	}
 	checkOrder(t, "team menu", labels)
 	h.Env["XDG_RUNTIME_DIR"] = filepath.Join(h.Root, "run")
@@ -163,20 +170,20 @@ func TestATeamsMenuRestartsItsDesktopSessions(t *testing.T) {
 }
 
 // Plan 00203 SPEC-team-wind-down.md W12: a team row's menu winds its sessions down, a visible
-// line with no key, after Restart and before Shut down, never first; it asks first, default No.
+// line with no key, after Restart and before Close, never first; it asks first, default No.
 func TestATeamsMenuWindsItsSessionsDown(t *testing.T) {
 	h := newRig(t)
 	r := h.run1(t)
 	labels := h.labels(r, h.row(t, r.snap, board.NoDescription))
-	at := index(t, labels, windDownLabel)
+	at := index(t, labels, compactAlpha)
 	if restart := index(t, labels, "Restart the team's desktop sessions"); at != restart+1 {
 		t.Fatalf("wind down follows Restart: %q", labels)
 	}
-	if shutdown := index(t, labels, "Shut down every session of alpha"); at > shutdown || at == 0 {
-		t.Fatalf("wind down comes before Shut down and is not first: %q", labels)
+	if shutdown := index(t, labels, closeAlpha); at > shutdown || at == 0 {
+		t.Fatalf("wind down comes before Close and is not first: %q", labels)
 	}
 	checkOrder(t, "team menu", labels)
-	h.Script.Fzf = []string{"|alpha", "|" + windDownLabel, "|EXIT", "|ABORT"}
+	h.Script.Fzf = []string{"|alpha", "|" + compactAlpha, "|EXIT", "|ABORT"}
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}

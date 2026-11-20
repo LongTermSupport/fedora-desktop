@@ -49,8 +49,8 @@ and its state. Enter on one lists, in words, what can be done to it: Add to a te
 from <team>, Change role in <team>, Move to another team, Attach, and Repair when its seat
 keeper has stopped. Each is `ccy-teams session ...` below, run for you, with its question and
 its steps. Back to the teams, or Esc, comes back.
-The menu of a team row also has Restart the team's desktop sessions, Wind down the team's
-sessions and Shut down every session of <team>: the same as
+The menu of a team row also has Restart the team's desktop sessions, Compact every session of
+<team> (stays open) and Close every session of <team> (compact, then exit): the same as
 `ccy-teams restart <team>`, `ccy-teams wind-down <team>` and `ccy-teams shutdown <team>` below.
 The menu of a team row also has Edit settings: every field of the team's entry
 with its value. Each editable one is checked as it is typed; Save and apply writes the changes

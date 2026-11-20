@@ -75,7 +75,7 @@ the agent working against the wind-down.
   coordinator is one of them. Rows that are not agents (the team row, people) are not members.
 - W3. The preview lists each job (`<session>   seat <seat> (<handle>) in <dir>`, with `, the coordinator` and `, also on <team> (seat <s>)` where they apply), then `Not running, nothing to wind down:` (stopped sessions, free seats, parked members), then `Not reachable from here:`
   with each member's why, then what will be typed.
-- W4. Asked first, default No (`Wind down N sessions of <team>?`); No is exit 0 with `Nothing was wound down.` and nothing typed. Without a terminal only `--yes` proceeds; otherwise exit
+- W4. Asked first, default No (crumbs `<team> › Compact`, `Compact N sessions of <team>?`, Plan 00257 Q52); No is exit 0 with `Nothing was wound down.` and nothing typed. Without a terminal only `--yes` proceeds; otherwise exit
   64\. With no job at all nothing is asked; the report follows.
 - W5. For each job, in order, through the pane (F2): wait for idle with an empty box (W6); type
   `/goal clear`, pause, press Enter; read the pane again until the box is empty and idle (if
@@ -112,7 +112,7 @@ the agent working against the wind-down.
 - W11. Local only: tmux (in a container through `sudo lxc-attach`), the session registry, the
   LXC member record, `lxc-config` and `lxc-ls`, and the reads the table makes. Nothing goes on the
   bus, no session is ended or killed, no record is changed.
-- W12. The picker: a team row's menu has `Wind down the team's sessions (clear goals, save and push work, stop)`, no shortcut, after Restart and before Shut down; it runs the same flow with
+- W12. The picker: a team row's menu has `Compact every session of <team> (stays open)` (named by what it does, Plan 00257 Q52), no shortcut, after Restart and before Close every session; it runs the same flow with
   the picker's yes/no, then returns to the list once the report has been read. It is not first
   in the menu.
 - W13. `ccy-teams --help` lists `wind-down <team> [--yes]` with W5 and W10 in brief.

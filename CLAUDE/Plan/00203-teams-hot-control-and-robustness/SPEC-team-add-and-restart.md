@@ -48,7 +48,7 @@ the facts in section 3 show `--continue` picks the wrong conversation or refuses
 - A1. A team row's menu has the line **Add a running session to `<team>`**, with no key, after
   Add an LXC container's agent to `<team>`.
 - A2. The add lines stay together and ahead of every line that ends or removes something:
-  Shut down every session and Take `<team>` down stay after them.
+  Close every session and Take `<team>` down stay after them.
 - A3. Choosing it lists every running session `ccy-teams session list` lists: its name, its
   checkout, and each team it is in by the seat's full handle and the role it was told, then
   its state. The screens are Teams › `<team>` › Add a running session, steps 1/3 Session,
@@ -151,7 +151,7 @@ stale seat after a crash: take it over.
 ## 4. Restarting a team's desktop sessions (B)
 
 - B1. `ccy-teams restart <team> [--yes]`, and the team row's menu line **Restart the team's
-  desktop sessions**, with no key, after Update and before Shut down.
+  desktop sessions**, with no key, after Update and before Close every session.
 - B2. The members are the team's seat rows on the board (`board.Snapshot`), as `shutdown`
   reads them. Each session record that names a seat of the team is one job, once per session
   (a session on several teams is restarted once, in all of them).

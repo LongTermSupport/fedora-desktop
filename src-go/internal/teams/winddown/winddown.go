@@ -1,5 +1,5 @@
-// Package winddown is `ccy-teams wind-down <team>` and the team row's "Wind down the team's
-// sessions" (Plan 00203 SPEC-team-wind-down.md W1-W13). Every running desktop session that a
+// Package winddown is `ccy-teams wind-down <team>` and the team row's "Compact every session of
+// <team> (stays open)" (Plan 00203 SPEC-team-wind-down.md W1-W13). Every running desktop session that a
 // session record names for a seat of the team, the coordinator's included, gets `/goal clear`
 // typed into its tmux pane at an idle moment, then the wind-down instruction: we are about to
 // shut down, the work is not done, so save and push what is in progress, stop sub-agents, write
@@ -234,8 +234,8 @@ func (w *WindDown) confirm(ctx context.Context, team string, n int, yes bool) (t
 	if !w.IsTerminal(w.Stdin) || !w.IsTerminal(w.Term.Err) {
 		return w.usageError("winding sessions down tells their agents to stop: confirm it with --yes when there is no terminal."), false
 	}
-	here := flow.Here(team, "Wind down").About("team " + team + " · " + sessions(n) + " running")
-	sure, err := w.Kit.Confirm(ctx, here, "Wind down "+sessions(n)+" of "+team+"?", "wind down "+sessions(n), false)
+	here := flow.Here(team, "Compact").About("team " + team + " · " + sessions(n) + " running")
+	sure, err := w.Kit.Confirm(ctx, here, "Compact "+sessions(n)+" of "+team+"?", "compact "+sessions(n), false)
 	if err != nil {
 		if code, ok := flow.ExitCodeOf(err); ok {
 			return code, false

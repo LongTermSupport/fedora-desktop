@@ -60,7 +60,7 @@ func TestPickerHeaderNamesTheCheckoutTopNotTheSubdirectory(t *testing.T) {
 	// newRig's alpha has its description offer answered never, so its row can undo that.
 	for _, want := range []string{
 		"↑↓ choose   Enter lists what can be done to the row, help among it   Running sessions is the last row   Esc or q quit\n",
-		"This row, Enter to: open alpha in Element, open every team in Element, start a session in alpha, add an LXC container to alpha, add a running session to alpha, edit alpha's settings, update out-of-date teams, restart alpha's desktop sessions, wind down alpha's sessions, be asked to describe alpha again, help, shut down alpha's sessions, take alpha down\n",
+		"This row, Enter to: open alpha in Element, open every team in Element, start a session in alpha, add an LXC container to alpha, add a running session to alpha, edit alpha's settings, update out-of-date teams, restart alpha's desktop sessions, compact alpha's sessions, be asked to describe alpha again, help, close alpha's sessions, take alpha down\n",
 		"A new ccy session (Enter on a row) starts in the row's team, in " + h.Checkout() + "\n",
 		"session restore on this machine is off (ccy_restore_sessions)\n",
 		"TEAM ",

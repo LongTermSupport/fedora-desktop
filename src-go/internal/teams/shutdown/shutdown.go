@@ -1,5 +1,5 @@
-// Package shutdown is `ccy-teams shutdown <team>` and the team row's "Shut down every session of
-// <team>" (Plan 00201 SPEC-shutdown.md). Every live ccy or cc session that a session record
+// Package shutdown is `ccy-teams shutdown <team>` and the team row's "Close every session of
+// <team> (compact, then exit)" (Plan 00201 SPEC-shutdown.md). Every live ccy or cc session that a session record
 // names for a seat of the team is closed through sessclose: /compact then /exit typed into its
 // tmux pane (only /exit with --no-compact), stopped only when it has not ended in time, and left
 // running, named as failed, when its compaction does not complete; each seat it held is then
@@ -242,7 +242,7 @@ func (s *Shutdown) confirm(ctx context.Context, team string, n int, yes bool) (t
 	if !s.IsTerminal(s.Stdin) || !s.IsTerminal(s.Term.Err) {
 		return s.usageError("shutting sessions down ends them: confirm it with --yes when there is no terminal."), false
 	}
-	sure, err := s.Kit.Confirm(ctx, flow.Here(team, "Shut down").About("team "+team+" · "+sessions(n)+" running"), "Shut down "+sessions(n)+" of "+team+"?", "shut down "+sessions(n), false)
+	sure, err := s.Kit.Confirm(ctx, flow.Here(team, "Close").About("team "+team+" · "+sessions(n)+" running"), "Close "+sessions(n)+" of "+team+"?", "close "+sessions(n), false)
 	if err != nil {
 		if code, ok := flow.ExitCodeOf(err); ok {
 			return code, false

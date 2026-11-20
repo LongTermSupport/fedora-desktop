@@ -58,11 +58,13 @@ type Picker struct {
 	Login  *login.Login
 	Seats  *seats.Seats
 	Lxc    *lxcadd.Adder
-	// Shutdown is the team row's "Shut down every session"; teams.Wire sets it.
+	// Shutdown is the team row's "Close every session of <team> (compact, then exit)"; teams.Wire
+	// sets it.
 	Shutdown *shutdown.Shutdown
 	// Restart is the team row's "Restart the team's desktop sessions"; teams.Wire sets it.
 	Restart *restart.Restart
-	// WindDown is the team row's "Wind down the team's sessions"; teams.Wire sets it.
+	// WindDown is the team row's "Compact every session of <team> (stays open)"; teams.Wire sets
+	// it.
 	WindDown *winddown.WindDown
 	// LxcSession is an LXC member row's "Start its session in its LXC container"; teams.Wire sets it.
 	LxcSession *lxcsession.Starter

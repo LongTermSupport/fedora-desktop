@@ -35,7 +35,7 @@ func TestAV2TeamsRowOffersOnlyWhatReachesIt(t *testing.T) {
 			team = row
 		}
 	}
-	want := []string{helpLabel, "Shut down every session of " + teamtest.V2Team}
+	want := []string{helpLabel, "Close every session of " + teamtest.V2Team + " (compact, then exit)"}
 	if got := h.labels(r, team); !slices.Equal(got, want) {
 		t.Fatalf("menu %q, want %q", got, want)
 	}

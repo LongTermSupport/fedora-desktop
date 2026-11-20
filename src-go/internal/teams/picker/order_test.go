@@ -56,10 +56,10 @@ func memberRow(t *testing.T, snap *board.Snapshot, handle string) board.Row {
 	return board.Row{}
 }
 
-// destructiveLine is whether a menu line parks, removes, takes down, shuts down or demotes, read
-// from its words, independently of how the menu classes its actions.
+// destructiveLine is whether a menu line parks, removes, takes down, closes sessions or demotes,
+// read from its words, independently of how the menu classes its actions.
 func destructiveLine(line string) bool {
-	for _, start := range []string{"Park ", "Remove ", "Take ", "Shut down ", "Replace the coordinator"} {
+	for _, start := range []string{"Park ", "Remove ", "Take ", "Close every session ", "Replace the coordinator"} {
 		if strings.HasPrefix(line, start) {
 			return true
 		}

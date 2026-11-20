@@ -11,12 +11,13 @@ Each expectation below is numbered and held by a test, written first.
 
 ## The action
 
-- **TC1.** The action is the team row's existing "Shut down every session of `<team>`" and
+- **TC1.** The action is the team row's existing "Close every session of `<team>` (compact, then
+  exit)" and
   `ccy-teams shutdown <team> [--yes] [--no-compact]` (Plan 00201 SPEC-shutdown.md), widened:
   it already closes a host seat by `/compact`, its end waited for, then `/exit`, through
-  `internal/sessclose` (C1-C10). It is not a third team-row action beside "Shut down" and
-  "Wind down the team's sessions" (which types an instruction and `/compact`, and never
-  `/exit`): composing the one close keeps one wording, one confirmation and one report.
+  `internal/sessclose` (C1-C10). It is not a third team-row action beside "Close" and
+  "Compact every session of `<team>` (stays open)" (the wind-down, which types an instruction
+  and `/compact`, and never `/exit`): composing the one close keeps one wording, one confirmation and one report.
 - **TC2.** It closes the team's seats in three places, each reached through `sessclose`'s one
   close with the tmux server the seat's session is on:
   - a host seat: a live ccy or cc tmux session that a session record or a desired membership
@@ -62,7 +63,7 @@ Each expectation below is numbered and held by a test, written first.
 - **TC5.** Before anything is typed, the preview lists every seat it will close, one line each:
   its session (or LXC label), the seat and handle, and where it runs (the checkout, or "in
   container C"); then the members it cannot reach and those with nothing to shut down.
-- **TC6.** It asks once, default No: heading crumbs `<team> › Shut down`, context line `team <team> · N sessions running`, question `Shut down N sessions of <team>?`. No closes nothing
+- **TC6.** It asks once, default No: heading crumbs `<team> › Close`, context line `team <team> · N sessions running`, question `Close N sessions of <team>?`. No closes nothing
   ("Nothing was shut down.", exit 0). `--yes` skips the question; with no terminal and no
   `--yes` it refuses (exit 64).
 - **TC7.** With no active seat it asks nothing: "Team T has no running session." (exit 0), with
@@ -132,8 +133,14 @@ Each expectation below is numbered and held by a test, written first.
 
 ## Decisions taken here, for the coordinator
 
-- **D1.** The owner's "wind down" is TC1's widened Shut down, not a new row; the existing "Wind
-  down the team's sessions" keeps its meaning (instruction and compaction, no `/exit`).
+- **D1.** The owner's "wind down" is TC1's widened close, not a new row; the existing wind-down
+  keeps its meaning (instruction and compaction, no `/exit`). The owner confirmed it (Q52) and
+  renamed both rows by what they do: "Close every session of `<team>` (compact, then exit)"
+  (was "Shut down every session of `<team>`") and "Compact every session of `<team>` (stays
+  open)" (was "Wind down the team's sessions"), their confirmations' crumbs `<team> › Close`
+  and `<team> › Compact`. The commands keep their verbs: `ccy-teams shutdown` and `ccy-teams
+  wind-down`.
 - **D2.** A busy box is given Escape once before the `/compact`, as the host shutdown already
   does (C4), for LXC seats too. "Busy past the bound" is a box not ready within 30 s after it.
-- **D3.** An LXC seat that will not end is left running and failed (TC9), never killed.
+- **D3.** An LXC seat that will not end is left running and failed (TC9), never killed. The
+  owner confirmed it (Q52).

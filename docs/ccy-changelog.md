@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.44 — container 2.84.43
+
+- **ccy-teams' team row names its two lines that act on every session by what they do**
+  (Plan 00257 SPEC-team-close D1, the owner's answer to Q52). "Shut down every session of
+  `<team>`" is now **Close every session of `<team>` (compact, then exit)**, and "Wind down the
+  team's sessions" is now **Compact every session of `<team>` (stays open)**. Their questions
+  follow: crumbs `<team> › Close`, "Close N sessions of `<team>`?", and `<team> › Compact`,
+  "Compact N sessions of `<team>`?". The commands keep their verbs: `ccy-teams shutdown` and
+  `ccy-teams wind-down`. The image is unchanged.
+
 ## 3.122.43 — container 2.84.43
 
 - **Shutting down a v2 (teamchat) team says a host seat's run ended only when it can tell**

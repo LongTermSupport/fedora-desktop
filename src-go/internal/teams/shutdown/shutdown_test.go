@@ -233,10 +233,10 @@ func TestTheQuestionDefaultsToNo(t *testing.T) {
 		t.Fatal("something was typed after a no")
 	}
 	args := strings.Join(c.Script.FzfArgs[0], " ")
-	if !strings.Contains(args, "Shut down 1 session of alpha?") || !slices.Contains(c.Script.Rows[0], "Yes, shut down 1 session") {
+	if !strings.Contains(args, "Close 1 session of alpha?") || !slices.Contains(c.Script.Rows[0], "Yes, close 1 session") {
 		t.Fatalf("question %q rows %q", args, c.Script.Rows[0])
 	}
-	c.Script.HeadingAt(0, "Teams › alpha › Shut down\nteam alpha · 1 session running")
+	c.Script.HeadingAt(0, "Teams › alpha › Close\nteam alpha · 1 session running")
 }
 
 func TestYesShutsDown(t *testing.T) {

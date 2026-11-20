@@ -50,7 +50,7 @@ func TestATeamsMenuOffersAddingARunningSessionWithTheAddActions(t *testing.T) {
 	if lxc := index(t, labels, "Add an LXC container's agent to alpha"); at != lxc+1 {
 		t.Fatalf("the add follows the LXC add: %q", labels)
 	}
-	if shutdown := index(t, labels, "Shut down every session of alpha"); at > shutdown {
+	if shutdown := index(t, labels, "Close every session of alpha (compact, then exit)"); at > shutdown {
 		t.Fatalf("destructive lines stay last: %q", labels)
 	}
 }
@@ -148,7 +148,8 @@ func TestHelpDescribesTheAddLinesAndTheRestart(t *testing.T) {
 	for _, want := range []string{
 		"Add a running session to <team>", "Add this\nsession to another team", "Add a running session to this seat",
 		"Restart the team's desktop sessions", "`ccy-teams restart <team>`", "LXC members",
-		"Wind down the team's sessions", "`ccy-teams wind-down <team>`", "/goal clear",
+		"Compact every session of <team> (stays open)", "`ccy-teams wind-down <team>`", "/goal clear",
+		"Close every session of <team> (compact, then exit)", "`ccy-teams shutdown <team>`",
 	} {
 		if !strings.Contains(helpText, want) {
 			t.Fatalf("help lacks %q", want)
