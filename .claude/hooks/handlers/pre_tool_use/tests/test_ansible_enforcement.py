@@ -591,6 +591,15 @@ class TestAnsibleEnforcementHandler:
             assert handler.matches(bash(line)) is expected, line
             assert time.monotonic() - started < 1.0, line
 
+    @pytest.mark.parametrize(
+        "line",
+        ["rpm --dbpath -d --install x.rpm", "rpm --root -r -i x.rpm", "rpm --define -x -i x.rpm", "rpm -D -x -U x.rpm",
+         "systemctl -H --user enable x", "dnf -c -q install x", "rpm --root=/x -i x.rpm"],
+    )  # fmt: skip
+    def test_a_valued_option_takes_the_next_word_whatever_it_is(self, handler, line):
+        """The next word is the option's value even when it starts with `-`, as getopt reads it."""
+        assert handler.matches(bash(line)) is True, line
+
     # The one raw judge
     def test_the_raw_judge_lives_in_its_own_module(self):
         import _raw_command_judge

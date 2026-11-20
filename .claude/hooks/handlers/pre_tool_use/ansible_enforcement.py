@@ -67,13 +67,16 @@ def _options(value_options: tuple[str, ...] = (), not_before_option: str = "") -
     """A pattern for any number of options: the words that start with `-`.
 
     ``value_options`` name the ones that take the next word as their value
-    (`dnf --releasever 40 install`). A value never starts with `-`, so a run of options has one
+    (`dnf --releasever 40 install`), whatever it is, as getopt reads it (`rpm --root -r`). The
+    plain-option branch never matches a valued option standing alone, so a run of options has one
     reading and a failed match cannot retry an exponential number of splits. ``not_before_option``
     is a lookahead an option must not start with: the `--user` of `systemctl --user enable`.
     """
     guard = f"(?!{not_before_option})" if not_before_option else ""
+    if not value_options:
+        return rf"(?:{guard}-\S*\s+)*"
     valued = "|".join(re.escape(option) for option in value_options)
-    return (rf"(?:{guard}(?:{valued})\s+(?!-)\S+\s+|" if valued else "(?:") + rf"{guard}-\S*\s+)*"
+    return rf"(?:{guard}(?:{valued})\s+\S+\s+|{guard}(?!(?:{valued})\s)-\S*\s+)*"
 
 
 def _tool(names: str, verbs: str, value_options: tuple[str, ...] = (), not_before_option: str = "") -> str:
@@ -127,7 +130,7 @@ _ORIGINAL_PATTERNS: tuple[str, ...] = (
 _ADDED_PATTERNS: tuple[str, ...] = (
     _tool("dnf5?", _PACKAGE_VERBS + r"|system-upgrade|builddep|copr\s+(?:enable|disable|remove)", _DNF_VALUE_OPTIONS),
     _tool("yum", _PACKAGE_VERBS, _DNF_VALUE_OPTIONS),
-    rf"\brpm\s+(?:(?:{_RPM_VALUE_OPTIONS})\s+(?!-)\S+\s+|--(?!install\b|upgrade\b|erase\b|freshen\b|query\b|verify\b)\S+\s+|-v+\s+)*"
+    rf"\brpm\s+(?:(?:{_RPM_VALUE_OPTIONS})\s+\S+\s+|(?!(?:{_RPM_VALUE_OPTIONS})\s)--(?!install\b|upgrade\b|erase\b|freshen\b|query\b|verify\b)\S+\s+|-v+\s+)*"
     r"(?:-[iUeFhv]*[iUeF][iUeFhv]*|--install|--upgrade|--erase|--freshen)",
     _tool("pip[0-9.]*", "install|uninstall", ("--proxy", "--cache-dir", "--log", "--timeout", "--retries", "--cert", "--client-cert", "--trusted-host", "--python", "--exists-action")),
     # npm install -g, with the global flag after the verb or before it
