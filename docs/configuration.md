@@ -446,13 +446,32 @@ These require running their playbook explicitly.
 
 ### LastPass Accounts
 
-Configure in `host_vars/localhost.yml`:
+`play-lastpass.yml` reads `lastpass_accounts` from `host_vars/localhost.yml`: a mapping of
+account name to email. One account uses the single name `default` (plain `lpass`):
 
 ```yaml
 lastpass_accounts:
-  personal: "you@example.com"
-  work: "work@example.com"
+  default: "user@example.com"
 ```
+
+Several accounts take one name each, which becomes its `lpass-<name>` alias:
+
+```yaml
+lastpass_accounts:
+  personal: "user@example.com"
+  work: "user2@example.com"
+```
+
+At a terminal with the variable undeclared, the play asks for the accounts and writes this
+block itself. A run with no terminal (an unattended optional-play run) cannot be asked: it
+stops at once naming `lastpass_accounts` and this shape, so declare it first.
+
+**Login.** A run at a terminal asks whether to log in now (type `y`); the login asks for each
+master password and MFA, syncs, and every account is logged out again at the end of the play,
+so nothing stays logged in. ENTER, or a run with no terminal, skips the login and logout and
+prints how to log in by hand: `lpass login <email>`, or `lpass-login <name>` with several
+accounts. The shell configuration exports `LPASS_AGENT_DISABLE=1`, so lpass keeps no
+decryption-key agent and every command asks for the master password.
 
 ### Audio Configuration
 

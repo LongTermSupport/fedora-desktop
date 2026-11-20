@@ -1309,10 +1309,16 @@ LastPass CLI password manager:
 - **Single or multi-account** support
 - Account-specific aliases (lpass-work, lpass-personal)
 
-**Setup** (prompted during playbook):
+**Setup**: accounts come from `lastpass_accounts` in host_vars, a mapping of name to email
+(`default: user@example.com` for one account); its shape and the login behaviour are in
+[Configuration → LastPass Accounts](configuration.md#lastpass-accounts). Undeclared, a run at
+a terminal prompts for it and saves it; a run with no terminal stops, naming the variable.
 
-- Single account: Simple setup
-- Multiple accounts: Define aliases (e.g., `work,personal`)
+- A run at a terminal asks whether to log in (proving password and MFA), then logs every
+  account out at the end of the play
+- A run with no terminal installs and configures only, and says how to log in by hand
+- The shell exports `LPASS_AGENT_DISABLE=1`: no key agent, every command asks for the
+  master password
 
 **Usage**:
 
@@ -1323,8 +1329,8 @@ lpass show github
 lpass logout
 
 # Multi-account
-lpass-work login work@example.com
-lpass-personal login you@example.com
+lpass-login work
+lpass-work show github
 lpass-status  # Check all accounts
 ```
 

@@ -85,6 +85,15 @@ playbooks/imports/play-agent-bus.yml
 # offline, say), fewer units found than members declared, a probe that did not answer, or a
 # failed lxc-stop or lxc-start.
 00257-cross-host-lxc-team-members/lxc-no-autostart-acceptance.bash
+# Q51 and Q55 (owner, LastPass; no plan owns this play): ~/.bashrc (one account) or
+# ~/.bashrc-includes/lastpass-aliases.inc.bash (several) now export LPASS_AGENT_DISABLE=1, so
+# lpass keeps no key agent and every command asks for the master password. At this terminal
+# the play asks "Type y to log in": y logs every account in (master password and MFA), syncs,
+# and logs every account out at the end; ENTER skips the login and only rewrites the shell
+# blocks. Queued on the assumption this host has run the LastPass play before: if
+# lastpass_accounts is not declared here it prompts for the accounts (with no terminal it
+# stops, naming the variable). Remove this line if this host does not use LastPass.
+playbooks/imports/optional/common/play-lastpass.yml
 # Q15 (last, since it can remove the passwordless sudo the runs above may need): passwordless sudo is now the host's declared choice, applied by this new last play.
 # Run it only while this host's environment/localhost/host_vars/localhost.yml declares
 # `passwordless_sudo_for_unattended_deploys: true` (this host's unattended deploys need

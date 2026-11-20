@@ -1,6 +1,15 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
 # LastPass Setup - Supports both single and multi-account configurations
+#
+# Accounts come from lastpass_accounts in host_vars, a mapping of name to email; one
+# account is {default: user@example.com}. See docs/configuration.md#lastpass-accounts.
+#
+# A run with no terminal (an unattended optional-play run) never waits: Ansible returns an
+# empty answer for every pause, the repo-wide signal for "nobody can be asked". Such a run
+# installs lastpass-cli and writes the shell blocks, skips login and logout, and fails fast
+# when lastpass_accounts is not declared. A person at a terminal is asked whether to log in;
+# the login proves the password and MFA work, and every account is logged out at the end.
 - hosts: desktop
   name: LastPass Configuration
   vars:
@@ -36,6 +45,19 @@
 
               Enter choice (1 or 2)
           register: config_choice
+
+        # An empty answer is ENTER, or a run with no terminal, where Ansible does not wait.
+        - name: Stop when lastpass_accounts is not declared and no choice was given
+          ansible.builtin.fail:
+            msg: >-
+              lastpass_accounts is not declared and no choice was given (a run with no
+              terminal cannot be asked). Declare it in {{ vault_file }} as a mapping of
+              account name to email, then run this play again. One account uses the
+              single name default (lastpass_accounts, then default: user@example.com
+              indented under it); several accounts take one name per account (work:
+              user@example.com, personal: user2@example.com). See
+              docs/configuration.md#lastpass-accounts.
+          when: (config_choice.user_input | default('') | trim | length) == 0
 
         - name: Stop if the choice was not 1 or 2
           ansible.builtin.fail:
@@ -107,10 +129,24 @@
 
         - name: Reload variables
           ansible.builtin.include_vars: "{{ vault_file }}"
+        # A person just answered at a terminal, so the login below needs no second question.
         - name: Update lastpass_configured
           ansible.builtin.set_fact:
             lastpass_configured: true
+            lastpass_accounts_just_entered: true
       when: not lastpass_configured
+
+    - name: Assert lastpass_accounts is a mapping of account name to email
+      ansible.builtin.assert:
+        that:
+          - lastpass_accounts is mapping
+          - lastpass_accounts | length > 0
+          - lastpass_accounts.values() | select('string') | select('match', '^[^@ ]+@[^@ ]+$') | list | length == lastpass_accounts | length
+        fail_msg: >-
+          lastpass_accounts must be a mapping of account name to email: the single name
+          default for one account (default: user@example.com), or one name per account
+          for several (work: user@example.com, personal: user2@example.com). Fix it in
+          {{ vault_file }} and run this play again; see docs/configuration.md#lastpass-accounts.
 
     # ACCOUNT SETUP - works for both single and multi account
     - name: Create LastPass home directories
@@ -122,39 +158,81 @@
         mode: "0700"
       loop: "{{ lastpass_accounts | dict2items }}"
 
-    - name: Check authentication status
-      ansible.builtin.shell: |
-        set -euo pipefail
-        # grep -q exits non-zero when not logged in; || echo "needs_auth" is the intended probe result  # FAIL-FAST-OK: probe output drives login decision
-        LPASS_HOME=/home/{{ user_login }}/.lpass-{{ item.key }} lpass status 2>&1 | grep -q "Logged in as {{ item.value }}" && echo "authenticated" || echo "needs_auth"
-      args:
-        executable: /bin/bash
-      register: auth_status
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe — checking if accounts are authenticated
-      loop: "{{ lastpass_accounts | dict2items }}"
+    # LOGIN GATE. A run with no terminal gets an empty answer here at once, so it skips
+    # the login; so does ENTER. A person who just entered the accounts above is not asked.
+    - name: Ask whether to log in to LastPass now
+      ansible.builtin.pause:
+        prompt: |2
 
-    - name: Display authentication status
+          ========================================================================
+          LASTPASS LOGIN
+          ========================================================================
+
+          Log in to every configured LastPass account now? It asks for each master
+          password (and MFA), proves they work and syncs the vault; every account is
+          logged out again at the end of this play.
+
+          Type y to log in, or press ENTER to skip
+      register: lastpass_login_answer
+      when: not (lastpass_accounts_just_entered | default(false))
+
+    - name: Decide whether this run logs in to LastPass
+      ansible.builtin.set_fact:
+        lastpass_login_now: >-
+          {{ (lastpass_accounts_just_entered | default(false))
+             or ((lastpass_login_answer.user_input | default('') | trim | lower) in ['y', 'yes']) }}
+
+    - name: Say how to log in to LastPass by hand
       ansible.builtin.debug:
-        msg: |
-          {% if lastpass_accounts | length == 1 and 'default' in lastpass_accounts %}
-          LastPass account: {{ 'Already authenticated ✓' if item.stdout == 'authenticated' else 'Needs authentication' }}
-          {% else %}
-          Account '{{ item.item.key }}': {{ 'Already authenticated ✓' if item.stdout == 'authenticated' else 'Needs authentication' }}
-          {% endif %}
-      loop: "{{ auth_status.results }}"
+        msg: >-
+          LastPass login skipped: no answer was given (a run with no terminal cannot be
+          asked). lastpass-cli is installed and the shell configuration is written. Log in
+          by hand in a new shell with
+          {% if lastpass_accounts | length == 1 and 'default' in lastpass_accounts %}lpass login {{ lastpass_accounts.default }}{% else %}lpass-login NAME (one of {{ lastpass_accounts.keys() | join(', ') }}){% endif %},
+          or run this play again at a terminal and type y.
+      when: not lastpass_login_now
 
-    - name: Login to LastPass accounts
-      ansible.builtin.shell: |
-        set -euo pipefail
-        export LPASS_HOME=/home/{{ user_login }}/.lpass-{{ item.item.key }}
-        lpass login {{ item.item.value }}
-        lpass sync
-      args:
-        executable: /bin/bash
-      when: item.stdout != "authenticated"
-      changed_when: item.stdout != "authenticated"
-      loop: "{{ auth_status.results }}"
+    # The play needs the lpass agent between login and sync, so a shell that exported
+    # LPASS_AGENT_DISABLE (the blocks below do) must not pass it on to these tasks.
+    - name: Log in to LastPass accounts
+      when: lastpass_login_now
+      block:
+        - name: Check authentication status
+          ansible.builtin.shell: |
+            set -euo pipefail
+            unset LPASS_AGENT_DISABLE
+            # grep -q exits non-zero when not logged in; the echo of needs_auth is the intended probe result  # FAIL-FAST-OK: probe output drives login decision
+            LPASS_HOME=/home/{{ user_login }}/.lpass-{{ item.key }} lpass status 2>&1 | grep -q "Logged in as {{ item.value }}" && echo "authenticated" || echo "needs_auth"
+          args:
+            executable: /bin/bash
+          register: auth_status
+          changed_when: false
+          failed_when: false  # FAIL-FAST-OK: probe — checking if accounts are authenticated
+          loop: "{{ lastpass_accounts | dict2items }}"
+
+        - name: Display authentication status
+          ansible.builtin.debug:
+            msg: |
+              {% if lastpass_accounts | length == 1 and 'default' in lastpass_accounts %}
+              LastPass account: {{ 'Already authenticated ✓' if item.stdout == 'authenticated' else 'Needs authentication' }}
+              {% else %}
+              Account '{{ item.item.key }}': {{ 'Already authenticated ✓' if item.stdout == 'authenticated' else 'Needs authentication' }}
+              {% endif %}
+          loop: "{{ auth_status.results }}"
+
+        # A failed login or sync fails the play here, before anything is logged out.
+        - name: Login to LastPass accounts
+          ansible.builtin.shell: |
+            set -euo pipefail
+            unset LPASS_AGENT_DISABLE
+            export LPASS_HOME=/home/{{ user_login }}/.lpass-{{ item.item.key }}
+            lpass login {{ item.item.value }}
+            lpass sync
+          args:
+            executable: /bin/bash
+          when: item.stdout != "authenticated"
+          changed_when: item.stdout != "authenticated"
+          loop: "{{ auth_status.results }}"
 
     # SINGLE ACCOUNT - just set default LPASS_HOME
     - block:
@@ -165,6 +243,8 @@
             block: |
               # LastPass default configuration
               export LPASS_HOME=$HOME/.lpass-default
+              # No decryption-key agent: every lpass command asks for the master password
+              export LPASS_AGENT_DISABLE=1
 
         - name: Display single account completion
           ansible.builtin.debug:
@@ -175,7 +255,9 @@
 
               Account: {{ lastpass_accounts.default }}
 
-              You can now use 'lpass' commands directly.
+              You can now use 'lpass' commands directly: lpass login {{ lastpass_accounts.default }}
+              The play leaves the account logged out, and LPASS_AGENT_DISABLE=1 keeps no
+              key agent, so every lpass command asks for the master password.
               Restart your shell or run: source ~/.bashrc
               ========================================================================
       when: lastpass_accounts | length == 1 and 'default' in lastpass_accounts
@@ -226,6 +308,9 @@
               {% set first_account = lastpass_accounts.keys() | first %}
               export LPASS_HOME=$HOME/.lpass-{{ first_account }}
 
+              # No decryption-key agent: every lpass command asks for the master password
+              export LPASS_AGENT_DISABLE=1
+
 
         - name: Display multi-account completion
           ansible.builtin.debug:
@@ -244,6 +329,23 @@
                 lpass-login <name> - Login to specific account
                 lpass-<name>       - Use specific account
 
+              The play leaves every account logged out, and LPASS_AGENT_DISABLE=1 keeps no
+              key agent, so every lpass command asks for the master password.
               Restart shell or run: source ~/.bashrc
               ========================================================================
       when: lastpass_accounts | length > 1 or 'default' not in lastpass_accounts
+
+    # Last, after the sync above: nothing stays logged in once the login has proved the
+    # password and MFA. A logout that fails fails the play.
+    - name: Log out of every LastPass account
+      ansible.builtin.shell: |
+        set -euo pipefail
+        unset LPASS_AGENT_DISABLE
+        LPASS_HOME=/home/{{ user_login }}/.lpass-{{ item.key }} lpass logout --force
+      args:
+        executable: /bin/bash
+      register: lastpass_logout
+      # lpass ends a logout that removed a session with the line "Log out: complete."
+      changed_when: "'complete' in lastpass_logout.stdout"
+      loop: "{{ lastpass_accounts | dict2items }}"
+      when: lastpass_login_now
