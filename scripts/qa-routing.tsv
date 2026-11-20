@@ -136,7 +136,7 @@ also	scripts/shellcheck-disable.allowlist	bash	covered
 also	scripts/qa-routing.tsv,scripts/qa-trees.tsv,scripts/qa-gates.tsv	go	covered
 # The Go gate's wrapper, and .qa-versions, whose golangci-lint pin a Go test holds equal to go-qa-ci's.
 also	scripts/qa-go-qa.bash,.qa-versions	go	-
-also	CLAUDE/Watchlist.tsv	go	covered
+also	CLAUDE/Watchlist.tsv,CLAUDE/WatchlistRuns/*/manifest.tsv	go	covered
 also	@listed:bash-limits.allowlist	bash-limits	-
 # The no-kill gate judges the container-watch watchdog and the two panel files that show it, and
 # runs whole when its own script or Go package changes (so it is not also picked as a suite).
