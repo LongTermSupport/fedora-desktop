@@ -64,6 +64,24 @@ conventions — neither is project-configurable — and the file-copy rule
 guards both roots identically. Everything below about isolation, cleanup, and
 never cross-copying applies no matter which mechanism created the worktree.
 
+### Branch Practice
+
+This is the one home for these three habits; other documents point here.
+
+- **Recovery copies are not branches.** The branch pools count only branches,
+  so a rescue or backup kept as a branch is counted as open work. Keep a
+  recovery copy as a ref under `refs/archive/<name>`
+  (`git update-ref refs/archive/<name> <sha>`) or as a `git bundle`. A branch
+  created with a `rescue/*`, `recovery/*`, `backup/*`, `*-rescue` or
+  `*-backup` name draws a daemon advisory saying so; it never blocks.
+- **Create worktrees from the main checkout, never nested.** A worktree
+  inside another worktree is lost when the outer one is removed. The
+  advisory above also fires on `git worktree add` into a linked worktree and
+  names the main checkout to run it from.
+- **Reap an agent's worktree after the agent.** Once the agent's branch is
+  pushed and its report is in, remove the worktree
+  (`git worktree remove <path>`); the daemon's housekeeping lists stale ones.
+
 ### Hierarchical Structure
 
 Worktrees support **parent-child relationships** for complex plans:

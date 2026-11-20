@@ -196,6 +196,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import enum
 import errno
 import fcntl
@@ -214,12 +215,13 @@ import stat
 import struct
 import subprocess  # nosec B404 - spawns ONLY `python3 <self> --worker` and `<child> --version`, fixed argv, never a shell
 import sys
+import tempfile
 import termios
 import threading
 import time
 import traceback
 import tty
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -233,7 +235,7 @@ if TYPE_CHECKING:
 # (see CLAUDE/development/RELEASING.md). Display-only for the banner and the
 # runtime status file; staleness detection (Plan 00164 Phase 3) uses a content
 # hash of THIS file so it is correct even between version bumps.
-__version__ = "3.74.0"
+__version__ = "3.75.0"
 
 # Absolute path to THIS running script — hashed for staleness detection so the
 # daemon can tell when the on-disk supervisor differs from the running one.
@@ -1284,6 +1286,23 @@ class ScreenBuffer:
         return bytes(self._data)
 
 
+# Plan 00603: how many non-blank rows at the bottom of the rendered screen count
+# as the footer, and the words that mark work in flight there. NO sidecar or
+# hook signal says a background task or sub-agent is running (see the plan's
+# FINDINGS.md), so the screen is the only source; any match fails closed.
+_SCREEN_FOOTER_ROWS = 5
+_SCREEN_BUSY_FOOTER = re.compile(
+    r"\b(background|local agents?|sub-?agents?|shells?|tasks?|monitors?|interrupt)\b",
+    re.IGNORECASE,
+)
+
+
+def screen_shows_busy_footer(dump: str) -> bool:
+    """True when the bottom rows of a hooks-screen ``--dump`` name work in flight."""
+    rows = [row for row in dump.splitlines() if row.strip()]
+    return any(_SCREEN_BUSY_FOOTER.search(row) for row in rows[-_SCREEN_FOOTER_ROWS:])
+
+
 class ScreenFocusCheck:
     """Plan 00538: asks hooks-screen what the child's screen shows.
 
@@ -1325,6 +1344,9 @@ class ScreenFocusCheck:
         self._last_at = 0.0
         self._last_failure = ""
         self._seq = 0
+        self._last_quiet: bool | None = None
+        self._last_quiet_total = -1
+        self._last_quiet_at = 0.0
 
     def effective_hold(self, latch: FocusHold | None) -> FocusHold | None:
         """``latch`` if the screen confirms it, else None (fail open)."""
@@ -1349,6 +1371,31 @@ class ScreenFocusCheck:
     def verdict(self) -> str:
         """Spawn hooks-screen on the buffer now; the word, or `unknown` on any failure."""
         return self._render(self._buffer.snapshot(), "")
+
+    def quiet_prompt(self) -> bool:
+        """Plan 00603: True only when the screen is the main prompt with a quiet footer.
+
+        Fails CLOSED (the opposite of `effective_hold`): a missing binary, a
+        timeout, any word but `main`, an empty rendering, or a footer naming a
+        background task, sub-agent, shell, monitor or running turn all read as
+        not quiet, because the answer gates a `/compact`. Cached on the same
+        terms as `_current_word` -- no new output, or inside the minimum
+        interval, reuses the last answer.
+        """
+        now = self._clock()
+        total = self._buffer.total_appended
+        cached = self._last_quiet
+        if cached is not None and (
+            self._last_quiet_total == total or now - self._last_quiet_at < self._min_interval
+        ):
+            return cached
+        snapshot = self._buffer.snapshot()
+        quiet = self._render(snapshot, "") == "main"
+        if quiet:
+            dump = self._spawn(snapshot, "--dump")
+            quiet = dump is not None and bool(dump.strip()) and not screen_shows_busy_footer(dump)
+        self._last_quiet, self._last_quiet_total, self._last_quiet_at = quiet, total, now
+        return quiet
 
     def _spawn(self, snapshot: bytes, extra: str) -> str | None:
         """Raw stdout text of one hooks-screen run, or None (reason noted)."""
@@ -2247,6 +2294,89 @@ def _flag_compact_enabled_from_env() -> bool:
     return _parse_flag_compact_enabled(raw)
 
 
+# ── Idle compaction at a configurable percentage (Plan 00603) ────────────────
+# Supplements Claude Code's own `idleCompaction` (about an hour idle, past a
+# token threshold): when the session is in a TRUE idle and the context is at or
+# above this percentage, ONE armed `/compact` is injected, well before RED.
+# The mode is a three-way toggle because the supervisor's own dry-run is global
+# (`--arm`), and a project that arms real compaction may still want this one
+# observed first. The shipped default is `dry-run`: a decision.log line and
+# nothing typed, so a client gets the data before it gets the behaviour.
+_IDLE_COMPACT_MODE_ENV_VAR = "CCY_IDLE_COMPACT"
+_IDLE_COMPACT_PCT_ENV_VAR = "CCY_IDLE_COMPACT_PCT"
+_IDLE_COMPACT_SETTLE_ENV_VAR = "CCY_IDLE_COMPACT_SETTLE_SECONDS"
+_IDLE_COMPACT_COOLDOWN_ENV_VAR = "CCY_IDLE_COMPACT_COOLDOWN_SECONDS"
+_IDLE_COMPACT_MIN_TOKENS_ENV_VAR = "CCY_IDLE_COMPACT_MIN_TOKENS"
+_IDLE_COMPACT_OFF = "off"
+_IDLE_COMPACT_DRY_RUN = "dry-run"
+_IDLE_COMPACT_ON = "on"
+_IDLE_COMPACT_MODES = (_IDLE_COMPACT_OFF, _IDLE_COMPACT_DRY_RUN, _IDLE_COMPACT_ON)
+_DEFAULT_IDLE_COMPACT_MODE = _IDLE_COMPACT_DRY_RUN
+_DEFAULT_IDLE_COMPACT_PCT = 30.0
+_DEFAULT_IDLE_COMPACT_SETTLE_SECONDS = 60.0
+_DEFAULT_IDLE_COMPACT_COOLDOWN_SECONDS = 1800.0
+# Absolute floor: 30% of a small window is not worth a compaction.
+_DEFAULT_IDLE_COMPACT_MIN_TOKENS = 100_000
+
+
+def _idle_compact_mode_from_env() -> str:
+    """Resolve CCY_IDLE_COMPACT; an unrecognised value is `off` (the safe side)."""
+    raw = os.environ.get(_IDLE_COMPACT_MODE_ENV_VAR)
+    if raw is None:
+        return _DEFAULT_IDLE_COMPACT_MODE
+    value = raw.strip().lower()
+    return value if value in _IDLE_COMPACT_MODES else _IDLE_COMPACT_OFF
+
+
+def _idle_compact_number_from_env(
+    name: str, default: float, *, minimum: float, maximum: float
+) -> float:
+    """A float env value within ``(minimum, maximum)`` exclusive-low, else ``default``."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if minimum < value < maximum else default
+
+
+def _idle_compact_pct_from_env() -> float:
+    return _idle_compact_number_from_env(
+        _IDLE_COMPACT_PCT_ENV_VAR, _DEFAULT_IDLE_COMPACT_PCT, minimum=0.0, maximum=100.0
+    )
+
+
+def _idle_compact_settle_from_env() -> float:
+    return _idle_compact_number_from_env(
+        _IDLE_COMPACT_SETTLE_ENV_VAR,
+        _DEFAULT_IDLE_COMPACT_SETTLE_SECONDS,
+        minimum=-1.0,
+        maximum=float("inf"),
+    )
+
+
+def _idle_compact_cooldown_from_env() -> float:
+    return _idle_compact_number_from_env(
+        _IDLE_COMPACT_COOLDOWN_ENV_VAR,
+        _DEFAULT_IDLE_COMPACT_COOLDOWN_SECONDS,
+        minimum=-1.0,
+        maximum=float("inf"),
+    )
+
+
+def _idle_compact_min_tokens_from_env() -> int:
+    return int(
+        _idle_compact_number_from_env(
+            _IDLE_COMPACT_MIN_TOKENS_ENV_VAR,
+            float(_DEFAULT_IDLE_COMPACT_MIN_TOKENS),
+            minimum=-1.0,
+            maximum=float("inf"),
+        )
+    )
+
+
 def _model_family(model_id: str) -> str | None:
     """Return the canonical model family for ``model_id``, or None if unknown."""
     lowered = model_id.lower()
@@ -2318,6 +2448,9 @@ class SidecarReading:
     # Plan 00399: who started the compaction, from the daemon's record ("" when
     # no record or an unattributed one). Meaningful only while ``compacting``.
     compaction_origin: str = ""
+    # Plan 00603: the context window in tokens, for the idle-compaction token
+    # floor. 0 when the sidecar predates the field, which fails that gate closed.
+    window_size: int = 0
 
 
 @dataclass(frozen=True)
@@ -2352,6 +2485,13 @@ class CompactPolicy:
     focus_hold_escalate_seconds: tuple[float, float] = field(
         default_factory=_focus_hold_escalate_from_env
     )
+    # Plan 00603: idle compaction at a percentage. Env-resolved for host/worker
+    # agreement, like the toggles above.
+    idle_compact_mode: str = field(default_factory=_idle_compact_mode_from_env)
+    idle_compact_pct: float = field(default_factory=_idle_compact_pct_from_env)
+    idle_compact_settle_seconds: float = field(default_factory=_idle_compact_settle_from_env)
+    idle_compact_cooldown_seconds: float = field(default_factory=_idle_compact_cooldown_from_env)
+    idle_compact_min_tokens: int = field(default_factory=_idle_compact_min_tokens_from_env)
 
 
 @dataclass(frozen=True)
@@ -2441,6 +2581,12 @@ class TickFacts:
     # worker's own-session-id scan to that child's process tree. None from a
     # host that predates it (see `WorkerChildPid` for that case).
     child_pid: int | None = None
+    # Plan 00603: the host vouches that the screen shows the main prompt with no
+    # background-task or sub-agent indicator in its footer (see
+    # `ScreenFocusCheck.quiet_prompt`). Host-side because only the host holds
+    # the screen buffer. False -- not idle -- from a host that predates it, so
+    # idle compaction fails closed there.
+    true_idle: bool = False
 
 
 @dataclass(frozen=True)
@@ -2614,6 +2760,24 @@ def open_worker_error_log() -> TextIO | None:
         return None
 
 
+# When set, `append_worker_error` writes here instead of the live worker log. Only
+# `PluginTestHarness` sets it (through `_worker_error_log_redirected`), so a plugin
+# author's test run never appends to the running session's own log.
+_worker_error_log_override: Path | None = None
+
+
+@contextlib.contextmanager
+def _worker_error_log_redirected(path: Path) -> Iterator[None]:
+    """Send `append_worker_error` to ``path`` for the duration of the block."""
+    global _worker_error_log_override
+    previous = _worker_error_log_override
+    _worker_error_log_override = path
+    try:
+        yield
+    finally:
+        _worker_error_log_override = previous
+
+
 def append_worker_error(message: str) -> None:
     """Append a timestamped diagnostic to the worker error log (last resort).
 
@@ -2627,8 +2791,9 @@ def append_worker_error(message: str) -> None:
     matters has already landed on disk.
     """
     stamp = datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
-    path = worker_error_log_path()
+    path = _worker_error_log_override or worker_error_log_path()
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(f"[{stamp}] {message}\n")
     except OSError:
@@ -3158,7 +3323,133 @@ def _build_sidecar_reading(
         compacting=bool(data.get("compacting", False)),
         stale=(now - ts) > freshness_seconds,
         model_id=str(data.get("model_id", "")),
+        window_size=_coerce_int(data.get("window_size")),
     )
+
+
+# ── Claude Code's own record of whether the session is idle (Plan 00603) ─────
+# Read locally: the worker runs in the same container as `claude`. Only the
+# `status` field is documented (through `claude agents --json`); the sub-agent
+# `finished` flag and the background-task exit trailer are INTERNAL files, seen
+# on Claude Code 2.1.322 (Plan 00604 RESEARCH.md), so a layout change reads as
+# "not idle" and idle compaction goes quiet rather than firing wrongly.
+_CC_SESSION_IDLE_STATUS = "idle"
+_CC_TASK_EXIT_TRAILER = re.compile(rb"\[exited with code -?\d+\]\s*\Z")
+_CC_TASK_TAIL_BYTES = 256
+
+
+def _claude_config_dir() -> Path:
+    """Claude Code's config directory: ``CLAUDE_CONFIG_DIR`` or ``~/.claude``."""
+    override = os.environ.get("CLAUDE_CONFIG_DIR")
+    return Path(override) if override else Path.home() / ".claude"
+
+
+def _pid_alive(pid: int) -> bool:
+    """True when ``pid`` names a live process (signal 0; EPERM still means alive)."""
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _session_status_idle(
+    session_id: str, config_dir: Path, pid_alive: Callable[[int], bool]
+) -> str | None:
+    """None when every live record of the session says `idle`, else the reason."""
+    sessions = config_dir / "sessions"
+    live = 0
+    try:
+        paths = sorted(sessions.glob("*.json"))
+    except OSError as exc:
+        return f"sessions directory unreadable: {exc}"
+    for path in paths:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict) or data.get("sessionId") != session_id:
+            continue
+        pid = data.get("pid")
+        if not isinstance(pid, int) or not pid_alive(pid):
+            continue
+        live += 1
+        if data.get("status") != _CC_SESSION_IDLE_STATUS:
+            return f"session status is {data.get('status')!r}, not idle"
+    return None if live else "no live session record"
+
+
+def _unfinished_subagents(session_id: str, config_dir: Path) -> str | None:
+    """None when every sub-agent of the session has `finished: true`, else the reason."""
+    try:
+        metas = sorted(config_dir.glob(f"projects/*/{session_id}/subagents/*.meta.json"))
+    except OSError as exc:
+        return f"sub-agent records unreadable: {exc}"
+    for meta in metas:
+        try:
+            data = json.loads(meta.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return f"sub-agent record {meta.name} unreadable"
+        if not isinstance(data, dict) or data.get("finished") is not True:
+            return f"sub-agent {meta.name.removesuffix('.meta.json')} not finished"
+    return None
+
+
+def _running_background_tasks(session_id: str, tmp_root: Path, uid: int) -> str | None:
+    """None when every background task output ends with its exit trailer, else why."""
+    try:
+        outputs = sorted(tmp_root.glob(f"claude-{uid}/*/{session_id}/tasks/b*.output"))
+    except OSError as exc:
+        return f"background task outputs unreadable: {exc}"
+    for output in outputs:
+        try:
+            with output.open("rb") as handle:
+                handle.seek(0, os.SEEK_END)
+                handle.seek(max(0, handle.tell() - _CC_TASK_TAIL_BYTES))
+                tail = handle.read()
+        except OSError:
+            return f"background task {output.name} unreadable"
+        if _CC_TASK_EXIT_TRAILER.search(tail) is None:
+            return f"background task {output.stem} has no exit line"
+    return None
+
+
+def session_internal_idle(
+    session_id: str,
+    *,
+    config_dir: Path | None = None,
+    tmp_root: Path | None = None,
+    uid: int | None = None,
+    pid_alive: Callable[[int], bool] = _pid_alive,
+) -> tuple[bool, str]:
+    """Plan 00603: is the session idle by Claude Code's own records? ``(idle, why-not)``.
+
+    All three must hold: the session's `status` is `idle` (the one documented
+    signal), every sub-agent `.meta.json` has `finished: true`, and every
+    background task output ends with `[exited with code N]`. An empty session id,
+    a missing or unreadable status record, or anything unparseable is NOT idle.
+    An absent sub-agent or task directory means nothing was started, which is
+    the normal case. The supervisor's own empty-input and quiet-output gates are
+    separate and still apply.
+    """
+    if not session_id:
+        return False, "no session id"
+    config = config_dir if config_dir is not None else _claude_config_dir()
+    # Claude Code keeps task output under its OS temp directory (TMPDIR aware).
+    root = tmp_root if tmp_root is not None else Path(tempfile.gettempdir())
+    user = uid if uid is not None else os.getuid()
+    for reason in (
+        _session_status_idle(session_id, config, pid_alive),
+        _unfinished_subagents(session_id, config),
+        _running_background_tasks(session_id, root, user),
+    ):
+        if reason is not None:
+            return False, reason
+    return True, ""
 
 
 def load_compaction_signal(
@@ -4631,6 +4922,56 @@ _PLUGIN_LOAD_BUDGET_SECONDS = 1.0
 # A marker older than a hook's budget plus this grace means the worker is stuck
 # INSIDE that hook (a budgeted thread could not return it), not merely slow.
 _PLUGIN_WEDGE_GRACE_SECONDS = 0.25
+# A wall-clock age alone cannot tell a stuck worker from one the kernel has not
+# scheduled (a host at load 55-105 on 22 CPUs stalls a process for longer than
+# the budget plus grace). A wedge is therefore only declared when the SAME
+# marker is seen at this many consecutive checks, each with no CPU progress by
+# the worker since the previous one.
+_PLUGIN_WEDGE_STRIKES = 2
+# CPU seconds the worker must gain between two checks to count as progressing.
+_PLUGIN_WEDGE_CPU_PROGRESS_SECONDS = 0.0
+# A plugin disabled for a failure that host load can mimic comes back at the next
+# worker restart, or after this many ticks the worker answered with no failure.
+_PLUGIN_REENABLE_CLEAN_TICKS_DEFAULT = 120
+_PLUGIN_REENABLE_CLEAN_TICKS_ENV_VAR = "CCY_PLUGIN_REENABLE_CLEAN_TICKS"
+_PROC_STAT_AFTER_COMM_UTIME_INDEX = 11
+_PROC_STAT_AFTER_COMM_STIME_INDEX = 12
+
+
+def _plugin_reenable_clean_ticks() -> int:
+    """Clean ticks before a load-mimicable plugin failure is forgiven (env override)."""
+    raw = os.environ.get(_PLUGIN_REENABLE_CLEAN_TICKS_ENV_VAR)
+    if raw is None:
+        return _PLUGIN_REENABLE_CLEAN_TICKS_DEFAULT
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        return _PLUGIN_REENABLE_CLEAN_TICKS_DEFAULT
+    return value if value > 0 else _PLUGIN_REENABLE_CLEAN_TICKS_DEFAULT
+
+
+def _process_cpu_seconds(pid: int) -> float | None:
+    """User plus system CPU seconds process ``pid`` has used, or None if unreadable."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        # The command name may contain spaces and parentheses: fields start after the LAST ')'.
+        fields = stat.rsplit(")", 1)[1].split()
+        ticks = int(fields[_PROC_STAT_AFTER_COMM_UTIME_INDEX]) + int(
+            fields[_PROC_STAT_AFTER_COMM_STIME_INDEX]
+        )
+        return ticks / os.sysconf("SC_CLK_TCK")
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _load_snapshot() -> str:
+    """The host load averages for a log line, or ``n/a`` where the OS gives none."""
+    try:
+        one, five, fifteen = os.getloadavg()
+    except OSError:
+        return "n/a"
+    return f"{one:.2f} {five:.2f} {fifteen:.2f}"
+
 
 _PLUGIN_TEXT_MAX_CHARS = 200
 _PLUGIN_VERSION_MAX_CHARS = 64
@@ -4709,6 +5050,12 @@ _PLUGIN_KINDS = frozenset(
 # running plugin code, so the host recovers by restarting the worker.
 _PLUGIN_KINDS_NEEDING_WORKER_RESTART = frozenset(
     {_PLUGIN_KIND_OVERRUN, _PLUGIN_KIND_WEDGE, _PLUGIN_KIND_EXIT_STUCK, _PLUGIN_KIND_HOST_FAULT}
+)
+# Failures a descheduled worker or a transient fault can produce, so the plugin is
+# forgiven at the next worker restart or after enough clean ticks. A load refusal,
+# a plugin that keeps asking for an exit nobody honours, and a host fault are not.
+_PLUGIN_KINDS_REENABLEABLE = frozenset(
+    {_PLUGIN_KIND_EXCEPTION, _PLUGIN_KIND_OVERRUN, _PLUGIN_KIND_WEDGE, _PLUGIN_KIND_BAD_RESULT}
 )
 
 _PLUGIN_STATE_LOADED = "loaded"
@@ -4973,15 +5320,15 @@ _PLUGIN_HOOK_PHRASES = {
 }
 _PLUGIN_RECOVERY_SENTENCES = {
     _PLUGIN_KIND_LOAD: "It was skipped, and this session is running without it.",
-    _PLUGIN_KIND_EXCEPTION: "It is disabled for the rest of this session.",
-    _PLUGIN_KIND_BAD_RESULT: "It is disabled for the rest of this session.",
+    _PLUGIN_KIND_EXCEPTION: "It is disabled until the next policy-worker restart or {ticks} clean ticks.",
+    _PLUGIN_KIND_BAD_RESULT: "It is disabled until the next policy-worker restart or {ticks} clean ticks.",
     _PLUGIN_KIND_OVERRUN: (
-        "It is disabled for the rest of this session, and the policy worker was "
-        "restarted without it."
+        "The policy worker was restarted without it; it comes back at the next "
+        "policy-worker restart or after {ticks} clean ticks."
     ),
     _PLUGIN_KIND_WEDGE: (
-        "It is disabled for the rest of this session, and the policy worker was "
-        "restarted without it."
+        "The policy worker was restarted without it; it comes back at the next "
+        "policy-worker restart or after {ticks} clean ticks."
     ),
     _PLUGIN_KIND_EXIT_STUCK: (
         "It is disabled for the rest of this session, and the policy worker was "
@@ -4992,7 +5339,36 @@ _PLUGIN_RECOVERY_SENTENCES = {
         "restarted without any."
     ),
 }
-_PLUGIN_NOTICE_CLOSING = "No action is needed from you."
+# Why each kind happened, in terms the session can act on. Fixed text: the kinds
+# a busy host can produce say so, because a disable the supervisor cannot tell
+# from a starved worker must not read as a verdict on the plugin.
+_PLUGIN_CAUSE_SENTENCES = {
+    _PLUGIN_KIND_LOAD: "The plugin file was refused or failed to import.",
+    _PLUGIN_KIND_EXCEPTION: "Its hook raised; the traceback is in the log.",
+    _PLUGIN_KIND_OVERRUN: (
+        "Its hook did not return within its time budget; a worker the host has not "
+        "scheduled (high host load) looks the same."
+    ),
+    _PLUGIN_KIND_WEDGE: (
+        "Its in-hook marker stayed set across two consecutive checks while the policy "
+        "worker used no CPU; a worker starved by high host load can look the same."
+    ),
+    _PLUGIN_KIND_BAD_RESULT: "Its hook returned a value outside the plugin API.",
+    _PLUGIN_KIND_EXIT_STUCK: "The session did not end after its repeated restart requests.",
+    _PLUGIN_KIND_HOST_FAULT: "The supervisor's own plugin handling failed.",
+}
+# What stops working while a plugin is off. A plugin not listed gets the generic
+# sentence; listing one here is how its owner makes the notice specific.
+_PLUGIN_OFF_FEATURES = {
+    "ccy-lifecycle": "relaunch on a team join, the max-age restart and the deadline notice",
+}
+_PLUGIN_OFF_FEATURES_GENERIC = "everything that plugin provides"
+
+
+def _plugin_off_sentence(name: str) -> str:
+    return (
+        f"While it is off, {_PLUGIN_OFF_FEATURES.get(name, _PLUGIN_OFF_FEATURES_GENERIC)} is off."
+    )
 
 
 def parse_plugin_notice_item(item: str) -> tuple[str, str, str] | None:
@@ -5017,10 +5393,11 @@ def render_plugin_notice(name: str, kind: str, hook: str) -> str:
     (`parse_plugin_notice_item`); they select or fill literal templates and
     nothing else reaches the text.
     """
+    recovery = _PLUGIN_RECOVERY_SENTENCES[kind].format(ticks=_plugin_reenable_clean_ticks())
     return (
         f"{_PLUGIN_NOTICE_HEADER}: plugin `{name}` {_PLUGIN_KIND_PHRASES[kind]}"
-        f"{_PLUGIN_HOOK_PHRASES[hook]}. {_PLUGIN_RECOVERY_SENTENCES[kind]} "
-        f"{_PLUGIN_NOTICE_CLOSING}"
+        f"{_PLUGIN_HOOK_PHRASES[hook]}. {_PLUGIN_CAUSE_SENTENCES[kind]} {recovery} "
+        f"{_plugin_off_sentence(name)} Details: {worker_error_log_path()}"
     )
 
 
@@ -5550,6 +5927,9 @@ class PluginTestHarness:
         self._plugin_path = plugin_path
         self._audit: list[str] = []
         self._started = False
+        # The worker error log is redirected here while a hook runs, so a plugin
+        # that raises under test never appends to the live session's log.
+        self._error_log = work_dir / _WORKER_ERROR_LOG_NAME
         self._runtime = PluginRuntime(
             state_root=work_dir / "state",
             status_dir=work_dir / "untracked",
@@ -5581,18 +5961,20 @@ class PluginTestHarness:
 
     def start(self) -> None:
         """Load the half and run ``on_start``; raise on any failure."""
-        self._runtime.load([(self._name, self._plugin_path)], frozenset())
-        self._raise_on_failure()
-        self._runtime.start()
-        self._raise_on_failure()
+        with _worker_error_log_redirected(self._error_log):
+            self._runtime.load([(self._name, self._plugin_path)], frozenset())
+            self._raise_on_failure()
+            self._runtime.start()
+            self._raise_on_failure()
         self._started = True
 
     def idle(self, now: float | None = None) -> PluginExitRequest | None:
         """Ask the plugin ``on_idle`` once; return its exit request, if any; raise on failure."""
         if not self._started:
             raise PluginHarnessError("call start() before idle()")
-        request = self._runtime.run_idle(time.time() if now is None else now)
-        self._raise_on_failure()
+        with _worker_error_log_redirected(self._error_log):
+            request = self._runtime.run_idle(time.time() if now is None else now)
+            self._raise_on_failure()
         return request
 
     def _record_status(self, _name: str, text: str, level: str, ttl: float) -> None:
@@ -5617,6 +5999,22 @@ class _PluginEntry:
     version: str = ""
     state: str = _PLUGIN_STATE_LOADED
     reason: str = ""
+    # Why the plugin was disabled at runtime ("" when it was not, or when the
+    # command line switched it off), and how far it is from being forgiven.
+    failure_kind: str = ""
+    clean_ticks: int = 0
+    # True once a worker start has been told to keep it off, so the NEXT start
+    # (a hot reload, a respawn) may bring a re-enableable plugin back.
+    off_start_served: bool = False
+
+
+@dataclass(frozen=True)
+class _WedgeWatch:
+    """What the previous silent-worker check saw: one marker, the strikes, the CPU."""
+
+    marker_id: tuple[str, str, float]
+    cpu_seconds: float | None
+    strikes: int
 
 
 class PluginHost:
@@ -5638,9 +6036,15 @@ class PluginHost:
         status_dir: Path | None = None,
         marker_path: Path | None = None,
         disabled: Collection[str] = (),
+        wedge_strikes: int = _PLUGIN_WEDGE_STRIKES,
     ) -> None:
         self._write_status = write_status
         self._allowed_uids = allowed_uids
+        self._wedge_strikes = max(1, wedge_strikes)
+        self._worker_cpu_source: Callable[[], float | None] | None = None
+        self._wedge_watch: _WedgeWatch | None = None
+        # Age of the marker behind the latest wedge `detect_wedge` returned, for the log.
+        self.last_wedge_marker_age: float | None = None
         self._all_off = False
         self._status_dir = status_dir
         self._marker_path = marker_path
@@ -5721,13 +6125,68 @@ class PluginHost:
         argv: list[str] = []
         if self._all_off:
             return argv
+        self._forgive_on_restart()
         for entry in self._entries:
             if entry.state != _PLUGIN_STATE_FAILED and entry.path is not None:
                 argv += [_PLUGIN_FLAG, f"{entry.name}{_PLUGIN_SPEC_SEPARATOR}{entry.path}"]
         for entry in self._entries:
             if entry.state == _PLUGIN_STATE_DISABLED:
+                entry.off_start_served = True
                 argv += [_DISABLE_PLUGIN_FLAG, entry.name]
         return argv
+
+    def _forgive_on_restart(self) -> None:
+        """A worker is starting: re-enable what an earlier start already kept off.
+
+        The start that follows the failure itself (``off_start_served`` still
+        False for a kind that needs a restart) keeps the plugin off; the next one
+        is a fresh worker with no stuck thread, so the plugin gets another go.
+        """
+        forgiven = [
+            e
+            for e in self._entries
+            if e.state == _PLUGIN_STATE_DISABLED
+            and e.failure_kind in _PLUGIN_KINDS_REENABLEABLE
+            and e.off_start_served
+        ]
+        for entry in forgiven:
+            self._reenable(entry)
+        if forgiven:
+            self._publish()
+
+    def _reenable(self, entry: _PluginEntry) -> None:
+        entry.state = _PLUGIN_STATE_LOADED
+        entry.reason = ""
+        entry.failure_kind = ""
+        entry.clean_ticks = 0
+        entry.off_start_served = False
+
+    def note_clean_tick(self) -> list[str]:
+        """Count one tick the worker answered with no plugin failure.
+
+        Returns the names forgiven by it (their worker must be restarted to load
+        them): a plugin disabled for a kind in `_PLUGIN_KINDS_REENABLEABLE` is
+        re-enabled once it has been off for the configured number of clean ticks.
+        """
+        limit = _plugin_reenable_clean_ticks()
+        forgiven: list[_PluginEntry] = []
+        for entry in self._entries:
+            if entry.state != _PLUGIN_STATE_DISABLED or (
+                entry.failure_kind not in _PLUGIN_KINDS_REENABLEABLE
+            ):
+                continue
+            entry.clean_ticks += 1
+            if entry.clean_ticks >= limit:
+                forgiven.append(entry)
+        for entry in forgiven:
+            self._reenable(entry)
+        if forgiven:
+            self._publish()
+        return [e.name for e in forgiven]
+
+    def set_worker_cpu_source(self, source: Callable[[], float | None]) -> None:
+        """Where `detect_wedge` reads the worker's CPU seconds (None when unreadable)."""
+        self._worker_cpu_source = source
 
     def disabled_names(self) -> frozenset[str]:
         """Every plugin that must stay off for the rest of this supervisor process."""
@@ -5752,13 +6211,33 @@ class PluginHost:
         entry.version = _clean_text(version, _PLUGIN_VERSION_MAX_CHARS)
         self._publish()
 
-    def record_failure(self, name: str, kind: str, hook: str, detail: str = "") -> bool:
-        """Disable ``name`` for a failure; True only the first time (idempotent)."""
+    def record_failure(
+        self,
+        name: str,
+        kind: str,
+        hook: str,
+        detail: str = "",
+        *,
+        marker_age: float | None = None,
+    ) -> bool:
+        """Disable ``name`` for a failure; True only the first time (idempotent).
+
+        Every disable is written to the worker error log with the in-hook marker's
+        age (when the caller knows it) and the host load, the two facts that tell a
+        stuck plugin from a starved worker.
+        """
         entry = self._by_name.get(name)
         if entry is None or entry.state != _PLUGIN_STATE_LOADED:
             return False
         entry.state = _PLUGIN_STATE_FAILED if kind == _PLUGIN_KIND_LOAD else _PLUGIN_STATE_DISABLED
         entry.reason = _failure_reason(PluginFailure(name, kind, hook, detail))
+        entry.failure_kind = kind
+        entry.clean_ticks = 0
+        entry.off_start_served = kind not in _PLUGIN_KINDS_NEEDING_WORKER_RESTART
+        age = "n/a" if marker_age is None else f"{marker_age:.2f}s"
+        append_worker_error(
+            f"plugin {name} disabled: {entry.reason}; marker age {age}; loadavg {_load_snapshot()}"
+        )
         self._publish()
         return True
 
@@ -5793,11 +6272,52 @@ class PluginHost:
         """Name the plugin a silent worker is stuck inside, from its in-hook marker.
 
         The worker writes the marker atomically before each hook call and clears
-        it after, so a marker that has outlived the hook's budget (plus a
-        grace) means the worker is stuck INSIDE that hook -- a budgeted thread
-        could not return it. A fresh marker is a slow hook, not a wedge, and
-        anything outside the closed sets blames nobody.
+        it after. A marker older than the hook's budget (plus a grace) is only a
+        SUSPECT: a worker the kernel has not scheduled for that long shows the
+        same marker. A wedge is declared when the same marker (plugin, hook and
+        start time) is seen at ``wedge_strikes`` consecutive checks and the
+        worker's CPU time did not advance between them; a marker that cleared, a
+        different marker or CPU progress starts the count again. A fresh marker is
+        a slow hook, and anything outside the closed sets blames nobody.
         """
+        marker = self._read_marker()
+        if marker is None:
+            self._wedge_watch = None
+            return None
+        name, hook, started_at = marker
+        entry = self._by_name.get(name)
+        budget = (
+            _PLUGIN_LOAD_BUDGET_SECONDS
+            if hook == _PLUGIN_HOOK_LOAD
+            else _PLUGIN_HOOK_BUDGET_SECONDS
+        )
+        age = now_wall - started_at
+        if (
+            entry is None
+            or entry.state != _PLUGIN_STATE_LOADED
+            or (age < budget + _PLUGIN_WEDGE_GRACE_SECONDS)
+        ):
+            self._wedge_watch = None
+            return None
+        marker_id = (name, hook, started_at)
+        cpu = self._worker_cpu_source() if self._worker_cpu_source is not None else None
+        watch = self._wedge_watch
+        strikes = 1
+        if watch is not None and watch.marker_id == marker_id:
+            progressed = (
+                cpu is not None
+                and watch.cpu_seconds is not None
+                and cpu > watch.cpu_seconds + _PLUGIN_WEDGE_CPU_PROGRESS_SECONDS
+            )
+            strikes = 1 if progressed else watch.strikes + 1
+        self._wedge_watch = _WedgeWatch(marker_id, cpu, strikes)
+        if strikes < self._wedge_strikes:
+            return None
+        self.last_wedge_marker_age = age
+        return PluginFailure(name, _PLUGIN_KIND_WEDGE, hook)
+
+    def _read_marker(self) -> tuple[str, str, float] | None:
+        """The in-hook marker's ``(plugin, hook, started_at)``, or None unless well-formed."""
         try:
             payload = json.loads(self._resolved_marker_path().read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -5817,20 +6337,11 @@ class PluginHost:
             or not isinstance(started_at, (int, float))
         ):
             return None
-        entry = self._by_name.get(name)
-        if entry is None or entry.state != _PLUGIN_STATE_LOADED:
-            return None
-        budget = (
-            _PLUGIN_LOAD_BUDGET_SECONDS
-            if hook == _PLUGIN_HOOK_LOAD
-            else _PLUGIN_HOOK_BUDGET_SECONDS
-        )
-        if now_wall - started_at < budget + _PLUGIN_WEDGE_GRACE_SECONDS:
-            return None
-        return PluginFailure(name, _PLUGIN_KIND_WEDGE, hook)
+        return name, hook, float(started_at)
 
     def clear_marker(self) -> None:
         """Forget the in-hook marker (the worker that wrote it has been replaced)."""
+        self._wedge_watch = None
         try:
             self._resolved_marker_path().unlink(missing_ok=True)
         except OSError as error:
@@ -5982,6 +6493,11 @@ class CompactStateMachine:
         # (round-tripped) and last-fire ts (process-local backoff).
         self._flag_compactions = 0
         self._flag_compact_last_ts: float | None = None
+        # Plan 00603: since when the host has reported a TRUE idle without a
+        # break (None while it is not), and when the last idle compaction was
+        # decided (or, in dry-run, would have been). Round-tripped.
+        self._true_idle_since: float | None = None
+        self._idle_compact_last_ts: float | None = None
         # Plan 00479 Task 4.5: the `paused_at` of the usage pause whose single
         # /compact has been decided (None while no pause has been compacted).
         # Round-tripped, so a worker restart cannot type a second one.
@@ -6128,6 +6644,74 @@ class CompactStateMachine:
         """
         self._flag_compactions += 1
         self._flag_compact_last_ts = time.time() if now_wall is None else now_wall
+
+    def note_true_idle(self, true_idle: bool, *, now: float) -> None:
+        """Track how long the session has been in an unbroken TRUE idle (Plan 00603).
+
+        Called every tick: the first idle tick starts the settle clock, any
+        non-idle tick clears it, so an interruption restarts the wait.
+        """
+        if not true_idle:
+            self._true_idle_since = None
+        elif self._true_idle_since is None:
+            self._true_idle_since = now
+
+    def idle_compact_due(self, reading: SidecarReading | None, *, now: float) -> str | None:
+        """The reason an idle compaction should fire on this tick, else None.
+
+        Every gate fails closed: no fresh reading, a compaction already under
+        way, an unknown window, context below the percentage or the absolute
+        token floor, a settle period not yet held, or any compaction (this
+        feature's or not) inside the cooldown.
+        """
+        policy = self._policy
+        if policy.idle_compact_mode == _IDLE_COMPACT_OFF:
+            return None
+        if reading is None or reading.stale or reading.compacting:
+            return None
+        if self._true_idle_since is None or self._injections >= policy.max_injections:
+            return None
+        if now - self._true_idle_since < policy.idle_compact_settle_seconds:
+            return None
+        if reading.pct < policy.idle_compact_pct:
+            return None
+        tokens = int(reading.pct / 100.0 * reading.window_size)
+        if reading.window_size <= 0 or tokens < policy.idle_compact_min_tokens:
+            return None
+        last = max(
+            (ts for ts in (self._last_action_ts, self._idle_compact_last_ts) if ts is not None),
+            default=None,
+        )
+        if last is not None and now - last < policy.idle_compact_cooldown_seconds:
+            return None
+        held = now - self._true_idle_since
+        return (
+            f"idle for {held:.0f}s at {reading.pct:.0f}% "
+            f"(~{tokens // 1000}k of {reading.window_size // 1000}k tokens)"
+        )
+
+    @property
+    def idle_compact_enabled(self) -> bool:
+        """True unless the idle-compaction mode is `off`."""
+        return self._policy.idle_compact_mode != _IDLE_COMPACT_OFF
+
+    @property
+    def policy_idle_compact_armed(self) -> bool:
+        """True when the idle-compaction mode is `on` (not `dry-run` or `off`)."""
+        return self._policy.idle_compact_mode == _IDLE_COMPACT_ON
+
+    def mark_idle_compaction(self, *, now: float, armed: bool) -> None:
+        """Record a decided idle compaction (Plan 00603).
+
+        Armed: enter AWAIT_COMPACTING like every supervisor `/compact`, so the
+        existing ESC flush and post-compaction `continue` apply. Dry-run: only
+        the cooldown stamp, so the would-be firing is logged once per cooldown.
+        """
+        self._idle_compact_last_ts = now
+        if armed:
+            self._injections += 1
+            self._last_action_ts = now
+            self._enter_await(is_human=False)
 
     def flag_compact_due(self, now_wall: float) -> bool:
         """True when a flag-cleaning /compact should fire on this tick (Plan 00281).
@@ -6808,6 +7392,8 @@ class CompactStateMachine:
             "model_restores": self._model_restores,
             "model_restore_last_ts": self._model_restore_last_ts,
             "flag_compactions": self._flag_compactions,
+            "true_idle_since": self._true_idle_since,
+            "idle_compact_last_ts": self._idle_compact_last_ts,
             "pause_compacted_for": self._pause_compacted_for,
             "audit_pending": list(self._audit_pending),
             "plugin_notices_pending": list(self._plugin_notices_pending),
@@ -6918,6 +7504,12 @@ class CompactStateMachine:
             self._model_restore_last_ts = None if raw is None else _coerce_float(raw)
         if "flag_compactions" in state:
             self._flag_compactions = _coerce_int(state["flag_compactions"])
+        if "true_idle_since" in state:
+            raw = state["true_idle_since"]
+            self._true_idle_since = None if raw is None else _coerce_float(raw)
+        if "idle_compact_last_ts" in state:
+            raw = state["idle_compact_last_ts"]
+            self._idle_compact_last_ts = None if raw is None else _coerce_float(raw)
         if "pause_compacted_for" in state:
             raw = state["pause_compacted_for"]
             self._pause_compacted_for = None if raw is None else _coerce_float(raw)
@@ -8140,6 +8732,21 @@ def decide_once(
     # published, attributed now that it is -- after this tick's reading, so a
     # human who has since left the fallback is never restored.
     machine.settle_pending_drop(now_wall=facts.now_wall)
+    # Plan 00603: the settle clock for idle compaction. A true idle needs the
+    # host's screen verdict AND every gate that lets anything be typed.
+    # Claude Code's own records (status, sub-agents, background tasks) are read
+    # only once every cheaper gate holds, so a busy session never pays for them.
+    held_true_idle = facts.true_idle and can_inject and facts.work_idle
+    if (
+        held_true_idle
+        and machine.idle_compact_enabled
+        and reading is not None
+        and not reading.stale
+    ):
+        held_true_idle, _ = session_internal_idle(reading.session_id)
+    else:
+        held_true_idle = False
+    machine.note_true_idle(held_true_idle, now=facts.now_wall)
     evaluation = machine.evaluate(
         reading,
         idle=can_inject,
@@ -8729,6 +9336,38 @@ def decide_once(
                 confirm_enters = model_confirm_enters
                 deferred_log = None
                 noop_reason_log = None
+    # ── Idle compaction at a percentage (Plan 00603) ─────────────────────────
+    # Below every other family, on an otherwise-NOOP MONITOR tick, so a pending
+    # goal, restore or flush always goes first and a compaction in flight is
+    # never stacked on. `note_true_idle` already folded `can_inject` and
+    # `work_idle` into the settle clock; the gates here are the rest. Dry-run
+    # (the supervisor's own or this feature's mode) logs and types nothing.
+    if (
+        payload is None
+        and evaluation.decision is Decision.NOOP
+        and signal_path is None
+        and machine.state is SupervisorState.MONITOR
+        and not foreground_ambiguous
+        and not modes_gate_closed
+        and can_inject
+    ):
+        idle_reason = machine.idle_compact_due(reading, now=facts.now_wall)
+        if idle_reason is not None:
+            armed = not dry_run and machine.policy_idle_compact_armed
+            machine.mark_idle_compaction(now=facts.now_wall, armed=armed)
+            if armed:
+                decision_value = Decision.WOULD_COMPACT.value
+                reason = f"idle compaction: {idle_reason} -> would inject /compact"
+                payload = f"/compact {_format_bot_prefix(facts.now_wall)} {_ARMED_COMPACT_BODY}"
+                machine.arm_audit("/compact (idle compaction)")
+                submit = True
+                deferred_log = None
+                noop_reason_log = None
+            else:
+                noop_reason_log = (
+                    f"{_NOOP_LOG_PREFIX}: would idle-compact (dry-run, nothing typed): "
+                    f"{idle_reason}"
+                )
     # ── Audit-trail flush: transient status-line banner (Plan 00318) ────────
     # LOWEST priority of all families: a pending /model, goal or restore
     # always lands first, so a switch sequence flushes as ONE banner once the
@@ -9389,6 +10028,7 @@ def _facts_to_json(facts: TickFacts) -> str:
             "focus_held_since": facts.focus_held_since,
             "focus_latch_bytes": facts.focus_latch_bytes,
             "child_pid": facts.child_pid,
+            "true_idle": facts.true_idle,
         }
     )
 
@@ -9412,6 +10052,7 @@ def _facts_from_json(line: str) -> TickFacts:
         focus_held_since=float(data.get("focus_held_since", 0.0)),
         focus_latch_bytes=str(data.get("focus_latch_bytes", "")),
         child_pid=int(data["child_pid"]) if data.get("child_pid") is not None else None,
+        true_idle=bool(data.get("true_idle", False)),
     )
 
 
@@ -9756,6 +10397,11 @@ class PolicyWorker:
 
     def alive(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
+
+    def cpu_seconds(self) -> float | None:
+        """CPU seconds the worker process has used, or None if it is not running."""
+        proc = self._proc
+        return None if proc is None else _process_cpu_seconds(proc.pid)
 
     def decide(self, facts: TickFacts) -> TickOutcome | None:
         """Ask the worker for a decision; None on any failure (host falls back).
@@ -10418,6 +11064,28 @@ def arm_restarted_notice(
         return False
 
 
+def _forgive_plugins_after_clean_ticks(
+    plugin_host: PluginHost,
+    *,
+    log: DecisionLog | None,
+    restart_worker: Callable[[], bool] | None,
+) -> None:
+    """Count a clean tick; re-enable what has been off long enough and reload the worker.
+
+    The worker holds a disabled plugin off for its whole life, so a plugin the
+    host forgives only comes back when the worker is restarted.
+    """
+    forgiven = plugin_host.note_clean_tick()
+    if not forgiven:
+        return
+    for name in forgiven:
+        _log_line(
+            log, f"plugin {name}: re-enabled after {_plugin_reenable_clean_ticks()} clean ticks"
+        )
+    if restart_worker is not None:
+        restart_worker()
+
+
 def handle_plugin_outcome(
     outcome: TickOutcome,
     *,
@@ -10451,6 +11119,8 @@ def handle_plugin_outcome(
                 _log_line(log, failure_log_line(PluginFailure(plugin, kind, hook, detail)))
                 if kind in _PLUGIN_KINDS_NEEDING_WORKER_RESTART and restart_worker is not None:
                     restart_worker()
+        if not outcome.plugin_failures:
+            _forgive_plugins_after_clean_ticks(plugin_host, log=log, restart_worker=restart_worker)
     if outcome.exit_for_restart is not None:
         plugin, reason = outcome.exit_for_restart
         restart.request(
@@ -10487,7 +11157,12 @@ def handle_worker_silence(
     failure = plugin_host.detect_wedge(now_wall)
     if failure is None:
         return
-    if not plugin_host.record_failure(failure.plugin, failure.kind, failure.hook):
+    if not plugin_host.record_failure(
+        failure.plugin,
+        failure.kind,
+        failure.hook,
+        marker_age=plugin_host.last_wedge_marker_age,
+    ):
         return
     _log_line(log, failure_log_line(failure))
     report_plugin_failure(machine, failure, status_dir=status_dir, now=now_wall)
@@ -10791,10 +11466,14 @@ def supervise(
     # enclosing scope, not just inside the closure. A variable whose ONLY
     # assignment is this one, of type `int`, carries no such ambiguity.
     resolved_stdin_fd: int = stdin_fd if stdin_fd is not None else sys.stdin.fileno()
-    if activity.screen is None and activity.focus.enabled:
+    policy = policy if policy is not None else CompactPolicy()
+    # Plan 00603: idle compaction also needs the screen (its only source for a
+    # background task or sub-agent), so it builds the check when the focus hold
+    # has not.
+    idle_compact_on = policy.idle_compact_mode != _IDLE_COMPACT_OFF
+    if activity.screen is None and (activity.focus.enabled or idle_compact_on):
         activity.screen = _build_screen_check(output_activity, stdin_fd=resolved_stdin_fd, log=log)
     sidecar_dir = sidecar_dir if sidecar_dir is not None else _default_sidecar_dir()
-    policy = policy if policy is not None else CompactPolicy()
     machine = CompactStateMachine(policy)
     restart = (
         restart_coordinator
@@ -10962,6 +11641,17 @@ def supervise(
         if not _fd_readable(resolved_stdin_fd):
             activity.focus.settle(now=now_wall)
         focus_hold = activity.effective_focus_hold()
+        # Plan 00603: the screen is rendered only once the cheap gates already
+        # hold, so a busy session never pays for a hooks-screen run.
+        true_idle = (
+            idle_compact_on
+            and idle
+            and work_idle
+            and activity.line.is_empty
+            and focus_hold is None
+            and activity.screen is not None
+            and activity.screen.quiet_prompt()
+        )
         outcome = None
         if decider is not None:
             outcome = decider(
@@ -10980,6 +11670,7 @@ def supervise(
                         output_quiet_seconds=output_quiet_seconds,
                         # Plan 00551: scopes the worker's identity scan.
                         child_pid=pid,
+                        true_idle=true_idle,
                     ),
                     focus_hold,
                 )
@@ -11339,6 +12030,8 @@ def main(argv: list[str] | None = None) -> int:
     # to an identical in-process decision — so the session is never at risk.
     worker = _make_policy_worker(flags.dry_run, plugin_host=plugin_host)
     decider = _make_worker_decider(worker, log=log) if worker is not None else None
+    if plugin_host is not None and worker is not None:
+        plugin_host.set_worker_cpu_source(worker.cpu_seconds)
     try:
         return supervise(
             child_argv,

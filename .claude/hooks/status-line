@@ -14,8 +14,10 @@
 set -euo pipefail
 
 # --- status fast path (generated; Plan 00542) ---
-if [[ "${BASH_SOURCE[0]}" == "/workspace/.claude/hooks/"* ]]; then
-    _rl_dir="/workspace/.claude/hooks-daemon/untracked"
+_rl_src="${BASH_SOURCE[0]}"
+if [[ "$_rl_src" == /*/.claude/hooks/* ]]; then
+    _rl_root="${_rl_src%/.claude/hooks/*}"
+    _rl_dir="$_rl_root/.claude/hooks-daemon/untracked"
     _rl_sfx="-${HOSTNAME:-localhost}"; _rl_sfx="${_rl_sfx// /-}"
     if [[ "$_rl_sfx" == *[[:upper:]]* ]]; then
         for _rl_c in Aa Bb Cc Dd Ee Ff Gg Hh Ii Jj Kk Ll Mm Nn Oo Pp Qq Rr Ss Tt Uu Vv Ww Xx Yy Zz; do
@@ -23,11 +25,19 @@ if [[ "${BASH_SOURCE[0]}" == "/workspace/.claude/hooks/"* ]]; then
         done
     fi
     _rl_events_dir="${HOOKS_DAEMON_EVENTS_DIR:-$_rl_dir/events$_rl_sfx}"
+    if [[ -z "${HOOKS_DAEMON_EVENTS_DIR:-}" && ! -d "$_rl_events_dir" ]]; then
+        _rl_loc="$_rl_dir/events$_rl_sfx.location"
+        if [[ -r "$_rl_loc" ]] \
+            && { IFS= read -r _rl_loc_dir && IFS= read -r _rl_loc_events; } < "$_rl_loc" \
+            && [[ "$_rl_loc_dir" == "$_rl_dir" && -n "$_rl_loc_events" ]]; then
+            _rl_events_dir="$_rl_loc_events"
+        fi
+    fi
     _sf_sock="$_rl_events_dir/status-line.sock"
     # One red line naming the fault and its fix, then exit 0: the status line
     # is the loud channel and nothing below falls back silently.
     _sf_loud() { printf '\033[31m%s\033[0m\n' "$1"; exit 0; }
-    _rl_bin="${HOOKS_DAEMON_RELAY_BINARY:-/workspace/.claude/hooks-daemon/untracked/bin/hooks-relay}"
+    _rl_bin="${HOOKS_DAEMON_RELAY_BINARY:-$_rl_dir/bin/hooks-relay}"
     if [[ ! -x "$_rl_bin" ]]; then
         _sf_loud "⚠ hooks-relay missing or not executable ($_rl_bin): run bin/hooks-daemon transport on"
     fi
