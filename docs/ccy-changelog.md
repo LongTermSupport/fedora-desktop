@@ -17,6 +17,20 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.50 — container 2.84.43
+
+- **A lone Enter is no longer lost to tmux copy mode either** (Plan 00257). 3.122.49 took a pane
+  out of copy mode before a line was typed, but four Enters pressed on their own still went
+  straight to the pane: the answer "Exit and stop tasks" to Claude's "Background work is
+  running" question when ccy-teams shutdown, `ccy --stop` or ccy-sessions' Close types `/exit`,
+  and the second Enter given to a `/exit`, `/compact` or wind-down line still in the box. In
+  copy mode the mode took it, the question was counted as answered, and the timeout that
+  followed blamed the question's cursor or "a second Enter". Each now takes the pane out of copy
+  or view mode first. Under any other tmux mode no Enter is pressed, and the session fails
+  saying what was not answered or entered again, and that it is still running. Typing a line
+  into a pane that enters a mode mid-line is now described accurately: a key of the line can end
+  the mode, so the box may hold the line's tail. The image is unchanged.
+
 ## 3.122.49 — container 2.84.43
 
 - **A line typed into a session is no longer lost to tmux copy mode** (Plan 00257, wind-down

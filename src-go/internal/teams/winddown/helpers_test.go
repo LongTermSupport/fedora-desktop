@@ -46,6 +46,9 @@ type session struct {
 	busyLooks int
 	// dropEnters is how many Enter presses are ignored, leaving the text in the box.
 	dropEnters int
+	// mode is the tmux mode its pane is in ("" for none): every key but a cancel goes to the
+	// mode. A cancel leaves copy-mode; any other mode stays.
+	mode string
 	// busyAfterGoal is how many captures show the session busy after /goal clear.
 	busyAfterGoal int
 	// paneAfterText is what the pane shows once the wind-down is entered, when set.
@@ -225,10 +228,11 @@ func (m *machine) answer(sessions []*session, args []string) (execx.Result, erro
 	}
 	switch args[0] {
 	case "display-message":
-		if find() == nil {
+		s := find()
+		if s == nil {
 			return gone(target(args))
 		}
-		return execx.Result{Stdout: []byte("\n")}, nil
+		return execx.Result{Stdout: []byte(s.mode + "\n")}, nil
 	case "list-sessions":
 		var b strings.Builder
 		for _, s := range sessions {
@@ -337,6 +341,11 @@ func (m *machine) writeDueBoundary(s *session) {
 // press is one send-keys: the last two arguments are "-l <text>" or "<target> <key>".
 func (m *machine) press(s *session, last []string) {
 	switch {
+	case last[0] == "-X":
+		if s.mode == "copy-mode" {
+			s.mode = ""
+		}
+	case s.mode != "":
 	case last[0] == "-l":
 		s.box += last[1]
 	case last[1] == "Escape":

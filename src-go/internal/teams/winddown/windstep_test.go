@@ -1,11 +1,57 @@
 package winddown
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
+
+// W5: a line still in the box is entered again by an Enter that reaches Claude Code: a pane in
+// copy mode is taken out of it first. Under a mode that is not left, no Enter is pressed and the
+// job fails saying the line was not entered again, never that it stayed after a second Enter.
+func TestAReEnterLeavesCopyModeAndFailsUnderAModeItCannotLeave(t *testing.T) {
+	for _, tc := range []struct {
+		at   phase
+		says string
+	}{
+		{phaseGoal, "/goal clear stayed in its input box and was not entered again"},
+		{phaseText, "/goal clear went in, but the wind-down stayed in its input box and was not entered again"},
+		{phaseCompact, "/goal clear and the wind-down went in, but /compact stayed in its input box and was not entered again"},
+	} {
+		s, j := reenterIn(t, tc.at, "copy-mode")
+		if s.enters != 1 || j.result == resultFailed {
+			t.Fatalf("phase %d copy mode: enters %d, note %q", tc.at, s.enters, j.note)
+		}
+		s, j = reenterIn(t, tc.at, "tree-mode")
+		if s.enters != 0 || j.result != resultFailed {
+			t.Fatalf("phase %d tree mode: enters %d, result %v", tc.at, s.enters, j.result)
+		}
+		for _, want := range []string{tc.says, "tree-mode", "no Enter was pressed"} {
+			if !strings.Contains(j.note, want) {
+				t.Fatalf("phase %d: note %q lacks %q", tc.at, j.note, want)
+			}
+		}
+	}
+}
+
+// reenterIn is one look at ccy-proj, in the phase at, showing its line still in the box after
+// its grace poll, its pane in mode.
+func reenterIn(t *testing.T, at phase, mode string) (*session, *job) {
+	t.Helper()
+	m := newMachine(t)
+	m.noLxc()
+	s := m.proj()
+	s.mode = mode
+	j := &job{name: "ccy-proj", tmux: m.w.Tmux, pane: "ccy-proj", phase: at, graced: true, windowBy: m.now.Add(time.Hour)}
+	if err := m.w.act(t.Context(), j, screen.Typed); err != nil {
+		t.Fatalf("phase %d %s: %v", at, mode, err)
+	}
+	return s, j
+}
 
 // W7: a pane that cannot be read fails, typing nothing.
 func TestAPaneThatCannotBeReadFails(t *testing.T) {

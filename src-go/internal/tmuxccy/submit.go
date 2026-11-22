@@ -51,13 +51,15 @@ type SubmitPace struct {
 // beneath it, which would call a lost line taken. So a pane in copy or view mode (a person who
 // scrolled back) is taken out of it before the text is typed, any other mode is ErrPaneInMode
 // with nothing typed, and a pane found in a mode before an Enter (it entered one while the text
-// was typed) is ErrPaneInMode with no Enter pressed, the line perhaps lost.
+// was typed) is ErrPaneInMode with no Enter pressed. The keys typed while it was in the mode
+// went to the mode; a key of the text that ends it (q or Escape in vi copy mode) sends the rest
+// of the text to the box. So the box may hold none of the line or only its tail, unsent.
 func (t *Tmux) Submit(ctx context.Context, name, text string, pace SubmitPace) error {
 	sleep := pace.Sleep
 	if sleep == nil {
 		sleep = t.pause
 	}
-	if err := t.leaveMode(ctx, name); err != nil {
+	if err := t.leaveMode(ctx, name, "nothing was typed"); err != nil {
 		return err
 	}
 	if err := t.SendKeys(ctx, name, text); err != nil {
@@ -91,29 +93,48 @@ func (t *Tmux) Submit(ctx context.Context, name, text string, pace SubmitPace) e
 	return &NotSubmittedError{Name: name, Shows: boxShows(pane)}
 }
 
-// leavableModes are the modes a Submit takes a pane out of: the scrollback a person reads, which
+// PressEnter presses a lone Enter in the session's pane (a dialog answered, a line still in the
+// box entered again) where the program in it receives it. A pane in a tmux mode sends the Enter to
+// the mode (copy mode takes it) while the screen beneath still shows the dialog or the line, so a
+// caller would count an Enter nobody received. A pane in copy or view mode is taken out of it
+// first; any other mode, or one the pane stays in, is ErrPaneInMode, and a mode that cannot be
+// read is an error, both with no Enter pressed. Count the Enter as given only on nil.
+func (t *Tmux) PressEnter(ctx context.Context, name string) error {
+	if err := t.leaveMode(ctx, name, "no Enter was pressed"); err != nil {
+		return err
+	}
+	return t.SendEnter(ctx, name)
+}
+
+// leavableModes are the modes taken out of before a key: the scrollback a person reads, which
 // nothing is lost by leaving. Any other mode (a tree or buffer chooser) is the person's choice
 // still to make.
 var leavableModes = []string{"copy-mode", "view-mode"}
 
-// leaveMode makes sure keys typed into the session's pane reach the program in it: a pane in copy
-// or view mode is taken out of it (send-keys -X cancel), and checked again; any other mode, or one
-// the pane stays in, is ErrPaneInMode.
-func (t *Tmux) leaveMode(ctx context.Context, name string) error {
+// leaveMode makes sure keys sent to the session's pane reach the program in it: a pane in copy or
+// view mode is taken out of it (send-keys -X cancel), and checked again; any other mode, or one
+// the pane stays in, is ErrPaneInMode. untouched says what the caller did not do on a failure.
+func (t *Tmux) leaveMode(ctx context.Context, name, untouched string) error {
 	mode, err := t.paneMode(ctx, name)
-	if err != nil || mode == "" {
-		return err
+	if err != nil {
+		return fmt.Errorf("%w; %s", err, untouched)
+	}
+	if mode == "" {
+		return nil
 	}
 	if !slices.Contains(leavableModes, mode) {
-		return fmt.Errorf("%w (%s) in %s, which Submit does not leave; nothing was typed", ErrPaneInMode, mode, name)
+		return fmt.Errorf("%w (%s) in %s, which is not left for a key; %s", ErrPaneInMode, mode, name, untouched)
 	}
 	if _, err = t.Run(ctx, "send-keys", "-t", paneTarget(name), "-X", "cancel"); err != nil {
-		return fmt.Errorf("leaving %s in %s failed: %s; nothing was typed", mode, name, reason(err))
+		return fmt.Errorf("leaving %s in %s failed: %s; %s", mode, name, reason(err), untouched)
 	}
-	if mode, err = t.paneMode(ctx, name); err != nil || mode == "" {
-		return err
+	if mode, err = t.paneMode(ctx, name); err != nil {
+		return fmt.Errorf("%w; %s", err, untouched)
 	}
-	return fmt.Errorf("%w (%s) in %s, still after it was cancelled; nothing was typed", ErrPaneInMode, mode, name)
+	if mode == "" {
+		return nil
+	}
+	return fmt.Errorf("%w (%s) in %s, still after it was cancelled; %s", ErrPaneInMode, mode, name, untouched)
 }
 
 // paneMode is the tmux mode the session's pane is in, "" for none.

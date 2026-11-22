@@ -266,7 +266,9 @@ func (w *WindDown) act(ctx context.Context, j *job, state screen.State) error {
 		case screen.Ready:
 			return w.typeLine(ctx, j, Instruction(j.team, j.coordinator), phaseText)
 		case screen.Typed:
-			return w.reenter(ctx, j, now, "/goal clear stayed in its input box after a second Enter; the wind-down was not typed")
+			return w.reenter(ctx, j, now, func(why string) string {
+				return "/goal clear stayed in its input box " + why + "; the wind-down was not typed"
+			})
 		case screen.Busy, screen.NotDrawn:
 			w.waitIdle(j, state, now)
 		}
@@ -279,7 +281,9 @@ func (w *WindDown) act(ctx context.Context, j *job, state screen.State) error {
 			j.enter(phaseAnswer)
 			j.quiet.Saw(state)
 		case screen.Typed:
-			return w.reenter(ctx, j, now, j.after("the wind-down stayed in its input box after a second Enter"))
+			return w.reenter(ctx, j, now, func(why string) string {
+				return j.after("the wind-down stayed in its input box " + why)
+			})
 		case screen.NotDrawn:
 			if !now.Before(j.settleBy) {
 				j.fail(j.after("its input box was not drawn again within " + seconds(w.Waits.Settle) + " of the wind-down; look at it (ccy-sessions)"))
@@ -305,19 +309,24 @@ func (w *WindDown) waitIdle(j *job, state screen.State, now time.Time) {
 }
 
 // reenter gives a line left in the box one poll of grace (a line slow to clear is not entered
-// twice), then presses Enter once more, then fails the job once the line is still there past
-// the bound.
-func (w *WindDown) reenter(ctx context.Context, j *job, now time.Time, note string) error {
+// twice), then presses Enter once more (tmuxccy.PressEnter: out of copy or view mode first),
+// then fails the job once the line is still there past the bound. stuck words the failure from
+// why the line stayed: after a second Enter, or not entered again because no Enter could be
+// pressed (a tmux mode not left, a mode not read).
+func (w *WindDown) reenter(ctx context.Context, j *job, now time.Time, stuck func(why string) string) error {
 	if !j.graced {
 		j.graced = true
 		return nil
 	}
 	if !j.reentered {
 		j.reentered = true
-		return j.tmux.SendEnter(ctx, j.pane)
+		if err := j.tmux.PressEnter(ctx, j.pane); err != nil {
+			j.fail(stuck("and was not entered again: " + err.Error()))
+		}
+		return nil
 	}
 	if !now.Before(j.settleBy) {
-		j.fail(note)
+		j.fail(stuck("after a second Enter"))
 	}
 	return nil
 }

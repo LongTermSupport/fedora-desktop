@@ -160,7 +160,9 @@ func (w *WindDown) recorded(j *job) bool {
 func (w *WindDown) compacting(ctx context.Context, j *job, state screen.State, now time.Time) error {
 	switch state {
 	case screen.Typed:
-		return w.reenter(ctx, j, now, j.after("/compact stayed in its input box after a second Enter"))
+		return w.reenter(ctx, j, now, func(why string) string {
+			return j.after("/compact stayed in its input box " + why)
+		})
 	case screen.Ready, screen.Busy, screen.NotDrawn:
 	}
 	if j.lxc {

@@ -47,6 +47,10 @@ type fakeSession struct {
 	ignoreExit bool
 	// script, when set, runs at the start of every look: a test's change of screen over time.
 	script func()
+	// mode is the tmux mode its pane is in ("" for none): every key but a cancel goes to the
+	// mode, never to Claude Code. A cancel leaves it unless stuckMode.
+	mode      string
+	stuckMode bool
 }
 
 // world is a scripted tmux server, the session records, the transcripts and a clock that
@@ -145,8 +149,13 @@ func (w *world) fakeTmux() { w.fakeServer("", "-L", "ccy") }
 // sessions whose server field is key ("" for ccy's).
 func (w *world) fakeServer(key string, server ...string) {
 	on := func(cmd string) []string { return append(append([]string{"tmux"}, server...), cmd) }
-	// No pane is in a tmux mode: the keys reach Claude Code.
-	w.fake.On(on("display-message"), execx.Result{Stdout: []byte("\n")})
+	w.fake.OnFunc(on("display-message"), func(c execx.Cmd) (execx.Result, error) {
+		s := w.find(targetOf(c.Args))
+		if s == nil {
+			return gone(targetOf(c.Args)), nil
+		}
+		return execx.Result{Stdout: []byte(s.mode + "\n")}, nil
+	})
 	w.fake.OnFunc(on("list-sessions"), func(execx.Cmd) (execx.Result, error) {
 		if w.listErr[key] {
 			return execx.Result{ExitCode: 1, Stderr: []byte("lxc-attach: container is not running")}, nil
@@ -217,6 +226,11 @@ func (w *world) end(s *fakeSession) {
 
 func (w *world) press(s *fakeSession, last []string) {
 	switch {
+	case last[0] == "-X":
+		if !s.stuckMode {
+			s.mode = ""
+		}
+	case s.mode != "":
 	case last[0] == "-l":
 		s.typed += last[1]
 	case last[1] == "Escape":
@@ -938,5 +952,93 @@ func TestAGuestWhoseClaudeEndedIsNotKilled(t *testing.T) {
 	}
 	if !strings.Contains(r.Note, "claude is not running in it") || !strings.Contains(r.Note, "nothing was typed or stopped") {
 		t.Fatalf("note %q", r.Note)
+	}
+}
+
+// paneBackgroundWork is Claude Code's question when /exit finds background work running, its
+// cursor on "Exit and stop tasks".
+var paneBackgroundWork = strings.Join([]string{
+	"  Background work is running", "  The following will stop when you exit:", "", "  sleep 600", "",
+	"  ❯ 1. Exit and stop tasks", "    2. Stay",
+}, "\n")
+
+// exitTyped is a job for the world's session ccy-a whose /exit has been typed.
+func (w *world) exitTyped() *job {
+	j := w.c.newJob(Target{Name: "ccy-a"}, w.now.Add(time.Minute))
+	j.phase, j.typed = phaseExit, true
+	return j
+}
+
+// A pane left in copy mode would take the answer's Enter into the mode while the question still
+// shows beneath it: the mode is left first, and the question is answered by an Enter it received.
+func TestTheBackgroundWorkQuestionIsAnsweredAfterLeavingCopyMode(t *testing.T) {
+	w := newWorld(t, "ccy-a")
+	s := w.find("ccy-a")
+	s.mode = "copy-mode"
+	j := w.exitTyped()
+	if err := w.c.answerBackgroundWork(t.Context(), j, paneBackgroundWork); err != nil {
+		t.Fatal(err)
+	}
+	if !j.answered || s.enters != 1 || s.mode != "" {
+		t.Fatalf("answered %v, enters %d, mode %q: the Enter must reach Claude Code", j.answered, s.enters, s.mode)
+	}
+}
+
+// A mode the answer cannot leave gets no Enter: the question is not called answered, and the
+// failure says why, rather than a later timeout blaming the question's cursor.
+func TestTheBackgroundWorkQuestionUnderAModeItCannotLeaveStaysUnanswered(t *testing.T) {
+	for _, in := range []fakeSession{{mode: "tree-mode"}, {mode: "copy-mode", stuckMode: true}} {
+		w := newWorld(t, "ccy-a")
+		s := w.find("ccy-a")
+		s.mode, s.stuckMode = in.mode, in.stuckMode
+		j := w.exitTyped()
+		deadline := j.deadline
+		w.now = w.now.Add(time.Second)
+		err := w.c.answerBackgroundWork(t.Context(), j, paneBackgroundWork)
+		if !errors.Is(err, tmuxccy.ErrPaneInMode) || j.answered || s.enters != 0 || !j.deadline.Equal(deadline) {
+			t.Fatalf("%s: err %v, answered %v, enters %d", in.mode, err, j.answered, s.enters)
+		}
+		for _, want := range []string{`claude's "Background work is running" question was not answered`, in.mode, "no Enter was pressed", "it is still running: attach it (ccy-sessions)"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("%s: note %q lacks %q", in.mode, err, want)
+			}
+		}
+	}
+}
+
+// The re-Enter of a line still in the box after /exit or /compact goes through the same check: a
+// pane in copy mode is left first; any other mode fails the session saying the line was not
+// entered again, never that it stayed after a second Enter.
+func TestAReEnterLeavesCopyModeAndFailsUnderAModeItCannotLeave(t *testing.T) {
+	type reenter struct {
+		name string
+		do   func(w *world, j *job) error
+		says string
+	}
+	for _, r := range []reenter{
+		{"/exit", func(w *world, j *job) error { return w.c.look(t.Context(), j, paneTyped) }, "/exit stayed in its input box and was not entered again"},
+		{"/compact", func(w *world, j *job) error {
+			j.phase, j.typed = phaseCompacting, false
+			return w.c.compacting(t.Context(), j, screen.Typed)
+		}, "its /compact stayed in its input box and was not entered again"},
+	} {
+		w := newWorld(t, "ccy-a")
+		s := w.find("ccy-a")
+		s.mode = "copy-mode"
+		if err := r.do(w, w.exitTyped()); err != nil || s.enters != 1 {
+			t.Fatalf("%s in copy mode: err %v, enters %d", r.name, err, s.enters)
+		}
+		w = newWorld(t, "ccy-a")
+		s = w.find("ccy-a")
+		s.mode = "tree-mode"
+		err := r.do(w, w.exitTyped())
+		if !errors.Is(err, tmuxccy.ErrPaneInMode) || s.enters != 0 {
+			t.Fatalf("%s in tree mode: err %v, enters %d", r.name, err, s.enters)
+		}
+		for _, want := range []string{r.says, "tree-mode", "no Enter was pressed", "attach it (ccy-sessions)"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("%s: note %q lacks %q", r.name, err, want)
+			}
+		}
 	}
 }

@@ -81,7 +81,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_unit_no_install`         | a systemd unit kept running (`Restart=always`) with no `[Install]`, so it is static: enable does nothing and no boot starts it                                                                                | teamchat `unitfiles`: `teamchat-server@.service` and `teamchat-tls@.service`, down after a reboot, and `team apply` reporting `CHANGED unit enabled` every run (fedora-desktop#247)                                     |
 | `project_inbox_socket_dir`        | a resolver of Claude Code's inbox socket (cc-socks) directory that does not apply Claude Code's own order of places, so it and Claude Code disagree on the socket path                                        | teamchat `link`: every hook refused in a ccy session with no `XDG_RUNTIME_DIR` (fedora-desktop#266)                                                                                                                     |
 | `project_self_child_stderr`       | a child of the test binary required to say nothing on stderr, which a `-cover` build with no instrumented package (qa-changed's diff mode) makes it say                                                       | teamchat `kit` and `wiring` tests, red only in `qa-changed` (fedora-desktop#155)                                                                                                                                        |
-| `project_submit_unchecked`        | text typed into a TUI pane and submitted with one Enter nothing checks, which a TUI not yet ready loses                                                                                                       | `ccy-sessions` restore: `/compact` left unsubmitted in two sessions after a reboot (fedora-desktop#264)                                                                                                                 |
+| `project_submit_unchecked`        | text typed into a TUI pane and submitted with one Enter nothing checks, which a TUI not yet ready loses; a lone Enter pressed past the pane's tmux mode check, which copy mode takes unseen                   | `ccy-sessions` restore: `/compact` left unsubmitted in two sessions after a reboot (fedora-desktop#264); a dialog answer copy mode would take (Plan 00257)                                                              |
 | `project_class_without_detail`    | a log or report line that prints a failed call's class (`matrix.Class`) where its detail, the cause an operator acts on, is available                                                                         | teamchat `teamsync`: "down: the homeserver did not answer usably" for a seat whose pinned CA refused the server (fedora-desktop#265)                                                                                    |
 | `project_start_decision`          | a recorded session's start (resume or fresh) decided outside `conversation.StartPlan`, so the restore, its check and a team restart disagree on when a record starts fresh                                    | `ccy-sessions` restore: a declared session that never took a turn was unrestorable (fedora-desktop#270)                                                                                                                 |
 | `project_stdin_seam`              | a read of stdin outside `internal/stdinread` and the ui prompt seam, so an open pipe nothing writes to holds the command silently for ever                                                                    | teamchat `client/send.go` `readStdin` (`thread --close`'s Python twin waited minutes; issue #260)                                                                                                                       |
@@ -3330,13 +3330,15 @@ Enter submitted it.
 
 **What it flags**, outside test files: a function using both `tmuxccy`'s `Tmux.SendKeys` and
 `Tmux.SendEnter` (called, or taken as a method value), other than `Tmux.Submit`; a `SendKeys`
-whose text holds a constant newline or carriage return; and in `internal/tmuxccy` a function
-building text (`send-keys -l`, `paste-buffer`) beside a submit key (`Enter`, `C-m`, `KPEnter`,
-`C-j`) as constants, other than `Tmux.Submit`.
+whose text holds a constant newline or carriage return; outside `internal/tmuxccy`, every other
+`Tmux.SendEnter` (a lone Enter: a dialog answered, a stuck line re-entered), called or taken as a
+method value; and in `internal/tmuxccy` a function building text (`send-keys -l`,
+`paste-buffer`) beside a submit key (`Enter`, `C-m`, `KPEnter`, `C-j`) as constants, other than
+`Tmux.Submit`.
 
-**Not flagged**: a lone `SendEnter` (how a dialog is answered and a stuck line re-entered) and
-a lone `SendKeys`. **Not caught**: text typed in one function and entered in another; text
-typed through a runner other than `tmuxccy`'s; `send-keys` text given without `-l`. The
+**Not flagged**: a lone `SendKeys`, and `Tmux.PressEnter`. **Not caught**: text typed through a
+runner other than `tmuxccy`'s; an Enter sent by a raw `send-keys` outside `internal/tmuxccy`
+(`project_seam_commands` keeps every tmux run there); `send-keys` text given without `-l`. The
 shell and Python sides have no tmux submit (the independent search found `send-keys` only in
 test suites). The ccy supervisor (`.claude/ccy/claude-supervise.py`, `_perform_injection`)
 submits by a carriage return written to the child's PTY, not tmux: outside this rule's class;
@@ -3351,8 +3353,13 @@ box after an Enter is `tmuxccy.ErrBoxNotDrawn`, never taken (fedora-desktop#288)
 tmux mode sends every key to the mode while the box is read from the screen beneath, so a lost
 line read as taken: `Submit` takes a pane out of copy or view mode before typing, and any other
 mode, or one entered while the line is typed, is `tmuxccy.ErrPaneInMode` with no Enter pressed
-(Plan 00257 wind-down triage). Routing every typed line through `Submit`, which this rule holds,
-is what holds that class too.
+(Plan 00257 wind-down triage). A lone Enter meets the same mode and is never typed through
+`Submit`: press it with `tmuxccy.Tmux.PressEnter(ctx, name)`, which takes the pane out of copy or
+view mode first, and returns `ErrPaneInMode` for any other mode, or an error for a mode it could
+not read, with no Enter pressed. Count the dialog answered or the line entered again only when it
+returns nil, and say in the failure what was not answered or entered. Routing every typed line
+through `Submit` and every lone Enter through `PressEnter`, both of which this rule holds, is
+what holds the mode class.
 
 **The next wider rule, not built:** any text written into a TUI (a tmux pane or a PTY, in any
 language) and submitted with one unchecked Enter. Not built: its one other instance, the
@@ -3372,6 +3379,18 @@ decides whether it is wanted.
   `sessions.TestSetGoingPressesEnterAgainWhileTheCompactStaysInTheBox` and
   `TestSetGoingFailsASessionWhoseTextNeverLeavesTheBox` reproduce the defect;
   `tmuxccy.TestSubmit*` prove the retry, the bound and the failures.
+- Red, lone Enter (Plan 00257, after review found the mode class only partly held): fixture
+  `fix/sub/loneenter` (two re-Enters, the background-work answer, a method value; `PressEnter`
+  clean) and `badsubmit`'s lone re-Enter, which the rule had left unjudged. Real tree: four
+  findings, `sessclose/sessclose.go:637` (/exit re-Enter), `:746` (/compact re-Enter), `:847`
+  (`answerBackgroundWork`, which marked the question answered after an Enter copy mode took) and
+  `teams/winddown/windstep.go:317`, at `eb234303b`, over the module, the `qa` module and the
+  four tagged builds; no other.
+- Green: all four press through `Tmux.PressEnter`, each failure saying what was not answered or
+  entered again; the sweep over the module and the tagged builds is clean.
+  `tmuxccy.TestPressEnter*`, `sessclose.TestTheBackgroundWorkQuestion*AfterLeavingCopyMode`,
+  `...UnderAModeItCannotLeaveStaysUnanswered`, and the `TestAReEnter*` tests of `sessclose` and
+  `winddown` reproduce the defect.
 
 ### project_stdin_seam
 

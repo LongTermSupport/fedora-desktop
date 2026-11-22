@@ -34,6 +34,10 @@
 //     question, whose prompt never readies within its bound (C4) or that has not ended within
 //     Waits.Exit of /exit, is stopped: its tmux session killed and its record removed. The note
 //     says which: a turn still running after Waits.Turn, or a prompt not ready within the bound.
+//   - C8a. Every lone Enter (the question's answer, a /compact or /exit entered again) is
+//     tmuxccy.PressEnter: a pane in copy or view mode is taken out of it first; under any other
+//     mode no Enter is pressed and the session fails, saying what was not entered or answered
+//     and that it is still running. The question counts as answered only by an Enter delivered.
 //   - C9. Live is the sessions on ccy's tmux server; Limits the bounds the Closer works to.
 //   - C10. Seconds is a bound as a sentence reads it ("60 s").
 //
@@ -74,6 +78,7 @@ package sessclose
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -364,6 +369,14 @@ func (j *job) left() string {
 	return noteLeftClose
 }
 
+// stillRunning is what a failure after /exit went in says of the session.
+func (j *job) stillRunning() string {
+	if j.Guest != nil {
+		return "it is still running in " + j.Guest.Where + ": attach it there"
+	}
+	return noteLeftStay
+}
+
 // leftIn ends the note on a session in a container that is left running where a host session
 // would be stopped (G2).
 func (j *job) leftIn() string {
@@ -634,7 +647,9 @@ func (c *Closer) look(ctx context.Context, j *job, pane string) error {
 	case screen.Typed:
 		if !j.reentered {
 			j.reentered = true
-			return j.tmux.SendEnter(ctx, j.pane)
+			if err := j.tmux.PressEnter(ctx, j.pane); err != nil {
+				return fmt.Errorf("/exit stayed in its input box and was not entered again: %w; %s", err, j.stillRunning())
+			}
 		}
 	case screen.Ready, screen.Busy, screen.NotDrawn:
 	}
@@ -743,7 +758,10 @@ func (c *Closer) compacting(ctx context.Context, j *job, state screen.State) err
 	case screen.Typed:
 		if !j.compactReentered {
 			j.compactReentered, j.stuckBy = true, now.Add(c.Waits.Settle)
-			return j.tmux.SendEnter(ctx, j.pane)
+			if err := j.tmux.PressEnter(ctx, j.pane); err != nil {
+				return fmt.Errorf("its /compact stayed in its input box and was not entered again: %w; %s", err, j.left())
+			}
+			return nil
 		}
 		if !now.Before(j.stuckBy) {
 			j.done(Failed, "its /compact stayed in its input box after a second Enter, so "+j.left())
@@ -834,7 +852,8 @@ func (c *Closer) notReady(j *job) (label, late string) {
 // answerBackgroundWork answers claude's "Background work is running" question, which /exit
 // brings up while a background task of the session runs: the close was asked for, so Enter
 // chooses "Exit and stop tasks", once, and only while the cursor is on it. The wait for the end
-// starts again from the answer.
+// starts again from the answer. It is answered only by an Enter the pane delivered: one a tmux
+// mode would take is never pressed, and the session fails saying so.
 func (c *Closer) answerBackgroundWork(ctx context.Context, j *job, pane string) error {
 	if !j.typed || j.answered {
 		return nil
@@ -844,8 +863,8 @@ func (c *Closer) answerBackgroundWork(ctx context.Context, j *job, pane string) 
 	if !exitFocused {
 		return nil
 	}
-	if err := j.tmux.SendEnter(ctx, j.pane); err != nil {
-		return err
+	if err := j.tmux.PressEnter(ctx, j.pane); err != nil {
+		return fmt.Errorf(`claude's "Background work is running" question was not answered: %w; %s`, err, j.stillRunning())
 	}
 	j.answered = true
 	j.deadline = c.Now().Add(c.Waits.Exit)

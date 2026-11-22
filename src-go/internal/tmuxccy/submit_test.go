@@ -290,6 +290,69 @@ func TestSubmitStopsAtAScreenThatDrawsNoBox(t *testing.T) {
 	}
 }
 
+// A lone Enter (a dialog answered, a stuck line re-entered) into a pane in no mode is one Enter.
+func TestPressEnterPressesOneEnter(t *testing.T) {
+	p := &submitPane{}
+	if err := newTmux(p.fake()).PressEnter(context.Background(), "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"Enter"}; !slices.Equal(p.presses, want) {
+		t.Fatalf("pressed %q, want %q", p.presses, want)
+	}
+}
+
+// A pane left in copy or view mode would take the Enter into the mode, while the screen beneath
+// still shows the dialog: PressEnter leaves the mode, then presses it.
+func TestPressEnterLeavesCopyModeFirst(t *testing.T) {
+	for _, mode := range []string{"copy-mode", "view-mode"} {
+		p := &submitPane{mode: mode}
+		if err := newTmux(p.fake()).PressEnter(context.Background(), "alpha"); err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if want := []string{"cancel", "Enter"}; !slices.Equal(p.presses, want) || p.enters != 1 {
+			t.Fatalf("%s: pressed %q (%d reached the program), want %q", mode, p.presses, p.enters, want)
+		}
+	}
+}
+
+// A mode PressEnter does not leave, or one that stays after the cancel, is ErrPaneInMode with no
+// Enter pressed, saying so.
+func TestPressEnterRefusesAPaneItCannotTakeOutOfItsMode(t *testing.T) {
+	for _, p := range []*submitPane{{mode: "tree-mode"}, {mode: "copy-mode", stuck: true}} {
+		err := newTmux(p.fake()).PressEnter(context.Background(), "alpha")
+		if !errors.Is(err, tmuxccy.ErrPaneInMode) || !strings.Contains(err.Error(), p.mode) ||
+			!strings.Contains(err.Error(), "no Enter was pressed") {
+			t.Fatalf("%s: got %v, want ErrPaneInMode naming the mode and saying no Enter was pressed", p.mode, err)
+		}
+		if slices.Contains(p.presses, "Enter") {
+			t.Fatalf("%s: pressed %q", p.mode, p.presses)
+		}
+	}
+}
+
+// A mode that cannot be read fails before any key is sent.
+func TestPressEnterFailsBeforeAnyKeyWhenTheModeCannotBeRead(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"tmux"}, fail("no such pane"))
+	err := newTmux(f).PressEnter(context.Background(), "alpha")
+	if err == nil || !strings.Contains(err.Error(), "reading the mode of alpha's pane failed") ||
+		!strings.Contains(err.Error(), "no Enter was pressed") {
+		t.Fatalf("got %v", err)
+	}
+	if f.Called("tmux -L ccy send-keys") {
+		t.Fatalf("a key was sent: %v", f.Calls())
+	}
+}
+
+func TestPressEnterCarriesAFailedEnter(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"tmux"}, fail("no such pane"))
+	f.On([]string{"tmux", "-L", "ccy", "display-message"}, ok("\n"))
+	if err := newTmux(f).PressEnter(context.Background(), "alpha"); err == nil || !strings.Contains(err.Error(), "pressing Enter in alpha failed") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestSubmitCarriesAFailedKeyOrRead(t *testing.T) {
 	var slept []time.Duration
 	f := &execx.Fake{}
