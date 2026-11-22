@@ -61,7 +61,7 @@ func TestEveryShellStringHasAReason(t *testing.T) {
 }
 
 func TestSubmitUnchecked(t *testing.T) {
-	analysistest.Run(t, analysistest.TestData(), SubmitUnchecked, "fix/sub/internal/tmuxccy", "fix/sub/badsubmit")
+	analysistest.Run(t, analysistest.TestData(), SubmitUnchecked, "fix/sub/internal/tmuxccy", "fix/sub/badsubmit", "fix/sub/loneenter")
 }
 
 func TestTmuxTargets(t *testing.T) {

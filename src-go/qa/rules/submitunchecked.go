@@ -42,16 +42,23 @@ Flagged, outside test files:
     method value), other than Tmux.Submit itself;
   - a Tmux.SendKeys whose text holds a constant with a newline or carriage return, which
     submits the line inside the typing;
+  - outside internal/tmuxccy, any other Tmux.SendEnter (a lone Enter: a dialog answered, a
+    stuck line re-entered). A pane in a tmux mode sends it to the mode (copy mode takes it),
+    while the screen beneath still shows the dialog or the line, so the caller counts an
+    Enter nobody received (Plan 00257);
   - in internal/tmuxccy, a function building text (send-keys -l, paste-buffer) and a submit
     key (Enter, C-m, KPEnter, C-j) as constants, other than Tmux.Submit.
 
-Not caught: typing in one function and its Enter in another (a lone SendEnter is how a dialog
-is answered and a stuck line re-entered, so it is not judged alone); text typed through a runner
-other than tmuxccy's. The shell and Python sides have no tmux submit today (see the catalogue).
+Not caught: text typed through a runner other than tmuxccy's, or an Enter sent with a raw
+send-keys outside internal/tmuxccy (rule project_seam_commands keeps tmux runs there). The shell
+and Python sides have no tmux submit today (see the catalogue).
 
 How to fix: submit with tmuxccy's Tmux.Submit, which types the text, presses Enter, reads the
 box until the text has left it, presses Enter again a bounded number of times, and returns
-tmuxccy.ErrNotSubmitted when it never leaves: report that, never carry on as if it was taken.`,
+tmuxccy.ErrNotSubmitted when it never leaves: report that, never carry on as if it was taken.
+Press a lone Enter with Tmux.PressEnter, which takes the pane out of copy or view mode first and
+returns tmuxccy.ErrPaneInMode, with no Enter pressed, for any other mode: count the Enter as
+given only when it returns nil.`,
 	Run:        perPass(runSubmitUnchecked),
 	ResultType: noResultType,
 }
@@ -68,7 +75,7 @@ func runSubmitUnchecked(pass *analysis.Pass) {
 				continue
 			}
 			submitter := owner && funcName(fd) == submitterFn
-			judgeSubmitFunc(pass, fd.Body, submitter)
+			judgeSubmitFunc(pass, fd.Body, submitter, owner)
 			if owner && !submitter {
 				judgeRawSubmit(pass, fd.Body)
 			}
@@ -76,9 +83,9 @@ func runSubmitUnchecked(pass *analysis.Pass) {
 	}
 }
 
-// judgeSubmitFunc reports each SendEnter of a function that also types with SendKeys, and each
-// SendKeys of a line ending.
-func judgeSubmitFunc(pass *analysis.Pass, body *ast.BlockStmt, submitter bool) {
+// judgeSubmitFunc reports each SendEnter of a function that also types with SendKeys, each lone
+// SendEnter outside the owner, and each SendKeys of a line ending.
+func judgeSubmitFunc(pass *analysis.Pass, body *ast.BlockStmt, submitter, owner bool) {
 	var typed bool
 	var enters []*ast.SelectorExpr
 	ast.Inspect(body, func(n ast.Node) bool {
@@ -95,6 +102,12 @@ func judgeSubmitFunc(pass *analysis.Pass, body *ast.BlockStmt, submitter bool) {
 		}
 		return true
 	})
+	if !typed && !owner {
+		for _, e := range enters {
+			pass.Reportf(e.Sel.Pos(), "a lone SendEnter outside tmuxccy is pressed into whatever tmux mode the pane is in, and copy mode takes it unseen: use Tmux.PressEnter, which leaves copy or view mode first and refuses any other")
+		}
+		return
+	}
 	if !typed || submitter {
 		return
 	}

@@ -16,6 +16,9 @@ func (t *Tmux) SendKeys(ctx context.Context, name, text string) error { return n
 // SendEnter presses Enter.
 func (t *Tmux) SendEnter(ctx context.Context, name string) error { return nil }
 
+// PressEnter is the mode-checked lone Enter: the owner may press SendEnter in it.
+func (t *Tmux) PressEnter(ctx context.Context, name string) error { return t.SendEnter(ctx, name) }
+
 // CapturePane reads the pane.
 func (t *Tmux) CapturePane(ctx context.Context, name string, escapes bool) (string, error) {
 	return "", nil

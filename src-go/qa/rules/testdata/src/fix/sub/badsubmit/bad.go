@@ -51,9 +51,15 @@ func submitted(ctx context.Context, t *tmuxccy.Tmux, name string) error {
 	return t.Submit(ctx, name, "/compact now")
 }
 
-// reenter presses Enter again on a line a poll saw still in the box: a lone Enter, not judged.
+// reenter presses Enter again on a line a poll saw still in the box: a lone Enter, which a pane
+// in copy mode takes.
 func reenter(ctx context.Context, t *tmuxccy.Tmux, name string) error {
-	return t.SendEnter(ctx, name)
+	return t.SendEnter(ctx, name) // want `a lone SendEnter outside tmuxccy`
+}
+
+// reenterChecked is its fix: the mode-checked Enter.
+func reenterChecked(ctx context.Context, t *tmuxccy.Tmux, name string) error {
+	return t.PressEnter(ctx, name)
 }
 
 // typedOnly types text and leaves it for a person: no Enter, not judged.
