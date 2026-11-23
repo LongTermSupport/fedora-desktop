@@ -343,6 +343,11 @@ func TestDesiredReadsTheSessionsDesiredJSON(t *testing.T) {
 	if got, err := d.Desires(s1, dev); err != nil || got {
 		t.Fatalf("another team: %v %v", got, err)
 	}
+	// A seat listed with its duty is the same seat.
+	w.desire("s1", `{"team":"ops","seat":"1","duty":"host"}`)
+	if got, err := d.Desires(s1, ops); err != nil || !got {
+		t.Fatalf("listed with a duty: %v %v", got, err)
+	}
 }
 
 func TestDesiredRefusesWhatItCannotJudge(t *testing.T) {

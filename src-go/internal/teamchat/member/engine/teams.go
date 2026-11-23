@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/duty"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/failpoint"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/lock"
@@ -28,7 +29,9 @@ const (
 
 // held is one team the session holds: its seat, its store and the items' content in memory.
 type held struct {
-	id     paths.TeamID
+	id paths.TeamID
+	// duty is the seat's duty as its add gave it, "" for none (PROPOSAL-seat-kinds.md).
+	duty   duty.Duty
 	lock   *lock.SeatLock
 	writer *state.StoreWriter
 	// store is nil until the team's first Load creates it (no store.json yet), and while
@@ -123,12 +126,12 @@ var errNotHeld = errors.New("engine: the team is not held")
 // and restored (P11), and starts the team goroutine. A store that does not decode is this
 // team's failure (status shows it refused), never the link's; so is a seat.json that does not
 // read, which the team goroutine reports. An error means nothing is held: l is closed.
-func (e *Engine) Add(ctx context.Context, t paths.TeamID, l *lock.SeatLock, removedUserIDs []string) error {
+func (e *Engine) Add(ctx context.Context, t paths.TeamID, l *lock.SeatLock, removedUserIDs []string, d duty.Duty) error {
 	if l.Seat().Dir() != e.cfg.Layout.Seat(t).Dir() {
 		return errors.Join(fmt.Errorf("engine: the seat lock is not team %s's", t), l.Close())
 	}
 	h := &held{
-		id: t, lock: l, content: map[string]proto.Verdict{}, answers: map[string][]answerNote{}, stopped: make(chan struct{}),
+		id: t, duty: d, lock: l, content: map[string]proto.Verdict{}, answers: map[string][]answerNote{}, stopped: make(chan struct{}),
 		poke: make(chan struct{}, 1), waiting: map[string]chan sendResult{}, contact: make(chan struct{}),
 	}
 	var addErr error

@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/duty"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/agent"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/cli"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
@@ -518,10 +519,11 @@ func (k *keeper) state() (*homefs.Root, error) {
 	return root, nil
 }
 
-// want is a seat the session should hold.
+// want is a seat the session should hold, and its duty as the desired membership gave it.
 type want struct {
 	team paths.TeamID
 	name string
+	duty duty.Duty
 }
 
 // wanted are the seats the launch names: the desired membership's, or the --seat refs.
@@ -529,12 +531,12 @@ func (k *keeper) wanted() []want {
 	var out []want
 	if k.desired != nil {
 		for _, s := range k.desired.Seats {
-			out = append(out, want{s.Team, s.Seat})
+			out = append(out, want{s.Team, s.Seat, s.Duty})
 		}
 		return out
 	}
 	for _, s := range k.cfg.Launch.Seats {
-		out = append(out, want{s.Team, s.Seat.String()})
+		out = append(out, want{team: s.Team, name: s.Seat.String()})
 	}
 	return out
 }
@@ -593,7 +595,7 @@ func (k *keeper) takeSeat(ctx context.Context, w want) (*seat, error) {
 		}
 		return nil, err
 	}
-	s := &seat{team: w.team, name: w.name, path: ps, lock: l, startedMS: k.cfg.Clock.WallMS()}
+	s := &seat{team: w.team, name: w.name, duty: w.duty, path: ps, lock: l, startedMS: k.cfg.Clock.WallMS()}
 	if err := state.WriteLockRecord(l, state.LockRecord{V: state.Version, Run: k.runID, StartedMS: s.startedMS}); err != nil {
 		k.logf("seat %s: write its lock record: %v", w.team, err)
 	}

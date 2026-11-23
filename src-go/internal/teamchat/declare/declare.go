@@ -22,6 +22,7 @@ import (
 	"net/netip"
 	"strconv"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/duty"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -86,7 +87,10 @@ type Team struct {
 	URL         string
 	Humans      []string
 	Coordinator string
-	Trust       proto.Forge
+	// Duties are the declared duty overrides by member handle, nil when the team declares none
+	// (PROPOSAL-seat-kinds.md); DutyOf is a member's duty.
+	Duties map[string]duty.Duty
+	Trust  proto.Forge
 	// Colour is the colour override as stored hex (n3e-D4), empty when the team declares none.
 	Colour string
 	// ConnectionsPerSource is the most connections the team's terminator lets one source
@@ -222,7 +226,7 @@ func readTeams(f fields, key, address string) ([]Team, error) {
 
 var teamOptional = []string{
 	keyName, keyPurge, keyPort, keyServerName, keyDescription, keyNetworks, keyURL,
-	keyHumans, keyCoordinator, keyTrust, keyColour, keyCarriedFrom, keyConnectionsPerSource,
+	keyHumans, keyCoordinator, keyDuties, keyTrust, keyColour, keyCarriedFrom, keyConnectionsPerSource,
 }
 
 // readTeam reads one team entry (DR3).
@@ -301,6 +305,7 @@ func readValues(t *Team, f fields, address string) error {
 		{keyURL, func(n node) error { t.URL, err = n.url(); return err }},
 		{keyHumans, func(n node) error { t.Humans, err = n.humans(); return err }},
 		{keyCoordinator, func(n node) error { t.Coordinator, err = n.coordinator(); return err }},
+		{keyDuties, func(n node) error { t.Duties, err = n.duties(); return err }},
 		{keyTrust, func(n node) error { t.Trust, err = n.trust(); return err }},
 		{keyColour, func(n node) error { t.Colour, err = n.colour(); return err }},
 		{keyConnectionsPerSource, func(n node) error { t.ConnectionsPerSource, err = connectionsPerSource(n); return err }},
@@ -315,6 +320,9 @@ func readValues(t *Team, f fields, address string) error {
 				return err
 			}
 		}
+	}
+	if err := checkDuties(t.Coordinator, t.Duties, f); err != nil {
+		return err
 	}
 	if t.State != StatePresent {
 		return nil

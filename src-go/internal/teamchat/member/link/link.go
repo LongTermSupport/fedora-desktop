@@ -399,7 +399,7 @@ func (l *link) add(ctx context.Context, a *wire.Add, fd *os.File) {
 		l.logf("link: add %s: adopt the seat: %v", a.Team, err)
 		return
 	}
-	if err := l.eng.Add(ctx, a.Team, sl, a.RemovedUserIDs); err != nil {
+	if err := l.eng.Add(ctx, a.Team, sl, a.RemovedUserIDs, a.Duty); err != nil {
 		l.logf("link: add %s: %v", a.Team, err)
 	}
 }

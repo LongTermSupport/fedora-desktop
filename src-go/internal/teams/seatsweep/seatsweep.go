@@ -200,7 +200,7 @@ func (d Desired) Desires(session paths.SessionName, s seat.Seat) (bool, error) {
 	if !found {
 		return true, nil
 	}
-	return slices.Contains(desired.Seats, state.DesiredSeat{Team: s.Team, Seat: h.Seat}), nil
+	return desired.Holds(s.Team, h.Seat), nil
 }
 
 // read is the session's desired.json, read capped and never through a link; found is false when

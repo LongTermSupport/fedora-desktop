@@ -58,6 +58,28 @@ func TestDecodeTheExample(t *testing.T) {
 	}
 }
 
+// A member row may carry the member's duty (PROPOSAL-seat-kinds.md): one of the closed set,
+// never on the probe, absent where the writer knew none.
+func TestAMemberRowCarriesItsDuty(t *testing.T) {
+	withDuty := strings.Replace(example, `"role":"worker","state":"enrolled"`, `"role":"worker","duty":"host","state":"enrolled"`, 1)
+	rec, err := Decode([]byte(withDuty), team)
+	if err != nil || rec.Members[1].Duty == nil || *rec.Members[1].Duty != "host" || rec.Members[0].Duty != nil {
+		t.Fatalf("duty: %+v, %v", rec.Members, err)
+	}
+	if out := string(mustEncode(t, rec)); !strings.Contains(out, `"duty":"host"`) || strings.Count(out, `"duty"`) != 1 {
+		t.Fatalf("encoded %s", out)
+	}
+	for name, bad := range map[string]string{
+		"unknown": strings.Replace(withDuty, `"duty":"host"`, `"duty":"reviewer"`, 1),
+		"empty":   strings.Replace(withDuty, `"duty":"host"`, `"duty":""`, 1),
+		"probe":   strings.Replace(withDuty, `"role":"worker","duty":"host"`, `"role":"probe","duty":"host"`, 1),
+	} {
+		if _, err := Decode([]byte(bad), team); err == nil {
+			t.Errorf("%s duty accepted", name)
+		}
+	}
+}
+
 func mustEncode(t *testing.T, r Record) []byte {
 	t.Helper()
 	out, err := r.Encode()

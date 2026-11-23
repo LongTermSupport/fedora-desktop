@@ -44,11 +44,40 @@ func TestDecodeDesired(t *testing.T) {
 	})
 }
 
+// A seat may carry its duty (PROPOSAL-seat-kinds.md OD2 (a)): one of the closed set, or none.
+func TestDesiredSeatDuty(t *testing.T) {
+	for _, d := range []string{"coordinator", "worker", "host"} {
+		doc := edit(t, desiredDoc, `{"team":"alpha","seat":"2"}`, `{"team":"alpha","seat":"2","duty":"`+d+`"}`)
+		got, err := DecodeDesired([]byte(doc))
+		if err != nil || string(got.Seats[0].Duty) != d {
+			t.Fatalf("duty %s: %+v, %v", d, got.Seats, err)
+		}
+		roundTrips(t, got, MaxDesired, DecodeDesired)
+	}
+	got, err := DecodeDesired([]byte(desiredDoc))
+	if err != nil || got.Seats[0].Duty != "" {
+		t.Fatalf("no duty: %+v, %v", got.Seats, err)
+	}
+	refusesAll(t, desiredFile, desiredDoc, DecodeDesired, []refusal{
+		{`{"team":"alpha","seat":"2"}`, `{"team":"alpha","seat":"2","duty":"reviewer"}`, CodeSchema},
+		{`{"team":"alpha","seat":"2"}`, `{"team":"alpha","seat":"2","duty":""}`, CodeSchema},
+		{`{"team":"alpha","seat":"2"}`, `{"team":"alpha","seat":"2","duty":null}`, CodeSchema},
+	})
+	// A farewell names a seat by team and seat; the duty a held seat carries does not hide it.
+	clash := edit(t, desiredDoc, `{"team":"alpha","seat":"2"}`, `{"team":"beta","seat":"1","duty":"host"}`)
+	if _, err := DecodeDesired([]byte(clash)); err == nil {
+		t.Fatal("a farewell of a held seat with a duty was accepted")
+	}
+	if !got.Holds(got.Seats[0].Team, "2") || got.Holds(got.Seats[0].Team, "3") {
+		t.Fatal("Holds")
+	}
+}
+
 // TestDesiredCap holds the largest desired.json within its cap: every seat and farewell at the
 // longest team id and seat.
 func TestDesiredCap(t *testing.T) {
 	seat := strings.Repeat("s", 12)
-	doc := edit(t, desiredDoc, `[{"team":"alpha","seat":"2"}]`, `[`+teamsJSON(maxDesiredSeats, `{"team":"%s","seat":"`+seat+`"}`)+`]`)
+	doc := edit(t, desiredDoc, `[{"team":"alpha","seat":"2"}]`, `[`+teamsJSON(maxDesiredSeats, `{"team":"%s","seat":"`+seat+`","duty":"coordinator"}`)+`]`)
 	doc = edit(t, doc, `[{"team":"beta","seat":"1","reason":"released"}]`,
 		`[`+teamsJSON(maxDesiredSeats, `{"team":"%s","seat":"`+strings.Repeat("f", 12)+`","reason":"released"}`)+`]`)
 	doc = edit(t, doc, `"session":"s1"`, `"session":"`+strings.Repeat("s", 128)+`"`)
