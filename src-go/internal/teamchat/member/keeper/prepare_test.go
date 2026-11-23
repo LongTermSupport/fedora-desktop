@@ -273,6 +273,27 @@ func TestSettingsRefused(t *testing.T) {
 	})
 }
 
+// Task 5.1 H4: --extra-settings is merged under the kit's settings, read as the kit's are.
+func TestExtraSettingsMergedUnderTheKits(t *testing.T) {
+	w := newWorld(t, claudeLaunch...)
+	extra := w.dir + "/cc-deny.json"
+	mustDo(t, os.WriteFile(extra, []byte(`{"permissions":{"deny":["Bash(x)"]},"statusLine":null}`), 0o600))
+	w.parse("--claude", "--kind", "host", "--desired", "DESIRED", "--extra-settings", extra, "--", "claude")
+	w.writeDesired(desiredJSON(1, state.InboundAccept))
+	w.refused(exits.CodeLaunch)
+	mustDo(t, os.WriteFile(extra, []byte(`{"permissions":{"deny":["Bash(x)"]}}`), 0o600))
+	l, c, res := w.running(0)
+	data, err := os.ReadFile(w.runDir().Settings())
+	mustDo(t, err)
+	if string(data) != `{"crossSessionInbound":"accept","permissions":{"deny":["Bash(x)"]},"statusLine":{"type":"command"}}` {
+		t.Fatalf("settings %s", data)
+	}
+	c.code(0)
+	l.expect(t, wire.KindEnd)
+	l.code(0)
+	exitOf(t, res, term.ExitOK)
+}
+
 // The desired membership: missing, undecodable, or not given to a ccy or lxc launch is 78
 // membership; a host launch without it has inbound refuse.
 func TestDesiredAtLaunch(t *testing.T) {

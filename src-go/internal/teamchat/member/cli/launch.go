@@ -43,7 +43,8 @@ type SeatRef struct {
 // Code's argument under LaunchClaude, -1 under LaunchPlain. Kit is the re-exec form's kit
 // directory (B 2.4.1 step 2), "" when run resolves the kit itself. Key is an LXC seat's key,
 // given for --kind lxc and only there, from which run takes the seat's roots
-// (paths.LXCLayout), so it comes with no --state, --desired or --seat.
+// (paths.LXCLayout), so it comes with no --state, --desired or --seat. ExtraSettings is a
+// --claude launch's settings file merged under the kit's (Task 5.1 decision H4), "" if none.
 type Launch struct {
 	Mode           Mode
 	Kind           Kind
@@ -51,6 +52,7 @@ type Launch struct {
 	Desired        string
 	State          string
 	Kit            string
+	ExtraSettings  string
 	Seats          []SeatRef
 	ResumeRecorded bool
 	Cmd            []string
@@ -68,6 +70,7 @@ const (
 	flagResumeRecorded = "resume-recorded"
 	flagKit            = "kit"
 	flagLaunchKey      = "key"
+	flagExtraSettings  = "extra-settings"
 )
 
 const groupMode = "mode"
@@ -83,6 +86,7 @@ var launchFlags = []Flag{
 	{Name: flagState, Value: valueDir, check: checkDir},
 	{Name: flagResumeRecorded},
 	{Name: flagKit, Value: valueDir, check: checkDir},
+	{Name: flagExtraSettings, Value: "FILE", check: checkFile},
 }
 
 const separator = "--"
@@ -100,6 +104,8 @@ const (
 	msgLaunchSeparator     exits.Template = "the command may hold one bare --, only directly before claude"
 	msgLaunchResume        exits.Template = "--resume-recorded and claude's own {} cannot both be given"
 	msgLaunchResumePlain   exits.Template = "--resume-recorded is only for a --claude launch"
+	msgLaunchExtraPlain    exits.Template = "--extra-settings is only for a --claude launch"
+	msgFile                exits.Template = "--{} takes an absolute, clean file path"
 	msgDir                 exits.Template = "--{} takes an absolute, clean directory other than /"
 	msgLaunchKeyLXC        exits.Template = "--key is for --kind lxc only, and --kind lxc takes it"
 	msgLaunchKeyRoots      exits.Template = "--key gives the seat's roots; it takes no --state, --desired or --seat"
@@ -133,6 +139,9 @@ func ParseLaunch(args []string) (Launch, error) {
 		if l.ResumeRecorded {
 			return Launch{}, usage(msgLaunchResumePlain)
 		}
+		if l.ExtraSettings != "" {
+			return Launch{}, usage(msgLaunchExtraPlain)
+		}
 		return l, nil
 	}
 	if err := l.checkClaudeCmd(); err != nil {
@@ -149,6 +158,7 @@ func (l *Launch) fromFlags(got parsed) error {
 	l.Kind = Kind(got.value(flagKind))
 	l.ResumeRecorded = got.has(flagResumeRecorded)
 	l.Desired, l.State, l.Kit = got.value(flagDesired), got.value(flagState), got.value(flagKit)
+	l.ExtraSettings = got.value(flagExtraSettings)
 	if err := l.key(got); err != nil {
 		return err
 	}

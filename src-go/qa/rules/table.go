@@ -193,6 +193,11 @@ var dynamicNames = []allowance{
 		reason: "the host pingbus the ccy launcher names (its CCY_PINGBUS_COMMAND, the agent-bus kit's or CCY_TEAMS_PINGBUS), exec'd with the launcher's own arguments for an agent-bus session's exit (Plan 00209 Task 4.2)",
 	},
 	{
+		pkg:    "internal/teams/teamchatlaunch",
+		fn:     "Verbs.ccRunV1",
+		reason: "the agent-bus kit's pingbus, host cc's agent-bus session as cc-teams.bash started it; the kit's directory is CC.V1Kit, which a test points into a scratch tree (Plan 00209 Task 5.1)",
+	},
+	{
 		pkg:    hostPkg,
 		fn:     "launcherVia",
 		reason: "the ccy launcher path the process is replaced with, given by the environment",

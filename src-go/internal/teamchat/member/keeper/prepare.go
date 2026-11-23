@@ -277,7 +277,7 @@ func (k *keeper) readDesired() (state.Desired, error) {
 var errUntrusted = errors.New("keeper: not a regular file of this user or root, free of group and other write, within its cap")
 
 // trustedRead reads a file another account may have placed (desired.json, the kit's
-// settings): reached through no link, opened without blocking, a regular file of this user or
+// settings, run's extra settings): reached through no link, opened without blocking, a regular file of this user or
 // root that no group or other can write, at most limit bytes.
 func trustedRead(path string, limit int) ([]byte, error) {
 	fd, err := unix.Openat2(unix.AT_FDCWD, path, &unix.OpenHow{
@@ -461,7 +461,7 @@ func (k *keeper) writeSessionPID(session *state.Process) error {
 // resume, the plugin and the per-launch settings, written to the run first).
 func (k *keeper) launchArgv() error {
 	l, err := k.adapter.Preparer.Prepare(agent.RunFacts{
-		Inbound: k.inbound, ResumeRecorded: k.cfg.Launch.ResumeRecorded, Kit: k.kit, Run: k.run,
+		Inbound: k.inbound, ResumeRecorded: k.cfg.Launch.ResumeRecorded, ExtraSettings: k.cfg.Launch.ExtraSettings, Kit: k.kit, Run: k.run,
 		Cwd: k.cfg.Cwd, Home: k.cfg.Env(envHome), ClaudeConfigDir: k.claudeConfigDir(),
 		ReadTrusted: trustedRead, WriteRunFile: k.writeRunFile, Conversation: k.conversation, Logf: k.logf,
 	})

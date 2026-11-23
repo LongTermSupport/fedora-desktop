@@ -172,3 +172,33 @@ func TestYoloVariableIsCcyOnly(t *testing.T) {
 		}
 	}
 }
+
+// C7 (Task 5.1 H5): a first argument -- is the wrapper form teamchat run needs, which finds
+// claude by an argument named claude: -- must be followed by claude, and the arguments after
+// that claude go to claude, with C2's defaults as in C1.
+func TestTheWrapperFormExecsClaudeWithTheRest(t *testing.T) {
+	w := newWorld()
+	if code := w.run("--", "claude", "--resume", "abc", "--", "-x"); code != term.ExitOK {
+		t.Fatalf("exit %d, stderr %q", code, w.stderr.String())
+	}
+	c := w.only(t)
+	if c.Name != "claude" || !slices.Equal(c.Args, []string{"--resume", "abc", "--", "-x"}) {
+		t.Errorf("exec'd %q", c.Line())
+	}
+	if len(c.Env) != len(Defaults) || w.stderr.Len() != 0 {
+		t.Errorf("env %q, stderr %q", c.Env, w.stderr.String())
+	}
+}
+
+// C7: anything else after a first -- is a usage error, and nothing is exec'd.
+func TestTheWrapperFormNeedsClaudeAfterTheSeparator(t *testing.T) {
+	for _, args := range [][]string{{"--"}, {"--", "--model"}, {"--", "/usr/bin/claude"}, {"--", "claudex"}, {"--", "--", "claude"}} {
+		w := newWorld()
+		if code := w.run(args...); code != term.ExitUsage {
+			t.Errorf("%q: exit %d", args, code)
+		}
+		if len(w.fake.Execs()) != 0 || !strings.Contains(w.stderr.String(), "cc-claude -- claude") {
+			t.Errorf("%q: execs %v, stderr %q", args, w.fake.Execs(), w.stderr.String())
+		}
+	}
+}

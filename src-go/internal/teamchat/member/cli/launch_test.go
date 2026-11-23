@@ -78,6 +78,13 @@ func TestTheDesignsLaunchLinesParse(t *testing.T) {
 			Launch{Mode: LaunchClaude, Kind: KindOther, Cmd: []string{"/usr/local/bin/my-wrapper", "-x", "/opt/bin/claude", "--resume", "abc"}, Claude: 2},
 		},
 		{
+			// A host cc on v2 (Task 5.1, H1, H4, H5): the seat store's session roots, cc's deny
+			// rules as extra settings, cc-claude before claude.
+			"host cc on v2",
+			strings.Fields("teamchat run --claude --kind host --state /s/sessions/cc-x --desired /s/control/cc-x --extra-settings /run/user/1/cc/cc-deny.json -- /var/local/claude-code/cc-claude -- claude --model opus"),
+			Launch{Mode: LaunchClaude, Kind: KindHost, State: "/s/sessions/cc-x", Desired: "/s/control/cc-x", ExtraSettings: "/run/user/1/cc/cc-deny.json", Cmd: []string{"/var/local/claude-code/cc-claude", "--", "claude", "--model", "opus"}, Claude: 2},
+		},
+		{
 			"plain shell with no team",
 			strings.Fields("teamchat run --plain --kind other -- bash"),
 			Launch{Mode: LaunchPlain, Kind: KindOther, Cmd: []string{"bash"}, Claude: -1},
@@ -99,7 +106,7 @@ func TestTheDesignsLaunchLinesParse(t *testing.T) {
 			continue
 		}
 		if got.Mode != c.want.Mode || got.Kind != c.want.Kind || got.Key != c.want.Key || got.Desired != c.want.Desired || got.State != c.want.State ||
-			got.Kit != c.want.Kit || got.ResumeRecorded != c.want.ResumeRecorded || !slices.Equal(got.Cmd, c.want.Cmd) ||
+			got.Kit != c.want.Kit || got.ExtraSettings != c.want.ExtraSettings || got.ResumeRecorded != c.want.ResumeRecorded || !slices.Equal(got.Cmd, c.want.Cmd) ||
 			got.Claude != c.want.Claude || !slices.Equal(got.Seats, c.want.Seats) {
 			t.Errorf("%s:\ngot  %+v\nwant %+v", c.name, got, c.want)
 		}
@@ -157,6 +164,11 @@ func TestLaunchLinesRefused(t *testing.T) {
 		"a key twice":                    "--claude --kind lxc --key KEY --key KEY -- claude",
 		"a key in capitals":              "--claude --kind lxc --key AEB4D70A3A7E7C04 -- claude",
 		"a short key":                    "--claude --kind lxc --key aeb4d70a -- claude",
+		"extra settings under plain":     "--plain --kind host --extra-settings /x.json -- sh",
+		"relative extra settings":        "--claude --kind host --extra-settings x.json -- claude",
+		"unclean extra settings":         "--claude --kind host --extra-settings /a/../x.json -- claude",
+		"extra settings twice":           "--claude --kind host --extra-settings /x.json --extra-settings /y.json -- claude",
+		"extra settings with no value":   "--claude --kind host --extra-settings",
 	} {
 		_, err := ParseLaunch(strings.Fields(strings.ReplaceAll(line, "KEY", lxcKeyText)))
 		if !isUsage(err) {
