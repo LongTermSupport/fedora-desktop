@@ -502,9 +502,14 @@ rules:
   # lines and the reader takes that for "nothing there". The secret scan in the git hooks read
   # a scan that could not open its denylist as a clean one.
   #
-  # Not matched: a reader whose next command (after any continuation lines and whole-line
-  # comments) is `wait "$!"`, which
-  # collects the substitution's status (bash 4.4 and later); an output process substitution
+  # Also matched (fedora-desktop#321, #322): a line-based reader whose status is collected with
+  # `wait "$!"` on the next command. bash can reap the substitution before that `wait`, which
+  # then fails falsely under load ("pid N is not a child of this shell", or status -1): a
+  # plain loop of it failed 3-8 times in 24,000-36,000 runs, capture-first 0 in 24,000.
+  #
+  # Not matched: a NUL-separated reader (`-d ''` on the reader, or `-print0`, ` -z` or `--null`
+  # in the producer) whose next command (after continuation lines and whole-line comments) is
+  # `wait "$!"`, since a variable cannot hold a NUL; an output process substitution
   # (`> >(tee log)`); a here-string; a file.
   - id: bash-loop-procsub-unchecked
     patterns:
@@ -512,7 +517,10 @@ rules:
       # outright on some scripts this rule must still read.
       - pattern-regex: '(?m)^[^\n#]*(?:\bdone[ \t]*|\b(?:mapfile|readarray|read)\b[^\n#]*)<[ \t]*<\([^\n]*$'
       - pattern-not-regex: '(?m)^[^\n]*#[ \t]*FAIL-FAST-OK:[^\n]*$'
-      - pattern-not-regex: '(?m)^[^\n#]*<[ \t]*<\([^\n]*(?:\\\n[^\n]*)*(?:\n[ \t]*#[^\n]*)*\n[ \t]*(?:if[ \t]+![ \t]*)?wait[ \t]+"?\$!"?(?:[ \t;]|$)'
+      # The NUL marker before the substitution (`mapfile -d ''`), or anywhere in the producer
+      # including its continuation lines (`find ... -print0`, `git ls-files -z`).
+      - pattern-not-regex: >-
+          (?m)^(?:[^\n#]*-d[ \t]*(?:''|"")[^\n#]*<[ \t]*<\([^\n]*(?:\\\n[^\n]*)*|[^\n#]*<[ \t]*<\((?:[^\n]*\\\n)*[^\n]*(?:-print0|[ \t]-z\b|--null\b)[^\n]*(?:\\\n[^\n]*)*)(?:\n[ \t]*#[^\n]*)*\n[ \t]*(?:if[ \t]+![ \t]*)?wait[ \t]+"?\$!"?(?:[ \t;]|$)
     paths:
       include:
         - 'files/**'
@@ -524,14 +532,18 @@ rules:
         - 'scripts/test-*'
     message: >
       bash-loop-procsub-unchecked: this reader is fed by a process substitution, `< <(cmd)`,
-      and bash never checks `cmd`'s status, so a `cmd` that fails reads as no output. Collect
-      it on the next line with 'wait "$!" || { echo "cmd failed" >&2; return 1; }' or
-      'if ! wait "$!"; then', as long as the body starts no background job or substitution of
-      its own. A plain 'wait "$!"' is enough only where errexit really stops the script (top
-      level under `set -e`); inside a function a caller may run under `if`, `||` or `&&`,
-      which turns errexit off, so there give it its `||` (the rule cannot tell the two apart). Or capture the text first,
-      'out=$(cmd) || ...', and read 'done <<<"$out"', but not for NUL-separated output (a
-      variable cannot hold a NUL) and mind that an empty "$out" still feeds one empty line.
+      and bash never checks `cmd`'s status, so a `cmd` that fails reads as no output. A
+      'wait "$!"' after it is no cure for line-based output: bash can reap the substitution
+      first, and the wait then fails falsely under load (fedora-desktop#321). Capture first,
+      since bash always waits for a command substitution: `out=$(cmd) || { echo "cmd failed"
+      >&2; return 1; }`, then for an array `! IFS=$'\n' read -r -d '' -a arr <<<"$out"` (the
+      `!` because read meets no NUL and returns 1; it gives an empty array for an empty
+      "$out", and drops empty lines), or `done <<<"$out"` for a loop. Not `mapfile -t arr
+      <<<"$out"` as it stands: the here-string adds a newline, so an empty "$out" gives one
+      element, "" (guard it with `[ -z "$out" ] ||`). A loop fed `<<<"$out"` also runs once on
+      an empty line when "$out" is empty, so its body must skip an empty line or be guarded.
+      Only NUL-separated output, which a variable cannot hold (`-d ''`, `-print0`, `-z`),
+      keeps `< <(cmd)` with `wait "$!" || ...` on the next command.
     languages: [bash]
     severity: ERROR
     metadata:

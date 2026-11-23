@@ -1746,24 +1746,34 @@ command's. A same-line `# FAIL-FAST-OK: <reason>` marks a genuine exception.
 `readarray ... < <(cmd)` or `read -r x < <(cmd)`, in the same trees as
 [bash-loop-redirect-unchecked](#bash-loop-redirect-unchecked). bash does not wait for `cmd`, and
 neither errexit nor pipefail sees its status, so a `cmd` that fails gives no lines and the reader
-takes that for "nothing there". The rule accepts the reader when its next command (after any
-`\` continuation lines and whole-line comments) is `wait "$!"` or `if ! wait "$!"`. A Semgrep rule
+takes that for "nothing there". It also flags a line-based reader whose status is then read with
+`wait "$!"`: bash can reap the substitution before that `wait`, which then fails falsely under
+load ("pid N is not a child of this shell", or status -1). It accepts `wait "$!"` (or
+`if ! wait "$!"`) as the next command, after any `\` continuation lines and whole-line comments,
+only for a NUL-separated reader: `-d ''` on the reader, or `-print0`, ` -z` or `--null` in the
+producer, since a variable cannot hold a NUL. A Semgrep rule
 in `.semgrep/bash-conventions.yml`, run by `qa-patterns.bash` and proven against
 `.semgrep/bash-conventions.bash`.
 
 **Why it exists.** The secret scan in `pre-commit` and `commit-msg` read the private-identifier
 scanner this way, so a scan that could not open its denylist found nothing and the commit went
-ahead as clean (fedora-desktop#295). The sweep fixed about 60 sites. Found and defended under
+ahead as clean (fedora-desktop#295). The sweep fixed about 60 sites, most with `wait "$!"`. That
+`wait` then lost its child in the ccy launcher, twice in its differential harness and once in
+CI (fedora-desktop#321); a plain loop of it failed 3-8 times in 24,000-36,000 runs under
+parallel load, capture-first 0 in 24,000. So the rule now flags it too (fedora-desktop#322),
+and the second sweep moved every line-based reader to capture-first. Found and defended under
 Defence Before Fix.
 
-**How to fix a finding.** Collect the substitution's status on the next line:
-`wait "$!" || { echo "cmd failed" >&2; return 1; }` (bash 4.4 and later), as long as the body
-starts no background job or process substitution of its own, which would move `$!`. A plain
-`wait "$!"` is enough only where errexit really stops the script (top level under `set -e`);
-inside a function a caller may run under `if`, `||` or `&&`, so give it its `||`. Or capture
-the text first, `out=$(cmd) || ...`, and read `<<<"$out"`, but not for NUL-separated output (a
-variable cannot hold a NUL), and mind that an empty `"$out"` still feeds one empty line (the
-`! IFS=$'\n' read -r -d '' -a arr <<<"$text"` idiom in `pre-commit` gives an empty array). Where
+**How to fix a finding.** Capture the text first, since bash always waits for a command
+substitution: `out=$(cmd) || { echo "cmd failed" >&2; return 1; }`. Then read it: for an array,
+`! IFS=$'\n' read -r -d '' -a arr <<<"$out"` (the `!` because `read` meets no NUL and returns
+1); for a loop, `done <<<"$out"`. Mind an empty `"$out"`: a here-string adds a newline, so
+`mapfile -t arr <<<"$out"` gives one element, `""`, and a loop runs once on an empty line. The
+`read -d ''` idiom gives an empty array (it also drops empty lines); a `mapfile` needs
+`[ -z "$out" ] ||` before it, and a loop body must skip an empty line. Only NUL-separated
+output, which a variable cannot hold, keeps `< <(cmd)`, with
+`wait "$!" || { echo "cmd failed" >&2; return 1; }` as its next command, as long as the body
+starts no background job or process substitution of its own, which would move `$!`. Where
 an empty answer is the real verdict and the producer's status is not (`gh auth status` exits 1
 when any one login needs renewal), keep the reader under a same-line `# FAIL-FAST-OK: <reason>`
 and check the result.

@@ -610,10 +610,10 @@ while IFS= read -r line; do
 done <<<"$text"
 
 # A process substitution is another defect's (bash-loop-procsub-unchecked, whose fix is here).
-while IFS= read -r line; do
+while IFS= read -r -d '' line; do
     echo "$line"
 # ok: bash-loop-redirect-unchecked
-done < <(list_things)
+done < <(find "$dir" -print0)
 wait "$!"
 
 # A comment that quotes the form is not the form.
@@ -642,27 +642,30 @@ readarray -d '' -t args < <(canonical_args "$@")
 # ruleid: bash-loop-procsub-unchecked
 read -r width height < <(identify_size "$file")
 
-# The fix: the substitution's status collected on the next line.
-while IFS= read -r -d '' path; do
-    paths+=("$path")
-# ok: bash-loop-procsub-unchecked
-done < <(find "$dir" -type f -print0)
-wait "$!" || { echo "find failed in $dir" >&2; return 1; }
-# ok: bash-loop-procsub-unchecked
+# fedora-desktop#321/#322: a line-based reader's status collected with `wait "$!"`. bash can
+# reap the substitution before the wait, which then fails falsely under load ("pid N is not a
+# child of this shell"). The ccy launcher's GPU device flags failed a CI run this way.
+# ruleid: bash-loop-procsub-unchecked
+mapfile -t GPU_DEVICE_FLAGS < <(gpu_device_flags "$GPU_DEVICE_DIR")
+wait "$!" || { print_error "Could not work out the GPU device flags."; exit 1; }
+# ruleid: bash-loop-procsub-unchecked
 mapfile -t keys < <(discover_keys)
 # A comment between the reader and its wait changes nothing.
 wait $!
-# ok: bash-loop-procsub-unchecked
-done < <(find "$dir" -type f \
-    -name '*.yml' -print0)
-wait "$!"
-
-# The wait as an if condition checks the status as well.
-# ok: bash-loop-procsub-unchecked
+while IFS= read -r net; do
+    nets+=("$net")
+# ruleid: bash-loop-procsub-unchecked
+done < <(container_cmd network ls --format "{{.Name}}")
+wait "$!" || { echo "could not list the networks" >&2; return 1; }
+# ruleid: bash-loop-procsub-unchecked
 mapfile -t keys < <(discover_keys)
 if ! wait "$!"; then
     echo "discover_keys failed" >&2
 fi
+# A `-z` that is part of a word is not a NUL marker.
+# ruleid: bash-loop-procsub-unchecked
+mapfile -t names < <(list -zone)
+wait "$!"
 
 # A wait that is not the next command collects nothing for this reader.
 # ruleid: bash-loop-procsub-unchecked
@@ -670,15 +673,51 @@ mapfile -t keys < <(discover_keys)
 echo "found ${#keys[@]}"
 wait "$!"
 
-# Or: the producer's output captured first, its status checked, then read.
+# The fix: the producer's output captured first (bash always waits for a command
+# substitution), its status checked, then read.
 fields=$(printf '%s' "$text" | scan_for_private "$list") || return 1
 while IFS= read -r field; do
+    [ -n "$field" ] || continue
     found+=("$field")
 # ok: bash-loop-procsub-unchecked
 done <<<"$fields"
-keys_text=$(discover_keys) || return 1
+GPU_DEVICE_TEXT=$(gpu_device_flags "$GPU_DEVICE_DIR") || { print_error "no GPU flags"; exit 1; }
+# An empty capture gives an empty array here, where mapfile <<< would give one "" element.
 # ok: bash-loop-procsub-unchecked
-mapfile -t keys <<<"$keys_text"
+! IFS=$'\n' read -r -d '' -a GPU_DEVICE_FLAGS <<<"$GPU_DEVICE_TEXT"
+keys_text=$(discover_keys) || return 1
+keys=()
+# ok: bash-loop-procsub-unchecked
+[ -z "$keys_text" ] || mapfile -t keys <<<"$keys_text"
+
+# NUL-separated output cannot be captured (a variable cannot hold a NUL), so it keeps the
+# process substitution with its status collected on the next command.
+while IFS= read -r -d '' path; do
+    paths+=("$path")
+# ok: bash-loop-procsub-unchecked
+done < <(find "$dir" -type f -print0)
+wait "$!" || { echo "find failed in $dir" >&2; return 1; }
+# ok: bash-loop-procsub-unchecked
+done < <(find "$dir" -type f \
+    -name '*.yml' -print0)
+wait "$!"
+# ok: bash-loop-procsub-unchecked
+done < <(git ls-files --others -z)
+# A comment between the reader and its wait changes nothing.
+wait "$!" || exit 1
+# ok: bash-loop-procsub-unchecked
+mapfile -d '' -t args < <(canonical_args "$@")
+if ! wait "$!"; then
+    echo "canonical_args failed" >&2
+fi
+# ok: bash-loop-procsub-unchecked
+mapfile -d '' -t args < <(build_args "$a" \
+    "$b")
+wait "$!" || builder_rc=$?
+# Even NUL output needs its wait: without one the producer's failure is lost.
+# ruleid: bash-loop-procsub-unchecked
+mapfile -d '' -t args < <(canonical_args "$@")
+echo "${#args[@]}"
 
 # An output process substitution has no producer whose status is lost to a reader.
 # ok: bash-loop-procsub-unchecked
