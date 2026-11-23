@@ -35,6 +35,30 @@ type plan struct {
 	suites  []pickedSuite
 	// existing and deleted are the changed files, in collection order.
 	existing, deleted []string
+	// goPackages are the src-go packages the go check runs because a file outside src-go/ that
+	// their tests read changed, goFull the changed files that ask for the whole Go gate, and
+	// goNamed the files outside src-go/ a row gave either answer for.
+	goPackages []string
+	goFull     []string
+	goNamed    map[string]bool
+}
+
+// addGo records what a routing row says the go check needs for a file outside src-go/.
+func (p *plan) addGo(r rule, rel string) {
+	if r.goFull {
+		p.goFull = append(p.goFull, rel)
+	}
+	for _, pkg := range r.goPackages {
+		if !slices.Contains(p.goPackages, pkg) {
+			p.goPackages = append(p.goPackages, pkg)
+		}
+	}
+	if r.goFull || len(r.goPackages) > 0 {
+		if p.goNamed == nil {
+			p.goNamed = map[string]bool{}
+		}
+		p.goNamed[rel] = true
+	}
 }
 
 // add plans a check for an item. rel is the directory a check runs in, set only by routing
@@ -229,9 +253,13 @@ func (s *session) apply(ctx context.Context, r rule, rel string, deleted bool) e
 			continue
 		}
 		added = true
-		if id == "unit-tests" {
+		switch id {
+		case "unit-tests":
 			s.addUnitTests(rel)
-		} else {
+		case "go":
+			s.plan.add(id, rel, r.rel)
+			s.plan.addGo(r, rel)
+		default:
 			s.plan.add(id, rel, r.rel)
 		}
 	}

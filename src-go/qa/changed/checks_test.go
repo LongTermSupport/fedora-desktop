@@ -447,28 +447,66 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 
 // The Go gate is scoped to the same change qa-changed collected: go-qa's diff mode against the
 // same base, which sees only src-go/. A file outside it that routes to the go check (a parity
-// reference or a table the Go tests read) selects no package there, so it gets the full run; so
-// does an explicit file list, which is no diff.
+// reference or a table the Go tests read) adds the packages its row of the real routing table
+// names (--also-packages); a file whose row says @full (the routing tables, the gate's wrapper,
+// .qa-versions) runs the whole gate, as does an explicit file list, which is no diff. Each row is
+// classified by the real table, so a row that lost its packages or its @full fails here.
 func TestTheGoGateRunsGoQaOverTheSameChange(t *testing.T) {
+	diff := []string{"--changed", "--base", "origin/F44"}
+	also := func(pkgs string) []string { return append(slices.Clone(diff), "--also-packages", pkgs) }
+	launcher := "internal/ccclaude,internal/ccylaunch/...,internal/registry,internal/restore,internal/screen,internal/sessions,internal/transcript"
 	for _, c := range []struct {
-		opts  options
-		items []string
-		want  []string
+		name     string
+		explicit bool
+		files    []string
+		want     []string
 	}{
-		{options{base: "origin/F44"}, []string{"src-go/internal/ui/ui.go", "src-go/qa/go.mod"}, []string{"--changed", "--base", "origin/F44"}},
-		{options{base: "HEAD"}, []string{"src-go/internal/ui/ui.go", "scripts/qa-gates.tsv"}, nil},
-		{options{base: "HEAD", explicit: true, files: []string{"src-go/x.go"}}, []string{"src-go/x.go"}, nil},
+		{"src-go only: diff mode, nothing added", false, []string{"src-go/internal/ui/ui.go", "src-go/qa/go.mod"}, diff},
+		{"a mapped outside file: diff mode with its packages", false, []string{"files/var/local/claude-yolo/lib/common-pure.bash"}, also(launcher)},
+		{"a mapped outside file beside src-go", false, []string{"src-go/internal/ui/ui.go", "helpers/version_pins/manifest.py"}, also("qa/cmd/qa-version-pins")},
+		{"three mapped rows: their packages once each, sorted", false, []string{"tests/fixtures/ansible-sudoers/x.yml", "vars/golang.yml", ".github/workflows/qa.yml"}, also("qa/ansible,qa/pushgate,qa/toolchain")},
+		{"a routing table: the whole gate", false, []string{"src-go/internal/ui/ui.go", "scripts/qa-gates.tsv"}, nil},
+		{"the gate's own pins: the whole gate", false, []string{"vars/golang.yml", ".qa-versions"}, nil},
+		{"the gate's wrapper: the whole gate", false, []string{"scripts/qa-go-qa.bash"}, nil},
+		{"an explicit list is no diff: the whole gate", true, []string{"files/var/local/claude-yolo/lib/common-pure.bash"}, nil},
 	} {
-		runner := &scriptedRunner{}
-		s := newTestSession(t, runner)
-		s.opts = c.opts
-		if _, err := lookupCheck("go").run(context.Background(), s, &checkPlan{items: c.items}); err != nil {
-			t.Fatal(err)
-		}
-		want := append([]string{"bash", filepath.Join(s.scripts, "qa-go-qa.bash")}, c.want...)
-		if got := runner.calls[0].Argv; !reflect.DeepEqual(got, want) {
-			t.Fatalf("%+v %v: argv %v, want %v", c.opts, c.items, got, want)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			w := newWorld(t)
+			for _, f := range c.files {
+				w.touch(f, "# x")
+			}
+			s := w.session()
+			s.opts = options{base: "origin/F44", explicit: c.explicit, files: c.files}
+			if err := s.classify(context.Background(), collected{existing: c.files}); err != nil {
+				t.Fatal(err)
+			}
+			cp := s.plan.checks["go"]
+			if cp == nil {
+				t.Fatalf("%v: no go check planned", c.files)
+			}
+			if _, err := lookupCheck("go").run(context.Background(), s, cp); err != nil {
+				t.Fatal(err)
+			}
+			calls := w.runner.calls
+			want := append([]string{"bash", filepath.Join(s.scripts, "qa-go-qa.bash")}, c.want...)
+			if got := calls[len(calls)-1].Argv; !reflect.DeepEqual(got, want) {
+				t.Fatalf("argv %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// An outside file no routing row named packages for (a plan built some other way) is still run:
+// the whole gate, never a diff that cannot see it.
+func TestTheGoGateRunsWholeForAnOutsideFileNoRowNamed(t *testing.T) {
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	s.opts = options{base: "HEAD"}
+	if _, err := lookupCheck("go").run(context.Background(), s, &checkPlan{items: []string{"src-go/x.go", "helpers/unnamed.py"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := runner.calls[0].Argv, []string{"bash", filepath.Join(s.scripts, "qa-go-qa.bash")}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("argv %v, want %v", got, want)
 	}
 }
 
