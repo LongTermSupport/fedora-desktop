@@ -1,6 +1,7 @@
 # Proposal: seat kinds in teamchat v2
 
-Status: PROPOSAL for the owner. v2 only: v1 gets nothing (owner: "we need to get rid of v1
+Status: APPROVED by the owner (Q66; the decisions are recorded in section 7). Being built, test
+first. It was a proposal for the owner. v2 only: v1 gets nothing (owner: "we need to get rid of v1
 ASAP"). Paths are relative to the repository root. Marks: FACT (read in code or design),
 INFERENCE (follows from facts), UNKNOWN (not established). Read-only research; nothing was run.
 
@@ -191,3 +192,12 @@ Nothing. v1 has no duty and is not changed, as the owner said.
   and `observer` named here but built when needed.
 - **OD5. Name in code: `duty`.** Recommended, since `role` and `kind` are taken; say if you
   prefer `seat_kind`.
+
+**The owner's answers (Q66, verbatim): "a no / b up to you / c yes / d approved / e approved".**
+
+- OD1: a host member is never a coordinator; `declare check` refuses it.
+- OD2: left to us; recommendation (a) is taken. The duty travels in the desired-membership file
+  the host writes for the session, with no wire change.
+- OD3: yes, the whole `duties` field is approval-gated (DC18).
+- OD4: coordinator, worker and host are built now; reviewer and observer later.
+- OD5: the field is named `duty`.
