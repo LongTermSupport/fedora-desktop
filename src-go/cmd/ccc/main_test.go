@@ -4,10 +4,13 @@ import (
 	"context"
 	"os"
 	"os/user"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/unix"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylimits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -85,5 +88,39 @@ func TestNoHomeFails(t *testing.T) {
 func TestHelpRunsWithoutTheBuildVersion(t *testing.T) {
 	if code := run(context.Background(), []string{"--help"}); code != term.ExitOK {
 		t.Fatalf("exit %d", code)
+	}
+}
+
+// ccc's containers get ccy's limit set, settled from the machine as ccy settles it; a refusal
+// or an unreadable meminfo is an error, never a container run without the caps.
+func TestLimitsSettleFromTheMachine(t *testing.T) {
+	dir := t.TempDir()
+	meminfo := filepath.Join(dir, "meminfo")
+	config := filepath.Join(dir, "config")
+	env := func(name string) string {
+		if name == "XDG_CONFIG_HOME" {
+			return config
+		}
+		return ""
+	}
+	if _, err := limits(env, meminfo); err == nil || !strings.Contains(err.Error(), meminfo) {
+		t.Fatalf("no meminfo: %v", err)
+	}
+	if err := os.WriteFile(meminfo, []byte("MemTotal:       67108864 kB\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := limits(env, meminfo); err == nil || !strings.Contains(err.Error(), ccylimits.Play) {
+		t.Fatalf("no slice unit: %v", err)
+	}
+	unit := ccylimits.SliceUnit(env)
+	if err := os.MkdirAll(filepath.Dir(unit), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unit, []byte("[Slice]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := limits(env, meminfo)
+	if err != nil || got != (ccylimits.Limits{Pids: "16384", MemoryMiB: 49152}) {
+		t.Fatalf("limits = %+v, %v", got, err)
 	}
 }

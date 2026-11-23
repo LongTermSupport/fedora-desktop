@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylimits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -26,6 +27,7 @@ func run(ctx context.Context, args []string) term.ExitCode {
 	home, homeErr := os.UserHomeDir()
 	who, userErr := identityOf(user.Current())
 	runner := execx.OS{}
+	lim, limErr := limits(os.Getenv, "/proc/meminfo")
 	app := &ccc.App{
 		Runner:          runner,
 		Foreground:      runner,
@@ -41,9 +43,20 @@ func run(ctx context.Context, args []string) term.ExitCode {
 		Term:            os.Getenv("TERM"),
 		Pid:             os.Getpid(),
 		RequiredVersion: RequiredVersion,
-		SetupErr:        errors.Join(homeErr, userErr),
+		Limits:          lim,
+		SetupErr:        errors.Join(homeErr, userErr, limErr),
 	}
 	return app.Run(ctx, args)
+}
+
+// limits is ccy's limit set on this machine (internal/ccylimits), whose /proc/meminfo is at
+// meminfo; a refusal is an error, and ccc runs no container without the caps.
+func limits(getenv func(string) string, meminfo string) (ccylimits.Limits, error) {
+	data, err := os.ReadFile(meminfo)
+	if err != nil {
+		return ccylimits.Limits{}, fmt.Errorf("read the machine's memory: %w", err)
+	}
+	return ccylimits.Settle(getenv, data)
 }
 
 // identityOf is the account the folder's snapshots are committed as.

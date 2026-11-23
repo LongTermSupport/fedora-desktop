@@ -3,15 +3,26 @@ package ccc
 import (
 	"slices"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylimits"
 )
+
+// testLimits is the limit set of a 64 GiB machine with no override.
+var testLimits = ccylimits.Limits{Pids: "16384", MemoryMiB: 49152}
+
+// limitArgs is how testLimits reads in a container's argv.
+var limitArgs = []string{
+	"--cgroup-parent", "agents.slice", "--pids-limit", "16384",
+	"--memory", "49152m", "--memory-reservation", "47104m",
+}
 
 func TestSessionArgsMountOnlyTheFolderAndTheState(t *testing.T) {
 	got := sessionArgs(session{
 		Agent: Claude, Folder: "/srv/u/CCC", State: "/srv/u/.local/share/ccc/claude",
-		Name: "ccc-claude-42", TimeZone: "Europe/London", Term: "xterm-256color",
+		Name: "ccc-claude-42", TimeZone: "Europe/London", Term: "xterm-256color", Limits: testLimits,
 	})
-	want := []string{
-		"run", "--rm", "--interactive", "--tty", "--pids-limit", "4096",
+	want := slices.Concat([]string{"run", "--rm"}, limitArgs, []string{
+		"--interactive", "--tty",
 		"--name", "ccc-claude-42",
 		"--label", "ccc=true", "--label", "ccc-agent=claude",
 		"--network", "podman",
@@ -28,14 +39,14 @@ func TestSessionArgsMountOnlyTheFolderAndTheState(t *testing.T) {
 		"--env", "CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000",
 		"claude-yolo:latest",
 		"--", "claude", "--dangerously-skip-permissions",
-	}
+	})
 	if !slices.Equal(got, want) {
 		t.Fatalf("got  %q\nwant %q", got, want)
 	}
 }
 
 func TestSessionArgsLeaveOutAnUnknownZone(t *testing.T) {
-	got := sessionArgs(session{Agent: Claude, Folder: "/f", State: "/s", Name: "n", Continue: true})
+	got := sessionArgs(session{Agent: Claude, Folder: "/f", State: "/s", Name: "n", Continue: true, Limits: testLimits})
 	if slices.Contains(got, "TZ=") || slices.ContainsFunc(got, func(a string) bool { return len(a) > 3 && a[:3] == "TZ=" }) {
 		t.Fatalf("got %v", got)
 	}
@@ -45,8 +56,8 @@ func TestSessionArgsLeaveOutAnUnknownZone(t *testing.T) {
 }
 
 func TestSignInArgsMountNothing(t *testing.T) {
-	got := signInArgs(Claude)
-	want := []string{"run", "--rm", "--interactive", "--tty", "--pids-limit", "4096", "--network", "podman", "--entrypoint", "claude", "claude-yolo:latest", "setup-token"}
+	got := signInArgs(Claude, testLimits)
+	want := slices.Concat([]string{"run", "--rm"}, limitArgs, []string{"--interactive", "--tty", "--network", "podman", "--entrypoint", "claude", "claude-yolo:latest", "setup-token"})
 	if !slices.Equal(got, want) {
 		t.Fatalf("got %q", got)
 	}

@@ -63,6 +63,7 @@ func newWorld(t *testing.T) *world {
 		User:            Identity{Login: "pat", FullName: "Pat Example"},
 		TimeZone:        "Europe/London",
 		RequiredVersion: "2.79.15",
+		Limits:          testLimits,
 	}
 	return w
 }
@@ -165,6 +166,9 @@ func TestFirstRunMakesTheFolderAndStartsClaudeThere(t *testing.T) {
 	c := w.guard.cmds[0]
 	if c.Name != "podman" || !slices.Contains(c.Args, dir+":/workspace:z") {
 		t.Fatalf("session %v", c.Args)
+	}
+	if !slices.Equal(c.Args[2:2+len(limitArgs)], limitArgs) {
+		t.Fatalf("the session runs without the app's limit set: %q", c.Args)
 	}
 	if len(c.Secrets) != 1 || c.Secrets[0].Name() != "CLAUDE_CODE_OAUTH_TOKEN" || !c.Secrets[0].Is(testToken) {
 		t.Fatalf("secrets %v", c.Secrets)
