@@ -72,12 +72,43 @@ func TestPlaceLeavesAWholeKitAlone(t *testing.T) {
 	if _, err := Place(k, strings.NewReader("first")); err != nil {
 		t.Fatal(err)
 	}
-	placed, err := Place(k, strings.NewReader("second"))
+	placed, err := Place(k, strings.NewReader("first"))
 	if err != nil || placed {
 		t.Fatalf("placed %v, %v; want a whole kit left alone", placed, err)
 	}
 	if data, err := os.ReadFile(k.Binary()); err != nil || string(data) != "first" {
 		t.Errorf("the kit's binary is %q (%v), want the first kit's", data, err)
+	}
+}
+
+// A kit whose parts are all there but whose binary is not the running program's bytes (the
+// same source built by another Go toolchain) is not whole: it is assembled again.
+func TestPlaceReplacesAKitWhoseBinaryDiffers(t *testing.T) {
+	k := tempKit(t)
+	if _, err := Place(k, strings.NewReader("first")); err != nil {
+		t.Fatal(err)
+	}
+	placed, err := Place(k, strings.NewReader("second"))
+	if err != nil || !placed {
+		t.Fatalf("placed %v, %v; want a kit with another binary assembled again", placed, err)
+	}
+	if data, err := os.ReadFile(k.Binary()); err != nil || string(data) != "second" {
+		t.Errorf("the kit's binary is %q (%v), want the running program's", data, err)
+	}
+	requireAbsent(t, Staging(k))
+}
+
+// A kit whose document differs from what this build writes (edited by hand) is assembled again.
+func TestPlaceReplacesAKitWhoseDocumentDiffers(t *testing.T) {
+	k := tempKit(t)
+	if _, err := Place(k, strings.NewReader("bin")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(k.String(), "settings.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if placed, err := Place(k, strings.NewReader("bin")); err != nil || !placed {
+		t.Fatalf("placed %v, %v; want a kit with another document assembled again", placed, err)
 	}
 }
 

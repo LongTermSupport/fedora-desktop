@@ -48,6 +48,26 @@ func Missing(kit paths.Kit) []string {
 // names is the kit's entries where only their names and kinds are read, never their content.
 func names(kit paths.Kit) []entry { return entries(kit, bytes.NewReader(nil)) }
 
+// same is whether every file of the kit at kit's directory holds the bytes this build would
+// write there, the binary's being own: a kit judged by its parts' presence alone keeps a binary
+// another toolchain built from the same source.
+func same(kit paths.Kit, own []byte) bool {
+	for _, e := range entries(kit, bytes.NewReader(own)) {
+		if e.content == nil {
+			continue
+		}
+		want, err := io.ReadAll(io.LimitReader(e.content, e.limit+1))
+		if err != nil {
+			return false
+		}
+		got, err := os.ReadFile(filepath.Join(kit.String(), e.path))
+		if err != nil || !bytes.Equal(got, want) {
+			return false
+		}
+	}
+	return true
+}
+
 func kindIs(info fs.FileInfo, dir bool) bool {
 	if dir {
 		return info.IsDir()
@@ -61,9 +81,14 @@ func kindIs(info fs.FileInfo, dir bool) bool {
 // no kit or a whole one, and a failure at any point is repaired by the next run.
 func Place(kit paths.Kit, binary io.Reader) (placed bool, err error) {
 	final := kit.String()
-	if _, err := os.Lstat(final); err == nil && len(Missing(kit)) == 0 {
+	own, err := io.ReadAll(io.LimitReader(binary, maxBinary+1))
+	if err != nil {
+		return false, fmt.Errorf("reading the binary for the kit: %w", err)
+	}
+	if _, err := os.Lstat(final); err == nil && len(Missing(kit)) == 0 && same(kit, own) {
 		return false, nil
 	}
+	binary = bytes.NewReader(own)
 	staging := Staging(kit)
 	if err := os.RemoveAll(staging); err != nil {
 		return false, fmt.Errorf("clearing the leftover staging %s: %w", staging, err)
