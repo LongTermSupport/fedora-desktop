@@ -162,6 +162,37 @@ declared `teamchat_site` (default `local`) and from nothing else. A declared sit
 machine's hostname, a dot-label of it, or a DNS label of a team's URL host is refused; that check
 is best effort, and the guarantee is that no code path reads a hostname into a handle.
 
+## A seat's duty, and `teamchat whoami --json`
+
+Each seat has a duty in each team: `coordinator` (the team's `coordinator` handle), `host` (a
+host member, `+<site>.host`) or `worker` (every other member). A team overrides the default
+for a member in `duties`, a gated field approved like `coordinator`:
+
+```yaml
+teamchat_teams:
+  - team: <team>
+    coordinator: <handle>   # never a host member
+    duties:
+      <handle>: host        # worker or host; never the coordinator's handle
+```
+
+The host writes each seat's duty into the session's desired membership; a held seat takes it
+when the seat is taken, so a changed duty reaches a running session at its next launch. A
+session reports its seats with `teamchat whoami --json`, which reads only the run's
+`status.json` (no token, no link, no network). Its output is a contract, the one the
+hooks-daemon's role probe reads:
+
+```
+{"v":1,"teams":[{"team":"<team>","handle":"<repo>.<seat>+<site>.<type>","role":"coordinator"|"worker"|"probe"|null,"duty":"coordinator"|"worker"|"host"|null}]}
+```
+
+One entry per held team whose handle is known. `role` is null until the roster names one;
+`duty` is null where the host gave none, which means "not known", never `worker`. No seat
+prints `{"v":1,"teams":[]}` and exits 0. Exit 69 (`no-session`) outside a teamchat session,
+69 (`no-link`) before the link has written `status.json`, 78 (`runtime`) for a file of another
+run or one that fails its strict decode; stdout is then empty and the error object is on
+stderr. A new key is a new `v`.
+
 ## Humans
 
 A human is named in the team's `humans` list, and `team apply` creates the account with a
