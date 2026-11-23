@@ -165,7 +165,7 @@ v2 teams only. If Task 4.5 is built for ccy later, the host follows only if the 
 The bash files may not grow, so every new decision is Go behind command words the bash already
 calls. Each step: the failing test first, then the code.
 
-**Build status (branch `v2-host-cc`):** steps 1, 2 and 3 built; steps 4 to 9 to do.
+**Build status (branch `v2-host-cc`):** steps 1 to 4 built; steps 5 to 9 to do.
 
 1. **The conversation class (section 4).** Test: the analyzer's fixture red on a reader that joins
    `SessionDir`+`File`, green through `Locate`; `conversation_test.go` table: {ccy, cc} × {agent-bus,

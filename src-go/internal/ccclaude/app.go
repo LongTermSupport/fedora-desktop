@@ -5,7 +5,8 @@
 //
 // What it does, numbered as its tests are:
 //
-//   - C1. Every argument goes to claude unchanged; cc-claude has no options of its own. claude
+//   - C1. Every argument goes to claude unchanged (but C7's first `--`); cc-claude has no
+//     options of its own. claude
 //     replaces cc-claude (no fork), found on PATH.
 //   - C2. Each of Defaults unset or empty is set to its value: CLAUDE_CODE_AUTO_COMPACT_WINDOW
 //     to DefaultWindow, so Claude Code compacts at that many tokens and not near the whole
@@ -15,6 +16,10 @@
 //   - C4. claude not on PATH: `claude is not installed`, exit 1. Any other failure to exec:
 //     exit 1, naming the error. Never a silent no-op.
 //   - C5. Each of Defaults is the default the ccy launcher passes into its container.
+//   - C7. The wrapper form `cc-claude -- claude <args>` (Plan 00209 Task 5.1 H5), which
+//     `teamchat run --claude` needs to find claude by name: a first argument `--` must be
+//     followed by `claude`, and the arguments after it go to claude as in C1. Anything else
+//     after a first `--` is a usage error (64) and nothing is exec'd.
 //
 // stdout is claude's; cc-claude writes only errors, to stderr.
 package ccclaude
@@ -37,6 +42,8 @@ const (
 	DefaultWindow = "600000"
 	// MouseClicksVar turns off Claude Code's mouse-click answers to prompts and menus.
 	MouseClicksVar = "CLAUDE_CODE_DISABLE_MOUSE_CLICKS"
+	// wrapperSeparator opens C7's wrapper form.
+	wrapperSeparator = "--"
 )
 
 // Default is one variable cc-claude sets when the environment leaves it unset or empty.
@@ -64,6 +71,13 @@ func NewApp() *App {
 
 // Run execs claude; it returns only when that failed, or under a fake.
 func (a *App) Run(args []string) term.ExitCode {
+	if len(args) > 0 && args[0] == wrapperSeparator {
+		if len(args) < 2 || args[1] != "claude" {
+			a.out.Print(a.Stderr, tool+": after a first -- comes claude: cc-claude -- claude [args]\n")
+			return term.ExitUsage
+		}
+		args = args[2:]
+	}
 	cmd := execx.Cmd{Name: "claude", Args: args}
 	for _, d := range Defaults {
 		if a.Getenv(d.Name) == "" {
