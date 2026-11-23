@@ -32,7 +32,7 @@ func TestQX7ARedactionTheSyncFoldsOwesARebuild(t *testing.T) {
 	if rec.LateFrom == nil || *rec.LateFrom != 1 {
 		t.Errorf("the owed build's late_from %v, want 1", rec.LateFrom)
 	}
-	got := rt.fb.jobs()[jobs:]
+	got := rt.fb.jobsReach(t, jobs+1)[jobs:]
 	if len(got) != 1 || got[0].Key == nil || got[0].Key.Build == nil || *got[0].Key.Build.After != redaction {
 		t.Fatalf("jobs begun after the redaction %+v, want one build with the owed key", got)
 	}

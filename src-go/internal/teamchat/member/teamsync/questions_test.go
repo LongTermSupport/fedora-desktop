@@ -24,12 +24,42 @@ type fakeBuilder struct {
 	mu     sync.Mutex
 	begins []IndexJob
 	stops  int
+	// begun is closed, and replaced, at each Begin, for jobsReach.
+	begun chan struct{}
 }
 
 func (b *fakeBuilder) Begin(_ context.Context, job IndexJob) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.begins = append(b.begins, job)
+	if b.begun != nil {
+		close(b.begun)
+		b.begun = nil
+	}
+}
+
+// jobsReach is the jobs once n have begun: the team begins a build after its batch is persisted,
+// so a test that has just read the batch waits for the build here.
+func (b *fakeBuilder) jobsReach(t *testing.T, n int) []IndexJob {
+	t.Helper()
+	for {
+		b.mu.Lock()
+		if len(b.begins) >= n {
+			got := slices.Clone(b.begins)
+			b.mu.Unlock()
+			return got
+		}
+		if b.begun == nil {
+			b.begun = make(chan struct{})
+		}
+		begun := b.begun
+		b.mu.Unlock()
+		select {
+		case <-begun:
+		case <-t.Context().Done():
+			t.Fatalf("%d builder job(s) begun, want %d", len(b.jobs()), n)
+		}
+	}
 }
 
 func (b *fakeBuilder) Stop() {

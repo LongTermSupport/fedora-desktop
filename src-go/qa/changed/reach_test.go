@@ -83,7 +83,7 @@ func TestTheRealSuitesThatReachFilesByGlobOrDirectoryAreRead(t *testing.T) {
 	for suite, want := range map[string][]string{
 		"test-self-update-cycle.bash":          {pyGlob, jsonGlob},
 		"test-agent-bus-install.bash":          {"helpers/pingbus", "helpers/agent_bus"},
-		"test-cc-teams.bash":                   {"files/opt/claude-yolo/optional/agent-bus/plugin/pingbus"},
+		"test-cc-teams.bash":                   {"files/opt/claude-yolo/optional/agent-bus/plugin"},
 		"test-ccy-compose-restore.bash":        {lib + "/" + "*.bash"},
 		"test-ccy-lifecycle.bash":              {lib + "/" + "*.bash"},
 		"test-ccy-session-registry.bash":       {lib + "/" + "*.bash"},
