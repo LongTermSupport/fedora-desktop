@@ -67,6 +67,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_poll_pure`               | a condition handed to `leakcheck.Poll` or `Drive` that moves a fake clock, sends or closes, so the read after the idle reading moves the world it judged still                                                                 | `engine` `TestWaitRetriesARestoredItemThatCouldNotBeFetched`: the clock advanced inside the condition, a false failure when the engine was idle at the sample (issue 140)                                               |
 | `project_room_default`            | a teamchat send's room tested against one side room, so every other room (a later one too) takes main's path: posted, re-checked or refused as main's                                                                          | teamchat `engine`: `postRoom`, `recheck`, `sendFailed` after the reports room (Plan 00209, n3f-b3)                                                                                                                      |
 | `project_questions_item_by_room`  | a pending item's room tested against the questions room in the engine or teamsync, which cannot tell a relayed answer in flight from the room's stale items, so a drop of the room loses the answer                            | teamchat `holdsQuestions` and `applyQuestions`: a session restart deleted a worker's undelivered relayed answer (Plan 00209, R0 step 7 review)                                                                          |
+| `project_ledger_built_by_hand`    | a teamchat seat-store ledger entry built field by field outside the store, so a field the store's check requires (a ping's verb) can be dropped and every write that settles the delivery is refused                           | teamchat `engine`: the socket delivery's written-yes write and the proof's `ledgerOf` dropped a ping's verb, and the link retried the refused write every round (fedora-desktop#392)                                    |
 | `project_fake_restart`            | a test that stops or restarts a fake server in a function literal or a go statement, off the goroutine that then uses it                                                                                                       | `teamsync` `TestARestartedServerBetweenPolls`: the persist hook restarted fakehs while the test posted, `no answer` in CI (fedora-desktop#149)                                                                          |
 | `project_shared_due`              | a test that names a fake-clock due (`AwaitDue`, `Armed`) two Duration limits of the package under test share, so the other limit's timer can answer (in teamsync, `reportsJoinLimit` before `reportsSettled`)                  | `teamsync` `TestARestoreUnderALongPoll`: hung to the 30-minute timeout in CI (the failpoints test stage), passing locally; `tlsterm` `TestT10ASilentClientIsClosedAtRequestLimit` under `qa-changed`'s loaded go-qa run |
 | `project_walk_open`               | an entry a directory walk found opened with no regular-file check guarding the open, so a named pipe among the entries blocks the open for ever                                                                                | `stt`, `vmtest`, `registry` and 17 more of fedora-desktop#195: the Go side of #191, where `run.bash --changed` hung on a pipe under `untracked/`                                                                        |
@@ -1791,6 +1792,44 @@ rather than drop it (delivery).
 - Not caught: the room compared through a variable or a helper of another package, and a drop
   of other stale state that a delivery in flight shares (none found in engine or teamsync: the
   demotion's `sending` drop takes only questions posts, and relays are queued as main's).
+
+### project_ledger_built_by_hand
+
+**What it is about.** A record the store validates as a whole, built field by field by its
+callers from another record. The store refuses a whole write when one ledger entry is not well
+formed, and a ledger entry for a ping must carry the ping's verb (n3d-D30). A caller that copies
+the fields it thinks of, and not the one the check requires, makes every write that carries the
+entry fail, and a loop that retries the write retries it for ever.
+
+**Why it exists.** fedora-desktop#392: the engine built ledger entries from a pending item in
+four places. `recv`'s `Ack` and `reply` carried the verb; the socket delivery's written-yes write
+(`deliverloop`) and the proof's `ledgerOf` did not. Every write that settled a socket-delivered
+ping was refused, the item stayed pending and `written: unknown`, and the link's proof loop
+retried every round, at high CPU and with a fast-growing log.
+
+**What it flags**, outside `internal/teamchat/member/state` and outside test files: a
+`state.Ledger` composite literal with any element (keyed or positional; as a value, through `&`,
+or as the element of a slice or map literal), and an assignment to a field of a `state.Ledger`.
+
+**Not flagged**: package `state`, where `state.LedgerOf` is the one constructor; an empty
+`state.Ledger{}`, the zero value standing for "none"; a test file, which builds its own store.
+
+**How to fix a violation.** Build the entry with `state.LedgerOf(pending, at)`, which copies
+every field of the item the ledger keeps.
+
+- Red, fixture: `testdata/src/ledger/internal/teamchat/member/engine` (the written-yes and proof
+  forms, a slice element, a pointer, a positional literal, a field assigned on a declared entry;
+  the constructor and the empty entry clean, the test file not judged), `member/state` (not
+  judged).
+- Red, real tree: four findings, `engine/deliverloop.go`, `engine/proof.go` (`ledgerOf`),
+  `engine/recv.go` (`Ack`) and `engine/reply.go`.
+- Green: each calls `state.LedgerOf`; the engine tests that settle a socket-delivered ping by
+  the written-yes write and by the proof were red with the verb dropped and are green.
+- Considered and not built: a rule over every store record built outside the store (pending,
+  pings, sends). Only the ledger is built from another record in the engine; the others are
+  built from the wire, where the field set is the message's.
+- Not caught: an entry built in another package by a conversion from a struct of the same
+  fields, or by `reflect`; none exists.
 
 ### project_fake_restart
 
