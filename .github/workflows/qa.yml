@@ -80,10 +80,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      # No Go cache here: this job builds one small command, and setup-go's cache is saved once per
+      # key by whichever job ends first, which would be this one, with almost nothing in it.
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version-file: src-go/go.mod
+          cache: false
 
       - name: Decide the scope
         id: scope
@@ -100,14 +103,38 @@ jobs:
           fi
           ./scripts/qa-ci-scope.bash "${args[@]}" | tee -a "$GITHUB_OUTPUT"
 
-  qa:
+  # The QA runs in three parallel parts, so the run takes as long as its slowest part (the Go gate)
+  # instead of the sum. Each part runs qa-all (full) or qa-changed (diff) with --only or --except
+  # over one list: the go part takes the Go gate, the helpers part the helper unit tests, and the
+  # rest part --except both, so the parts run every gate exactly once whatever the table holds.
+  # qa-all and qa-changed refuse a name they do not know, and
+  # src-go/qa/toolchain's TestTheQAPartsRunEveryGateOnce holds the lists to that partition.
+  # The `qa` job below is the one verdict: it passes only when every part ran and passed.
+  qa-part:
     # No gate count in this name. It said "(8 gates)" while qa-all.bash ran
     # thirteen, because a number here is a second place to state a fact that
     # lives in one place already — and nothing checks it. qa-all.bash and
     # qa-changed.bash print their own gates and checks, one pass line each.
-    name: QA (${{ needs.base.outputs.mode }})
+    name: QA (${{ needs.base.outputs.mode }}, ${{ matrix.part }})
     needs: base
     runs-on: ubuntu-latest
+    strategy:
+      # Every part runs to its end, so one run names every failure.
+      fail-fast: false
+      matrix:
+        include:
+          - part: go
+            select: --only
+            full: go
+            diff: go
+          - part: helpers
+            select: --only
+            full: helper-tests
+            diff: unit-tests
+          - part: rest
+            select: --except
+            full: go,helper-tests
+            diff: go,unit-tests
     steps:
       # A scope that is neither would run neither QA step below and pass with nothing run.
       - name: Require a known scope
@@ -152,10 +179,21 @@ jobs:
       # (src-go/qa/toolchain) fails when a workflow does otherwise.
       # src-go builds from its committed vendor/; the qa module and govulncheck (its tool
       # directive) come from the module proxy. golangci-lint is installed at the pin below.
+      # The Go cache (GOCACHE and the module cache) is restored and saved by the go part only:
+      # setup-go keys it on the two go.sum files alone and saves it once per key, from the first
+      # job to end, so a part with a thin cache would otherwise win the key. A CI run of go-qa is
+      # forced (-shuffle=on -count=1), and the busfailpoints test stage runs with -shuffle=on
+      # -count=2 in the full run only (when = "full"); go caches no test result with either flag,
+      # so the cache saves compiling and vetting, never a test run (Plan 00262
+      # subagent-reports/interim-ci-report.md, qa-changed-lean-report.md).
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version-file: src-go/go.mod
+          cache: ${{ matrix.part == 'go' }}
+          cache-dependency-path: |
+            src-go/go.sum
+            src-go/qa/go.sum
 
       # Every QA tool is pinned from the single source of truth (.qa-versions),
       # the same file the host playbook and the CCY image read. A gate's verdict
@@ -278,8 +316,10 @@ jobs:
       # tip and HEAD is rebuilt and judged with that tip as the protected line's
       # (scripts/qa-ccy-merge-commits.bash): in diff mode the scope's base, a pull request's own
       # merge commit included; on a push of a protected line (F43 and F44-arm as well as F44), the
-      # tip before the push; else, a new ref with no tip before it, the base found above.
+      # tip before the push; else, a new ref with no tip before it, the base found above. The rest
+      # part judges them; the run's verdict needs that part.
       - name: Judge merge commits by the ccy version rule
+        if: matrix.part == 'rest'
         env:
           MODE: ${{ needs.base.outputs.mode }}
           EVENT: ${{ github.event_name }}
@@ -309,36 +349,66 @@ jobs:
       # under the busfailpoints tag with -count=2. With teamchat it needs more than qa-all's default
       # limit of 30 minutes per gate (its first run on this tree was killed at exactly that limit,
       # the other gates having passed), so the limit is 120 minutes here, and the same per check
-      # for qa-changed, whose Go gate on a teamchat change runs those stages whole. A hung test is
+      # for qa-changed (whose Go gate no longer runs the busfailpoints stages: they are
+      # when = "full" in src-go/qa/go-qa.toml, so only this full run does). A hung test is
       # still stopped at 30 minutes by `go test -timeout`, which names it (scripts/qa-go-qa.bash).
-      - name: Run full QA suite
+      - name: Run full QA suite (this part)
         if: needs.base.outputs.mode == 'full'
         env:
           QA_HOOK_HANDLERS_EXEMPT: "CI has no hooks daemon (gitignored); the handler tests run in every local qa-all and qa-changed"
           QA_ALL_TIMEOUT: "120m"
-        run: ./scripts/qa-all.bash
+          SELECT: ${{ matrix.select }}
+          NAMES: ${{ matrix.full }}
+        run: ./scripts/qa-all.bash "$SELECT" "$NAMES"
 
-      - name: Run diff-mode QA against the protected line's tip
+      - name: Run diff-mode QA against the protected line's tip (this part)
         if: needs.base.outputs.mode == 'diff'
         env:
           QA_HOOK_HANDLERS_EXEMPT: "CI has no hooks daemon (gitignored); the handler tests run in every local qa-all and qa-changed"
           QA_CHANGED_TIMEOUT: "120m"
           BASE: ${{ needs.base.outputs.base }}
-        run: ./scripts/qa-changed.bash --base "$BASE"
+          SELECT: ${{ matrix.select }}
+          NAMES: ${{ matrix.diff }}
+        run: ./scripts/qa-changed.bash --base "$BASE" "$SELECT" "$NAMES"
 
       - name: Upload QA results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-results
+          name: qa-results-${{ matrix.part }}
           path: /tmp/qa-results.json
           if-no-files-found: ignore
 
-  # NO second job for the unit suites.
+  # The one QA verdict of the run. It runs whatever happened before it (short of a cancelled run,
+  # which concludes cancelled, never success), and passes only
+  # when the scope was decided and every part ran and passed: a part that failed, was cancelled
+  # or was skipped fails it. The workflow run's conclusion, which the pre-push gate
+  # (src-go/qa/pushgate) and the release read, is failure whenever any job fails; this job makes
+  # the same verdict one named check.
+  qa:
+    name: QA (${{ needs.base.outputs.mode }})
+    needs: [base, qa-part]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every QA part to have passed
+        env:
+          BASE_RESULT: ${{ needs.base.result }}
+          PARTS_RESULT: ${{ needs.qa-part.result }}
+        run: |
+          set -euo pipefail
+          if [ "$BASE_RESULT" != success ] || [ "$PARTS_RESULT" != success ]; then
+            echo "::error::QA did not pass: scope job ${BASE_RESULT}, QA parts ${PARTS_RESULT}"
+            exit 1
+          fi
+          echo "every QA part passed"
+
+  # NO job of its own for any suite.
   #
   # There used to be a `helpers` job running qa-helper-tests.bash, the ccy
   # rootless-guard suite and the extension-compat check as separate steps. Every
-  # one of those is now a hard gate inside qa-all.bash, which the job above runs.
+  # one of those is now a hard gate inside qa-all.bash, which the parts above run
+  # (the helpers part runs the helper-tests row of the table, not a step of its own).
   #
   # Removing it is not tidying. While the rootless-guard suite ran HERE and not in
   # qa-all.bash, a local `./scripts/qa-all.bash` could pass on a change that CI

@@ -35,6 +35,20 @@ line); and diff mode against the base branch for a pull request. Every branch ot
 protected one is judged in diff mode, not only `ci/`: one rule is simpler than a list, and the
 full suite judges whatever lands anyway.
 
+**CI runs the QA in three parallel parts**, so a run takes as long as its slowest part (the Go
+gate) instead of the sum. qa.yml's `qa-part` job is a matrix: the `go` part runs
+`--only go`, the `helpers` part `--only helper-tests` (in diff mode `--only unit-tests`), and the
+`rest` part `--except` both, passed to `qa-all.bash` in full mode and to `qa-changed.bash` in
+diff mode. One list given to `--only` and `--except` runs each gate (or check and suite) exactly
+once; both tools refuse a name they do not know (exit 2), a subset `qa-all` writes no verdict
+record, and `TestTheQAPartsRunEveryGateOnce` (`src-go/qa/toolchain`) holds the lists to a
+partition of the table. The job `qa`, named `QA (<mode>)`, is the one verdict: it needs every
+part and fails unless each ran and passed. The push gate and the release read the workflow run's
+conclusion, which is failure when any job fails, so no part can pass a commit alone. The Go part
+alone restores and saves the Go build and module cache (`actions/setup-go`, keyed on
+`src-go/go.sum` and `src-go/qa/go.sum`): go-qa's main test pass runs with `-count=1`, so the cache
+saves compiling and vetting, not that test run. Locally both tools run whole; the flags are CI's.
+
 The two checks that need the local machine: the hooks-daemon handler tests run in CI under the
 exemption `QA_HOOK_HANDLERS_EXEMPT` (CI has no daemon), in both modes, and `qa-deployed-drift`
 finds no deployed copies on a runner and reports itself skipped. Both run for real in a local
@@ -3559,7 +3573,10 @@ through the shared `scripts/lib/go-tool.bash` (which `qa-bash-limits.bash` uses 
 hooks and humans always used. Changed files are `git diff --name-only HEAD` plus untracked,
 not-ignored files; `--base <ref>` (e.g. `origin/F44`) diffs against a ref so a burst of local
 commits is covered, `--plan` prints the chosen checks without running them, `--files F...` names
-the files explicitly (flags may follow them; `--` ends the flags). A git failure or a bad ref is
+the files explicitly (flags may follow them; `--` ends the flags), `--only IDS` plans only the
+named checks (comma-separated check ids) and no suite, and `--except IDS` every check but those,
+and the suites (`--only A` and `--except A` together plan each check and suite once: CI's parallel
+diff parts). A name that is no check id is a usage error. A git failure or a bad ref is
 exit `2`, never "nothing to check". Exit `0` pass or nothing changed, `1` a check failed, `2` bad
 usage, a needed tool missing, or a gate that could not run (it exited 2 itself; reported as
 `could not run (exit 2)`, and a failed check outranks it). Every selected check runs, in a fixed

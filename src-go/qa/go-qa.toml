@@ -81,7 +81,8 @@ fix = "Make the failing busfailpoints test pass"
 # -count=2 is the point of this stage, so it stays and the stage is full-only (go-qa-ci refuses a
 # stage running go test -count without `when = "full"`). It runs every test twice in one process,
 # so a test that adds to package state it does not restore (a registry, a flag, a sync.Once) fails
-# here, the build being a superset of the untagged one. Without -count and -shuffle it could be a
+# here, the build being a superset of the untagged one. With -count or -shuffle go caches no test
+# result (go help test), so this stage is never a cache hit. Without them it could be a
 # test cache hit in a diff run, but any teamchat change would rerun all of teamchat under -race,
 # the heaviest stage there is, and the untagged teamchat tests already run in diff mode.
 command = ["go", "test", "-race", "-shuffle=on", "-count=2", "-tags", "busfailpoints", "./internal/teamchat/..."]

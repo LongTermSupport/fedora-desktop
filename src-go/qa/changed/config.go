@@ -3,6 +3,7 @@ package changed
 import (
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
@@ -64,6 +65,10 @@ stderr once and then every minute. --plan, and a run with nothing changed, take 
   --root DIR      the repository root (QA_CHANGED_ROOT does the same)
   --scripts DIR   the scripts directory holding the gates, suites and routing tables
   --no-wait       exit 2 at once, naming the holder, if another QA run holds the lock
+  --only IDS      plan only the named checks (comma-separated check ids) and no suite
+  --except IDS    plan every check but the named ones, and the suites; --only A and --except A
+                  plan each check and suite once (CI splits a diff run across parallel jobs
+                  this way). A name that is no check id is a usage error.
   -h, --help      this text
 
 What each kind of file gets is scripts/qa-routing.tsv; the excluded trees are
@@ -96,6 +101,40 @@ type options struct {
 	files    []string
 	root     string
 	scripts  string
+	// picked is the check ids of --only or --except; except says which. Empty plans everything.
+	picked []string
+	except bool
+}
+
+// subset is whether the run plans only part of what the changed files need.
+func (o *options) subset() bool { return len(o.picked) > 0 }
+
+// subsetFlag is the flag the subset was given with, for messages.
+func (o *options) subsetFlag() string {
+	if o.except {
+		return "--except"
+	}
+	return "--only"
+}
+
+// takeSubset reads the value of --only or --except: one subset per run, every name a check id.
+func (o *options) takeSubset(rest []string, except bool, flag string) ([]string, error) {
+	if o.subset() {
+		return rest, &usageError{msg: "give one of --only and --except, once"}
+	}
+	var list string
+	rest, err := o.value(rest, &list, flag+" needs a comma-separated list of check ids")
+	if err != nil {
+		return rest, err
+	}
+	names := strings.Split(list, ",")
+	for _, name := range names {
+		if !isCheckID(name) {
+			return rest, &usageError{msg: fmt.Sprintf("%s names %q, which is no check id", flag, name)}
+		}
+	}
+	o.picked, o.except = names, except
+	return rest, nil
 }
 
 // usageError is a command line the tool refuses.
@@ -165,6 +204,8 @@ func (o *options) apply(arg string, rest []string) ([]string, error) {
 		return o.value(rest, &o.root, "--root needs a directory")
 	case "--scripts":
 		return o.value(rest, &o.scripts, "--scripts needs a directory")
+	case "--only", "--except":
+		return o.takeSubset(rest, arg == "--except", arg)
 	default:
 		if !o.explicit || (len(arg) > 0 && arg[0] == '-') {
 			return rest, &usageError{msg: fmt.Sprintf("unknown argument '%s'", arg), listUsage: true}
