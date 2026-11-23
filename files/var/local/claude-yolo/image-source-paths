@@ -42,6 +42,7 @@
 :(glob)src-go/internal/teamchat/member/team/*
 :(glob)src-go/internal/teamchat/member/teamsync/*
 :(glob)src-go/internal/teamchat/member/tlsverb/*
+:(glob)src-go/internal/teamchat/member/whoami/*
 :(glob)src-go/internal/teamchat/member/wire/*
 :(glob)src-go/internal/teamchat/member/wiring/*
 :(glob)src-go/internal/teamchat/notice/*

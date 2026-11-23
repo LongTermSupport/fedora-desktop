@@ -143,6 +143,9 @@ func (e *Engine) statusRow(h *held) state.StatusTeam {
 	row := state.StatusTeam{Team: h.id, Down: h.health.Down, Delivery: e.cfg.Delivery, Pending: h.pending()}
 	row.Stalled = e.stall.stalled && row.Pending > 0
 	row.Member, row.Colour = h.member(), teamColour(h.id, h.health.Colour)
+	if handle := h.handle(); handle != "" {
+		row.Handle = &handle
+	}
 	if h.health.Role != "" {
 		role := h.health.Role
 		row.Role = &role

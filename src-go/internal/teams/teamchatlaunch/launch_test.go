@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/duty"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
@@ -108,6 +109,38 @@ func TestHandleStateIsTheRostersOrNoRoster(t *testing.T) {
 	rec := status.Record{Members: []status.Member{{Handle: name.String(), State: "claimed"}}}
 	if _, err := HandleState(rec, true, name); !errors.Is(err, ErrSeat) {
 		t.Fatalf("claimed: %v", err)
+	}
+}
+
+// A seat's duty is its row's in the team's status record; none where this machine has no
+// record, or the row gives none (PROPOSAL-seat-kinds.md OD2 (a)).
+func TestSeatDutyIsTheRecordsRow(t *testing.T) {
+	name := mustSeat(t, "repo.1+site.podman")
+	host := duty.Host
+	rec := status.Record{Members: []status.Member{{Handle: name.String(), State: "enrolled", Duty: &host}}}
+	if d := SeatDuty(rec, true, name); d != duty.Host {
+		t.Fatalf("recorded: %q", d)
+	}
+	if d := SeatDuty(rec, false, name); d != "" {
+		t.Fatalf("no record: %q", d)
+	}
+	if d := SeatDuty(status.Record{Members: []status.Member{{Handle: name.String(), State: "enrolled"}}}, true, name); d != "" {
+		t.Fatalf("no duty in the row: %q", d)
+	}
+}
+
+func TestDesiredCarriesTheDuty(t *testing.T) {
+	team, err := paths.ParseTeamID("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := Desired(mustSession(t, "ccy-proj-1"), []Chosen{{Team: team, Name: mustSeat(t, "repo.2+site.podman"), Seat: "2", Duty: duty.Host}}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := state.DecodeDesired(data)
+	if err != nil || d.Seats[0].Duty != duty.Host {
+		t.Fatalf("got %+v, %v", d.Seats, err)
 	}
 }
 

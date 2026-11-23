@@ -19,6 +19,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/teamsync"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/tlsverb"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/whoami"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
@@ -30,6 +31,7 @@ func Verbs() map[string]cli.RunFunc {
 	v := map[string]cli.RunFunc{
 		"hook":              hook.Main,
 		"status-line":       statusline.Main,
+		"whoami":            whoami.Main,
 		"run":               keeper.Main,
 		"link":              link.Main(link.Wiring{NewTeam: NewTeam, NewEnds: NewEnds}),
 		"seat disconnected": client.SeatDisconnected,

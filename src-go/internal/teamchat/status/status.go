@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/duty"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
@@ -101,9 +102,12 @@ type Homeserver struct {
 
 // Member is one agent; Online is on an LXC member's entry only.
 type Member struct {
-	Handle string            `json:"handle"`
-	Kind   string            `json:"kind"`
-	Role   string            `json:"role"`
+	Handle string `json:"handle"`
+	Kind   string `json:"kind"`
+	Role   string `json:"role"`
+	// Duty is the member's duty in the team (PROPOSAL-seat-kinds.md), absent on the probe's
+	// row and where the writer knew none.
+	Duty   *duty.Duty        `json:"duty,omitempty"`
 	State  string            `json:"state"`
 	Online *bool             `json:"online,omitempty"`
 	Rooms  map[string]string `json:"rooms"`
@@ -348,6 +352,9 @@ func (r Record) checkMembers() error {
 		}
 		if !kindRe.MatchString(m.Kind) || !slices.Contains(roles, m.Role) || !slices.Contains(memberState, m.State) {
 			return invalid("member %s", m.Handle)
+		}
+		if m.Duty != nil && (!m.Duty.Valid() || m.Role == proto.RoleProbe) {
+			return invalid("member %s: a duty is coordinator, worker or host, and the probe has none", m.Handle)
 		}
 		if (m.Kind == KindLXC) != (m.Online != nil) {
 			return invalid("member %s: online is on an LXC member's entry only, and always there", m.Handle)

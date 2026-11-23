@@ -49,9 +49,22 @@ type StatusTeam struct {
 	Pending  int64        `json:"pending"`
 	Missing  int64        `json:"missing"`
 	Member   *string      `json:"member"`
-	Colour   string       `json:"colour"`
-	Down     bool         `json:"down"`
-	Stalled  bool         `json:"stalled"`
+	// Handle is this session's full handle there, null until the link knows it; its short
+	// name is Member.
+	Handle  *string `json:"handle"`
+	Colour  string  `json:"colour"`
+	Down    bool    `json:"down"`
+	Stalled bool    `json:"stalled"`
+}
+
+// validHandleOf is a null handle, or an agent handle in its canonical form whose short name is
+// member where member is known.
+func validHandleOf(handle, member *string) bool {
+	if handle == nil {
+		return true
+	}
+	h, ok := proto.ParseHandle(*handle)
+	return ok && h.String() == *handle && (member == nil || h.Short() == *member)
 }
 
 // Encode is the file's bytes.
@@ -85,6 +98,7 @@ func (s Status) check(c *rules) {
 		c.need(t.Pending >= 0 && t.Pending <= capPending, "a team's pending is not a count its store holds")
 		c.need(t.Missing >= 0 && t.Missing <= capMissed, "a team's missing is not a count its store holds")
 		c.need(t.Member == nil || proto.ValidShortName(*t.Member), "a team's member is not <repo>.<seat> or null")
+		c.need(validHandleOf(t.Handle, t.Member), "a team's handle is not an agent handle whose short name is its member, or null")
 		c.need(colour.Stored(t.Colour), "a team's colour is not a lower-case #rrggbb")
 	}
 }

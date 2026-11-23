@@ -203,6 +203,9 @@ func TestStatusJSONNamesTheMemberAndTheColour(t *testing.T) {
 	if held.Member == nil || *held.Member != "repo.1" || refused.Member != nil {
 		t.Fatalf("member names %v, %v", held.Member, refused.Member)
 	}
+	if held.Handle == nil || *held.Handle != "repo.1+site.podman" || refused.Handle != nil {
+		t.Fatalf("handles %v, %v", held.Handle, refused.Handle)
+	}
 	if held.Colour != colour.Auto("ops") || refused.Colour != colour.Auto("dev") {
 		t.Fatalf("colours %s, %s", held.Colour, refused.Colour)
 	}

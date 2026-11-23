@@ -17,12 +17,14 @@ Two version numbers move independently — see
 
 ---
 
-## 3.122.51 — container 2.84.44
+## 3.122.52 — container 2.84.45
 
 - **teamchat knows a seat's duty** (Plan 00209, PROPOSAL-seat-kinds.md). A v2 seat is a
   coordinator, a worker or a host in each team it holds. The duty comes from the host in the
-  session's desired membership, is shown in `status.json`, and `teamchat whoami --json` prints
-  each held seat's team, handle, role and duty, for the hooks-daemon's role probe.
+  session's desired membership, is shown in `status.json` beside the seat's full handle, and
+  `teamchat whoami --json` prints each held seat's team, handle, role and duty, for the
+  hooks-daemon's role probe. (3.122.51 / container 2.84.44 was this work's first, unreleased
+  step.)
 
 ## 3.122.50 — container 2.84.43
 

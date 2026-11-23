@@ -57,7 +57,8 @@ func TestPresentPlacesAndJoins(t *testing.T) {
 	if got := w.lxc.calls[1].Stdin; got != `{"bundle":"`+firstHandle+`"}` {
 		t.Fatalf("place-bundle stdin %q", got)
 	}
-	if !strings.Contains(w.lxc.calls[2].Stdin, `"seats":[{"team":"t1","seat":"1"}]`) || !strings.Contains(w.lxc.calls[2].Stdin, `"session":"lxc-`+keyOf(t, "t1").String()+`"`) {
+	// The seat's duty travels in its desired membership (PROPOSAL-seat-kinds.md OD2 (a)).
+	if !strings.Contains(w.lxc.calls[2].Stdin, `"seats":[{"team":"t1","seat":"1","duty":"worker"}]`) || !strings.Contains(w.lxc.calls[2].Stdin, `"session":"lxc-`+keyOf(t, "t1").String()+`"`) {
 		t.Fatalf("membership stdin %s", w.lxc.calls[2].Stdin)
 	}
 	if !slices.Equal(w.roster.joins, []string{"member.add " + firstHandle}) {

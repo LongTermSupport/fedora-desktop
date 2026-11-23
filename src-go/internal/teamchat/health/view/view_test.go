@@ -15,6 +15,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/duty"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
@@ -247,9 +248,10 @@ func TestAConvergedTeamHasNoProblem(t *testing.T) {
 	}
 	v := w.read(t)
 	wantProblems(t, v)
+	coordDuty, workerDuty := duty.Coordinator, duty.Worker
 	want := []status.Member{
-		{Handle: coord, Kind: "podman", Role: proto.RoleCoordinator, State: apply.MemberEnrolled, Rooms: map[string]string{"main": "join", "reports": "join", "questions": "join"}},
-		{Handle: worker, Kind: "podman", Role: proto.RoleWorker, State: apply.MemberEnrolled, Rooms: map[string]string{"main": "join", "reports": "join"}},
+		{Handle: coord, Kind: "podman", Role: proto.RoleCoordinator, Duty: &coordDuty, State: apply.MemberEnrolled, Rooms: map[string]string{"main": "join", "reports": "join", "questions": "join"}},
+		{Handle: worker, Kind: "podman", Role: proto.RoleWorker, Duty: &workerDuty, State: apply.MemberEnrolled, Rooms: map[string]string{"main": "join", "reports": "join"}},
 	}
 	wantMembers(t, v.Members, want)
 	if len(v.Humans) != 2 || v.Humans[0].Name != "alice" || v.Humans[1].Name != "bob" {
@@ -271,7 +273,8 @@ func wantMembers(t *testing.T, got, want []status.Member) {
 	}
 	for i := range want {
 		g, w := got[i], want[i]
-		if g.Handle != w.Handle || g.Kind != w.Kind || g.Role != w.Role || g.State != w.State || g.Online != nil || !maps.Equal(g.Rooms, w.Rooms) {
+		if g.Handle != w.Handle || g.Kind != w.Kind || g.Role != w.Role || g.State != w.State || g.Online != nil || !maps.Equal(g.Rooms, w.Rooms) ||
+			w.Duty != nil && (g.Duty == nil || *g.Duty != *w.Duty) {
 			t.Fatalf("member %d: %+v, want %+v", i, g, w)
 		}
 	}
