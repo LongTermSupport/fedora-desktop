@@ -27,6 +27,7 @@ const (
 	questionEv
 	checkEv
 	unknownEv
+	reportEv
 )
 
 func ledgerItem(id string, room, item, from string, verb *string) state.Ledger {
@@ -44,6 +45,7 @@ func (w *world) replyStore(id paths.TeamID) state.Store {
 		ledgerItem(evID(carriedEv), proto.PurposeMain, records.KindNotice, alice(id), nil),
 		ledgerItem(evID(questionEv), proto.PurposeQuestions, records.KindHuman, alice(id), nil),
 		ledgerItem(evID(checkEv), proto.PurposeMain, records.KindPing, agent(id, 4), new("check")),
+		ledgerItem(evID(reportEv), proto.PurposeReports, records.KindHuman, alice(id), nil),
 	}
 	return s
 }
@@ -118,6 +120,10 @@ func TestSD1_1AReplyToAHumanItem(t *testing.T) {
 	refusedCode(t, "--ref without --verb", firstOf(w.reply(wire.ReplyArgs{ID: evID(humanEv), Ref: new(reviewRef)}, new("x"))), exits.CodeUsage)
 	refusedCode(t, "a questions post refetched as no human's", firstOf(w.reply(wire.ReplyArgs{ID: evID(questionEv)}, new("x"))), exits.CodeNotFound)
 	refusedCode(t, "a questions post with --to-coordinator", firstOf(w.reply(wire.ReplyArgs{ID: evID(questionEv), ToCoordinator: true}, new("x"))), exits.CodeUsage)
+	// A room reply has no case for is refused by name, never answered as main's.
+	if d := firstOf(w.reply(wire.ReplyArgs{ID: evID(reportEv)}, new("x"))); d.Error == nil || d.Error.Code != exits.CodeUsage || !strings.Contains(d.Error.Message, proto.PurposeReports) {
+		t.Errorf("a reply to a post in reports = %+v", d)
+	}
 	if d := w.done(wire.OpReply, map[string]any{"nope": 1}); d.Error == nil || d.Error.Code != exits.CodeSchema {
 		t.Fatalf("reply with bad arguments = %+v", d)
 	}

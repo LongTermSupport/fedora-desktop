@@ -150,11 +150,13 @@ func (t *Team) qplace(idx *proto.QuestionIndex, self string, ps []team.Placement
 func sendingPlacements(store state.Store) []team.Placement {
 	var ps []team.Placement
 	for _, x := range store.Outbox.Sending {
-		if x.Room != proto.PurposeQuestions {
-			continue
-		}
-		if p, ok := team.PlacementOf(x.Txn, x.Content); ok {
-			ps = append(ps, p)
+		switch x.Room {
+		case proto.PurposeQuestions:
+			if p, ok := team.PlacementOf(x.Txn, x.Content); ok {
+				ps = append(ps, p)
+			}
+		case proto.PurposeMain, proto.PurposeReports:
+			// The other rooms' sends place nothing in the questions index.
 		}
 	}
 	return ps

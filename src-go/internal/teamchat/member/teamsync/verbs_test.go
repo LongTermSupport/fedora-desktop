@@ -200,6 +200,19 @@ func TestRefetchOfAQuestionsItem(t *testing.T) {
 	}
 }
 
+// project_room_default: the room decisions name main and questions each, and refuse any other
+// room rather than give it main's path.
+func TestTheRoomDecisionsRefuseAnotherRoom(t *testing.T) {
+	w := newWorld(t)
+	tm := w.newTeam()
+	if m, ok := readRoomMessage(nil, proto.Roster{}, "", proto.PurposeReports); ok {
+		t.Errorf("a reports event was read as %+v", m)
+	}
+	if _, err := tm.getEvent(t.Context(), nil, proto.PurposeReports, "!r", "$e", proto.Roster{}, ""); !isCode(err, exits.CodeUsage) {
+		t.Errorf("a reports event was fetched: %v", err)
+	}
+}
+
 // A restored item the server will never serve again (404, 403, a room other than main) is
 // team.ErrItemGone, which the engine drops; a transient failure is not (A1).
 func TestARefetchOfAnEventThatIsGoneSaysSo(t *testing.T) {

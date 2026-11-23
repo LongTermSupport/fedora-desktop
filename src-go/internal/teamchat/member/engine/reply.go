@@ -28,6 +28,7 @@ const (
 	msgNoSuchItem     exits.Template = "team {} has no item {} in main"
 	msgFetchFailed    exits.Template = "team {}'s homeserver did not answer for {}; try again later"
 	msgReplyQuestions exits.Template = "a reply to a post in questions takes neither --verb nor --to-coordinator"
+	msgReplyRoom      exits.Template = "{} is a post in a room reply does not answer in; reply answers in main or questions"
 )
 
 // replied is what a reply knows of the item it answers, from the store or from a fetch: its
@@ -58,11 +59,15 @@ func (e *Engine) reply(ctx context.Context, a wire.ReplyArgs, stdin *string, out
 	if err != nil {
 		return doneOf(err)
 	}
-	if it.room == proto.PurposeQuestions && a.Verb == nil && !a.ToCoordinator {
+	switch it.room {
+	case proto.PurposeMain:
+	case proto.PurposeQuestions:
+		if a.Verb != nil || a.ToCoordinator {
+			return doneOf(exits.New(exits.CodeUsage, &t, msgReplyQuestions))
+		}
 		return e.replyQuestions(ctx, st, a.ID, text, out)
-	}
-	if it.room != proto.PurposeMain {
-		return doneOf(exits.New(exits.CodeUsage, &t, msgReplyQuestions))
+	default:
+		return doneOf(exits.New(exits.CodeUsage, &t, msgReplyRoom, exits.Name(it.room)))
 	}
 	if a.Verb != nil {
 		return e.answerPing(ctx, st, a, it, out)

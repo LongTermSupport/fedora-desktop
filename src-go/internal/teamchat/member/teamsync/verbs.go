@@ -70,11 +70,20 @@ type message struct {
 
 // readRoomMessage is readMessage for an event of room purpose: in questions a human's message,
 // or the coordinator's or the admin's question or thread post (A 10.2, 10.3); in main,
-// readMessage's.
+// readMessage's; in any other room, no message.
 func readRoomMessage(raw json.RawMessage, r proto.Roster, server, purpose string) (message, bool) {
-	if purpose != proto.PurposeQuestions {
+	switch purpose {
+	case proto.PurposeMain:
 		return readMessage(raw, r, server)
+	case proto.PurposeQuestions:
+		return readQuestionsMessage(raw, r, server)
+	default:
+		return message{}, false
 	}
+}
+
+// readQuestionsMessage is readRoomMessage's reading of an event of the questions room.
+func readQuestionsMessage(raw json.RawMessage, r proto.Roster, server string) (message, bool) {
 	v, err := proto.Parse(raw)
 	if err != nil || str(v, "type") != proto.MessageType {
 		return message{}, false
@@ -218,10 +227,22 @@ func (t *Team) verify(ctx context.Context, id string, room *string) (records.Ver
 // getEvent is GetEvent of id in roomID, the room of purpose. A member that does not coordinate
 // reads questions by event ID only (A 4.1, 10.6): refused, it joins the room by the invite every
 // non-parked member holds and reads again. It never syncs the room; the coordinator's own join
-// is QS2's.
+// is QS2's. Any other room is refused.
 func (t *Team) getEvent(ctx context.Context, c *matrix.Client, purpose, roomID, id string, r proto.Roster, self string) (json.RawMessage, error) {
+	switch purpose {
+	case proto.PurposeMain:
+		return c.GetEvent(ctx, roomID, id)
+	case proto.PurposeQuestions:
+		return t.getQuestionsEvent(ctx, c, roomID, id, r, self)
+	default:
+		return nil, exits.New(exits.CodeUsage, &t.cfg.Team, notARoom, exits.Name(purpose))
+	}
+}
+
+// getQuestionsEvent is getEvent of id in the questions room roomID.
+func (t *Team) getQuestionsEvent(ctx context.Context, c *matrix.Client, roomID, id string, r proto.Roster, self string) (json.RawMessage, error) {
 	raw, err := c.GetEvent(ctx, roomID, id)
-	if purpose != proto.PurposeQuestions || !errors.Is(err, matrix.ErrForbidden) {
+	if !errors.Is(err, matrix.ErrForbidden) {
 		return raw, err
 	}
 	if coordinator, ok := r.Coordinator(); ok && coordinator == self {
@@ -410,10 +431,16 @@ func (t *Team) Refetch(ctx context.Context, room, id string) (proto.Verdict, err
 		Server: s.a.Server, Self: s.a.Self, RoomID: roomID, Purpose: room, Roster: s.roster,
 		NowMs: t.cfg.Clock.WallMS(), Lookup: &memLookup{view: view, resolved: resolved, judged: map[string]bool{}, skip: id}, Flood: &flood,
 	}
-	if room == proto.PurposeQuestions && s.roster.Sender(s.a.Self, s.a.Server) != proto.SenderCoordinator {
-		// A member that does not coordinate holds a questions item only as a relayed post (A
-		// 10.6): judged as fetched by ID, its relay account lost with the restart.
-		return judge.Fetched(v), nil
+	switch room {
+	case proto.PurposeMain:
+	case proto.PurposeQuestions:
+		if s.roster.Sender(s.a.Self, s.a.Server) != proto.SenderCoordinator {
+			// A member that does not coordinate holds a questions item only as a relayed post
+			// (A 10.6): judged as fetched by ID, its relay account lost with the restart.
+			return judge.Fetched(v), nil
+		}
+	default:
+		return proto.Verdict{}, gone(exits.New(exits.CodeUsage, &t.cfg.Team, notARoom, exits.Name(room)))
 	}
 	vs := []proto.Verdict{t.judge(judge, v)}
 	// The same check as a sync's (n3d-D12): a restored ping that no longer proves is a drop.

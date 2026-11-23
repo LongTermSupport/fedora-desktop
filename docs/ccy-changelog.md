@@ -17,11 +17,11 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.10 — container 2.84.61
+## 3.124.11 — container 2.84.62
 
 The agent team bus v2 batch (Plan 00209). It was built in steps on parallel branches, the
 questions verbs and host `cc` on teamchat, and merged on the v2 integration branch. Their
-intermediate numbers, 3.122.51 to 3.124.9 and containers 2.84.44 to 2.84.60, were never
+intermediate numbers, 3.122.51 to 3.124.10 and containers 2.84.44 to 2.84.61, were never
 released, and some were used by more than one branch; this entry is the one release of all of
 it. The image carries the new `teamchat`.
 
@@ -42,6 +42,10 @@ it. The image carries the new `teamchat`.
   names the events at its millisecond already taken, in the seat store (`floor_ids`) and in the
   room's marker, and a restore's export of what it loses keeps the events of the backup's own
   millisecond. Rule `project_floor_by_time` holds the class.
+
+- **A room the code was not written for is refused, never taken for main.** `teamchat reply`
+  to a post in the reports room, and a fetch, read or restored item of a room other than main
+  and questions, is refused naming the room. Rule `project_room_default` holds the class.
 
 - **A seat's duty, and `teamchat whoami`** (PROPOSAL-seat-kinds.md). A v2 seat is a
   coordinator, a worker or a host in each team it holds; a team can set a member's duty in

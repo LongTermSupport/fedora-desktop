@@ -192,7 +192,7 @@ func TestAskHumanRefusals(t *testing.T) {
 	}
 	refusedCode(t, "the same question", firstOf(w.q(wire.OpAskHuman, wire.AskArgs{}, new(askBody))), exits.CodeDuplicate)
 
-	w2 := newWorld(t, state.DeliverySocket)
+	w2 := buildWorld(t, state.DeliverySocket, func(*Config) {}, func(*Engine) {})
 	w2.sendingUnder(ops, w2.newStore(ops), sendRoster(ops))
 	refusedCode(t, "a worker", firstOf(w2.q(wire.OpAskHuman, wire.AskArgs{}, new(askBody))), exits.CodeRole)
 }
