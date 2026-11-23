@@ -112,7 +112,7 @@ func TestPersistAPageLeavesThePositionAndSetsTheHandover(t *testing.T) {
 	item.Pending.Room = proto.PurposeQuestions
 	w.persistBatch(team.Batch{
 		Team: ops, NextBatch: "p0", Page: true, Handover: true, Questions: questionsKey("p1"), Items: []team.Item{item},
-		Floors: map[string]int64{proto.PurposeQuestions: 50},
+		Floors: map[string]state.Floor{proto.PurposeQuestions: {MS: 50}},
 	})
 	got := w.store(ops)
 	if got.Sync.NextBatch != "s1" || got.Sync.Fresh {

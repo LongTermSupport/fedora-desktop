@@ -200,7 +200,7 @@ type fakeTeam struct {
 	flushes     int
 	flushErr    error
 	// raised are the floors FloorRaised was told, in order.
-	raised []int64
+	raised []state.Floor
 	// ended (below) is set once Run returns; flushedLive counts the flushes made while it ran.
 	flushedLive int
 	// reportsAnswers are VerifyReports's answers in order (the last one repeats; none is nil),
@@ -308,7 +308,7 @@ func (f *fakeTeam) FlushFloor(context.Context) error {
 	return f.flushErr
 }
 
-func (f *fakeTeam) FloorRaised(floor int64) {
+func (f *fakeTeam) FloorRaised(floor state.Floor) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.raised = append(f.raised, floor)
@@ -590,7 +590,7 @@ func (w *world) persist(id paths.TeamID, items ...team.Item) {
 
 // persistBatch is b persisted (at s1 when it names no position), and the main floor the store
 // then keeps.
-func (w *world) persistBatch(b team.Batch) int64 {
+func (w *world) persistBatch(b team.Batch) state.Floor {
 	w.t.Helper()
 	if b.NextBatch == "" {
 		b.NextBatch = "s1"

@@ -53,7 +53,7 @@ func TestDeliversAHumanMention(t *testing.T) {
 	if p.ID != id || p.Room != proto.PurposeMain || p.Item != records.KindHuman || p.From != user(alice) || p.Restored || p.SentMS == 0 {
 		t.Errorf("pending = %+v", p)
 	}
-	if b.Floors[proto.PurposeMain] != p.SentMS || b.Fresh {
+	if f := b.Floors[proto.PurposeMain]; f.MS != p.SentMS || !f.Covers(p.SentMS, id) || b.Fresh {
 		t.Errorf("floors = %v, fresh %v", b.Floors, b.Fresh)
 	}
 }

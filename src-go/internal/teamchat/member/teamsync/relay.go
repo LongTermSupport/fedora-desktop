@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -14,10 +15,10 @@ import (
 // is not empty, to each seat it names, composed as the coordinator's text with `relay`. The
 // build and the catch-up owe none, so a new coordinator relays only what it syncs. A seat the
 // roster no longer reaches is passed over, logged.
-func (s *sess) relays(jr roomJudged, idx *proto.QuestionIndex, floor int64) []team.Relay {
+func (s *sess) relays(jr roomJudged, idx *proto.QuestionIndex, floor state.Floor) []team.Relay {
 	var out []team.Relay
 	for _, v := range jr.vs {
-		if v.Outcome != proto.Deliver || v.Kind != proto.KindHuman || v.Event.OriginTs <= floor {
+		if v.Outcome != proto.Deliver || v.Kind != proto.KindHuman || floor.Covers(v.Event.OriginTs, v.Event.ID) {
 			continue
 		}
 		n, seen := idx.Attachment(v.Event.ID)

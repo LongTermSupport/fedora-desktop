@@ -42,7 +42,7 @@ type IndexBuilder interface {
 type IndexJob struct {
 	Key    *proto.QuestionsState
 	RoomID string
-	Floor  int64
+	Floor  state.Floor
 	// s is the session the job was begun in: its client reads the room, and its judging takes the
 	// room's items (Builder).
 	s *sess
@@ -68,7 +68,7 @@ type qstate struct {
 	last     string
 	since    time.Duration
 	triedAt  time.Duration
-	floor    int64
+	floor    state.Floor
 	joined   bool
 	verified bool
 	refused  bool
@@ -401,13 +401,15 @@ func (s *sess) qindex(ctx context.Context, room string, joinTS int64) error {
 	if err != nil {
 		return err
 	}
-	floor, ok := store.Sync.FloorMS[proto.PurposeQuestions]
+	floor, ok := store.Sync.Floor(proto.PurposeQuestions)
 	if !ok {
 		if floor, err = s.qresume(ctx, room); err != nil {
 			return err
 		}
 	}
-	floor = max(floor, joinTS)
+	// The join's whole millisecond: which of its events came before the join is a stream order
+	// this floor cannot name (the known gap of project_floor_by_time).
+	floor = floor.Max(state.Floor{MS: joinTS})
 	key := store.Questions
 	if key != nil && key.Build == nil && key.Index != nil && key.Token != nil && key.Last != nil && *key.Token == store.Sync.NextBatch {
 		idx, lerr := proto.LoadQuestionIndex(s.a.Server, s.roster.QuestionFloor, *key.Index)
@@ -425,20 +427,21 @@ func (s *sess) qindex(ctx context.Context, room string, joinTS int64) error {
 
 // qresume is QS5's floor with no store floor: the earlier of the room's own marker (SY10, per
 // room) and the seat's release time, either alone when only one exists, 0 with neither.
-func (s *sess) qresume(ctx context.Context, room string) (int64, error) {
+func (s *sess) qresume(ctx context.Context, room string) (state.Floor, error) {
 	marker, hasMarker, err := s.marker(ctx, room)
 	if err != nil {
-		return 0, err
+		return state.Floor{}, err
 	}
 	h := s.pair.Bundle.Held
-	hasReleased := h != nil && h.ReleasedMS != nil
-	switch {
-	case hasMarker && hasReleased:
-		return min(marker, *h.ReleasedMS), nil
-	case hasReleased:
-		return *h.ReleasedMS, nil
+	if h == nil || h.ReleasedMS == nil {
+		return marker, nil
 	}
-	return marker, nil
+	// The release is a time with no event behind it: its own millisecond stays above the floor.
+	released := state.Before(*h.ReleasedMS)
+	if hasMarker && marker.Below(released) {
+		return marker, nil
+	}
+	return released, nil
 }
 
 // stateMember is self's membership among a room's state events, and the time of that event.
@@ -560,7 +563,7 @@ func redactions(jr roomJudged) []string {
 // whatever its verdict (n3f-D18), and each event the room owes taken as an item in `room:
 // questions` from the room's floor on (QS5); the questions floor raised to the newest. It gives
 // the last folded event, "" for none.
-func (s *sess) qtake(j *judged, jr roomJudged, idx *proto.QuestionIndex, floor int64, owes func(string) bool) string {
+func (s *sess) qtake(j *judged, jr roomJudged, idx *proto.QuestionIndex, floor state.Floor, owes func(string) bool) string {
 	last := ""
 	counted := map[string]bool{}
 	for i, e := range jr.evs {
@@ -573,7 +576,7 @@ func (s *sess) qtake(j *judged, jr roomJudged, idx *proto.QuestionIndex, floor i
 			last = e.id
 			j.batch.QuestionsFolded = append(j.batch.QuestionsFolded, e.id)
 		}
-		if !owes(e.id) || v.Outcome == proto.Deliver && v.Event.OriginTs <= floor {
+		if !owes(e.id) || v.Outcome == proto.Deliver && floor.Covers(v.Event.OriginTs, e.id) {
 			continue
 		}
 		s.take(j, v, e.id, nil, jr.lk, counted, proto.PurposeQuestions)
@@ -582,9 +585,9 @@ func (s *sess) qtake(j *judged, jr roomJudged, idx *proto.QuestionIndex, floor i
 		s.t.log.Printf("the questions post sent as %s was not counted: another question holds its number", d.Txn)
 		j.batch.QuestionsUncounted = append(j.batch.QuestionsUncounted, d)
 	}
-	if jr.floor > floor {
+	if floor.Below(jr.floor) {
 		if j.batch.Floors == nil {
-			j.batch.Floors = map[string]int64{}
+			j.batch.Floors = map[string]state.Floor{}
 		}
 		j.batch.Floors[proto.PurposeQuestions] = jr.floor
 	}
@@ -685,7 +688,7 @@ func (t *Team) qcommit(j judged) {
 			q.head, q.chain = false, false
 		}
 		if fl, ok := j.batch.Floors[proto.PurposeQuestions]; ok {
-			q.floor = max(q.floor, fl)
+			q.floor = q.floor.Max(fl)
 		}
 	})
 }

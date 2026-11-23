@@ -40,7 +40,7 @@ type sess struct {
 	// epoch is the restore epoch the session's position belongs to.
 	epoch int64
 	// floor is main's floor as persisted.
-	floor int64
+	floor state.Floor
 	// dropOwed is QS9's drop of the questions room, owed by the next write.
 	dropOwed bool
 	// qinvited is an invite to the questions room seen in this answer, QS2's signal to join.
@@ -70,9 +70,11 @@ func (t *Team) session(ctx context.Context, wg *sync.WaitGroup) error {
 	if err != nil {
 		return err
 	}
-	s.epoch, s.floor = s.roster.RestoreEpoch, store.Sync.FloorMS[proto.PurposeMain]
+	s.epoch = s.roster.RestoreEpoch
+	s.floor, _ = store.Sync.Floor(proto.PurposeMain)
+	qfloor, _ := store.Sync.Floor(proto.PurposeQuestions)
 	t.knowFloor(proto.PurposeMain, s.floor, s.epoch)
-	t.knowFloor(proto.PurposeQuestions, store.Sync.FloorMS[proto.PurposeQuestions], s.epoch)
+	t.knowFloor(proto.PurposeQuestions, qfloor, s.epoch)
 	t.freeze.reset()
 	if qerr := s.qstart(ctx, store); qerr != nil {
 		return qerr
@@ -220,7 +222,8 @@ func (s *sess) readd(ctx context.Context) (string, error) {
 
 // bounds are SY1 (b)'s resume bounds: the marker's floor and the seat's release time.
 type bounds struct {
-	floor, released       int64
+	floor                 state.Floor
+	released              int64
 	hasFloor, hasReleased bool
 }
 
@@ -262,10 +265,10 @@ func (s *sess) resume(ctx context.Context) (string, error) {
 
 // marker is room's teamchat.floor marker, decoded strictly; an undecodable one is none, said
 // once per room.
-func (s *sess) marker(ctx context.Context, room string) (int64, bool, error) {
+func (s *sess) marker(ctx context.Context, room string) (state.Floor, bool, error) {
 	raw, found, err := s.c.RoomAccountData(ctx, s.a.Self, room, paths.FloorAccountData)
 	if err != nil || !found {
-		return 0, false, err
+		return state.Floor{}, false, err
 	}
 	floor, ok := decodeMarker(raw)
 	if !ok && !s.t.markerSaid[room] {
@@ -275,22 +278,49 @@ func (s *sess) marker(ctx context.Context, room string) (int64, bool, error) {
 	return floor, ok, nil
 }
 
-func decodeMarker(raw json.RawMessage) (int64, bool) {
+// decodeMarker is a marker's floor: floor_ms, and floor_ids, the events at it already taken,
+// when it names them (none is every event at floor_ms).
+func decodeMarker(raw json.RawMessage) (state.Floor, bool) {
 	v, err := proto.Parse(raw)
-	if err != nil || v.Kind() != proto.KindObject || len(v.Members()) != 3 {
-		return 0, false
+	if err != nil || v.Kind() != proto.KindObject {
+		return state.Floor{}, false
 	}
-	ver, floor, epoch := member(v, "v"), member(v, "floor_ms"), member(v, "restore_epoch")
-	if ver.Kind() != proto.KindInt || ver.Int() != 1 || floor.Kind() != proto.KindInt || floor.Int() < 0 || epoch.Kind() != proto.KindInt || epoch.Int() < 0 {
-		return 0, false
+	ver, ms, epoch := member(v, "v"), member(v, "floor_ms"), member(v, "restore_epoch")
+	if ver.Kind() != proto.KindInt || ver.Int() != 1 || ms.Kind() != proto.KindInt || ms.Int() < 0 || epoch.Kind() != proto.KindInt || epoch.Int() < 0 {
+		return state.Floor{}, false
 	}
-	return floor.Int(), true
+	f := state.Floor{MS: ms.Int()}
+	ids, named := v.Get("floor_ids")
+	switch {
+	case !named && len(v.Members()) == 3:
+		return f, true
+	case !named || len(v.Members()) != 4 || ids.Kind() != proto.KindArray || len(ids.Items()) > maxMarkerIDs:
+		return state.Floor{}, false
+	}
+	f.IDs = make([]string, 0, len(ids.Items()))
+	for _, id := range ids.Items() {
+		if id.Kind() != proto.KindString || !proto.ValidEventID(id.Str()) {
+			return state.Floor{}, false
+		}
+		f.IDs = append(f.IDs, id.Str())
+	}
+	return f, true
 }
 
-func markerContent(floor, epoch int64) json.RawMessage {
-	return proto.Obj(
-		proto.M("v", proto.Int(1)), proto.M("floor_ms", proto.Int(floor)), proto.M("restore_epoch", proto.Int(epoch)),
-	).Compact()
+// maxMarkerIDs bounds the events of one millisecond a marker names.
+const maxMarkerIDs = 256
+
+// markerContent is a marker of floor: floor_ids only when it names the events at floor_ms.
+func markerContent(floor state.Floor, epoch int64) json.RawMessage {
+	ms := []proto.Member{proto.M("v", proto.Int(1)), proto.M("floor_ms", proto.Int(floor.MS))}
+	if floor.IDs != nil {
+		ids := make([]proto.Value, 0, len(floor.IDs))
+		for _, id := range floor.IDs {
+			ids = append(ids, proto.Str(id))
+		}
+		ms = append(ms, proto.M("floor_ids", proto.Arr(ids...)))
+	}
+	return proto.Obj(append(ms, proto.M("restore_epoch", proto.Int(epoch)))...).Compact()
 }
 
 // passed is SY1 (b)'s stop for a backwards read: past the marker's floor (or, with none, the
@@ -304,7 +334,7 @@ func (s *sess) passed(bd bounds) func([]json.RawMessage) bool {
 				continue
 			}
 			ts := originTs(v)
-			pastFloor = pastFloor || bd.hasFloor && ts <= bd.floor || !bd.hasFloor && s.ownJoin(v)
+			pastFloor = pastFloor || bd.hasFloor && bd.floor.Covers(ts, str(v, "event_id")) || !bd.hasFloor && s.ownJoin(v)
 			pastReleased = pastReleased || ts <= bd.released
 		}
 		return pastFloor && pastReleased
@@ -316,11 +346,11 @@ func (s *sess) cut(events []json.RawMessage, bd bounds) ([]json.RawMessage, func
 	join, goodbye := s.landmarks(events)
 	var kept []json.RawMessage
 	for i, raw := range events {
-		ts := int64(-1)
+		ts, id := int64(-1), ""
 		if v, err := proto.Parse(raw); err == nil {
-			ts = originTs(v)
+			ts, id = originTs(v), str(v, "event_id")
 		}
-		afterFloor := bd.hasFloor && ts > bd.floor || !bd.hasFloor && i > join
+		afterFloor := bd.hasFloor && !bd.floor.Covers(ts, id) || !bd.hasFloor && i > join
 		if afterFloor || bd.hasReleased && ts > bd.released {
 			kept = append(kept, raw)
 		}
@@ -576,7 +606,7 @@ func (s *sess) handleHeld(ctx context.Context, since string, a answer) error {
 
 // settle is what a handled answer leaves once persisted: its effects committed, the questions
 // fold made live, the markers moved and put, the failure streak ended.
-func (s *sess) settle(ctx context.Context, j judged, floor int64) error {
+func (s *sess) settle(ctx context.Context, j judged, floor state.Floor) error {
 	t := s.t
 	s.commit(j, floor)
 	t.qcommit(j)
@@ -609,9 +639,9 @@ func (s *sess) eventsOf(ctx context.Context, since string, a answer, main matrix
 
 // commit is what a persisted answer leaves: the judging's effects, and the floor f the store
 // keeps, which the marker carries (B 2.3.2).
-func (s *sess) commit(j judged, f int64) {
+func (s *sess) commit(j judged, f state.Floor) {
 	s.commitJudged(j)
-	if f > 0 && f != s.floor {
+	if f.MS > 0 && !f.Equal(s.floor) {
 		s.floor = f
 		s.t.floorMoved(proto.PurposeMain, f, s.epoch)
 	}
@@ -641,7 +671,7 @@ func empty(b team.Batch) bool {
 
 // persist is SY5's one store write, after which the team's position is the batch's; a failed
 // write is SY13's, said once per streak.
-func (s *sess) persist(ctx context.Context, b team.Batch) (int64, error) {
+func (s *sess) persist(ctx context.Context, b team.Batch) (state.Floor, error) {
 	t := s.t
 	b.Team, b.RestoreEpoch, b.Fresh = t.cfg.Team, s.epoch, false
 	floor, err := t.cfg.Engine.Persist(ctx, b)
@@ -762,8 +792,8 @@ func (s *sess) judgeAll(ctx context.Context, events []json.RawMessage, restored 
 		}
 		s.take(&j, v, e.id, restored, jr.lk, counted, room)
 	}
-	if jr.floor > s.floor {
-		j.batch.Floors = map[string]int64{proto.PurposeMain: jr.floor}
+	if s.floor.Below(jr.floor) {
+		j.batch.Floors = map[string]state.Floor{proto.PurposeMain: jr.floor}
 	}
 	return j, nil
 }
@@ -774,7 +804,7 @@ type roomJudge struct {
 	room, purpose string
 	events        []json.RawMessage
 	res           *resolver
-	floor         int64
+	floor         state.Floor
 }
 
 type parsed struct {
@@ -788,7 +818,7 @@ type roomJudged struct {
 	evs   []parsed
 	vs    []proto.Verdict
 	lk    *memLookup
-	floor int64
+	floor state.Floor
 }
 
 // judgeRoom is SY4 with SY4a's resolve first over one room's events, oldest first, over a
@@ -841,7 +871,9 @@ func (s *sess) judgeRoom(ctx context.Context, j *judged, rj roomJudge) (roomJudg
 		if e.id != "" {
 			lk.judged[e.id] = true
 		}
-		out.floor = max(out.floor, originTs(e.v))
+		if e.id != "" {
+			out.floor = out.floor.Raised(originTs(e.v), e.id)
+		}
 	}
 	return out, nil
 }
@@ -954,12 +986,12 @@ func copyWindow(w proto.Window) proto.Window {
 // knowFloor is the floor a session starts from, which FlushFloor puts. Unless this goroutine
 // already put that floor, it is owed: the last link may have ended, or been killed, before its
 // coalesced put, and the marker may lag the store (A2).
-func (t *Team) knowFloor(purpose string, floor, epoch int64) {
+func (t *Team) knowFloor(purpose string, floor state.Floor, epoch int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if f := t.markerOf(purpose); floor > 0 && f != nil {
-		f.ms, f.epoch, f.known = floor, epoch, true
-		f.dirty = !f.sent || f.sentMS != floor || f.sentEpoch != epoch
+	if f := t.markerOf(purpose); floor.MS > 0 && f != nil {
+		f.floor, f.epoch, f.known = floor, epoch, true
+		f.dirty = !f.sent || !f.sentFloor.Equal(floor) || f.sentEpoch != epoch
 	}
 }
 
@@ -974,18 +1006,18 @@ func (t *Team) markerOf(purpose string) *floorMarker {
 	return nil
 }
 
-// floorMoved is a persisted floor move of the room of purpose; a move down is owed at once,
-// never coalesced, so a seat taken with no store never cuts the item it was lowered for. The
-// floor already known changes nothing.
-func (t *Team) floorMoved(purpose string, floor, epoch int64) {
+// floorMoved is a persisted floor move of the room of purpose; a move that is not wholly up (down,
+// or to other events of one millisecond) is owed at once, never coalesced, so a seat taken with
+// no store never cuts the item it was lowered for. The floor already known changes nothing.
+func (t *Team) floorMoved(purpose string, floor state.Floor, epoch int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	f := t.markerOf(purpose)
-	if f == nil || f.known && f.ms == floor && f.epoch == epoch {
+	if f == nil || f.known && f.floor.Equal(floor) && f.epoch == epoch {
 		return
 	}
-	f.urgent = f.urgent || f.known && floor < f.ms
-	f.ms, f.epoch, f.known, f.dirty = floor, epoch, true, true
+	f.urgent = f.urgent || f.known && !f.floor.Below(floor)
+	f.floor, f.epoch, f.known, f.dirty = floor, epoch, true, true
 }
 
 // qmarked gives a write that held the questions floor to that room's marker: the store's floor,
@@ -999,7 +1031,7 @@ func (s *sess) qmarked(j judged) error {
 	if err != nil {
 		return err
 	}
-	if f, ok := store.Sync.FloorMS[proto.PurposeQuestions]; ok {
+	if f, ok := store.Sync.Floor(proto.PurposeQuestions); ok {
 		t.floorMoved(proto.PurposeQuestions, f, s.epoch)
 	}
 	return nil
@@ -1008,11 +1040,11 @@ func (s *sess) qmarked(j judged) error {
 // FloorRaised is the store's main floor raised outside a sync answer (team.Team): the marker's
 // next put carries it, coalesced as any move up. A floor not above the one known, or with none
 // known (so no epoch), changes nothing.
-func (t *Team) FloorRaised(floor int64) {
+func (t *Team) FloorRaised(floor state.Floor) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.floor.known && floor > t.floor.ms {
-		t.floor.ms, t.floor.dirty = floor, true
+	if t.floor.known && t.floor.floor.Below(floor) {
+		t.floor.floor, t.floor.dirty = floor, true
 	}
 }
 
@@ -1061,13 +1093,13 @@ func (t *Team) putFloor(ctx context.Context, c *matrix.Client, self string, r ma
 	if !f.known {
 		return nil
 	}
-	if err := c.PutRoomAccountData(ctx, self, r.id, paths.FloorAccountData, markerContent(f.ms, f.epoch)); err != nil {
+	if err := c.PutRoomAccountData(ctx, self, r.id, paths.FloorAccountData, markerContent(f.floor, f.epoch)); err != nil {
 		return err
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	m.sent, m.sentMS, m.sentEpoch = true, f.ms, f.epoch
-	if m.ms == f.ms && m.epoch == f.epoch {
+	m.sent, m.sentFloor, m.sentEpoch = true, f.floor, f.epoch
+	if m.floor.Equal(f.floor) && m.epoch == f.epoch {
 		m.dirty, m.urgent = false, false
 	}
 	return nil

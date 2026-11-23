@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -54,7 +55,7 @@ func TestResumesAfterTheMarker(t *testing.T) {
 	w := newWorld(t)
 	before := w.later("before")
 	after := w.later("after")
-	w.putMarker(markerContent(w.ts(before), w.roster.RestoreEpoch))
+	w.putMarker(markerContent(state.Floor{MS: w.ts(before)}, w.roster.RestoreEpoch))
 	w.start()
 	if got := itemIDs(w.batch()); len(got) != 1 || got[0] != after {
 		t.Errorf("items %v, want [%s]; log %s", got, after, w.log.String())
@@ -101,7 +102,7 @@ func TestTheEarlierBoundDecides(t *testing.T) {
 	first := w.later("first")
 	second := w.later("second")
 	third := w.later("third")
-	w.putMarker(markerContent(w.ts(second), w.roster.RestoreEpoch))
+	w.putMarker(markerContent(state.Floor{MS: w.ts(second)}, w.roster.RestoreEpoch))
 	released := w.ts(first) - 1
 	w.place(w.tokens[me], &released)
 	w.start()

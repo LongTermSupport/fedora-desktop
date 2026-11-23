@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.9 — container 2.84.60
+
+- **No answer is lost to a shared millisecond** (Plan 00209, a fix to R0 step 7). Two posts can
+  carry the same server time; a room's floor was that time alone, so a post sent in the same
+  millisecond as the one before it (an owner's answer, say) was taken as already seen and never
+  delivered or relayed. A floor now names the events at its millisecond already taken, in the
+  seat store (`floor_ids`) and in the room's marker, and a restore's export of what it loses keeps
+  the events of the backup's own millisecond. Rule `project_floor_by_time` holds the class.
+
 ## 3.124.8 — container 2.84.59
 
 - **A human's answer reaches the seat that asked** (Plan 00209, backlog R0 step 7, issue #364).

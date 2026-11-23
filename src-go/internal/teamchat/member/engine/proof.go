@@ -386,7 +386,7 @@ func (e *Engine) settleProof(h *held, found map[string]bool, caught bool, now ti
 	var (
 		twice []string
 		left  []state.Pending
-		floor int64
+		floor state.Floor
 		moved bool
 	)
 	offset := e.missedOffset()

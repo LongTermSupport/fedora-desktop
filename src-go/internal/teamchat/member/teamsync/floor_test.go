@@ -8,6 +8,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -36,7 +37,7 @@ func (w *world) marker() int64 {
 	if !ok {
 		w.t.Fatalf("marker %s", raw)
 	}
-	return floor
+	return floor.MS
 }
 
 // SY10: a moved floor is put at once the first time, then at most once per 10 s of boot time.
@@ -75,6 +76,7 @@ func TestASessionPutsTheFloorItStartsFrom(t *testing.T) {
 	w.eng.preload(user(me), runID(t, linkRun), "", w.roster.RestoreEpoch)
 	w.eng.mu.Lock()
 	w.eng.store.Sync.FloorMS = map[string]int64{proto.PurposeMain: w.ts(q)}
+	w.eng.store.Sync.FloorIDs = nil
 	w.eng.mu.Unlock()
 	r := w.start()
 	w.batch()
@@ -104,8 +106,8 @@ func TestAFloorMovedDownIsPutAtOnce(t *testing.T) {
 	}
 	w.batch()
 	r.poll(t)
-	if f := w.marker(); f != w.ts(owed)-1 || w.markerPuts() != 2 {
-		t.Fatalf("marker %d (want %d), %d puts", f, w.ts(owed)-1, w.markerPuts())
+	if f := w.marker(); f != w.ts(owed) || w.markerPuts() != 2 {
+		t.Fatalf("marker %d (want just below %d), %d puts", f, w.ts(owed), w.markerPuts())
 	}
 }
 
@@ -114,7 +116,7 @@ func TestAFloorMovedDownIsPutAtOnce(t *testing.T) {
 func TestAFloorRaisedIsTheMarkersNext(t *testing.T) {
 	w := newWorld(t)
 	tm := w.newTeam()
-	tm.FloorRaised(5)
+	tm.FloorRaised(state.Floor{MS: 5})
 	check(t, tm.FlushFloor(t.Context()))
 	if n := w.markerPuts(); n != 0 {
 		t.Fatalf("%d puts with no floor known", n)
@@ -125,14 +127,16 @@ func TestAFloorRaisedIsTheMarkersNext(t *testing.T) {
 	owed := w.say(alice, human("for me", user(me)))
 	w.batch()
 	r.poll(t)
-	if f := w.marker(); f != w.ts(owed)-1 {
+	if f := w.marker(); f != w.ts(owed) {
 		t.Fatalf("marker %d", f)
 	}
-	tm.FloorRaised(w.ts(owed) - 5)
-	tm.FloorRaised(w.ts(owed))
+	tm.FloorRaised(state.Floor{MS: w.ts(owed) - 5})
+	tm.FloorRaised(state.Floor{}.Raised(w.ts(owed), owed))
 	check(t, tm.FlushFloor(t.Context()))
-	if f := w.marker(); f != w.ts(owed) {
-		t.Fatalf("marker %d, want %d", f, w.ts(owed))
+	raw, _, err := w.client(me).RoomAccountData(t.Context(), user(me), w.main, paths.FloorAccountData)
+	check(t, err)
+	if f, ok := decodeMarker(raw); !ok || !f.Covers(w.ts(owed), owed) || f.Covers(w.ts(owed), "$other") {
+		t.Fatalf("marker %s, want the floor at %d naming %s", raw, w.ts(owed), owed)
 	}
 }
 
@@ -256,14 +260,36 @@ func TestTheMarkerStaysBelowAnOwedItem(t *testing.T) {
 	b := w.batch()
 	r.poll(t)
 	owed := b.Items[0].Pending.SentMS
-	if f := w.marker(); f != owed-1 || w.ts(id) != owed {
+	if f := w.marker(); f != owed || w.ts(id) != owed {
 		t.Fatalf("marker %d with an item owed at %d", f, owed)
 	}
 	w.clk.Advance(floorPutGap)
 	w.quiet("after")
 	w.batch()
 	r.poll(t)
-	if f := w.marker(); f != owed-1 {
+	if f := w.marker(); f != owed {
 		t.Errorf("marker %d moved past the owed item at %d", f, owed)
+	}
+}
+
+// SY10: a marker carries the events at its floor_ms already taken (floor_ids), so a resume from
+// it keeps another event of that millisecond; a marker without them covers the millisecond whole.
+func TestAMarkerNamesTheEventsAtItsFloor(t *testing.T) {
+	const ev = "$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	f, ok := decodeMarker(markerContent(state.Floor{}.Raised(100, ev), 2))
+	if !ok || !f.Covers(100, ev) || f.Covers(100, "$other") {
+		t.Errorf("marker floor %+v %v", f, ok)
+	}
+	if f, ok := decodeMarker(markerContent(state.Floor{MS: 100}, 2)); !ok || !f.Covers(100, "$other") {
+		t.Errorf("a marker without ids: %+v %v", f, ok)
+	}
+	for _, raw := range []string{
+		`{"v":1,"floor_ms":100,"floor_ids":["x"],"restore_epoch":2}`,
+		`{"v":1,"floor_ms":100,"floor_ids":"` + ev + `","restore_epoch":2}`,
+		`{"v":1,"floor_ms":100,"other":[],"restore_epoch":2}`,
+	} {
+		if f, ok := decodeMarker([]byte(raw)); ok {
+			t.Errorf("%s decoded as %+v", raw, f)
+		}
 	}
 }

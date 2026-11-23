@@ -158,8 +158,8 @@ func TestQS8RecoveryCatchesTheRoomUpFromItsToken(t *testing.T) {
 	check(t, err)
 	v, err := proto.Parse(ev)
 	check(t, err)
-	if ts := originTs(v); got[0].Floor >= ts {
-		t.Errorf("the catch-up's floor %d is not before the post made while untrusted (%d)", got[0].Floor, ts)
+	if ts := originTs(v); got[0].Floor.Covers(ts, during) {
+		t.Errorf("the catch-up's floor %+v covers the post made while untrusted (%d)", got[0].Floor, ts)
 	}
 	if st := rt.tm.QuestionsStatus(); st.State != team.QuestionsBuilding {
 		t.Errorf("status %+v, want building", st)

@@ -3554,8 +3554,13 @@ since compared with a stream position (`fakehs`'s `pos`) is the right form. Wide
 every ordered comparison of two event times in teamchat; not built, because a tie between two
 times is the hazard only where one of them is a cutoff, and the rest are ages and deadlines.
 
-**Not caught:** a floor held under a name without "floor" and compared as a bare integer, and a
-cutoff judged through a helper that takes the integers apart from their names.
+**Not caught:** a floor held under a name without "floor" and compared as a bare integer, a
+cutoff judged through a helper that takes the integers apart from their names, and a
+`state.Floor{MS: t}` built with no IDs from a bare time, which covers the whole millisecond. One
+such floor is left, referred to the owner: `teamsync.qindex` floors the questions room at the
+member's own join as its whole millisecond, because which events of that millisecond came before
+the join is a stream order the floor cannot name; the narrower `state.Before(join)` took
+pre-join posts as items and broke `TestQX7ARedactionMetAfterTheBuildsStartBuildsAgain`.
 
 **How to fix:** hold the floor as a `state.Floor` (the millisecond and the event IDs at it already
 taken), judge by `Covers(ts, id)`, raise by `Raised` and `Max`; a wall-clock since keeps its
@@ -3570,3 +3575,8 @@ boundary millisecond (drop by `ts < since`).
   `busfailpoints,tuwunel`): 19 findings, in `teamsync` (builder, questions, relay, session),
   `engine` (recv, storewrite) and `admin/serverestore.go`. The independent search found the same
   set, and `notice.go`'s `ts < SinceMS` (which keeps its boundary, clean).
+- Green, the fix commit: 0 findings, both tag sets. The floors are `state.Floor` (store
+  `floor_ids` beside `floor_ms`, the marker's optional `floor_ids`), "just below an owed item" is
+  `state.Before(sent)`, and the restore export keeps since's millisecond. The original:
+  `teamsync` `TestAnAnswerInTheQuestionsMillisecondIsDeliveredAndRelayed`, red at the defence
+  commit (the answer neither delivered nor relayed), green after.

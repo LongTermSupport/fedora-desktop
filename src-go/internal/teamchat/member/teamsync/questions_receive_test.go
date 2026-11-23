@@ -221,8 +221,7 @@ func TestQS6APostDroppedRateIsStillAttached(t *testing.T) {
 	n := int(w.roster.Limits.RecvPerSenderMinute) + 3
 	ids := make([]string, 0, n)
 	for i := range n {
-		// Each later than the floor the first answer left (its post's millisecond).
-		w.clk.StepWall(1)
+		// All in the first answer's millisecond, which its floor names by event, not by time.
 		ids = append(ids, w.sayIn(w.qroom(), alice, human(fmt.Sprintf("post %d", i))))
 	}
 	rt.drainPolls()

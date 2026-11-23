@@ -400,14 +400,16 @@ func bodiesOf(t *testing.T, data []byte) []string {
 	return out
 }
 
-// TestServeRestoreExportWritesWhatTheRestoreLoses is RC3: every event after since_ms in the
-// team's rooms, in time order, with its count, first and end.
+// TestServeRestoreExportWritesWhatTheRestoreLoses is RC3: every event from since_ms on in the
+// team's rooms, in time order, with its count, first and end. since_ms is the backup's time,
+// with no event behind it, so an event of its own millisecond is kept (project_floor_by_time).
 func TestServeRestoreExportWritesWhatTheRestoreLoses(t *testing.T) {
 	w := withMember(t)
 	ids := w.rooms(t)
 	w.send(t, ids.Main, "before")
 	since := w.send(t, ids.Reports, "at-since")
-	first := w.send(t, ids.Main, "one")
+	first := since
+	w.send(t, ids.Main, "one")
 	w.send(t, ids.Reports, "two")
 	w.send(t, ids.Main, "three")
 	a := w.serve(t, OpRestoreExport, w.teamFileArg(t), proto.M(keyBackup, proto.Int(4)), proto.M(keySinceMS, proto.Int(since)))
@@ -415,7 +417,7 @@ func TestServeRestoreExportWritesWhatTheRestoreLoses(t *testing.T) {
 		t.Fatalf("answer %+v", a)
 	}
 	data := w.files.lost[4]
-	if got := bodiesOf(t, data); !slices.Equal(got, []string{"one", "two", "three"}) {
+	if got := bodiesOf(t, data); !slices.Equal(got, []string{"at-since", "one", "two", "three"}) {
 		t.Errorf("bodies %v", got)
 	}
 	lines := strings.Count(string(data), "\n")
@@ -430,7 +432,7 @@ func TestServeRestoreExportWritesWhatTheRestoreLoses(t *testing.T) {
 // TestServeRestoreExportOfNothingIsEmpty is RC3 when nothing came after the backup.
 func TestServeRestoreExportOfNothingIsEmpty(t *testing.T) {
 	w := withMember(t)
-	since := w.send(t, w.rooms(t).Main, "last")
+	since := w.send(t, w.rooms(t).Main, "last") + 1
 	a := w.serve(t, OpRestoreExport, w.teamFileArg(t), proto.M(keyBackup, proto.Int(1)), proto.M(keySinceMS, proto.Int(since)))
 	if !a.OK || a.Export.Count != 0 || a.Export.FirstMS != 0 || len(w.files.lost[1]) != 0 {
 		t.Fatalf("answer %+v, %q", a, w.files.lost[1])
