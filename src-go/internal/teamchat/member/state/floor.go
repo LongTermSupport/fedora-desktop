@@ -53,13 +53,21 @@ func (f Floor) Below(o Floor) bool {
 	return o.Max(f).Equal(o) && !f.Equal(o)
 }
 
+// canonical is f with its IDs sorted and distinct. A floor naming more than the store allows
+// (maxFloorIDs) is the floor just below its millisecond: it covers fewer events, never more, so
+// the events of that millisecond are fetched again and dropped as already held, where a floor
+// the store refuses would fail every write of the batch that raised it.
 func (f Floor) canonical() Floor {
 	if f.IDs == nil {
 		return f
 	}
 	ids := slices.Clone(f.IDs)
 	slices.Sort(ids)
-	return Floor{MS: f.MS, IDs: slices.Compact(ids)}
+	ids = slices.Compact(ids)
+	if len(ids) > maxFloorIDs {
+		return Before(f.MS)
+	}
+	return Floor{MS: f.MS, IDs: ids}
 }
 
 // Floor is the floor of room, and whether it has one.

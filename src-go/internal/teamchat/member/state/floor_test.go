@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 )
 
@@ -70,6 +71,31 @@ func TestMaxAndBelow(t *testing.T) {
 
 // The store keeps a floor's IDs beside floor_ms, and a store without floor_ids reads as whole
 // milliseconds.
+// A floor never names more events than the store's check allows: past maxFloorIDs it is the
+// floor just below that millisecond, which covers fewer events, never more.
+func TestAFloorPastTheCapIsBeforeItsMillisecond(t *testing.T) {
+	f := Floor{}
+	for i := range maxFloorIDs {
+		f = f.Raised(100, fmt.Sprintf("$%043d", i))
+	}
+	if len(f.IDs) != maxFloorIDs {
+		t.Fatalf("a floor at the cap names %d", len(f.IDs))
+	}
+	f = f.Raised(100, evA)
+	if !f.Equal(Before(100)) {
+		t.Fatalf("a floor past the cap is %d IDs at %d, want Before(100)", len(f.IDs), f.MS)
+	}
+	full := Floor{MS: 100, IDs: make([]string, maxFloorIDs+1)}
+	for i := range full.IDs {
+		full.IDs[i] = fmt.Sprintf("$%043d", i)
+	}
+	var s Sync
+	s.SetFloor("main", full)
+	if got, ok := s.Floor("main"); !ok || !got.Equal(Before(100)) {
+		t.Fatalf("SetFloor kept %d IDs", len(s.FloorIDs["main"]))
+	}
+}
+
 func TestTheStoreKeepsAFloorsIDs(t *testing.T) {
 	s := Sync{FloorMS: map[string]int64{}}
 	s.SetFloor("main", Floor{}.Raised(100, evA))

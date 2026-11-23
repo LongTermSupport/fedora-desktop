@@ -268,6 +268,41 @@ func TestAnAckRaisesTheFloor(t *testing.T) {
 	}
 }
 
+// More events at one millisecond than a floor may name (129 against the store's 128) never jam
+// the sync: the floor falls to just below that millisecond, the batch is written, and the same
+// events fetched again are taken as known, so none is delivered twice and none is lost.
+func TestMoreEventsAtOneMillisecondThanAFloorNamesDoNotJam(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	w.held(ops)
+	const n = 129
+	floor := state.Floor{}
+	items := make([]team.Item, 0, n)
+	for i := 1; i <= n; i++ {
+		floor = floor.Raised(100, evID(i))
+		items = append(items, humanItem(ops, i, 100, "same millisecond"))
+	}
+	quiet := team.Batch{Team: ops, NextBatch: "s1", Floors: map[string]state.Floor{proto.PurposeMain: floor}}
+	if _, err := w.e.Persist(t.Context(), quiet); err != nil {
+		t.Fatalf("a floor raised by %d events at one millisecond jammed the sync: %v", n, err)
+	}
+	if got, ok := w.store(ops).Sync.Floor(proto.PurposeMain); !ok || !got.Equal(state.Before(100)) {
+		t.Fatalf("floor %+v (%v), want just below the millisecond", got, ok)
+	}
+	b := team.Batch{Team: ops, NextBatch: "s2", Floors: map[string]state.Floor{proto.PurposeMain: floor}, Items: items}
+	w.persistBatch(b)
+	b.NextBatch = "s3"
+	w.persistBatch(b)
+	pending := w.store(ops).Pending
+	seen := map[string]bool{}
+	for _, p := range pending {
+		seen[p.ID] = true
+	}
+	if len(pending) != n || len(seen) != n {
+		t.Fatalf("%d items pending (%d distinct) after the same %d events were fetched twice", len(pending), len(seen), n)
+	}
+}
+
 func TestAnOfflineTeamHoldsNoOtherTeamsItems(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops, dev := tid(t, "ops"), tid(t, "dev")
