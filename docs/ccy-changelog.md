@@ -17,6 +17,25 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.16 — container 2.84.64
+
+No launch fails falsely on a lost process-substitution child (issues #321, #322). The image is
+unchanged.
+
+- **Line-based listings are captured first**: the GPU device flags, every network listing (the
+  project's engine, the other engine, the re-scans after a compose start, the any-network
+  offer and the compose wait in `lib/network-management.bash`), the IdentityFile lines of an
+  ssh alias, and the launch and replay arguments of a tmux session (and `cc`'s arguments).
+  Each was read through `< <(cmd)` with `wait "$!"` collecting `cmd`'s status, and bash can
+  reap the substitution before that wait, which then fails ("pid N is not a child of this
+  shell") and stops the launch. It failed a CI run at the GPU device flags. bash always waits
+  for a command substitution, so the capture's status is checked as before, and a failing
+  listing still stops the launch.
+- An empty listing is no entries, as before. An empty last argument to a tmux-insulated
+  session or to `cc` is now dropped (`$()` strips trailing empty lines).
+- The NUL-separated readers (the teams canonical arguments and the restart arguments) keep
+  `< <(...)` with their wait, since a variable cannot hold a NUL.
+
 ## 3.124.15 — container 2.84.64
 
 The memory caps on a host under 20 GiB of RAM (issue #383). The image is unchanged. 3.124.14

@@ -405,15 +405,18 @@ ccy_tmux_insulate() {
     # later adds a chosen --ssh-key to the same record through lib/session-registry.bash.) `--no-restore` is the
     # registry's opt-out and never reaches the launcher; what is recorded for replay is the
     # launch argv with the one-shot arguments removed (see lib/session-registry.bash).
-    local launcher="$1" restore=yes
+    local launcher="$1" restore=yes args_text
     shift
     local -a launch=() replay=()
     ccy_registry_wants_restore "$@" || restore=no
     # Each builder's own status (#295): one that stopped part way leaves an argv that looks whole.
-    mapfile -t launch < <(ccy_registry_launch_args "$@")
-    wait "$!" || { echo "Could not build the launch arguments for session '$name'." >&2; return 1; }
-    mapfile -t replay < <(ccy_registry_replay_args "$CCY_TMUX_SESSION_PREFIX" "${launch[@]}")
-    wait "$!" || { echo "Could not build the replay arguments for session '$name'." >&2; return 1; }
+    # Captured, not read from < <(...), whose wait "$!" can fail falsely under load (#321). One
+    # line per argument; no output is no arguments, so the here-string's one empty line is then
+    # skipped (-s 1). $() drops trailing empty lines, so an empty LAST argument is lost.
+    args_text=$(ccy_registry_launch_args "$@") || { echo "Could not build the launch arguments for session '$name'." >&2; return 1; }
+    mapfile -s $((${#args_text} == 0)) -t launch <<<"$args_text"
+    args_text=$(ccy_registry_replay_args "$CCY_TMUX_SESSION_PREFIX" "${launch[@]}") || { echo "Could not build the replay arguments for session '$name'." >&2; return 1; }
+    mapfile -s $((${#args_text} == 0)) -t replay <<<"$args_text"
     ccy_registry_write "$name" "$PWD" "$launcher" "$CCY_TMUX_SESSION_PREFIX" "$restore" "${replay[@]}" || return 1
 
     # A record with no session behind it would be restored at the next boot as a session

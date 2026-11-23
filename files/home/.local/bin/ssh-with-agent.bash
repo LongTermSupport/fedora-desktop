@@ -102,9 +102,10 @@ swa_cleanup_agent() {
 # stderr; the chooser reads /dev/tty.
 swa_start_ephemeral_agent() {
     local -a keys=() chosen=()
-    local i key num choice
-    mapfile -t keys < <(swa_discover_keys)
-    wait "$!" || { echo "Cannot list the keys in $SWA_SSH_DIR" >&2; return 1; }
+    local i key num choice keys_text
+    # Captured first, since a wait "$!" after < <(...) can fail falsely under load (#321).
+    keys_text=$(swa_discover_keys) || { echo "Cannot list the keys in $SWA_SSH_DIR" >&2; return 1; }
+    ! IFS=$'\n' read -r -d '' -a keys <<<"$keys_text"
 
     echo "Agent forwarding (-A) requested — starting a dedicated ssh-agent." >&2
     eval "$(ssh-agent -s)"

@@ -75,6 +75,7 @@ while IFS= read -r -d '' jpg; do
 done < <(find "$SEARCH_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' \) -print0)
 # Both finds must succeed: a JPG in a folder find could not read would leave its RAW
 # looking orphaned, and this tool deletes orphans. errexit stops on find's own message.
+# NUL-separated, which a variable cannot hold, so not captured first (#322).
 wait "$!"
 
 # Walk RAW files; collect ones whose stem is missing from the JPG set.

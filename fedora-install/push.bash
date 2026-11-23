@@ -454,6 +454,12 @@ push_projects() {
     for _gh_user in "${!_user_key_map[@]}"; do
         local _kalias="${_user_key_map[$_gh_user]}"
         gh auth switch --hostname github.com --user "$_gh_user" 2>/dev/null || continue
+        # A failed lookup would leave this account's orgs unmapped, so their repositories would
+        # be pushed under the wrong key: stop, with the selected account active again (#295).
+        # Captured first, since a wait "$!" after < <(...) can fail falsely under load (#321).
+        _org_logins=$(gh api /user/memberships/orgs --paginate \
+            --jq '.[] | select(.role == "admin") | .organization.login') || { gh auth switch --hostname github.com --user "$selected_account"
+            die "Listing the orgs of @${_gh_user} failed. If its login needs renewing: gh auth refresh -h github.com -u ${_gh_user}"; }
         while IFS= read -r _org_login; do
             [[ -z "$_org_login" ]] && continue
             if [[ -z "${_org_candidates[$_org_login]:-}" ]]; then
@@ -461,13 +467,7 @@ push_projects() {
             else
                 _org_candidates["$_org_login"]+=" $_kalias"
             fi
-        done < <(gh api /user/memberships/orgs \
-            --paginate \
-            --jq '.[] | select(.role == "admin") | .organization.login')
-        # A failed lookup would leave this account's orgs unmapped, so their repositories would
-        # be pushed under the wrong key: stop, with the selected account active again (#295).
-        wait "$!" || { gh auth switch --hostname github.com --user "$selected_account"
-            die "Listing the orgs of @${_gh_user} failed. If its login needs renewing: gh auth refresh -h github.com -u ${_gh_user}"; }
+        done <<<"$_org_logins"
     done
 
     gh auth switch --hostname github.com --user "$selected_account"
@@ -518,7 +518,12 @@ push_projects() {
 
     local repo_count=0 skip_count=0
 
-    while IFS= read -r git_dir; do
+    # find's status: one that failed would push a short manifest as complete (#295). Captured
+    # first, since a wait "$!" after < <(...) can fail falsely under load (#321); read into an
+    # array, which is empty for no repositories.
+    git_dirs_text=$(find "$PROJECTS_DIR" -maxdepth 6 -name ".git" -type d | sort) || die "Scanning ${PROJECTS_DIR} for repositories failed"
+    ! IFS=$'\n' read -r -d '' -a git_dirs <<<"$git_dirs_text"
+    for git_dir in "${git_dirs[@]}"; do
         local repo_dir="${git_dir%/.git}"
         local rel_path="${repo_dir#"${PROJECTS_DIR}/"}"
         local origin_url=""
@@ -538,9 +543,7 @@ push_projects() {
         printf '%s\t%s\t%s\n' "$rel_path" "$origin_url" "$key_alias" >> "$tmp_manifest"
         info "  ${BOLD}${rel_path}${NC} ${ARROW} ${origin_url}${key_alias:+ [key: ${key_alias}]}"
         repo_count=$((repo_count + 1))
-    done < <(find "$PROJECTS_DIR" -maxdepth 6 -name ".git" -type d | sort)
-    # find's status: one that failed would push a short manifest as complete (#295).
-    wait "$!" || die "Scanning ${PROJECTS_DIR} for repositories failed"
+    done
 
     echo
     success "Found ${repo_count} repositories"

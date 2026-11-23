@@ -275,11 +275,12 @@ check_host_configured() {
         echo "" >&2
         echo "To fix, run the play(s) that own the settings above:" >&2
         echo "  cd ~/Projects/fedora-desktop" >&2
-        local play
+        local play plays
+        # Captured first, since a wait "$!" after < <(...) can fail falsely under load (#321).
+        plays=$(printf '%s\n' "${remedies[@]}" | sort -u) || error "the list of plays to run could not be built (sort failed, above)"
         while IFS= read -r play; do
             echo "  ansible-playbook ./$play" >&2
-        done < <(printf '%s\n' "${remedies[@]}" | sort -u)
-        wait "$!" || error "the list of plays to run could not be built (sort failed, above)"
+        done <<<"$plays"
         echo "" >&2
         exit 1
     fi

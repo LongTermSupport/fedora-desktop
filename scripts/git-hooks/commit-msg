@@ -156,6 +156,10 @@ if [ "$DENY_RC" -eq 1 ]; then
 elif [ "$DENY_RC" -eq 2 ]; then
     echo "ℹ  localhost.yml not present — skipping optional private-identifier denylist check" >&2
 else
+    # The scan's own status: one that could not run found nothing and must not pass (#295).
+    # errexit stops the hook here, under the scanner's own message saying why. Captured first,
+    # since a wait "$!" after < <(...) can fail falsely under load (#321).
+    DENY_FIELDS=$(printf '%s' "$SCAN_MSG" | hook_scan_text_for_private "$DENYLIST_FILE")
     while IFS= read -r DENY_FIELD; do
         if [ -z "$DENY_FIELD" ]; then
             continue
@@ -167,10 +171,7 @@ else
         fi
         echo -e "${YELLOW}Private value from localhost.yml field '${DENY_FIELD}' appears in the commit message${NC}"
         FOUND_ISSUES=1
-    done < <(printf '%s' "$SCAN_MSG" | hook_scan_text_for_private "$DENYLIST_FILE")
-    # The scan's own status: one that could not run found nothing and must not pass (#295).
-    # errexit stops the hook here, under the scanner's own message saying why.
-    wait "$!"
+    done <<<"$DENY_FIELDS"
 fi
 
 if [ $FOUND_ISSUES -eq 1 ]; then

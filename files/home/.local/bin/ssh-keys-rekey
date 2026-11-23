@@ -134,10 +134,11 @@ done
 
 # --- build the target key list ---
 if [ "${#targets[@]}" -eq 0 ]; then
-    while IFS= read -r f; do
-        add_key "$f"
-    done < <(discover_default_keys)
-    wait "$!" # a listing that failed is not "no keys": errexit stops here
+    # A listing that failed is not "no keys": errexit stops here. Captured first, since a
+    # wait "$!" after < <(...) can fail falsely under load (#321).
+    default_keys_text=$(discover_default_keys)
+    ! IFS=$'\n' read -r -d '' -a default_keys <<<"$default_keys_text"
+    for f in "${default_keys[@]}"; do add_key "$f"; done
     if [ "${#KEYS[@]}" -eq 0 ]; then
         echo "No private keys found in $SSH_DIR" >&2
         exit 1

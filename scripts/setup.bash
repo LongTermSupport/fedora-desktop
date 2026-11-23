@@ -65,9 +65,10 @@ printf '\n%s\n' "${PREFLIGHT_VERDICT:-All preflight checks passed.}"
 
 header "Available setup scripts"
 
-mapfile -t SETUP_SCRIPTS < <(find "$SCRIPT_DIR" -maxdepth 1 -name "setup-*.bash" | sort)
-# find's own status: one that failed would read as "no scripts found" (#295).
-wait "$!"
+# find's own status: one that failed would read as "no scripts found" (#295). Captured first,
+# since a wait "$!" after < <(...) can fail falsely under load (#321).
+SETUP_SCRIPTS_TEXT=$(find "$SCRIPT_DIR" -maxdepth 1 -name "setup-*.bash" | sort)
+! IFS=$'\n' read -r -d '' -a SETUP_SCRIPTS <<<"$SETUP_SCRIPTS_TEXT"
 
 if [[ ${#SETUP_SCRIPTS[@]} -eq 0 ]]; then
     echo "No setup-*.bash scripts found in $SCRIPT_DIR"

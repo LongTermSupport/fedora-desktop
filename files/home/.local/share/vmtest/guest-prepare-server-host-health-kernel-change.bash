@@ -167,14 +167,14 @@ select_second_kernel() {
         die "dnf listed no kernel-core at all; this guest's repositories cannot answer for the kernel"
 
     wanted=""
+    # sort's status, captured first: a wait "$!" after < <(...) can fail falsely (#321).
+    sorted="$(printf '%s\n' "${available}" | sort -Vr)" || die "sorting the available kernel-core versions failed"
     while read -r candidate; do
         [[ -n "${candidate}" ]] || continue
         [[ "${candidate}" == "${running_kernel}" ]] && continue
         wanted="${candidate}"
         break
-    done < <(printf '%s\n' "${available}" | sort -Vr)
-    # The list is a few lines, so the early break cannot leave sort writing into a closed pipe.
-    wait "$!" || die "sorting the available kernel-core versions failed"
+    done <<<"${sorted}"
     [[ -n "${wanted}" ]] ||
         die "every kernel-core the repos offer is ${running_kernel}; this guest cannot be given a second kernel"
     record PREPARED_WANTED_KERNEL "${wanted}"
@@ -196,14 +196,14 @@ select_second_kernel() {
     fi
 
     target_kernel=""
+    sorted="$(printf '%s\n' "${installed}" | sort -Vr)" || die "sorting the installed kernel-core versions failed"
     while read -r candidate; do
         [[ -n "${candidate}" ]] || continue
         [[ "${candidate}" == "${running_kernel}" ]] && continue
         [[ -r "${boot_dir}/vmlinuz-${candidate}" ]] || continue
         target_kernel="${candidate}"
         break
-    done < <(printf '%s\n' "${installed}" | sort -Vr)
-    wait "$!" || die "sorting the installed kernel-core versions failed"
+    done <<<"${sorted}"
 
     [[ -n "${target_kernel}" ]] ||
         die "dnf installed ${wanted} but no kernel other than ${running_kernel} has a ${boot_dir}/vmlinuz-*; the guest cannot reboot into a different one"

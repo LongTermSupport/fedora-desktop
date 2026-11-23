@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.124.15"  # Container 2.84.64: a container's default memory cap is the agents slice's MemoryMax, and small hosts get a slice. See docs/ccy-changelog.md.
+CCY_VERSION="3.124.16"  # Container 2.84.64: line-based listings are captured first, not read through a process substitution and its wait (#322). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -891,6 +891,7 @@ ccy_launch_teams() {
 if [ "$TEAMS_GIVEN" = true ]; then
     ccy_launch_teams "$@"
     _ccy_teams_args=()
+    # NUL-separated, which a variable cannot hold, so it stays < <(...) with its wait (#322).
     mapfile -d '' -t _ccy_teams_args < <(ccy_teams_canonical_args "$TEAMS_FLAG_POS" "$TEAMS_VALUE_POS" "$CCY_SEATS" "$@")
     wait "$!" || exit 1
     set -- "${_ccy_teams_args[@]}"
@@ -2660,18 +2661,19 @@ else
         PODMAN_NETWORKS=()
         CROSS_ENGINE_MISMATCH=false
 
-        # Query current engine (podman or docker)
+        # Query current engine (podman or docker). Captured first, so its status is checked: an
+        # engine that cannot list is not one with no networks (#295), and a wait "$!" after
+        # a process substitution can fail falsely under load (#321).
+        NETWORK_LIST=$(container_cmd network ls --format "{{.Name}}") || { print_error "$CONTAINER_ENGINE could not list its networks (see above)."; exit 1; }
         while IFS= read -r net; do
-            # Skip default networks
-            if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]] && [[ "$net" != "podman" ]]; then
+            # Skip default networks, and the one empty line an empty listing gives
+            if [[ -n "$net" && "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]] && [[ "$net" != "podman" ]]; then
                 # Check if network name contains project name
                 if [[ "$net" == *"$PROJECT_NAME"* ]]; then
                     MATCHING_NETWORKS+=("$net")
                 fi
             fi
-        done < <(container_cmd network ls --format "{{.Name}}")
-        # The listing's own status: an engine that cannot list is not one with no networks (#295).
-        wait "$!" || { print_error "$CONTAINER_ENGINE could not list its networks (see above)."; exit 1; }
+        done <<<"$NETWORK_LIST"
 
     # Query the OTHER engine to detect mismatches
     OTHER_ENGINE=""
@@ -2685,8 +2687,11 @@ else
     if command -v "$OTHER_ENGINE" &>/dev/null; then
         # Get networks from other engine
         OTHER_ENGINE_NETWORKS=()
+        # Installed but not answering (docker's daemon stopped, or no access to its socket) is an
+        # engine with no networks this launch can reach, as an absent one is; said, not silent (#295).
+        OTHER_NETWORK_LIST=$("$OTHER_ENGINE" network ls --format "{{.Name}}" 2>/dev/null) || echo "Note: $OTHER_ENGINE did not list its networks; none was checked for this project." >&2 # FAIL-FAST-OK: the other engine is optional, its silence is reported
         while IFS= read -r net; do
-            if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]] && [[ "$net" != "podman" ]]; then
+            if [[ -n "$net" && "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]] && [[ "$net" != "podman" ]]; then
                 OTHER_ENGINE_NETWORKS+=("$net")
                 # Check if this network matches project name
                 if [[ "$net" == *"$PROJECT_NAME"* ]]; then
@@ -2701,10 +2706,7 @@ else
                     fi
                 fi
             fi
-        done < <("$OTHER_ENGINE" network ls --format "{{.Name}}" 2>/dev/null)
-        # Installed but not answering (docker's daemon stopped, or no access to its socket) is an
-        # engine with no networks this launch can reach, as an absent one is; said, not silent (#295).
-        wait "$!" || echo "Note: $OTHER_ENGINE did not list its networks; none was checked for this project." >&2 # FAIL-FAST-OK: the other engine is optional, its silence is reported
+        done <<<"$OTHER_NETWORK_LIST"
     fi
 
 # Show cross-engine mismatch warning BEFORE normal network detection
@@ -2826,14 +2828,14 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
 
                                             # Re-scan for Podman networks
                                             MATCHING_NETWORKS=()
+                                            NETWORK_LIST=$(podman network ls --format "{{.Name}}") || { print_error "podman could not list its networks (see above)."; exit 1; }
                                             while IFS= read -r net; do
-                                                if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]] && [[ "$net" != "podman" ]]; then
+                                                if [[ -n "$net" && "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]] && [[ "$net" != "podman" ]]; then
                                                     if [[ "$net" == *"$PROJECT_NAME"* ]]; then
                                                         MATCHING_NETWORKS+=("$net")
                                                     fi
                                                 fi
-                                            done < <(podman network ls --format "{{.Name}}")
-                                            wait "$!" || { print_error "podman could not list its networks (see above)."; exit 1; }
+                                            done <<<"$NETWORK_LIST"
 
                                             if [ ${#MATCHING_NETWORKS[@]} -gt 0 ]; then
                                                 AUTO_CONNECT_NETWORK="${MATCHING_NETWORKS[0]}"
@@ -3106,13 +3108,13 @@ else
     ALL_NETWORKS=()
     # No PODMAN_DEFAULT_DETECTED flag: it was assigned here and in the loop, and
     # never read anywhere, so the inner `if` existed only to set it.
+    NETWORK_LIST=$(container_cmd network ls --format "{{.Name}}") || { print_error "$CONTAINER_ENGINE could not list its networks (see above)."; exit 1; }
     while IFS= read -r net; do
-        # Skip default networks
-        if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]]; then
+        # Skip default networks, and the one empty line an empty listing gives
+        if [[ -n "$net" && "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]]; then
             ALL_NETWORKS+=("$net")
         fi
-    done < <(container_cmd network ls --format "{{.Name}}")
-    wait "$!" || { print_error "$CONTAINER_ENGINE could not list its networks (see above)."; exit 1; }
+    done <<<"$NETWORK_LIST"
 
     # Check for compose files if no matching network found (and not already handled). A compose
     # question answered above (started, or a no) is this launch's answer: it is not asked twice.
@@ -3176,14 +3178,14 @@ else
 
                                 # Re-scan for networks
                                 MATCHING_NETWORKS=()
+                                NETWORK_LIST=$(container_cmd network ls --format "{{.Name}}") || { print_error "$CONTAINER_ENGINE could not list its networks (see above)."; exit 1; }
                                 while IFS= read -r net; do
-                                    if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]] && [[ "$net" != "podman" ]]; then
+                                    if [[ -n "$net" && "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]] && [[ "$net" != "podman" ]]; then
                                         if [[ "$net" == *"$PROJECT_NAME"* ]]; then
                                             MATCHING_NETWORKS+=("$net")
                                         fi
                                     fi
-                                done < <(container_cmd network ls --format "{{.Name}}")
-                                wait "$!" || { print_error "$CONTAINER_ENGINE could not list its networks (see above)."; exit 1; }
+                                done <<<"$NETWORK_LIST"
 
                                 if [ ${#MATCHING_NETWORKS[@]} -gt 0 ]; then
                                     AUTO_CONNECT_NETWORK="${MATCHING_NETWORKS[0]}"
@@ -3496,8 +3498,10 @@ fi
 # A headless server has no /dev/dri, and podman aborts the run on a --device that does not
 # exist (gpu_device_flags in lib/common-pure.bash says why and is where this is tested).
 # GPU_DEVICE_DIR is /dev/dri unless CCY_GPU_DEVICE_DIR overrides it (lib/host-paths.bash).
-mapfile -t GPU_DEVICE_FLAGS < <(gpu_device_flags "$GPU_DEVICE_DIR")
-wait "$!" || { print_error "Could not work out the GPU device flags for $GPU_DEVICE_DIR."; exit 1; }
+# Captured, not read from < <(...): a wait "$!" here lost the child under load (#321). The
+# read gives an empty array for an empty capture, where mapfile <<< would give one "".
+GPU_DEVICE_TEXT=$(gpu_device_flags "$GPU_DEVICE_DIR") || { print_error "Could not work out the GPU device flags for $GPU_DEVICE_DIR."; exit 1; }
+! IFS=$'\n' read -r -d '' -a GPU_DEVICE_FLAGS <<<"$GPU_DEVICE_TEXT"
 if [ "${#GPU_DEVICE_FLAGS[@]}" -eq 0 ]; then
     debug "No /dev/dri on this host — no GPU passed to the container; browser rendering is software-only"
 fi
@@ -3676,6 +3680,8 @@ ccy_handle_restart_exit() {
     # its arguments with those choices taken out. Built before anything is spent on the
     # restart. A process substitution's status is not seen by mapfile, so each builder's is
     # read with `wait`: one that stopped part way could otherwise leave an argv that looks whole.
+    # Both are NUL-separated, which a variable cannot hold, so they cannot be captured first
+    # as the line-based readers are (#322).
     local choice_args=() relaunch_args=() builder_rc=0 history_file
     mapfile -d '' -t choice_args < <(ccy_restart_choice_args "$SELECTED_TOKEN" \
         "${GITHUB_SSH_443:-0}" "$NO_NETWORK_MODE" "$AUTO_CONNECT_NETWORK" "${SSH_KEYS[@]}")

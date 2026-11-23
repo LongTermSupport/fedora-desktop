@@ -80,8 +80,14 @@ check "launcher: no unconditional --device /dev/dri line" "0" \
 check "launcher: the run argv expands GPU_DEVICE_FLAGS" "1" \
     "$(grep -c -F -- "\"\${GPU_DEVICE_FLAGS[@]}\"" "$LAUNCHER")"
 # /dev/dri unless CCY_GPU_DEVICE_DIR names another directory (the differential harness's sandbox).
-check "launcher: GPU_DEVICE_FLAGS is filled from gpu_device_flags GPU_DEVICE_DIR" "1" \
-    "$(grep -c -F "mapfile -t GPU_DEVICE_FLAGS < <(gpu_device_flags \"\$GPU_DEVICE_DIR\")" "$LAUNCHER")"
+# Captured first and its status checked, then split: a wait "$!" after a process substitution
+# can fail falsely under load (#321, #322).
+check "launcher: gpu_device_flags GPU_DEVICE_DIR is captured with its status checked" "1" \
+    "$(grep -c -F "GPU_DEVICE_TEXT=\$(gpu_device_flags \"\$GPU_DEVICE_DIR\") || {" "$LAUNCHER")"
+check "launcher: GPU_DEVICE_FLAGS is filled from the capture" "1" \
+    "$(grep -c -F "! IFS=\$'\\n' read -r -d '' -a GPU_DEVICE_FLAGS <<<\"\$GPU_DEVICE_TEXT\"" "$LAUNCHER")"
+check "launcher: GPU_DEVICE_FLAGS is not read through a process substitution" "0" \
+    "$(grep -c -F "GPU_DEVICE_FLAGS < <(" "$LAUNCHER")"
 
 echo "=== lib/host-paths.bash: the overrides fail fast ==="
 

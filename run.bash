@@ -866,10 +866,11 @@ hl_run_optional_playbooks() {
       "run the full headless install (it clones the repo) before requesting optional playbooks"
   fi
   cd ~/Projects/fedora-desktop || hl_abort "optional playbooks" "cannot cd into ~/Projects/fedora-desktop" "check the clone succeeded"
-  local -a _all_optional
-  mapfile -t _all_optional < <(find playbooks/imports/optional -name "*.yml" -type f | sort)
-  # find's status (#295): a failed scan would read as "no such play" for every request.
-  wait "$!"
+  local _optional_text _all_optional=()
+  # find's status (#295): a failed scan would read as "no such play" for every request. Captured
+  # first, since a wait "$!" after < <(...) can fail falsely under load (#321).
+  _optional_text=$(find playbooks/imports/optional -name "*.yml" -type f | sort)
+  ! IFS=$'\n' read -r -d '' -a _all_optional <<<"$_optional_text"
   local -a _reqs
   IFS=' ,' read -ra _reqs <<< "$spec"
 
@@ -3822,9 +3823,10 @@ elif [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install opti
 
   # Common optional playbooks
   if [[ -d playbooks/imports/optional/common ]]; then
-    mapfile -t common_playbooks < <(find playbooks/imports/optional/common -name "*.yml" -type f | sort)
     # find's status (#295): a failed scan would read as an empty category, offered nothing.
-    wait "$!"
+    # Captured first, since a wait "$!" after < <(...) can fail falsely under load (#321).
+    playbooks_text=$(find playbooks/imports/optional/common -name "*.yml" -type f | sort)
+    ! IFS=$'\n' read -r -d '' -a common_playbooks <<<"$playbooks_text"
     if [[ ${#common_playbooks[@]} -gt 0 ]]; then
       info "Found ${#common_playbooks[@]} common optional playbooks"
       if ! show_menu "Common Optional" "${common_playbooks[@]}"; then
@@ -3835,8 +3837,8 @@ elif [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install opti
 
   # Hardware-specific playbooks — auto-run detected, skip undetected, prompt for uncertain
   if [[ -d playbooks/imports/optional/hardware-specific ]]; then
-    mapfile -t hw_playbooks < <(find playbooks/imports/optional/hardware-specific -name "*.yml" -type f | sort)
-    wait "$!"
+    playbooks_text=$(find playbooks/imports/optional/hardware-specific -name "*.yml" -type f | sort)
+    ! IFS=$'\n' read -r -d '' -a hw_playbooks <<<"$playbooks_text"
     if [[ ${#hw_playbooks[@]} -gt 0 ]]; then
       printf '%b\n' "\n${CYAN}${BOLD}Hardware-Specific Playbooks${NC}" "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
       info "Analyzing your hardware..."
@@ -3878,8 +3880,8 @@ elif [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install opti
   
   # Untested playbooks warning
   if [[ -d playbooks/imports/optional/untested ]]; then
-    mapfile -t untested_playbooks < <(find playbooks/imports/optional/untested -name "*.yml" -type f | sort)
-    wait "$!"
+    playbooks_text=$(find playbooks/imports/optional/untested -name "*.yml" -type f | sort)
+    ! IFS=$'\n' read -r -d '' -a untested_playbooks <<<"$playbooks_text"
     if [[ ${#untested_playbooks[@]} -gt 0 ]]; then
       printf '%b\n' "\n${RED}${BOLD}⚠ UNTESTED Playbooks (Fedora $fedora_version)${NC}" "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
       error "Found ${#untested_playbooks[@]} untested playbooks for Fedora $fedora_version"
@@ -3902,8 +3904,8 @@ elif [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install opti
   
   # Experimental playbooks warning
   if [[ -d playbooks/imports/optional/experimental ]]; then
-    mapfile -t exp_playbooks < <(find playbooks/imports/optional/experimental -name "*.yml" -type f | sort)
-    wait "$!"
+    playbooks_text=$(find playbooks/imports/optional/experimental -name "*.yml" -type f | sort)
+    ! IFS=$'\n' read -r -d '' -a exp_playbooks <<<"$playbooks_text"
     if [[ ${#exp_playbooks[@]} -gt 0 ]]; then
       printf '%b\n' "\n${YELLOW}${BOLD}⚠ Experimental Playbooks${NC}" "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
       warning "Found ${#exp_playbooks[@]} experimental playbooks"

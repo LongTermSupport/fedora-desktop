@@ -59,9 +59,10 @@ mode_all() {
 
 mode_interactive() {
     ensure_agent
-    local -a keys
-    mapfile -t keys < <(discover_private_keys)
-    wait "$!" || { echo "Cannot list the keys in $SSH_DIR" >&2; exit 1; }
+    local keys_text keys=()
+    # Captured first, since a wait "$!" after < <(...) can fail falsely under load (#321).
+    keys_text=$(discover_private_keys) || { echo "Cannot list the keys in $SSH_DIR" >&2; exit 1; }
+    ! IFS=$'\n' read -r -d '' -a keys <<<"$keys_text"
     if [ ${#keys[@]} -eq 0 ]; then
         echo "No private keys found in $SSH_DIR"
         exit 0

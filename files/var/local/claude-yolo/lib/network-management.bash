@@ -1100,16 +1100,17 @@ _do_compose_start() {
                         return 0
                     else
                         # Check if any project networks now have containers
-                        local found_networks=()
+                        local found_networks=() network_list
+                        # Captured first: the listing's own status, since one that failed is not
+                        # "no networks" (#295), and a wait "$!" can fail falsely (#321).
+                        network_list=$(container_cmd network ls --format "{{.Name}}") || { echo "$CONTAINER_ENGINE could not list its networks (see above)." >&2; return 1; }
                         while IFS= read -r net; do
-                            if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]] && [[ "$net" != "podman" ]]; then
+                            if [[ -n "$net" && "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]] && [[ "$net" != "podman" ]]; then
                                 if [[ "$net" == *"$project_name"* ]] && network_has_running_containers "$net"; then
                                     found_networks+=("$net")
                                 fi
                             fi
-                        done < <(container_cmd network ls --format "{{.Name}}")
-                        # The listing's own status: one that failed is not "no networks" (#295).
-                        wait "$!" || { echo "$CONTAINER_ENGINE could not list its networks (see above)." >&2; return 1; }
+                        done <<<"$network_list"
 
                         if [ ${#found_networks[@]} -gt 0 ]; then
                             COMPOSE_NETWORK="${found_networks[0]}"

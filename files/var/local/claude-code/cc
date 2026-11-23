@@ -70,9 +70,12 @@ ccy_tmux_banner
 # way INTO tmux. On the way back in, and on the paths where insulation does not apply, it
 # is still in this argv — and everything left in it goes to claude, which would refuse an
 # option it does not know.
-mapfile -t CC_ARGS < <(ccy_registry_launch_args "$@")
 # The builder's own status (#295): one that stopped part way leaves an argv that looks whole.
-wait "$!" || { echo "cc: could not build claude's arguments." >&2; exit 1; }
+# Captured, not read from < <(...), whose wait "$!" can fail falsely under load (#321). One
+# line per argument; no output is no arguments, so the here-string's one empty line is then
+# skipped (-s 1). $() drops trailing empty lines, so an empty LAST argument is lost.
+CC_ARGS_TEXT=$(ccy_registry_launch_args "$@") || { echo "cc: could not build claude's arguments." >&2; exit 1; }
+mapfile -s $((${#CC_ARGS_TEXT} == 0)) -t CC_ARGS <<<"$CC_ARGS_TEXT"
 set -- "${CC_ARGS[@]}"
 # ccy-sessions restore marks the launches it makes with CCY_SESSION_RESTORE=1. cc has no
 # prompt with one safe answer to give (its token chooser is a person's choice, and

@@ -42,8 +42,8 @@ bytes=$(stat -c %s -- "$input")
 ((bytes <= MAX_INPUT_BYTES)) || die "input is $bytes bytes, limit is $MAX_INPUT_BYTES"
 
 first_frame="${input}[0]" # animated/multi-page inputs: encode frame 0 only
-read -r width height < <(magick identify -format '%w %h\n' -- "$first_frame")
-wait "$!" # an image magick cannot read stops here, under magick's own message
+size=$(magick identify -format '%w %h\n' -- "$first_frame") # an image magick cannot read stops here, under magick's own message
+read -r width height <<<"$size"
 ((width * height <= MAX_INPUT_PIXELS)) || die "input is ${width}x${height}, limit is $MAX_INPUT_PIXELS pixels"
 
 workdir=$(mktemp -d)
@@ -51,12 +51,12 @@ trap 'rm -rf "$workdir"' EXIT
 out="$workdir/out.webp"
 
 render_block() {
-	local sha id path ow oh
+	local sha id path ow oh size
 	sha=$(sha256sum -- "$out" | cut -d' ' -f1)
 	id=${sha:0:12}
 	path="./imgpaste-$id.webp" # cwd-relative: the receiver may not be allowed to write outside its project
-	read -r ow oh < <(magick identify -format '%w %h\n' -- "$out")
-	wait "$!" || die "cannot read the size of the encoded image"
+	size=$(magick identify -format '%w %h\n' -- "$out") || die "cannot read the size of the encoded image"
+	read -r ow oh <<<"$size"
 	echo "# IMGPASTE v1: ${ow}x${oh} image. Agent: run this whole block in bash, then view ${path}"
 	echo "base64 -d > ${path} <<'IMGPASTE_END'"
 	base64 -w 76 -- "$out"

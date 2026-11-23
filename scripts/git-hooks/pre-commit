@@ -105,9 +105,10 @@ declare -a SENSITIVE_PATTERNS=(
 STAGED_SCAN_TEXT="$("${HOOK_LIB%/*}/staged-scan-list.bash")"
 ! IFS=$'\n' read -r -d '' -a STAGED_FILE_LIST <<<"$STAGED_SCAN_TEXT"
 # The version gates judge deletions too: a file deleted from the repo is still in the image.
-mapfile -t STAGED_CHANGE_LIST < <(git diff --cached --name-only --diff-filter=ACDMRT)
 # git's own status (#295): a diff that failed would read as nothing staged and pass the commit.
-wait "$!"
+# Captured first, the same way, since a wait "$!" after < <(...) can fail falsely (#321).
+STAGED_CHANGE_TEXT=$(git diff --cached --name-only --diff-filter=ACDMRT)
+! IFS=$'\n' read -r -d '' -a STAGED_CHANGE_LIST <<<"$STAGED_CHANGE_TEXT"
 
 if [ ${#STAGED_CHANGE_LIST[@]} -eq 0 ]; then
     echo "✓ No files staged for commit"
@@ -397,7 +398,11 @@ else
             ALL_STAGED_CONTENT+="$FILE_CONTENT"$'\n'
         done
 
-        # The scanner reports the source FIELD name only — never the value.
+        # The scanner reports the source FIELD name only — never the value. Its own status: one
+        # that could not run found nothing and must not pass (#295); errexit stops the hook
+        # here, under the scanner's own message saying why. Captured first, since a wait "$!"
+        # after < <(...) can fail falsely under load (#321).
+        DENY_FIELDS=$(printf '%s' "$ALL_STAGED_CONTENT" | hook_scan_text_for_private "$DENYLIST_FILE")
         while IFS= read -r DENY_FIELD; do
             if [ -z "$DENY_FIELD" ]; then
                 continue
@@ -409,10 +414,7 @@ else
             fi
             echo -e "${YELLOW}Private value from localhost.yml field '${DENY_FIELD}' appears in staged content${NC}"
             FOUND_ISSUES=1
-        done < <(printf '%s' "$ALL_STAGED_CONTENT" | hook_scan_text_for_private "$DENYLIST_FILE")
-        # The scan's own status: one that could not run found nothing and must not pass (#295).
-        # errexit stops the hook here, under the scanner's own message saying why.
-        wait "$!"
+        done <<<"$DENY_FIELDS"
     fi
 fi
 

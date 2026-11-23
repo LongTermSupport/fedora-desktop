@@ -782,11 +782,13 @@ cmd_team() {
     state=$(jq -r .state "$WORK_DIR/team.json")
     port=$(jq -r .port "$WORK_DIR/team.json")
     [[ $state == present ]] || die "$EXIT_CONFIG" "team $team is state $state: run $PROG remove --team $team"
-    local -a listen allow
-    mapfile -t listen < <(jq -r '.listen[]' "$WORK_DIR/team.json")
-    wait "$!" || die "$EXIT_FAIL" "cannot read the listen addresses of the checked team file"
-    mapfile -t allow < <(jq -r '.allow_from[]' "$WORK_DIR/team.json")
-    wait "$!" || die "$EXIT_FAIL" "cannot read the allow_from addresses of the checked team file"
+    # Each list captured first, its status checked, then split on newlines (an empty list is
+    # no element): a wait "$!" after < <(...) can fail falsely under load (#321).
+    local addrs listen=() allow=()
+    addrs=$(jq -r '.listen[]' "$WORK_DIR/team.json") || die "$EXIT_FAIL" "cannot read the listen addresses of the checked team file"
+    ! IFS=$'\n' read -r -d '' -a listen <<<"$addrs"
+    addrs=$(jq -r '.allow_from[]' "$WORK_DIR/team.json") || die "$EXIT_FAIL" "cannot read the allow_from addresses of the checked team file"
+    ! IFS=$'\n' read -r -d '' -a allow <<<"$addrs"
     assert_port_free "$team" "$port"
 
     local ip_json address
@@ -1093,9 +1095,9 @@ cmd_restore() {
     systemctl start "$hs"
     changed "restored team $team from backup $id"
     wait_ready "$hs" "$port"
-    local -a listen
-    mapfile -t listen < <(jq -r '.listen[]' "$dir/team.json")
-    wait "$!" || die "$EXIT_FAIL" "cannot read the listen addresses of $dir/team.json"
+    local addrs listen=()
+    addrs=$(jq -r '.listen[]' "$dir/team.json") || die "$EXIT_FAIL" "cannot read the listen addresses of $dir/team.json"
+    ! IFS=$'\n' read -r -d '' -a listen <<<"$addrs"
     assert_listening "$port" "${listen[@]}"
     admin_tool bootstrap "$team"
 }
@@ -1140,9 +1142,9 @@ cmd_check() {
     fact drop-in "$(verdict "$dropin_state" present)" "${dropin#"$PREFIX"}"
     fact server_name "$(verdict "${server_name##*.}" internal)" "$server_name"
 
-    local -a listen
-    mapfile -t listen < <(jq -r '.listen[]' "$dir/team.json")
-    wait "$!" || die "$EXIT_FAIL" "cannot read the listen addresses of $dir/team.json"
+    local addrs listen=()
+    addrs=$(jq -r '.listen[]' "$dir/team.json") || die "$EXIT_FAIL" "cannot read the listen addresses of $dir/team.json"
+    ! IFS=$'\n' read -r -d '' -a listen <<<"$addrs"
     local want got
     got=$(bound_addresses "$port")
     want=$(expected_addresses "${listen[@]}")

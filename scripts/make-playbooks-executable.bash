@@ -65,7 +65,8 @@ while IFS= read -r -d '' playbook; do
     chmod +x "$playbook"
 
 done < <(find "$PLAYBOOK_DIR" -type f -name "*.yml" -print0)
-# find's own status: one that failed would read as "no playbooks" (#295).
+# find's own status: one that failed would read as "no playbooks" (#295). NUL-separated, which
+# a variable cannot hold, so not captured first (#322).
 wait "$!"
 
 echo ""

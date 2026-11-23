@@ -135,7 +135,8 @@ fi
 # Without --exclude-standard this lists ignored files too, and a nested repository as `dir/`.
 # The host_vars copy is excused by exact path, as the anchor does: a pattern would also
 # excuse a directory of that name and everything in it. NUL-separated, so no file name can
-# split into lines that each look like the excused one.
+# split into lines that each look like the excused one. A variable cannot hold a NUL, so the
+# listing is read through < <(...) and its status collected with wait (#322).
 STRAYS=()
 while IFS= read -r -d '' path; do
     [[ "${path}" == "environment/localhost/host_vars/localhost.yml" ]] || STRAYS+=("${path}")

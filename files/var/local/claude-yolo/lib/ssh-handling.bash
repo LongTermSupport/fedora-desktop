@@ -119,7 +119,10 @@ resolve_github_ssh_alias() {
     # expanded until ssh opens the file (measured: a config line
     # `IdentityFile ~/.ssh/deploy_keys/x` comes back verbatim), so it is
     # expanded here before the existence test.
-    local keyfile="" candidate
+    local keyfile="" candidate identity_files
+    # awk's own status (#295), captured first: a wait "$!" after < <(...) can fail falsely
+    # under load (#321). An empty capture's one empty line is skipped below.
+    identity_files=$(awk '$1 == "identityfile" { print $2 }' <<< "$cfg") || { echo "Could not read the IdentityFile lines ssh -G gave for $alias." >&2; return 1; }
     while IFS= read -r candidate; do
         [ -n "$candidate" ] || continue
         case "$candidate" in
@@ -130,10 +133,7 @@ resolve_github_ssh_alias() {
             keyfile="$candidate"
             break
         fi
-    done < <(awk '$1 == "identityfile" { print $2 }' <<< "$cfg")
-    # awk's own status (#295). It writes its few lines in one flush at exit, so the `break`
-    # above never cuts it off part way.
-    wait "$!" || { echo "Could not read the IdentityFile lines ssh -G gave for $alias." >&2; return 1; }
+    done <<<"$identity_files"
     printf '%s\t%s\t%s\n' "$hostname" "${port:-22}" "$keyfile"
     return 0
 }
