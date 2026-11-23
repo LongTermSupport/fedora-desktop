@@ -121,7 +121,8 @@ its own focused CI (see Plan 00262).
 ### Phase A: stage 1a, kernel caps (fedora-desktop)
 
 - [ ] ⬜ **Task A.1**: The read-only probe of cgroup delegation and the CPU topology on the host
-  (`triage.bash`, DESIGN.md 1.6, round 1), in a window the owner picks.
+  (`triage.bash`, DESIGN.md 1.6, round 1), in a window the owner picks. It also reads one QA
+  run's peak memory (`memory.peak` of its cgroup), the `per_run_peak_ram` term of D1's formula.
 - [ ] ⬜ **Task A.2**: The proof that a rootless container goes under the user slice
   (`acceptance.bash`, round 2), in the owner's window.
 - [ ] ⬜ **Task A.3**: The `cpuset` Delegate drop-in in `play-podman.yml`, only if A.1 shows
