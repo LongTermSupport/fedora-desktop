@@ -25,6 +25,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LAUNCHER="$REPO_ROOT/files/var/local/claude-yolo/claude-yolo"
+# shellcheck source-path=SCRIPTDIR source=lib/ccy-test-limits.bash
+. "$SCRIPT_DIR/lib/ccy-test-limits.bash" || exit 1
 
 if [ ! -f "$LAUNCHER" ]; then
     echo "FAIL: launcher not found at $LAUNCHER" >&2
@@ -50,6 +52,7 @@ STUB_BIN="$SCRATCH/bin"
 ENGINE_CALLS="$SCRATCH/engine-calls"
 FRONT_DIR="$SCRATCH/front"
 mkdir -p "$NOT_A_REPO" "$FAKE_HOME" "$STUB_BIN" "$FRONT_DIR"
+ccy_test_limits "$FAKE_HOME" || exit 1
 
 # The front's install: the binary as the play builds it, the bash launcher and lib/ beside it.
 cp -r "$REPO_ROOT/files/var/local/claude-yolo/lib" "$FRONT_DIR/lib"

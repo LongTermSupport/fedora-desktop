@@ -31,6 +31,8 @@ LAUNCHER="$CCY_DIR/claude-yolo"
 LIB_DIR="$CCY_DIR/lib"
 SEATS_LIB="$LIB_DIR/agent-bus-seats.bash"
 MEMBERSHIP_LIB="$LIB_DIR/agent-bus-membership.bash"
+# shellcheck source-path=SCRIPTDIR source=lib/ccy-test-limits.bash
+. "$SCRIPT_DIR/lib/ccy-test-limits.bash" || exit 1
 # The image's build-context staging and build are in tasks/claude-yolo-image.yml, which
 # play-claude-yolo.yml and play-claude-code-consumer.yml import (Plan 00233).
 PLAY="$REPO_ROOT/tasks/claude-yolo-image.yml"
@@ -618,10 +620,8 @@ echo "=== the real launcher: refusals before anything runs ==="
 repo="$work/repo"
 home="$work/home"
 stub_bin="$work/stub-bin"
-mkdir -p "$repo" "$home/.config/systemd/user" "$stub_bin"
-# The launcher settles the container limits as soon as it loads (lib/container-limits.bash):
-# the agents slice's unit where the play installs it, and a memory cap any machine allows.
-printf '[Slice]\n' >"$home/.config/systemd/user/agents.slice"
+mkdir -p "$repo" "$stub_bin"
+ccy_test_limits "$home" || exit 1
 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$repo" init -q
 # Seats already in the checkout: a plain launch must still call nothing.
 mkdir -p "$repo/.claude/ccy/pingbus/seats/team-a/dev1"
@@ -642,7 +642,7 @@ run_ccy() {
     : >"$FAKE_BUS_LOG"
     : >"$work/tools.log"
     RC=0
-    (cd "$repo" && env HOME="$home" PATH="$path" CCY_CONTAINER_ENGINE=podman TERM=dumb XDG_RUNTIME_DIR="$work/run" CCY_MEMORY_MAX=4g \
+    (cd "$repo" && env HOME="$home" PATH="$path" CCY_CONTAINER_ENGINE=podman TERM=dumb XDG_RUNTIME_DIR="$work/run" \
         GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
         bash "$LAUNCHER" "$@" </dev/null >"$work/ccy.out" 2>"$work/ccy.err") || RC=$?
 }

@@ -80,6 +80,9 @@ export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the c
 BANNERS="$WORK/banners.log"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT INT TERM
+# shellcheck source-path=SCRIPTDIR source=lib/ccy-test-limits.bash
+. "$SCRIPT_DIR/lib/ccy-test-limits.bash" || exit 1
+ccy_test_limits "$WORK" || exit 1
 
 mkdir -p "$WORK/empty-pool" "$WORK/expired-only" "$WORK/has-valid"
 : >"$BANNERS"

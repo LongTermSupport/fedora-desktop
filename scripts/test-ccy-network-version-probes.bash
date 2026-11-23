@@ -52,6 +52,9 @@ mkdir -p "$REPO_ROOT/untracked/scratch"
 SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/ccy-network-version-test.XXXXXX")"
 export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 trap 'rm -rf "$SCRATCH"' EXIT
+# shellcheck source-path=SCRIPTDIR source=lib/ccy-test-limits.bash
+. "$SCRIPT_DIR/lib/ccy-test-limits.bash" || exit 1
+ccy_test_limits "$SCRATCH" || exit 1
 export BIN="$SCRATCH/bin"
 mkdir -p "$BIN"
 

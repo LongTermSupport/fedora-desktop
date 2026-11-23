@@ -48,6 +48,10 @@ WORK="$(mktemp -d "$REPO_ROOT/untracked/ccy-token-usage-command.XXXXXX")"
 export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT INT TERM
+# shellcheck source-path=SCRIPTDIR source=lib/ccy-test-limits.bash
+. "$SCRIPT_DIR/lib/ccy-test-limits.bash" || exit 1
+# One slice unit for every home a case runs under: run_ccy passes its XDG_CONFIG_HOME on.
+ccy_test_limits "$WORK/limits" || exit 1
 
 # The front's install: the binary as the play builds it, the bash launcher and lib/ beside it.
 FRONT_DIR="$WORK/front"
@@ -162,6 +166,7 @@ run_ccy() {
     # bash function among them (Fedora exports `which`), so the case gets no environment but
     # its own and passes on any machine, not only a clean one.
     OUT=$(cd "$NOT_A_REPO" && env -i HOME="$home" PATH="$STUB_BIN:$PATH" TZ=UTC \
+        XDG_CONFIG_HOME="$XDG_CONFIG_HOME" CCY_MEMORY_MAX="$CCY_MEMORY_MAX" \
         CCY_CONTAINER_ENGINE=podman "${envs[@]}" "$FRONT" "$@" </dev/null 2>"$WORK/stderr") || RC=$?
     ERR=$(cat "$WORK/stderr")
 }
