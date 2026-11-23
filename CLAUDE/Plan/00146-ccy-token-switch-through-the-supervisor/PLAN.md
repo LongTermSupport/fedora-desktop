@@ -1,6 +1,6 @@
 # Plan 00146: ccy token switch through the supervisor
 
-**Status**: Not Started (transport, placement and front ends decided by the owner; Phase 0 next; decision 3 gates only Task 2.4)
+**Status**: Not Started (transport, placement, front ends and decision 3 decided by the owner; starts only after agent team bus v2 lands, Plan 00209)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -34,8 +34,8 @@ how a switch is asked for:
   a token to another;
 - the session itself: the status line shows the current token, and a Claude Code mod offers
   the switch from inside the session;
-- `ccy-teams`: automatic failover to the next token in a set the team defines, when a
-  session reaches its usage limit.
+- ccy itself: an automatic restart on the next declared token when a session reaches its
+  usage limit, with a cooldown (decision 3, Task 2.4).
 
 **Placement for ccy (decided, decision 2):** the proxy runs **on the host**, one per session, started by
 the launcher like ccy's one-key ssh agent (Plan 00163). It listens on a unix socket in a
@@ -84,10 +84,18 @@ Decided:
 - **2. The proxy runs on the host.** The only alternative was inside the container, with the
   token in container tmpfs, which breaks the requirement that ccy never sees a real token. So
   it was never a real choice (owner: "where else could it run?").
+- **3. Answered (Q65, then the owner's direction after it).** The capability is general, in
+  ccy, on every machine that runs ccy, and has two parts: (1) the manual hot swap (the proxy
+  above, the front ends of Phase 2), and (2) an automatic teardown and restart of a session on
+  the next declared token, with a 15-minute cooldown plus jitter, carried by the coupling of
+  seat to conversation that Q67 settled (`ccy --resume <id> --teams`, never `--continue`).
+  That second part replaces Task 2.4's in-place failover. A downstream private infrastructure
+  repo's dev-VM token timer is the prior art; it is retired once this runs there. Not started
+  before agent team bus v2 (Plan 00209) lands.
 
 Open (each can be answered in a line; my recommendation follows each):
 
-3. **Account-ban risk of automatic failover.** Every token is one of the owner's own Claude
+3. **Account-ban risk of automatic failover** (answered above; the question as it was put): Every token is one of the owner's own Claude
    subscriptions; nobody else's account or traffic is involved. The risk is Anthropic's view
    of one person using several subscriptions to get past usage limits. The Claude Code legal
    page says advertised limits "assume ordinary, individual usage" and reserves enforcement
@@ -176,10 +184,12 @@ Open (each can be answered in a line; my recommendation follows each):
   last usage, and a Claude Code mod offers the switch from inside the session (a slash command
   that lists the pool and calls `tokenswitch` on the host). How the mod reaches the host
   without giving the container a way to read tokens is designed first, in this folder.
-- [ ] ⬜ **Task 2.4**: `ccy-teams` failover: a team names an ordered token set. When a seat's
-  proxy sees a usage-limit response, the team switches that seat to the next token in the set
-  with headroom and reports it in the team room. Off unless the team turns it on, and blocked
-  on decision 3.
+- [ ] ⬜ **Task 2.4**: Automatic restart on the next declared token (decision 3): a session
+  declares an ordered token set. When its token reaches its usage limit, the session is torn
+  down and restarted on the next token in the set with headroom, resuming the same
+  conversation (`ccy --resume <id>`, with `--teams` for a seat, per Q67), at most once per
+  15 minutes plus jitter, and the switch is reported in the team room for a seat. General in
+  ccy on every machine that runs it, not only `ccy-teams`.
 - [ ] ⬜ **Task 2.5**: `CCY_VERSION` bump, `docs/ccy-changelog.md`, `docs/ccy.md` Tokens
   section ("switching account mid-session", the cold-cache cost, the `/login` hatch), help
   text.
@@ -207,8 +217,8 @@ Open (each can be answered in a line; my recommendation follows each):
   Claude.ai credentials. It says advertised limits "assume ordinary, individual usage".
   Community proxy READMEs call multi-account rotation a grey area and report bans for
   unusual OAuth patterns. This plan keeps the official binary unmodified, carries only the
-  owner's own traffic and tokens, and switches only by hand. Whether that is acceptable is
-  decision 3.
+  owner's own traffic and tokens. The owner has chosen to take the risk of the automatic
+  restart on the next token (decision 3), rate-limited by its cooldown.
 - **The first turn on the new account re-reads the whole context** with a cold prompt cache.
   No mechanism avoids it, and a rate limit is per account, so the target must be another
   account.
@@ -218,7 +228,8 @@ Open (each can be answered in a line; my recommendation follows each):
   and the 1M window after updates.
 - **The session CA is a credential.** Its private key stays on the host, 0600, one per
   session, name-constrained to the Anthropic hosts, and deleted with the session.
-- **Automatic failover (Task 2.4) is the riskiest use under the terms** (decision 3).
+- **The automatic restart (Task 2.4) is the riskiest use under the terms**; the owner accepted
+  it (decision 3).
 - **Proxy down = session down.** That is deliberate: fail loudly, never fall back to a
   token in the environment.
 
