@@ -17,18 +17,25 @@ Two version numbers move independently — see
 
 ---
 
-## 3.123.0 — container 2.84.43
+## 3.123.2 — container 2.84.43
 
-- **Every ccy container is capped, so a runaway session cannot take the host down** (Plan
-  00263, stage 1a pulled forward). Every container ccy runs (the session, the help, version and
-  update probes, the token check and sign-in) is started with one limit set,
-  `CCY_LIMIT_ARGS`: `--cgroup-parent agents.slice`, a pids limit of 16384 (was 4096), and a
-  memory cap of the machine's RAM less 16 GiB (`--memory`), with the soft limit
-  (`--memory-reservation`, memory.high) 2 GiB below it. `CCY_MEMORY_MAX` overrides the cap per
-  machine; it cannot turn it off. A machine where RAM less 16 GiB is under 4 GiB is refused,
-  naming `CCY_MEMORY_MAX`. `agents.slice` caps all ccy containers together; a host without
-  its unit (installed by `play-claude-yolo.yml`) is refused. A running session keeps its old
-  limits until it is restarted. See [Container limits](ccy.md#container-limits).
+- **Every ccy and ccc container is capped, so a runaway session cannot take the host down**
+  (Plan 00263, stage 1a pulled forward). Every container ccy runs (the session, the help,
+  version and update probes, the token check and sign-in) and both of ccc's are started with
+  one limit set: `--cgroup-parent agents.slice`, a pids limit of 16384 (was 4096), a memory cap
+  of the machine's RAM less 16 GiB (`--memory`), and `--memory-reservation` 2 GiB below it
+  (on cgroup v2 that is `memory.low`, a reclaim protection, not a throttle). `CCY_MEMORY_MAX`
+  overrides the cap per machine; it cannot turn it off. A machine where RAM less 16 GiB is
+  under 4 GiB is refused, naming `CCY_MEMORY_MAX`. `agents.slice` (installed by
+  `play-claude-yolo.yml`: `MemoryMax` RAM less 16 GiB, `MemoryHigh` 1 GiB below) caps all of
+  them together; a host without its unit is refused. A running session keeps its old limits
+  until it is restarted. See [Container limits](ccy.md#container-limits).
+- **systemd-oomd no longer kills desktop apps on memory pressure.** Fedora's default
+  `ManagedOOMMemoryPressure=kill` on `user@.service` is set back to `auto` by a system drop-in
+  (`play-systemd-user-tweaks.yml`); the old user-manager drop-in never applied.
+- **`--continue` with team seats is refused** (owner's ruling Q67), exit 64, naming
+  `ccy --resume <conversation id> --teams <seats>` and where to find the id; ccy never rewrites
+  the arguments.
 
 ## 3.122.50 — container 2.84.43
 
