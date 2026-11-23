@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccclaude"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/engine"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylimits"
 )
 
 const (
@@ -32,6 +32,8 @@ type session struct {
 	TimeZone string
 	Term     string
 	Continue bool
+	// Limits is ccy's limit set, which every ccc container runs with (project_container_pids_limit).
+	Limits ccylimits.Limits
 }
 
 // networkArgs is the container's network: the network ccy uses by default, never the host's,
@@ -49,11 +51,11 @@ func sessionArgs(s session) []string {
 	if termName == "" {
 		termName = "xterm"
 	}
-	args := []string{
-		"run", "--rm", "--interactive", "--tty", "--pids-limit", pidsLimit,
+	args := s.Limits.Run(
+		"--interactive", "--tty",
 		"--name", s.Name,
-		"--label", "ccc=true", "--label", "ccc-agent=" + s.Agent.Name,
-	}
+		"--label", "ccc=true", "--label", "ccc-agent="+s.Agent.Name,
+	)
 	args = append(args, networkArgs()...)
 	args = append(args,
 		"--entrypoint", "/usr/bin/tini",
@@ -76,13 +78,10 @@ func sessionArgs(s session) []string {
 	return append(args, s.Agent.Command(s.Continue)...)
 }
 
-// pidsLimit is every ccc container's --pids-limit: ccy's default, so a fork bomb inside a
-// session stops at a bound ccy chose and not at the engine's (project_container_pids_limit).
-var pidsLimit = strconv.Itoa(engine.PidsLimitDefault)
-
-// signInArgs is the podman argv of a sign-in: a throwaway container with nothing mounted.
-func signInArgs(a Agent) []string {
-	args := []string{"run", "--rm", "--interactive", "--tty", "--pids-limit", pidsLimit}
+// signInArgs is the podman argv of a sign-in: a throwaway container with nothing mounted, under
+// the same limit set as a session.
+func signInArgs(a Agent, l ccylimits.Limits) []string {
+	args := l.Run("--interactive", "--tty")
 	args = append(args, networkArgs()...)
 	args = append(args, "--entrypoint", a.Entrypoint, image)
 	return append(args, a.SignIn...)

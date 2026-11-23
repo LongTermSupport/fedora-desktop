@@ -1152,62 +1152,86 @@ are forwarded unchanged.
 
 ### Container limits
 
-Every container ccy runs is started with an explicit, bounded pids limit, never the engine's
-default (podman's is 2048; docker sets none): the session, the in-place Claude Code update's
-`npm install`, `--create-token`'s `setup-token`, the token check, and the `claude --help` /
-`--version` and network probes, whether the bash or the Go front runs them. A pid in the pids cgroup is
-a thread. The limit is the session's fork-bomb guard: a
-test fixture that recursed into itself inside a session climbed from 40 to 2048 tasks in about
-ten seconds, and podman's default of 2048 stopped it there, with the host untouched. Without a
-limit it would have run on into the user slice's own task limit, which the desktop shares.
+Every container ccy runs is started with one limit set, never the engine's defaults: the
+session, the in-place Claude Code update's `npm install`, `--create-token`'s `setup-token`, the
+token check, and the `claude --help` / `--version` and network probes, whether the bash or the
+Go front runs them. `ccc` runs its containers with the same set.
 
-| Variable         | CCY default | Takes                            |
-| ---------------- | ----------- | -------------------------------- |
-| `CCY_PIDS_LIMIT` | `4096`      | a whole number from 256 to 32768 |
+| Flag                           | Value                                     | Why                                                     |
+| ------------------------------ | ----------------------------------------- | ------------------------------------------------------- |
+| `--cgroup-parent agents.slice` | the user slice the play installs          | caps every ccy container together                       |
+| `--pids-limit`                 | `CCY_PIDS_LIMIT`, default `16384`         | a fork bomb stops at the container                      |
+| `--memory`                     | `CCY_MEMORY_MAX`, default RAM less 16 GiB | one runaway session cannot take the desktop's memory    |
+| `--memory-reservation`         | 2 GiB below `--memory`                    | on cgroup v2 it is `memory.low` (below), not a throttle |
 
-Why 4096: busy sessions doing real parallel work (Go builds and tests, linters, Ansible forks,
-background waiters) were seen with `pids.peak` at 1160 and 1503 of 2048, so twice the default
-leaves room for a heavier build, while a runaway climbing at a few hundred tasks a second still
-stops within seconds. Every session at its cap together must stay under the user slice's own
-limit; how many fit:
+| Variable         | CCY default     | Takes                                                                      |
+| ---------------- | --------------- | -------------------------------------------------------------------------- |
+| `CCY_PIDS_LIMIT` | `16384`         | a whole number from 256 to 32768                                           |
+| `CCY_MEMORY_MAX` | RAM less 16 GiB | bytes, or a number with `k`, `m` or `g`, from `4096m` to the machine's RAM |
+
+**The slice.** `play-claude-yolo.yml` installs `~/.config/systemd/user/agents.slice` with
+`MemoryMax` = RAM less 16 GiB (one container's default cap) and `MemoryHigh` 1 GiB below, from
+the host's facts at deploy time (`ccy_agents_slice_memory_max_mb` in host_vars overrides the
+max). Past `MemoryHigh` the kernel throttles the slice; at `MemoryMax` it kills inside the slice
+only, so the desktop keeps its 16 GiB. The slice sets nothing for systemd-oomd. A launch is
+refused on a host without the unit, naming the play, and where RAM less 16 GiB is under 4 GiB
+(set `CCY_MEMORY_MAX` there). Docker (rootless) gets the same flags; the slice is the user
+manager's.
+
+**systemd-oomd.** Fedora's default has systemd-oomd kill on memory pressure anywhere in
+`user@UID.service` (50% for 20 s), choosing the leaf cgroup with the highest reclaim rate: a
+desktop app as readily as a container, and the slice's throttle is pressure that counts there.
+`play-systemd-user-tweaks.yml` turns that off with a system drop-in for `user@.service`
+(`50-no-memory-pressure-kill.conf`). The swap-based kill and the kernel's OOM killer stay.
+
+**`--memory-reservation`.** crun writes it to `memory.low` on cgroup v2: a protection from
+reclaim, not a soft cap. Inside `agents.slice`, which sets no `MemoryLow`, it protects nothing;
+the throttle is the slice's `MemoryHigh`.
+
+**Pids.** A pid in the pids cgroup is a thread. A test fixture that recursed into itself inside a
+session climbed from 40 to 2048 tasks in about ten seconds, and podman's default of 2048 stopped
+it there. Busy sessions were seen with `pids.peak` at 1160 and 1503; with memory capped
+separately, 16384 leaves room for heavy builds while a runaway still stops. Every session at its
+cap together should stay under the user slice's own task limit; how many fit:
 
 ```bash
-echo $(( $(systemctl show "user-$(id -u).slice" -p TasksMax --value) / ${CCY_PIDS_LIMIT:-4096} ))
+echo $(( $(systemctl show "user-$(id -u).slice" -p TasksMax --value) / ${CCY_PIDS_LIMIT:-16384} ))
 ```
 
-(`TasksMax` is by default 33% of the kernel's task limit; `infinity` means the slice has none,
-and the arithmetic then fails.) The limit cannot be turned off: 0, -1, `max` and values past
-32768 stop the run before anything starts, `ccy --version` and `ccy --help` included, as does
-anything that is not a whole number in range.
+(`TasksMax` is by default 33% of the kernel's task limit; `infinity` means the slice has none.)
 
-Export it on the host before launching to override it for that launch. The launcher hands it
-to the session's tmux pane on the pane's command and starts tmux without it, so it reaches
-that session and no later one. A project's `ccy.env` cannot set it, because that file is read
-inside the container. A session restored after a reboot (`ccy-sessions restore`) or restarted
-by `ccy-teams` is not given a launch's export: it takes the variable from its own environment,
-normally unset, so the default. A running session keeps the limit it was started with until
-it is relaunched. Image builds (`podman build`) are not given the limit: `docker build` has no
-such flag, and a build's steps are the Dockerfile's, not a session's.
+**Overrides.** Neither limit can be turned off: 0, -1, `max`, out-of-range and malformed values
+stop the run before anything starts, `ccy --version` and `ccy --help` included. Export a variable
+on the host before launching to override it for that launch; the launcher hands both to the
+session's tmux pane and starts tmux without them, so they reach that session only. A project's
+`ccy.env` cannot set them (it is read inside the container). A session restored after a reboot
+or restarted by `ccy-teams` takes them from its own environment, normally unset. Image builds
+are not given the limits.
 
-The setting lives in `lib/container-limits.bash` (the Go front holds the same bounds, tested
-against it); the rule that holds every ccy run and create to it is
-[ccy-container-default-pids-limit](../CLAUDE/QA.md#ccy-container-default-pids-limit).
+**Running sessions** keep the cgroup and limits they started with until relaunched; `podman update` cannot move a running container into the slice.
 
-To see a session's use against its limit, from the host:
+**Team seats and `--continue`.** A launch that takes team seats (`--teams`, or Quick Launch's
+saved team) refuses claude's `-c`/`--continue` with exit 64: it would resume the checkout's
+newest conversation, which may be another seat's. Use `ccy --resume <conversation id> --teams <seats>`; the id is the name of the seat's last transcript under `.claude/ccy/projects/-workspace/`,
+or ask the team's coordinator. ccy never rewrites the arguments.
+
+The setting lives in `lib/container-limits.bash` (the Go copy, `src-go/internal/ccylimits`, is
+tested against it). The rules that hold every ccy run to the whole set:
+[ccy-container-default-pids-limit](../CLAUDE/QA.md#ccy-container-default-pids-limit) (bash) and
+[project_container_pids_limit](../CLAUDE/GoProjectRules.md#project_container_pids_limit) (Go).
+
+To see a session's use against its limits, from the host:
 
 ```bash
-podman exec <container> cat /sys/fs/cgroup/pids.current /sys/fs/cgroup/pids.peak /sys/fs/cgroup/pids.max | cat
+podman exec <container> cat /sys/fs/cgroup/pids.current /sys/fs/cgroup/pids.max /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.max | cat
 ```
 
 Nothing warns yet when a session climbs. The tool for it is `container-watch`, which already
 finds every container's cgroup. Proposed: a finding on a fast climb in `pids.current` (for
 example 500 tasks within 5 seconds), on `pids.current` past about 80% of `pids.max`, or on a
 refused fork counted in `pids.events`, naming the deepest chain of processes running the same
-command (the runaway's command line, home and checkout paths shortened); and an advisory when
-`pids.peak` passed 80%. It is not built yet because `container-watch` is a standalone Python
-tool, which this repository ports to Go when it is next reworked; the finding belongs in that
-port.
-
+command; and an advisory when `pids.peak` passed 80%. It belongs in the Go port of
+`container-watch`.
 ### Claude Code environment CCY sets
 
 CCY forwards a few Claude Code environment defaults into the container. Each uses the

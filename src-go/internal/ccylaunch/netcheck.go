@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylimits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/engine"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -75,7 +76,7 @@ func (f Front) checkNetwork(ctx context.Context) term.ExitCode {
 	}
 	network := f.Args[2]
 	unchecked := "ccy: the network " + network + " could not be checked: "
-	limit, why := f.settledPidsLimit()
+	limit, why := f.limits()
 	if why != "" {
 		return f.fail(unchecked + why)
 	}
@@ -103,7 +104,7 @@ func (f Front) claudeVersions(ctx context.Context) term.ExitCode {
 	if len(f.Args) != 3 {
 		return f.usage(versionsUsage)
 	}
-	limit, why := f.settledPidsLimit()
+	limit, why := f.limits()
 	if why != "" {
 		return f.fail(versionsUnread + why)
 	}
@@ -128,8 +129,8 @@ func (f Front) claudeVersions(ctx context.Context) term.ExitCode {
 }
 
 // installedVersion is the version `claude --version` prints in the image, or why there is none.
-func installedVersion(ctx context.Context, eng engine.Engine, image, pidsLimit string) (string, string) {
-	out, err := eng.ClaudeVersion(ctx, image, pidsLimit)
+func installedVersion(ctx context.Context, eng engine.Engine, image string, lim ccylimits.Limits) (string, string) {
+	out, err := eng.ClaudeVersion(ctx, image, lim)
 	if err != nil {
 		return "", strings.TrimSpace(err.Error())
 	}

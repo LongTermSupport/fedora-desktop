@@ -31,6 +31,8 @@ LAUNCHER="$CCY_DIR/claude-yolo"
 LIB_DIR="$CCY_DIR/lib"
 SEATS_LIB="$LIB_DIR/agent-bus-seats.bash"
 MEMBERSHIP_LIB="$LIB_DIR/agent-bus-membership.bash"
+# shellcheck source-path=SCRIPTDIR source=lib/ccy-test-limits.bash
+. "$SCRIPT_DIR/lib/ccy-test-limits.bash" || exit 1
 # The image's build-context staging and build are in tasks/claude-yolo-image.yml, which
 # play-claude-yolo.yml and play-claude-code-consumer.yml import (Plan 00233).
 PLAY="$REPO_ROOT/tasks/claude-yolo-image.yml"
@@ -320,6 +322,22 @@ rc=0" "$(lib_run ccy_seats_check team-a,qa@team-b true)"
 check "unattended, the check asks for every seat named" "rc=64" "$(lib_run ccy_seats_check team-a false)"
 check "  with --resolved" "seat check team-a --resolved" "$(bus_calls)"
 
+# Owner's ruling Q67: --continue picks the checkout's newest conversation, which in a team
+# checkout may be another seat's, so a launch that takes seats refuses it (64, usage) and names
+# the command that resumes the seat's own conversation. The arguments are never rewritten.
+for cont in --continue -c; do
+    check "a seat with claude's $cont: refused, 64" "rc=64" "$(lib_run ccy_seats_check dev1@team-a true --model x "$cont")"
+    check "  the refusal names --resume with the seats" "yes" "$(has 'ccy --resume <conversation id> --teams dev1@team-a' "$work/lib.err")"
+done
+lib_run ccy_seats_check dev1@team-a false -- --continue >/dev/null
+check "--continue after -- is refused too (it still reaches claude)" "yes" "$(has 'refuses --continue' "$work/lib.err")"
+check "  and says how to find the id: the seat's last transcript, or the coordinator" "yes|yes" \
+    "$(has '.claude/ccy/projects/-workspace/' "$work/lib.err")|$(has "team's coordinator" "$work/lib.err")"
+check "other claude arguments with a seat: accepted" "dev1@team-a
+rc=0" "$(lib_run ccy_seats_check dev1@team-a true --model x --resume abc)"
+check "--continue-like words are not --continue" "dev1@team-a
+rc=0" "$(lib_run ccy_seats_check dev1@team-a true --continued -cx)"
+
 check "take with a list in ccy's tmux: the label, the read-only relabelled mount and the marker" \
     "--label|ccy-session=ccy-proj-1|$MOUNT|rc=0" \
     "$(lib_run take_and_show dev1@team-a,qa2@team-b false false yolo-1)"
@@ -602,7 +620,8 @@ echo "=== the real launcher: refusals before anything runs ==="
 repo="$work/repo"
 home="$work/home"
 stub_bin="$work/stub-bin"
-mkdir -p "$repo" "$home" "$stub_bin"
+mkdir -p "$repo" "$stub_bin"
+ccy_test_limits "$home" || exit 1
 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$repo" init -q
 # Seats already in the checkout: a plain launch must still call nothing.
 mkdir -p "$repo/.claude/ccy/pingbus/seats/team-a/dev1"
@@ -658,6 +677,15 @@ check "  no SSH, engine or token work" "yes" "$(no_session_tools)"
 FAKE_CHECK_RC=78 run_ccy with-bus --teams 'dev1@elsewhere' --headless
 check "seat check's 78 (a team not running here) is the launch's exit code" "78" "$RC"
 check "  no SSH, engine or token work" "yes" "$(no_session_tools)"
+
+# Q67: --continue with seats is refused before anything runs; the arguments are not rewritten.
+for cont in "--continue" "-c" "-- --continue"; do
+    read -ra cont_words <<<"$cont"
+    run_ccy with-bus --headless --prompt go --teams dev1@team-a "${cont_words[@]}"
+    check "--teams with '$cont': refused, 64" "64" "$RC"
+    check "  it names the command to use" "yes" "$(has 'ccy --resume <conversation id> --teams dev1@team-a' "$work/ccy.err")"
+    check "  no SSH, engine or token work" "yes" "$(no_session_tools)"
+done
 
 # What the shell hands ccy for an unquoted `--teams dev1@dev-team, qa2@other-team`.
 run_ccy with-bus --headless --prompt go --teams dev1@dev-team, qa2@other-team

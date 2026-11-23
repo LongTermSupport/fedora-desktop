@@ -17,11 +17,12 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.12 — container 2.84.63
+## 3.124.13 — container 2.84.64
 
-The agent team bus v2 batch (Plan 00209). It was built in steps on parallel branches, the
-questions verbs and host `cc` on teamchat, and merged on the v2 integration branch. Their
-intermediate numbers, 3.122.51 to 3.124.11 and containers 2.84.44 to 2.84.62, were never
+The agent team bus v2 batch (Plan 00209) and the container memory and pids caps (Plan 00263).
+It was built in steps on parallel branches, the questions verbs, host `cc` on teamchat and the
+caps, and merged on the v2 integration branch. Their intermediate numbers, 3.122.51 to 3.124.12
+and containers 2.84.44 to 2.84.63, were never
 released, and some were used by more than one branch; this entry is the one release of all of
 it. The image carries the new `teamchat`.
 
@@ -106,6 +107,26 @@ it. The image carries the new `teamchat`.
     size and the limit.
   - `teamchat verify <id> --room questions` checks an answer in the questions room.
   - The teamchat skill teaches these verbs. A question's reminder says `teamchat bump Q<n>`.
+
+- **Every ccy and ccc container is capped, so a runaway session cannot take the host down**
+  (Plan 00263, stage 1a pulled forward). Every container ccy runs (the session, the help,
+  version and update probes, the token check and sign-in) and both of ccc's are started with
+  one limit set: `--cgroup-parent agents.slice`, a pids limit of 16384 (was 4096), a memory cap
+  of the machine's RAM less 16 GiB (`--memory`), and `--memory-reservation` 2 GiB below it
+  (on cgroup v2 that is `memory.low`, a reclaim protection, not a throttle). `CCY_MEMORY_MAX`
+  overrides the cap per machine; it cannot turn it off. A machine where RAM less 16 GiB is
+  under 4 GiB is refused, naming `CCY_MEMORY_MAX`. `agents.slice` (installed by
+  `play-claude-yolo.yml`: `MemoryMax` RAM less 16 GiB, `MemoryHigh` 1 GiB below) caps all of
+  them together; a host without its unit is refused. A running session keeps its old limits
+  until it is restarted. See [Container limits](ccy.md#container-limits).
+
+- **systemd-oomd no longer kills desktop apps on memory pressure.** Fedora's default
+  `ManagedOOMMemoryPressure=kill` on `user@.service` is set back to `auto` by a system drop-in
+  (`play-systemd-user-tweaks.yml`); the old user-manager drop-in never applied.
+
+- **`--continue` with team seats is refused** (owner's ruling Q67), exit 64, naming
+  `ccy --resume <conversation id> --teams <seats>` and where to find the id; ccy never rewrites
+  the arguments.
 
 ## 3.122.50 — container 2.84.43
 

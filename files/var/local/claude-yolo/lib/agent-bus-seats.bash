@@ -27,17 +27,21 @@
 # decides each list's system and refuses (78) an agent-bus list when agent-bus is missing, so a
 # teamchat launch runs on a host without it.
 
-# ccy_seats_check <list> <attended> — the canonical form of a --teams list, printed on stdout,
-# as `agent-bus seat check` gives it. Attended (true: a person at a terminal), a team named
-# alone is kept for the chooser; otherwise it is refused (64). Changes nothing and runs
-# no sudo.
+# ccy_seats_check <list> <attended> [claude-args...] — the canonical form of a --teams list,
+# printed on stdout, as `agent-bus seat check` gives it. Attended (true: a person at a
+# terminal), a team named alone is kept for the chooser; otherwise it is refused (64). A launch
+# that takes seats with claude's -c/--continue is refused (64, the owner's ruling Q67): it
+# resumes the checkout's newest conversation, which in a team checkout may be another seat's.
+# The arguments are never rewritten; the refusal names `ccy --resume`. Changes nothing and
+# runs no sudo.
 #   status 0   the list is usable here; its canonical form printed
 #   otherwise  ccy-teams' or agent-bus's own code (64 usage, 78 a team not running here or
-#              agent-bus missing for an agent-bus list), or 78 when no single list was printed;
-#              the reason on stderr
+#              agent-bus missing for an agent-bus list), 64 for --continue, or 78 when no
+#              single list was printed; the reason on stderr
 ccy_seats_check() {
-    local list="${1?ccy_seats_check requires a list}" canonical rc=0
+    local list="${1?ccy_seats_check requires a list}" canonical rc=0 arg
     local attended="${2:?ccy_seats_check requires true or false}"
+    shift 2
     local check=(ccy-teams internal seat-check "$list")
     if [ "$attended" != true ]; then
         check+=(--resolved)
@@ -51,6 +55,13 @@ ccy_seats_check() {
         print_error "agent-bus seat check accepted '$list' but did not print one canonical list; update agent-bus (play-agent-bus.yml)."
         return 78
     fi
+    for arg in "$@"; do
+        [ "$arg" = --continue ] || [ "$arg" = -c ] || continue
+        print_error "ccy refuses --continue in a team seat: it resumes this checkout's newest conversation, which may be another seat's. Resume the seat's own conversation instead:
+    ccy --resume <conversation id> --teams $canonical
+  The id is the name (without .jsonl) of the seat's last transcript under .claude/ccy/projects/-workspace/ in this checkout, or ask the team's coordinator."
+        return 64
+    done
     printf '%s\n' "$canonical"
 }
 

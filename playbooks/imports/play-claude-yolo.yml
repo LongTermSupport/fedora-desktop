@@ -55,6 +55,12 @@
     # wind-down reads it; set-going itself never compacts (fedora-desktop#290). Set
     # ccy_restore_compact_floor_tokens in host_vars to change it.
     ccy_restore_compact_floor: "{{ ccy_restore_compact_floor_tokens | default(150000) | int }}"
+    # agents.slice, the user slice every ccy and ccc container runs in, caps all of them
+    # together: the RAM less the 16 GiB kept for the desktop (lib/container-limits.bash
+    # CCY_MEMORY_DESKTOP_MIB, so a lone container's default cap fills it), throttled 1 GiB
+    # below. Set ccy_agents_slice_memory_max_mb in host_vars to change it (docs/ccy.md).
+    ccy_agents_slice_max_mb: "{{ (ccy_agents_slice_memory_max_mb | default((ansible_facts['memtotal_mb'] | int) - 16384)) | int }}"
+    ccy_agents_slice_high_mb: "{{ (ccy_agents_slice_max_mb | int) - 1024 }}"
   pre_tasks:
     - name: Audience guard — end play on a consumer install
       ansible.builtin.meta: end_play
@@ -716,6 +722,32 @@
         group: "{{ user_login }}"
         mode: "0644"
 
+    # The library's floor of a container's memory cap (CCY_MEMORY_FLOOR_MIB): a slice smaller
+    # than one container could hold would only throttle every session.
+    - name: Assert The Agents Slice Leaves Room For A Container
+      ansible.builtin.assert:
+        that:
+          - ccy_agents_slice_max_mb | int >= 4096
+        fail_msg: >-
+          agents.slice would be capped at {{ ccy_agents_slice_max_mb }} MiB (this machine's
+          {{ ansible_facts['memtotal_mb'] }} MiB of RAM less the 16384 MiB kept for the
+          desktop), under the 4096 MiB floor of one ccy container. Set
+          ccy_agents_slice_memory_max_mb in host_vars to the MiB all ccy containers together
+          may use, and CCY_MEMORY_MAX on this host to each container's cap (docs/ccy.md,
+          "Container limits").
+        quiet: true
+
+    # Read by the launcher (lib/container-limits.bash), which refuses to start a container
+    # without it. A running container keeps the cgroup it started in: it moves into the slice
+    # only when it is started again.
+    - name: Deploy The Agents Slice Every ccy Container Runs In
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/agents.slice.j2"
+        dest: "/home/{{ user_login }}/.config/systemd/user/agents.slice"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+
     # Resolved, never defaulted: a guessed uid points the user-manager calls below at
     # another user's runtime directory without failing (play-container-watch.yml has the
     # history). `fail_key: false` hands the verdict to the assert, whose message names the
@@ -848,6 +880,36 @@
         daemon_reload: true
       environment:
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+
+    # The reload above also loads agents.slice; asked of the live manager, not the file, so a
+    # unit it could not parse is caught here and not at the first container's start.
+    - name: Read Back The Agents Slice's Caps From The Live Manager
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - --user
+          - show
+          - agents.slice
+          - --property=MemoryMax
+          - --property=MemoryHigh
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+      register: ccy_agents_slice_readback
+      changed_when: false
+
+    - name: Assert The Live Agents Slice Has The Caps The Play Set
+      ansible.builtin.assert:
+        that:
+          - ("MemoryMax=" ~ ((ccy_agents_slice_max_mb | int) * 1048576)) in ccy_agents_slice_readback.stdout_lines
+          - ("MemoryHigh=" ~ ((ccy_agents_slice_high_mb | int) * 1048576)) in ccy_agents_slice_readback.stdout_lines
+        fail_msg: >-
+          The running user manager reports agents.slice as
+          {{ ccy_agents_slice_readback.stdout_lines | join(', ') }}, not
+          MemoryMax={{ ccy_agents_slice_max_mb }}M and MemoryHigh={{ ccy_agents_slice_high_mb }}M
+          from the unit this play wrote, so ccy's containers are not capped together. Check
+          /home/{{ user_login }}/.config/systemd/user/agents.slice with
+          systemctl --user cat agents.slice.
+        quiet: true
 
     - name: Read Back Whether The Live Manager Pulls In The Restore Unit
       ansible.builtin.command:

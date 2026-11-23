@@ -1,0 +1,6 @@
+=== exit 1
+=== stdout
+=== stderr
+[0;31mERROR:[0m agents.slice is not installed ({sandbox}/no-config/systemd/user/agents.slice is missing): every ccy container runs in it, so that all of them together cannot take the host's memory. Deploy it with playbooks/imports/play-claude-yolo.yml, then launch again.
+=== calls
+=== files

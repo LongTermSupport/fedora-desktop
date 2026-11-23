@@ -41,6 +41,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylimits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/engine"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
@@ -83,6 +84,8 @@ type App struct {
 	Pid int
 	// RequiredVersion is the oldest image this build runs, ccy's REQUIRED_CONTAINER_VERSION.
 	RequiredVersion string
+	// Limits is ccy's limit set (internal/ccylimits), which every container ccc runs gets.
+	Limits ccylimits.Limits
 	// SetupErr is a failure found while these fields were gathered (no home directory, no
 	// account); it stops the run before anything else.
 	SetupErr error
@@ -157,7 +160,7 @@ func (a *App) run(ctx context.Context, args []string) (term.ExitCode, error) {
 		Args: sessionArgs(session{
 			Agent: o.Agent, Folder: folder, State: state, Continue: o.Continue,
 			Name:     "ccc-" + o.Agent.Name + "-" + strconv.Itoa(a.Pid),
-			TimeZone: a.TimeZone, Term: a.Term,
+			TimeZone: a.TimeZone, Term: a.Term, Limits: a.Limits,
 		}),
 		Secrets: []execx.Secret{secret},
 	})
@@ -231,7 +234,7 @@ func (a *App) signIn(ctx context.Context, agent Agent, dir string) (string, erro
 		// left as soon as it ends, so the token stays in no scrollback (issue 255).
 		screen := &term.SecretScreen{W: a.Stderr, Terminal: a.IsTerminal != nil && a.IsTerminal(a.Stderr)}
 		screen.Open()
-		exit, err := a.Foreground.Foreground(execx.Cmd{Name: podmanProgram, Args: signInArgs(agent), Stdout: io.MultiWriter(screen, &out)})
+		exit, err := a.Foreground.Foreground(execx.Cmd{Name: podmanProgram, Args: signInArgs(agent, a.Limits), Stdout: io.MultiWriter(screen, &out)})
 		screen.Close()
 		if err == nil {
 			err = screen.Err()

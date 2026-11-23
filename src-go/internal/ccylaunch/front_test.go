@@ -34,9 +34,27 @@ func install(t *testing.T) string {
 		"lib/host-paths.bash":       "paths\n",
 		"lib/ssh_agent_filter.py":   "agent\n",
 		"lib/README-not-hashed.txt": "x\n",
+		machineMeminfo:              "MemTotal:       67108864 kB\n",
+		machineSlice:                "[Slice]\n",
 	})
 	return dir
 }
+
+// The machine a run is on: 64 GiB of RAM (/proc/meminfo under ProcRoot) and the agents slice
+// installed (under XDG_CONFIG_HOME), so its containers get the default limit set.
+const (
+	machineMeminfo = "machine/proc/meminfo"
+	machineSlice   = "machine/config/systemd/user/agents.slice"
+)
+
+// machineConfig is the environment entry that finds the install in dir's slice unit. A test
+// that sets the whole environment keeps it, or the library refuses and the front hands over.
+func machineConfig(dir string) string {
+	return "XDG_CONFIG_HOME=" + filepath.Join(dir, "machine", "config")
+}
+
+// defaultLimits is the start of a container run on that machine with no override.
+var defaultLimits = limitsOf("16384", "49152m", "47104m")
 
 type run struct {
 	front          Front
@@ -54,7 +72,8 @@ func newRun(dir string, args ...string) *run {
 		Version:  fixtureVersion,
 		Self:     filepath.Join(dir, "claude-yolo"),
 		Args:     args,
-		Environ:  []string{"HOME=/nonexistent", "PATH=/usr/bin"},
+		Environ:  []string{"HOME=/nonexistent", "PATH=/usr/bin", machineConfig(dir)},
+		ProcRoot: filepath.Join(dir, "machine", "proc"),
 		LookPath: func(name string) (string, error) { return "/usr/bin/" + name, nil },
 		Runner:   r.runner,
 		Execer:   r.execer,
@@ -294,7 +313,7 @@ func TestAMissingBashLauncherIsReported(t *testing.T) {
 func TestHelp(t *testing.T) {
 	dir := install(t)
 	inspect := []string{"podman", "image", "inspect", "claude-yolo:latest"}
-	claudeHelp := []string{"podman", "run", "--rm", "--pids-limit", "4096", "--entrypoint", "claude", "claude-yolo:latest", "--help"}
+	claudeHelp := append([]string{"podman"}, withLimits(defaultLimits, "--entrypoint", "claude", "claude-yolo:latest", "--help")...)
 	cases := []struct {
 		name  string
 		setup func(f *execx.Fake)

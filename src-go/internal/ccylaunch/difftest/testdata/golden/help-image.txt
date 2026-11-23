@@ -231,5 +231,5 @@ Options:
 === stderr
 === calls
 podman image inspect claude-yolo:latest
-podman run --rm --pids-limit 4096 --entrypoint claude claude-yolo:latest --help
+podman run --rm --cgroup-parent agents.slice --pids-limit 16384 --memory 8192m --memory-reservation 6144m --entrypoint claude claude-yolo:latest --help
 === files

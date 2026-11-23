@@ -7,7 +7,11 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-const containerPidsMsg = "container run with the engine's default pids limit: pass --pids-limit, settled as the ccy launcher settles it (project_container_pids_limit)"
+const containerPidsMsg = "container run without ccy's limit set: missing %s; build the argv with ccylimits.Limits.Run (project_container_pids_limit)"
+
+// limitFlags are ccy's limit set, each of which a container run must carry: the slice that caps
+// every ccy container together, the pids limit, and the hard and soft memory caps.
+var limitFlags = []string{"--cgroup-parent", "--pids-limit", "--memory", "--memory-reservation"}
 
 // containerVerbs are the verbs that start (or make, to start later) a container.
 var containerVerbs = map[string]bool{"run": true, "create": true}
@@ -28,21 +32,25 @@ var containerRunFlags = map[string]bool{
 	"--publish": true, "--memory": true, "--cpus": true,
 }
 
-// ContainerPidsLimit forbids a container run with no --pids-limit.
+// ContainerPidsLimit forbids a container run without ccy's whole limit set.
 var ContainerPidsLimit = &analysis.Analyzer{
 	Name: "project_container_pids_limit",
-	Doc: `project_container_pids_limit forbids starting a container with the engine's default pids limit.
+	Doc: `project_container_pids_limit forbids starting a container without ccy's whole limit set.
 
-Without --pids-limit the engine decides: podman gives 2048 threads, docker none. A fork bomb
-inside a Claude Code session climbed to podman's 2048 in about ten seconds; under docker it
-runs on into the user slice's own task limit, which the desktop shares. The Go counterpart of
-the Semgrep rule ccy-container-default-pids-limit (CLAUDE/QA.md), which reads only bash.
+Every container ccy or ccc starts carries four flags: --cgroup-parent (the agents.slice user
+unit, which caps all of them together), --pids-limit, --memory and --memory-reservation.
+Without --pids-limit the engine decides: podman gives 2048 threads, docker none, and a fork
+bomb inside a Claude Code session climbed to podman's 2048 in about ten seconds. Without the
+memory caps and the slice, the containers together took the host's memory and the desktop
+with it. The Go counterpart of the Semgrep rule ccy-container-default-pids-limit
+(CLAUDE/QA.md), which reads only bash.
 
 Flagged: an argument list, a []string literal or the arguments of one call, whose first
 constant, after any leading non-constant arguments (a context, a program chosen at run time)
 and any "podman", "docker" or "container", is "run" or "create", and which holds a container
-flag but no --pids-limit. Flags are read by name: "-dit" is -d, -i and -t, "--rm=true" is
---rm, "--pids-limit=N" is the limit. The container flags: --rm, -i, -t, -d, --interactive,
+flag but not all four limit flags; the message names the missing ones. Flags are read by
+name: "-dit" is -d, -i and -t, "--rm=true" is --rm, "--memory=8g" is --memory. The container
+flags: --rm, -i, -t, -d, --interactive,
 --tty, --detach, --name, --entrypoint, --volume, --mount, --network, --net, --env,
 --env-file, --userns, --user, --workdir, --hostname, --security-opt, --cap-add, --cap-drop,
 --privileged, --device, --init, --read-only, --tmpfs, --label, --replace, --publish,
@@ -52,10 +60,10 @@ Not caught: a run whose only flags are short ones outside that list (-v, -e, -p,
 other programs' "run" verbs also take); a run assembled by append from several lists where no
 literal holding a container flag starts with the verb; a --pids-limit placed after the image,
 where it is the contained program's argument and not the engine's; and a limit that turns the
-bound off (-1, 0, max), as the value is not read.
+bound off (-1, 0, max) or another slice, as the values are not read.
 
-How to fix: pass "--pids-limit" and the limit the ccy launcher settles
-(engine.PidsLimitDefault, or the settled CCY_PIDS_LIMIT).`,
+How to fix: build the argv with ccylimits.Limits.Run, which starts with "run", "--rm" and the
+whole set as the ccy launcher settles it.`,
 	Run:        perPass(runContainerPidsLimit),
 	ResultType: noResultType,
 }
@@ -116,26 +124,34 @@ func flagNames(arg string) []string {
 	return nil
 }
 
-// checkContainerRun reports list when it is a container run with no pids limit.
+// checkContainerRun reports list when it is a container run without the whole limit set.
 func checkContainerRun(pass *analysis.Pass, at ast.Node, list []ast.Expr) {
 	verb := containerVerbAt(pass, list)
 	if verb < 0 {
 		return
 	}
 	run := false
+	seen := map[string]bool{}
 	for _, e := range list[verb+1:] {
 		s, ok := constString(pass, e)
 		if !ok {
 			continue
 		}
 		for _, name := range flagNames(s) {
-			if name == "--pids-limit" {
-				return
-			}
+			seen[name] = true
 			run = run || containerRunFlags[name]
 		}
 	}
-	if run {
-		pass.Reportf(at.Pos(), containerPidsMsg)
+	if !run {
+		return
+	}
+	var missing []string
+	for _, flag := range limitFlags {
+		if !seen[flag] {
+			missing = append(missing, flag)
+		}
+	}
+	if len(missing) > 0 {
+		pass.Reportf(at.Pos(), containerPidsMsg, strings.Join(missing, ", "))
 	}
 }

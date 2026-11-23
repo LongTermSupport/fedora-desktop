@@ -62,7 +62,7 @@
 # each v2 LXC seat's session unit with no [Install] and Restart=no, and where an earlier apply
 # made the seat's wants link it removes the link and STOPS that running session. From now on a
 # v2 LXC seat's session starts only on demand (teamchat-admin lxc restart --member).
-# Plan 00209, the v2 batch (ccy 3.124.12, container 2.84.63), its member program and kit:
+# Plan 00209, the v2 batch (ccy 3.124.13, container 2.84.64), its member program and kit:
 # - Task 5.1 step 2 (the member tag): the host kit is placed whole by its own program
 #   (teamchat kit assemble) at a new digest directory, with the plugin, hooks, skill and settings
 #   a host cc `run --claude` needs. It is assembled beside that directory and renamed into place,
@@ -79,7 +79,20 @@
 #   human's answer is relayed to the seat a question was asked for.
 # Nothing running changes until a session starts.
 playbooks/imports/play-teamchat.yml
+# Memory caps after the out-of-memory crash (branch ccy-caps): systemd-oomd stops killing in
+# the user session on memory pressure. A system drop-in for user@.service sets
+# ManagedOOMMemoryPressure=auto over Fedora's kill at 50% for 20 s (the setting that killed
+# desktop apps and containers), the old user-manager drop-in that never applied is removed, the
+# system manager is reloaded (no logout) and the live value is read back. Swap-based killing on
+# -.slice and the kernel OOM killer are unchanged.
+playbooks/imports/play-systemd-user-tweaks.yml --tags oomd
 # The ccy image is rebuilt once for the teamchat it carries; nothing a session does changes.
+# The same run installs agents.slice (~/.config/systemd/user), the user slice every ccy and ccc
+# container now runs in: MemoryMax = RAM less 16 GiB, MemoryHigh 1 GiB below, read back from the
+# live user manager; and the launcher (ccy 3.124.13) that starts each container with
+# --cgroup-parent agents.slice, --pids-limit 16384, --memory and --memory-reservation. A launch
+# is refused until the slice is installed, so this run must precede any new session. Running
+# sessions keep their old cgroup and limits until they restart.
 # The same run installs issue #288's Go commands (ccy 3.122.26: ccy-sessions, ccy-teams and the
 # launcher's front), whose typed-line submitter no longer takes a screen with no input box as
 # entered and names what the box showed when a line stays in it. Its ccy-teams (ccy 3.122.34,
@@ -87,7 +100,7 @@ playbooks/imports/play-teamchat.yml
 # only on this host's LXC member whose entry has service: true (Plan 00257 B.12). It also
 # deploys Plan 00258's watchlist command (full clones and study runs; internal/gitx, which ccy
 # links, changed). Running sessions keep the old ccy until they restart.
-# Plan 00209, the v2 batch (ccy 3.124.12, container 2.84.63): host cc --teams joins teamchat
+# Plan 00209, the v2 batch (ccy 3.124.13, container 2.84.64): host cc --teams joins teamchat
 # teams. The run installs the new ccy-teams (internal cc-run, the host chooser and consent on
 # teamchat), cc, cc-teams.bash, cc-claude, and cc-teams-settings.json with the host lane's deny
 # rules: no tests, builds or heavy QA (qa-all, qa-changed, qa-go-qa and the other test or build
@@ -113,7 +126,7 @@ playbooks/imports/play-agent-bus.yml
 00257-cross-host-lxc-team-members/lxc-no-autostart-acceptance.bash
 # Plan 00209 Task 5.1 acceptance, read-only, its unattended part: teamchat version answers,
 # the host kit is whole (program, settings, plugin manifest, hooks and skill), and the deployed
-# ccy is this checkout's CCY_VERSION (3.124.12). It asks nothing here and exits 0 when those
+# ccy is this checkout's CCY_VERSION (3.124.13). It asks nothing here and exits 0 when those
 # hold. It lists as ATTENDED, and does not judge, what needs a team, a checkout or a person:
 # ccy-teams system saying teamchat in the checkout, the session's conversation record, and the
 # launch, round trip, stop, restore and kill of DESIGN-host-cc-v2.md section 8. Those are run
