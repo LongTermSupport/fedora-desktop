@@ -1,6 +1,6 @@
 # Plan 00263: machine qa queue
 
-**Status**: In Progress (design done; blocked on the owner decisions D1-D4, a host window, and the heavy-work pause)
+**Status**: In Progress (design done; all owner decisions D1-D4 answered; building waits behind the v2 work and a host window)
 **Created**: 2026-11-23
 **Owner**: joseph
 **Priority**: High
@@ -100,7 +100,7 @@ its own focused CI (see Plan 00262).
 - [x] ✅ **Task 1.3**: The design: [DESIGN.md](DESIGN.md). It covers the kernel caps, the slot
   lock, the host seat's lane and the queue, with four owner decisions (D1-D4, DESIGN.md section 6)
   and the build in four phases (DESIGN.md section 5).
-- [ ] 🔄 **Task 1.4**: The owner decides D1-D4 (N; the CPU and memory budget; the lane guard;
+- [x] ✅ **Task 1.4**: The owner decides D1-D4 (N; the CPU and memory budget; the lane guard;
   stage 2 built or adopted). Owner, on the design (verbatim): "lets start a naming convention -
   "agentic-" prefix for all of our AI / workflow tooling under LongTermSupport - so make it
   "agentic-qa-queue". 50% is a dumb threshold - my laptop is not RAM constrained at all - a
@@ -114,12 +114,16 @@ its own focused CI (see Plan 00262).
   - D2 as floors (4 threads and 16 GB kept for the desktop, the rest shared equally by N);
   - no IOWeight, with `io.max` as an optional probe item;
   - runners on the laptop and the home server only.
-    D1 (N) and D3 (the lane guard) are still open.
+    D1 is answered (Q64): N is computed per machine at install time, one run per 12 agent
+    threads, rounded up, capped by memory (DESIGN.md section 6, D1; the owner confirmed the
+    memory term). D3 is answered (Q64): yes, the hooks-daemon guard (A) plus the Claude Code deny
+    rules (B).
 
 ### Phase A: stage 1a, kernel caps (fedora-desktop)
 
 - [ ] ⬜ **Task A.1**: The read-only probe of cgroup delegation and the CPU topology on the host
-  (`triage.bash`, DESIGN.md 1.6, round 1), in a window the owner picks.
+  (`triage.bash`, DESIGN.md 1.6, round 1), in a window the owner picks. It also reads one QA
+  run's peak memory (`memory.peak` of its cgroup), the `per_run_peak_ram` term of D1's formula.
 - [ ] ⬜ **Task A.2**: The proof that a rootless container goes under the user slice
   (`acceptance.bash`, round 2), in the owner's window.
 - [ ] ⬜ **Task A.3**: The `cpuset` Delegate drop-in in `play-podman.yml`, only if A.1 shows
@@ -153,6 +157,19 @@ its own focused CI (see Plan 00262).
   logs, as D4 decides (DESIGN.md section 4).
 - [ ] ⬜ **Task D.2**: A play installs the pinned runner; `qa-changed.bash` and the agents' QA
   instructions submit through the queue.
+
+### Phase E: later, auto-tuning and weighted jobs (owner direction, Q64)
+
+The owner wants "something that monitors and auto tunes this config, and something that can
+judge and weight specific job runs". The static D1 formula ships first; this phase comes after
+Phase D.
+
+- [ ] ⬜ **Task E.1**: Auto-tune N and the per-run caps from measured cgroup data
+  (`memory.peak`, the `cpu.stat` and pressure figures, queue wait), never below the owner's
+  desktop floors.
+- [ ] ⬜ **Task E.2**: Per-job weights. A job declares or learns its cost (for example, a Go
+  `-race` run weighs 3 slots and a lint weighs 1), and the queue packs slots by weight, not by
+  count.
 
 ## Success Criteria
 
