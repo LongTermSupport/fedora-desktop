@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.0 — container unchanged
+## 3.124.0 — container 2.84.50
 
 - **Host `cc --teams` on teamchat** (Plan 00209 Task 5.1). `ccy-teams internal cc-run` is host
   `cc`'s session as one command word on both systems: on agent-bus it runs what `cc-teams.bash`
@@ -30,13 +30,27 @@ Two version numbers move independently — see
   teamchat teams and takes a pool seat as a ccy launch does; the Matrix consent names a teamchat
   seat by its pool handle.
 
-## 3.123.2 — container 2.84.48
+## 3.123.3 — container 2.84.50
+
+The v2 integration branch carries both v2 tracks from here: the questions verbs (3.123.2 below)
+and host `cc` on teamchat. Host `cc`'s step was built as an unreleased 3.123.2 / container
+2.84.48 on its own branch and is renumbered here, so the image carries both tracks' `teamchat`.
 
 - **`teamchat run --extra-settings FILE`** (Plan 00209 Task 5.1). A `--claude` launch may name
   one settings file of its own user, merged under the kit's settings (the kit's keys win). A file
   that sets `crossSessionInbound`, `hooks` or `statusLine`, is a link or another user's, or is no
   JSON object is refused (78). Host `cc` passes its deny rules this way. The image carries the
   new `teamchat`.
+
+## 3.123.2 — container 2.84.49
+
+- **teamchat's questions verbs for v2** (Plan 00209, backlog R0, DESIGN-questions-v2.md), built
+  in steps on one branch. A size refusal now names the text's size and the limit (#365). A
+  human's reply to anything attached to a question attaches to it, top level included (#367).
+  A coordinator's question needs a `Why a human:` section; a thread post waits on the humans
+  and notifies them unless it is a note; the link-back and the retitle edit have their forms.
+  (3.122.53 to 3.123.1 / containers 2.84.46 to 2.84.48 were this work's earlier, unreleased
+  steps on its own branch.)
 
 ## 3.123.1 — container 2.84.46
 

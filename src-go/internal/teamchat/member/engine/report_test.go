@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"slices"
@@ -154,7 +155,7 @@ func TestRP3TheSizeAndTheHeadline(t *testing.T) {
 	w.sending(ops)
 	before := w.store(ops).Outbox
 	for name, c := range map[string]struct{ text, says string }{
-		"1501 bytes":              {"H\n" + strings.Repeat("x", 1499), "1500 bytes"},
+		"1501 bytes":              {"H\n" + strings.Repeat("x", 1499), "1500-byte limit"},
 		"an empty first line":     {"\nbody", "empty"},
 		"a blank first line":      {"  \t\nbody", "empty"},
 		"an empty report":         {"", "empty"},
@@ -172,6 +173,40 @@ func TestRP3TheSizeAndTheHeadline(t *testing.T) {
 	}
 	reportPosted(t, w.report(&ops, "H\n"+strings.Repeat("x", 1498)))
 	reportPosted(t, w.report(&ops, strings.Repeat("é", 120)))
+}
+
+// #365, R9: a report over the cap is refused naming its size and the 1500-byte limit: the
+// text's own size, or the whole stdin's when the client cut it at its read cap.
+func TestR9AReportOverTheCapNamesItsSize(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	w.sending(ops)
+	text := "H\n" + strings.Repeat("x", 1499)
+	d := firstOf(w.report(&ops, text))
+	refusedCode(t, "1501 bytes", d, exits.CodeBody)
+	if !strings.Contains(d.Error.Message, "1501 bytes, over the 1500-byte limit") {
+		t.Errorf("the message %q", d.Error.Message)
+	}
+	raw, err := json.Marshal(wire.ReportArgs{Team: &ops})
+	check(t, err)
+	cut := strings.Repeat("x", 1502)
+	d = w.e.Serve(t.Context(), wire.Request{V: 1, Op: wire.OpReport, Args: raw, Stdin: &cut, StdinBytes: 9000}, &recorder{})
+	refusedCode(t, "9000 bytes cut", d, exits.CodeBody)
+	if !strings.Contains(d.Error.Message, "9000 bytes, over the 1500-byte limit") {
+		t.Errorf("the message %q", d.Error.Message)
+	}
+}
+
+// #365, R9: say's size refusal at the link names the size and the 4096-byte limit.
+func TestR9ASayOverTheCapNamesItsSize(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	w.sending(ops)
+	d := firstOf(w.say(&ops, strings.Repeat("a", 4097), "alice"))
+	refusedCode(t, "4097 bytes", d, exits.CodeSize)
+	if !strings.Contains(d.Error.Message, "4097 bytes, over the 4096-byte limit") {
+		t.Errorf("the message %q", d.Error.Message)
+	}
 }
 
 // RP3 step 4: the secret check, after the form and before the room: 10 secret, nothing charged,

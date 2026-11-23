@@ -219,6 +219,9 @@ type Content struct {
 	Question Question
 	Thread   Thread
 	Carried  Carried
+	// Retitles is the question root a coordinator's retitle edit replaces (A 10.4): Body is then
+	// the new body, Question the new content's object.
+	Retitles string
 }
 
 // Ping is `teamchat.ping` (A 7.2).
@@ -242,17 +245,23 @@ type Notice struct {
 	To                           []string
 }
 
-// Question is `teamchat.question` (A 10.2); RemindAfterS 0 is none.
+// Question is `teamchat.question` (A 10.2); RemindAfterS 0 is none, Why "" none (the admin's
+// carried questions).
 type Question struct {
 	N            int64
 	AskedBy, Re  []string
 	RemindAfterS int64
+	Why          string
 }
 
-// Thread is `teamchat.thread` (A 10.3); N 0 is the reply to an unattached human post.
+// Thread is `teamchat.thread` (A 10.3); N 0 is the reply to an unattached human post. Wait is a
+// post that waits on a human; Link is a link-back's thread answer, the post it names replied
+// to at the top level.
 type Thread struct {
 	N     int64
 	Close bool
+	Wait  bool
+	Link  string
 }
 
 // Carried is `teamchat.carried` (A 7.7); Verb and Ref only for kind `ping`.
@@ -367,12 +376,42 @@ func relationAllowed(c Content) bool {
 	case KeyText:
 		return c.Relation.Kind != RelThread
 	case KeyThread:
-		if c.Thread.N > 0 {
-			return c.Relation.Kind == RelThread
+		t := c.Thread
+		switch {
+		case t.N > 0 && t.Link != "":
+			return c.Relation.Kind == RelReply && !t.Close && !t.Wait
+		case t.N > 0:
+			return c.Relation.Kind == RelThread && (!t.Close || !t.Wait)
 		}
-		return c.Relation.Kind == RelReply && !c.Thread.Close
+		return c.Relation.Kind == RelReply && !t.Close && !t.Wait && t.Link == ""
 	}
 	return c.Relation.Kind == RelNone
+}
+
+// DecodeRetitle decodes a coordinator's retitle edit of its question (A 10.4): `m.relates_to`
+// exactly an `m.replace` of a question root, and `m.new_content` a `teamchat.question` content
+// with no relation. The reason is ReasonEdit for any other edit; the index checks the rest
+// (the same sender, `n`, `asked_by`, `re`, `why` and `Question:` hash).
+func DecodeRetitle(content Value) (Content, string) {
+	f := readFields(content, ReasonEdit)
+	rel := readFields(f.need(keyRelatesTo, ReasonEdit), ReasonEdit)
+	root := rel.str("event_id", true, ReasonEdit)
+	newContent := f.need(keyNewContent, ReasonEdit)
+	switch {
+	case f.rule != "" || rel.rule != "" || !exactKeys(rel.obj, "rel_type", "event_id"):
+		return Content{}, ReasonEdit
+	case rel.str("rel_type", true, ReasonEdit) != relReplace || !ValidEventID(root) || content.Size() > MaxContent:
+		return Content{}, ReasonEdit
+	}
+	if _, has := newContent.Get(KeyQuestion); !has {
+		return Content{}, ReasonEdit
+	}
+	c, reason := DecodeContent(newContent, []string{KeyQuestion})
+	if reason != "" {
+		return Content{}, reason
+	}
+	c.Retitles = root
+	return c, ""
 }
 
 func sortedStrs(list []string) []string {
@@ -441,8 +480,11 @@ func decodeQuestionObject(c *Content, obj Value) string {
 		AskedBy:      f.strs("asked_by", false, ReasonSchema),
 		Re:           f.strs("re", false, ReasonSchema),
 		RemindAfterS: f.integer("remind_after_s", false, 0, ReasonSchema),
+		Why:          f.str("why", false, ReasonSchema),
 	}
 	switch {
+	case f.has("why") && !slices.Contains(WhyWords, q.Why):
+		return ReasonSchema
 	case f.rule != "" || q.N < 1 || q.N > maxQuestionN || !strings.HasPrefix(c.Body, QuestionName(int(q.N))+" "):
 		return ReasonSchema
 	case !distinctList(q.AskedBy, 0, MaxAskedBy, func(string) bool { return true }) || !distinctList(q.Re, 0, MaxQuestionRe, ValidEventID):
@@ -458,9 +500,14 @@ func decodeQuestionObject(c *Content, obj Value) string {
 
 func decodeThreadObject(c *Content, obj Value) string {
 	f := readFields(obj, ReasonSchema)
-	c.Thread = Thread{N: f.integer("n", false, 0, ReasonSchema), Close: f.boolean("close", false, ReasonSchema)}
+	c.Thread = Thread{
+		N: f.integer("n", false, 0, ReasonSchema), Close: f.boolean("close", false, ReasonSchema),
+		Wait: f.boolean("wait", false, ReasonSchema), Link: f.str("link", false, ReasonSchema),
+	}
 	switch {
 	case f.rule != "" || f.has("n") && (c.Thread.N < 1 || c.Thread.N > maxQuestionN):
+		return ReasonSchema
+	case f.has("link") && !ValidEventID(c.Thread.Link):
 		return ReasonSchema
 	case len(c.Body) > MaxThreadBody:
 		return ReasonSize

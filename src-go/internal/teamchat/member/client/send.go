@@ -22,7 +22,6 @@ const (
 
 const (
 	msgTerminal exits.Template = "teamchat {} reads its text on stdin, which is a terminal; give the text on stdin, such as: echo text | teamchat {}"
-	msgTextSize exits.Template = "the text on stdin is larger than 4096 bytes"
 	msgEmpty    exits.Template = "the text on stdin is empty"
 	msgUTF8     exits.Template = "the text on stdin is not UTF-8"
 	msgNoInput  exits.Template = "teamchat {} read no text: {}; give the text on stdin, such as: echo text | teamchat {}"
@@ -31,31 +30,38 @@ const (
 // sendArgs are a send verb's args and its text: say and a reply without --verb read stdin,
 // ping and reply --verb never do, so an inherited stdin cannot block them (n3d-D15). The text's
 // rules run here, before anything is sent; every other rule of a send is the link's.
-func sendArgs(e cli.Env, inv cli.Invocation, op string, clk stdinread.Clock) (any, *string, error) {
+func sendArgs(e cli.Env, inv cli.Invocation, op string, clk stdinread.Clock) (any, readStdinText, error) {
 	switch op {
 	case wire.OpSay:
 		text, err := readText(e, inv, clk)
 		a := wire.SayArgs{Team: inv.Team, To: addressees(inv), ToCoordinator: inv.Has(flagToCoordinator), WaitContact: inv.Has(flagWaitContact)}
-		return a, text, err
+		return a, readStdinText{text: text}, err
 	case wire.OpReport:
-		text, err := readReport(e, inv, clk)
+		text, err := readCapped(e, inv, clk, proto.MaxReportBody)
 		return wire.ReportArgs{Team: inv.Team}, text, err
 	case wire.OpPing:
 		a := wire.PingArgs{
 			Team: inv.Team, Verb: inv.Args[0], To: addressees(inv), ToCoordinator: inv.Has(flagToCoordinator),
 			Ref: optional(inv.Args, 1), Branch: optionalFlag(inv, "branch"),
 		}
-		return a, nil, nil
+		return a, readStdinText{}, nil
 	}
 	a := wire.ReplyArgs{
 		Team: inv.Team, ID: inv.Args[0], Verb: optionalFlag(inv, "verb"), Ref: optionalFlag(inv, "ref"),
 		ToCoordinator: inv.Has(flagToCoordinator),
 	}
 	if a.Verb != nil {
-		return a, nil, nil
+		return a, readStdinText{}, nil
 	}
 	text, err := readText(e, inv, clk)
-	return a, text, err
+	return a, readStdinText{text: text}, err
+}
+
+// readStdinText is a send's text as the request carries it, and the whole stdin's size when the
+// text was cut at its read cap (0 otherwise), for the link's size refusal (#365).
+type readStdinText struct {
+	text  *string
+	whole int64
 }
 
 // addressees are --to's names, none (an empty list, not null) without it.
@@ -88,14 +94,14 @@ func optional(args []string, i int) *string {
 // one byte past the cap and its newline is read, one trailing newline is removed, and the
 // text must be 1 to proto.MaxText bytes of UTF-8.
 func readText(e cli.Env, inv cli.Invocation, clk stdinread.Clock) (*string, error) {
-	data, err := readStdin(e, inv, clk, proto.MaxText+2)
+	data, err := readStdin(e, inv, clk, exits.MaxMeasured+1)
 	if err != nil {
 		return nil, err
 	}
 	data = bytes.TrimSuffix(data, []byte("\n"))
 	switch {
 	case len(data) > proto.MaxText:
-		return nil, exits.New(exits.CodeSize, inv.Team, msgTextSize)
+		return nil, exits.TooLarge(exits.CodeSize, inv.Team, int64(len(data)), proto.MaxText)
 	case len(data) == 0:
 		return nil, exits.New(exits.CodeEmpty, inv.Team, msgEmpty)
 	case !utf8.Valid(data):
@@ -125,23 +131,27 @@ func readStdin(e cli.Env, inv cli.Invocation, clk stdinread.Clock, limit int64) 
 	return data, nil
 }
 
-// readReport is a report's text by n3f-D1's rule with the cap proto.MaxReportBody: at most cap + 2
-// bytes are read, and one trailing newline is removed unless the read reached cap + 2 bytes,
-// which is over the cap whatever its end is, so it is sent whole. It refuses no size and no
-// empty text: RP3's role check (11) comes before its size check (10 body), and only the link
-// knows the role. Text that is not UTF-8 cannot travel in the request's JSON, so it is 10
-// schema, as say's.
-func readReport(e cli.Env, inv cli.Invocation, clk stdinread.Clock) (*string, error) {
-	data, err := readStdin(e, inv, clk, proto.MaxReportBody+2)
+// readCapped is a text by n3f-D1's rule with the cap given (a report's, a question's, a thread
+// post's): one trailing newline is removed unless the text is cap + 2 bytes or more, which is
+// over the cap whatever its end is, so it is sent whole up to cap + 2 bytes, with the whole
+// stdin's size beside it when it was cut there (#365). It refuses no size and no empty text: the
+// role check (11) comes before the size check (10 body), and only the link knows the role. Text
+// that is not UTF-8 cannot travel in the request's JSON, so it is 10 schema, as say's.
+func readCapped(e cli.Env, inv cli.Invocation, clk stdinread.Clock, limit int) (readStdinText, error) {
+	data, err := readStdin(e, inv, clk, exits.MaxMeasured+1)
 	if err != nil {
-		return nil, err
+		return readStdinText{}, err
 	}
-	if len(data) < proto.MaxReportBody+2 {
+	var whole int64
+	switch {
+	case len(data) > limit+2:
+		whole, data = int64(len(data)), data[:limit+2]
+	case len(data) < limit+2:
 		data = bytes.TrimSuffix(data, []byte("\n"))
 	}
 	if !utf8.Valid(data) {
-		return nil, exits.New(exits.CodeSchema, inv.Team, msgUTF8)
+		return readStdinText{}, exits.New(exits.CodeSchema, inv.Team, msgUTF8)
 	}
 	text := string(data)
-	return &text, nil
+	return readStdinText{text: &text, whole: whole}, nil
 }
