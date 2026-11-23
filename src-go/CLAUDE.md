@@ -354,7 +354,8 @@ judges a tagged build sets the tag itself.
   `-test` stages of `qa/go-qa.toml` lint, vet and test `./internal/teamchat/...` built with it
   (`go test -race -shuffle=on -count=2`, every test twice); go-qa's built-in tools judge the inert build.
   The `project-rules-tagged` stage runs the project rules (`qa/rules`) over `./internal/teamchat/...`
-  with the tag, which the analyzers stage (untagged build only) cannot reach.
+  with the tag, which the analyzers stage (untagged build only) cannot reach. These stages and
+  `teamchat-cross-build` are `when = "full"`: `qa-all` runs them, a `--changed` run never does.
 - `teamchatrelease`: the release build of teamchat. `failpoint`'s gate test, run by go-qa's
   built-in test runner, builds `./cmd/teamchat` with it and holds that the binary carries no
   failpoint name. `member/cli/release_test.go` (every verb built, CL2) carries the tag; Task
@@ -374,8 +375,11 @@ judges a tagged build sets the tag itself.
 `scripts/qa-go-qa.bash` is the Go gate: go-qa-ci's `go-qa`, pinned by the `tool` directive of
 `qa/go.mod` and configured by `qa/go-qa.toml`, over both modules (format, golangci-lint, vet with
 its bundled analyzers and the project rules, dead code, govulncheck, module files, build,
-`go test -race -shuffle=on`, a 90% coverage floor per module). `qa-all.bash` runs it whole and
-`qa-changed.bash` in go-qa's diff mode for a `src-go/` change. A test that re-runs its own binary
+`go test -race`, a 90% coverage floor per module). `qa-all.bash` runs it whole and
+`qa-changed.bash` in go-qa's diff mode for a `src-go/` change. A local run uses Go's test cache
+(source order, `-race` on the changed packages only in diff mode); a CI run is forced
+(`-shuffle=on -count=1`, uncached), and a cached run refuses a `GOFLAGS` holding `-count` or
+`-shuffle`. A test that reads files outside its module root is not rechecked by the cache. A test that re-runs its own binary
 (the closed-stdout checks) does it through `qa/internal/cmdmaintest`, whose `Main` is the
 package's `TestMain`: the process ends only in a `main` or a `TestMain`. Details:
 [QA.md](../CLAUDE/QA.md).
