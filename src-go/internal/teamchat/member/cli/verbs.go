@@ -164,6 +164,7 @@ const (
 	verbGuestRemove = "guest remove"
 	verbSetAside    = "seat set-aside"
 	verbPlaceIssued = "seat place-issued"
+	verbKitAssemble = "kit assemble"
 )
 
 // The flags the code names.
@@ -280,6 +281,11 @@ var table = []Verb{
 		Name:  verbPlaceIssued,
 		Flags: []Flag{{Name: "checkout", Value: valueDir, Required: true, check: checkDir}},
 		Does:  "places the issued seat on stdin in this user's seat pool for the checkout",
+	},
+	{
+		Name:  verbKitAssemble,
+		Flags: []Flag{{Name: "into", Value: valueDir, Required: true, check: checkDir}},
+		Does:  "assembles this build's host kit (program, plugin, hooks, skill, settings) into its own empty digest directory; run by the install play",
 	},
 	{Name: verbGuestCheck, Flags: []Flag{userFlag, required(teamFlag)}, Does: "checks an LXC guest's user can run a member session; stdin the team's reach facts"},
 	{Name: verbPlaceBundle, Flags: []Flag{userFlag, keyFlag}, Does: "places the seat bundle on stdin as the keyed seat in the user's home"},

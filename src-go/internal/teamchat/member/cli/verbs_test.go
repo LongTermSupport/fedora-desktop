@@ -32,7 +32,7 @@ var bVerbs = []string{
 	"recv", "wait", "inbox", "reply", "say", "ping", "report", "ask", "thread", "questions",
 	"history", "verify", "status", "version", "help",
 	"run", "link", "hook", "status-line", "whoami", "reach", "tls", "seat disconnected", "seat set-aside", "seat place-issued",
-	"guest check", "guest place-bundle", "guest membership", "guest remove",
+	"kit assemble", "guest check", "guest place-bundle", "guest membership", "guest remove",
 }
 
 func TestTheTableIsBsVerbs(t *testing.T) {

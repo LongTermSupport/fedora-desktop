@@ -17,9 +17,12 @@ Two version numbers move independently — see
 
 ---
 
-## 3.123.0 — container 2.84.45
+## 3.123.1 — container 2.84.46
 
-- **A teamchat session's conversation is found** (Plan 00209 Task 5.1). `ccy --stop`, the
+- **`teamchat kit assemble`** (Plan 00209 Task 5.1). The install play's member tag has the
+  member program assemble its host kit whole (program, plugin, hooks, skill and settings), so a
+  host `cc` session can run on teamchat. The image carries the new `teamchat`.
+- **A teamchat session's conversation is found** (3.123.0, unreleased). `ccy --stop`, the
   boot restore and its check, a team restart and a wind-down read a session's conversation from
   the record of the system its teams are on: a teamchat (v2) session's in the seat store, an
   agent-bus (v1) session's in its checkout as before. Before, every v2 session was read as v1
