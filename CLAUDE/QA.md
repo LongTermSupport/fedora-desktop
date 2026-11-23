@@ -1792,6 +1792,23 @@ read (fedora-desktop#317: an underscore in a heredoc delimiter, an arithmetic co
 with `(`, `8#`/`10#` arithmetic, a `;` inside a `${X%...}` pattern, a one-line `case`). The
 patterns gate fails on them, so rewrite the construct in equivalent bash the grammar reads.
 
+### plan-ansible-adhoc-stdout-parsed
+
+**What it is.** A plan script that reads what `plan_ansible_adhoc` prints: a pipe into `jq`,
+`python`, `awk`, `grep`, `read` or `mapfile`, or a command substitution of it. The helper runs
+`ansible -v`, and `-v` prints "Using <file> as config file" on stdout before anything the
+callback prints, so the reader meets that line first. A regex rule in
+`.semgrep/bash-conventions.yml` over `CLAUDE/Plan/`, proven against
+`.semgrep/bash-conventions.bash`.
+
+**Why it exists.** A plan acceptance script read the LXC members out of the inventory with
+the json callback through `jq`, which failed on every run with "Invalid numeric literal at line
+1, column 6", followed by ansible's BrokenPipe once `jq` stopped reading.
+
+**How to fix a finding.** For output that is read, run `ansible` without `-v` (from the
+repository root, stdin closed), so the callback owns stdout; or let the module write a file
+and read the file, as the plans that use the `copy` module do.
+
 ### ccy-unattended-refusal-status
 
 **What it is.** Under `files/var/local/claude-yolo/` and `files/var/local/claude-code/`, a launch
@@ -3885,6 +3902,7 @@ fails, unreadable policy). With `GITHUB_ACTIONS` set it also prints `::error::` 
   - `bash-capture-discards-status` — `var=$(cmd 2>/dev/null)` with the status thrown away, so an error written to stdout becomes the value. Scoped to `files/var/local/claude-yolo/**` for now; widening is tracked in Plan 00075. Genuine cases carry a same-line `# FAIL-FAST-OK: <reason>`
   - [`bash-loop-redirect-unchecked`](#bash-loop-redirect-unchecked) — `done < "$file"`, which runs a loop zero times on a file that cannot be opened (#293)
   - [`bash-loop-procsub-unchecked`](#bash-loop-procsub-unchecked) — `done < <(cmd)` and `mapfile`/`read` from `< <(cmd)`, which never see `cmd` fail (#295)
+  - [`plan-ansible-adhoc-stdout-parsed`](#plan-ansible-adhoc-stdout-parsed) — a plan script that reads `plan_ansible_adhoc`'s stdout, which `-v` begins with its config line
 - ✅ Python syntax errors (`python3 -m py_compile`)
 - ✅ Common Python issues (via `ruff` — **required**; `qa-python.bash` exits 2 with an error if ruff is absent; a ruff crash, exit ≥ 2, is also a hard failure)
 - ✅ Error-hiding bash patterns (`|| echo` — Semgrep, `.semgrep/bash-conventions.yml`)

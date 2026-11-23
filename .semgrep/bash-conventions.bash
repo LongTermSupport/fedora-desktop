@@ -726,3 +726,18 @@ exec > >(tee "$log") 2>&1
 # A comment that quotes the form is not the form.
 # ok: bash-loop-procsub-unchecked
 # the loop used to end: done < <(list_things)
+
+# --- plan-ansible-adhoc-stdout-parsed ---
+# plan_ansible_adhoc runs ansible -v, whose stdout starts with its config file line.
+# ruleid: plan-ansible-adhoc-stdout-parsed
+plan_ansible_adhoc localhost -m ansible.builtin.debug -a "$args" | jq -r '.plays[0]'
+# ruleid: plan-ansible-adhoc-stdout-parsed
+ANSIBLE_STDOUT_CALLBACK=json plan_ansible_adhoc localhost -m ansible.builtin.debug -a "$args" |
+    jq -r '.plays[0]'
+# ruleid: plan-ansible-adhoc-stdout-parsed
+msg="$(plan_ansible_adhoc localhost -m ansible.builtin.debug -a "$args")"
+# Run for its effect, its status checked, it is not read.
+# ok: plan-ansible-adhoc-stdout-parsed
+plan_ansible_adhoc localhost -m ansible.builtin.copy -a "$args" || return 1
+# ok: plan-ansible-adhoc-stdout-parsed
+plan_ansible_adhoc localhost -m ansible.builtin.copy -a "$args" 2>&1 | tee "$log"

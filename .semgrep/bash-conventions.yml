@@ -549,3 +549,29 @@ rules:
     metadata:
       category: correctness
       confidence: HIGH
+
+  # Rule: plan_ansible_adhoc's stdout is never parsed. It runs `ansible -v`, whose stdout
+  # begins with "Using <file> as config file" before what the callback prints, so a jq or a
+  # capture of it reads that line first ("jq: parse error: Invalid numeric literal at line 1,
+  # column 6", then ansible's BrokenPipe when jq stops reading). It hit a plan acceptance run.
+  #
+  # WRONG: plan_ansible_adhoc localhost -m debug -a "$args" | jq -r ...
+  # RIGHT: run ansible without -v for output that is read (the callback then owns stdout), or
+  #        have the module write a file and read that (the copy module, as the other plans do).
+  - id: plan-ansible-adhoc-stdout-parsed
+    pattern-either:
+      - pattern-regex: '(?m)^[^\n#]*\bplan_ansible_adhoc\b[^\n#]*(?:\\\n[^\n#]*)*\|(?!\|)[ \t]*(?:\\?\n[ \t]*)?(?:jq|python3?|yq|awk|grep|read|mapfile)\b'
+      - pattern-regex: '\$\([ \t]*(?:[A-Za-z_][A-Za-z0-9_]*=[^ \t\n]*[ \t]+)*plan_ansible_adhoc\b'
+    paths:
+      include:
+        - 'CLAUDE/Plan/**'
+    message: >
+      plan-ansible-adhoc-stdout-parsed: plan_ansible_adhoc runs `ansible -v`, and -v prints
+      "Using <file> as config file" on stdout before anything the callback prints, so what reads
+      this output reads that line first. Run ansible without -v for output you read, or let the
+      module write a file and read the file.
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: HIGH
