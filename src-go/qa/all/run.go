@@ -27,6 +27,8 @@ type session struct {
 	// results is where the machine report goes.
 	results string
 	gates   []gates.Gate
+	// tableSize is how many gates the table holds; fewer run under --only or --except.
+	tableSize int
 	// failedGates and failedStages are the names that failed, in run order. A hard gate's
 	// verdict lives in its stage line and here; a stage's in its report and here.
 	failedGates  []string
@@ -168,7 +170,11 @@ func newSession(env Env, opts options) (*session, error) {
 	if err := gates.CheckScripts(root, table); err != nil {
 		return nil, err
 	}
-	return &session{env: env, opts: opts, root: root, scripts: scripts, timeout: timeout, results: reportPath(env.Getenv), gates: table}, nil
+	picked, err := pickGates(table, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &session{env: env, opts: opts, root: root, scripts: scripts, timeout: timeout, results: reportPath(env.Getenv), gates: picked, tableSize: len(table)}, nil
 }
 
 // run is everything after the command line: clear the last report, run every gate in table
@@ -186,7 +192,11 @@ func (s *session) run(ctx context.Context) ExitCode {
 		s.errf(abortPrefix+"cannot clear the previous report %s: %v\n", s.results, err)
 		return ExitCannotRun
 	}
-	if err := qaverdict.Remove(target.Path); err != nil {
+	// A subset is not the full run, so it neither clears nor writes the full run's verdict.
+	if s.opts.subset() {
+		s.errf("qa-all: %d of %d gates (%s %s); the rest run elsewhere, and this run records no verdict\n",
+			len(s.gates), s.tableSize, s.opts.subsetFlag(), strings.Join(s.opts.picked, ","))
+	} else if err := qaverdict.Remove(target.Path); err != nil {
 		s.errf(abortPrefix+"%v\n", err)
 		return ExitCannotRun
 	}
@@ -235,10 +245,12 @@ func (s *session) finish() ExitCode {
 		s.errf(abortPrefix+"cannot write the report: %v\n", err)
 		return ExitCannotRun
 	}
-	rec := qaverdict.Record{Status: status, Commit: s.target.Commit, Started: s.started, Finished: s.env.Now()}
-	if err := qaverdict.Write(s.target.Path, rec); err != nil {
-		s.errf(abortPrefix+"%v\n", err)
-		return ExitCannotRun
+	if !s.opts.subset() {
+		rec := qaverdict.Record{Status: status, Commit: s.target.Commit, Started: s.started, Finished: s.env.Now()}
+		if err := qaverdict.Write(s.target.Path, rec); err != nil {
+			s.errf(abortPrefix+"%v\n", err)
+			return ExitCannotRun
+		}
 	}
 	if !failed {
 		s.outf("✓ QA passed: %d files checked\n", totals.Total)
