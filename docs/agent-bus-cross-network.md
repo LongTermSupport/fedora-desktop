@@ -179,6 +179,10 @@ teamchat_teams:
       <handle>: host        # worker or host; never the coordinator's handle
 ```
 
+A duty does not change what a host `cc --teams` session may run: its deny rules (no tests,
+builds or heavy QA on the host) apply whatever the seat's duty, `worker` included
+([CLAUDE/QA.md](../CLAUDE/QA.md#primary-rule)).
+
 The host writes each seat's duty into the session's desired membership; a held seat takes it
 when the seat is taken, so a changed duty reaches a running session at its next launch. A
 session reports its seats with `teamchat whoami --json`, which reads only the run's

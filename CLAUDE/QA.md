@@ -59,6 +59,20 @@ is checked only by the full run after the move. See
 
 **NEVER use the individual gate scripts directly** (`qa-bash.bash`, `qa-python.bash`, `qa-patterns.bash`) — use `qa-changed.bash` or `qa-all.bash`.
 
+**A host seat cannot run the heavy QA.** A host `cc --teams` session (on agent-bus or teamchat)
+starts with the deny rules of `files/var/local/claude-code/cc-teams-settings.json`: `go test`,
+`go build`, `go vet`, `golangci-lint`, `make`, `pytest`, `npm test`, `semgrep`, `podman build`,
+`ansible-playbook`, and the QA scripts that run tests or builds: `qa-all.bash`,
+`qa-changed.bash`, `qa-go-qa.bash`, `qa-go-deps.bash`, `qa-go-vuln.bash`,
+`qa-helper-tests.bash`, `qa-plan-tests.bash` and `qa-hook-handlers.bash`. Why: that work loads
+the host the owner is using, and it belongs in a container (Plan 00263, owner decision D3). A host
+seat deploys through `meta-deploy.bash` and triages; the QA before a commit is run by a container
+seat of the team (or CI on the `ci/<topic>` push), which the host seat asks for. The light,
+host-only `qa-deployed-drift.bash` stays allowed, and it is the one check a host seat runs itself.
+The deny file applies to every host `cc --teams` session **whatever the seat's duty**: a host
+member given `worker` duty is still denied. A deny rule matches the command text only; the
+duty-aware check is the hooks daemon's handler. Plain `cc` without `--teams` gets no deny file.
+
 **QA never runs in parallel, and always runs low.** A second run, from any worktree, CCY
 container or the host, **waits** for the first rather than failing, and every run is nice 19,
 ionice idle. See [QA runs one at a time](#qa-runs-one-at-a-time-the-qa-lock-and-low-priority).
