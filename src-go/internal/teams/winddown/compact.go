@@ -65,7 +65,7 @@ func (w *WindDown) transcriptOf(store *registry.Store, name string) (string, err
 	if err != nil {
 		return "", errors.New("its session record could not be read: " + err.Error())
 	}
-	return conversation.Transcript(rec, conversation.ClaudeHome(w.Getenv))
+	return conversation.Transcript(rec, conversation.Here(w.Getenv))
 }
 
 // compactStep is one look at a session whose wind-down went in (WC2 to WC4a).

@@ -89,7 +89,7 @@ func (a *App) planRestore(rec registry.Record, file string) restorePlan {
 		return restorePlan{why: whyDirectoryGone, sentence: "its directory no longer exists: " + rec.Dir +
 			" (the record is kept at " + file + "; remove it if the project is gone)."}
 	}
-	start, err := conversation.StartPlan(rec, conversation.ClaudeHome(a.Getenv))
+	start, err := conversation.StartPlan(rec, conversation.Here(a.Getenv))
 	var argsErr *conversation.ArgsError
 	switch {
 	case errors.As(err, &argsErr):
@@ -436,7 +436,7 @@ func (r *restoreRun) record(ctx context.Context, rec registry.Record) {
 		// restore's to set going: whoever started it is driving it, and an entry an earlier
 		// restore this boot made for it is kept as it is.
 		a.sayf("skip %s: already running.\n", rec.Name)
-		if id, convErr := conversation.For(rec, conversation.ClaudeHome(a.Getenv)); convErr == nil {
+		if id, convErr := conversation.For(rec, conversation.Here(a.Getenv)); convErr == nil {
 			entry.Resume = id
 		}
 		entry.Going = restore.GoingKeep

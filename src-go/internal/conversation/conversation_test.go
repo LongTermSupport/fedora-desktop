@@ -49,9 +49,23 @@ func recordPath(checkout string) string {
 	return filepath.Join(checkout, ".claude/ccy/pingbus/sessions/ccy-proj", File)
 }
 
-func mustFail(t *testing.T, rec registry.Record, home string, says ...string) {
+// at is Where with Claude's home at home and an owner's home at none, so no seat store holds a
+// pool seat: every team is agent-bus.
+func at(home string) Where {
+	return Where{ClaudeHome: home, Getenv: func(k string) string {
+		if k == "HOME" {
+			return "/nonexistent"
+		}
+		return ""
+	}}
+}
+
+// none is at a Claude home that is not there.
+var none = at("/nonexistent")
+
+func mustFail(t *testing.T, rec registry.Record, where Where, says ...string) {
 	t.Helper()
-	got, err := For(rec, home)
+	got, err := For(rec, where)
 	if err == nil {
 		t.Fatalf("For gave %q, want an error", got)
 	}
@@ -66,7 +80,7 @@ func mustFail(t *testing.T, rec registry.Record, home string, says ...string) {
 // session and its transcript is there.
 func TestForReadsTheRecordedConversation(t *testing.T) {
 	rec := ccyCase(t, "--teams", "1@alpha")
-	got, err := For(rec, "/nonexistent")
+	got, err := For(rec, none)
 	if err != nil || got != id {
 		t.Fatalf("For = %q, %v", got, err)
 	}
@@ -90,28 +104,28 @@ func TestForFindsACCSessionsCheckoutAboveItsFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(tdir, id+".jsonl"), "{}\n")
-	if got, forErr := For(rec, home); forErr != nil || got != id {
+	if got, forErr := For(rec, at(home)); forErr != nil || got != id {
 		t.Fatalf("For = %q, %v", got, forErr)
 	}
-	if got, forErr := For(record("cc-proj", "cc", dir, "--bus"), home); forErr != nil || got != id {
+	if got, forErr := For(record("cc-proj", "cc", dir, "--bus"), at(home)); forErr != nil || got != id {
 		t.Fatalf("cc --bus: For = %q, %v", got, forErr)
 	}
 }
 
 func TestForRefusesACCSessionOutsideAGitCheckout(t *testing.T) {
-	mustFail(t, record("cc-proj", "cc", t.TempDir(), "--bus"), t.TempDir(), "git checkout")
+	mustFail(t, record("cc-proj", "cc", t.TempDir(), "--bus"), at(t.TempDir()), "git checkout")
 }
 
 // Fable's review of the spec (the M6 B1 class): a launch without the bus records nothing, so a
 // file under its reused name is an earlier session's, and resuming it would resume the wrong one.
 func TestForRefusesARecordWhoseLaunchCarriedNoBus(t *testing.T) {
-	mustFail(t, ccyCase(t, "--no-bus"), "/nonexistent", "without the agent team bus")
+	mustFail(t, ccyCase(t, "--no-bus"), none, "without the agent team bus")
 	top := t.TempDir()
 	if err := os.Mkdir(filepath.Join(top, ".git"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(top, ".claude/ccy/pingbus/sessions/cc-proj", File), recorded("cc-proj", id))
-	mustFail(t, record("cc-proj", "cc", top, "--model", "opus"), t.TempDir(), "without the agent team bus")
+	mustFail(t, record("cc-proj", "cc", top, "--model", "opus"), at(t.TempDir()), "without the agent team bus")
 }
 
 func TestForRefusesWhatIsNotTheHooksRecord(t *testing.T) {
@@ -130,7 +144,7 @@ func TestForRefusesWhatIsNotTheHooksRecord(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			rec := ccyCase(t)
 			write(t, recordPath(rec.Dir), content)
-			mustFail(t, rec, "/nonexistent", File)
+			mustFail(t, rec, none, File)
 		})
 	}
 }
@@ -140,7 +154,7 @@ func TestForNamesAMissingRecord(t *testing.T) {
 	if err := os.Remove(recordPath(rec.Dir)); err != nil {
 		t.Fatal(err)
 	}
-	mustFail(t, rec, "/nonexistent", "no conversation is recorded", File)
+	mustFail(t, rec, none, "no conversation is recorded", File)
 }
 
 // The two forms of "no conversation" StartPlan starts a marked record fresh on: nothing recorded
@@ -155,16 +169,16 @@ func TestOnlyNothingRecordedOrNoTranscriptIsNoConversation(t *testing.T) {
 	if err := os.Remove(transcriptPath(noTranscript.Dir)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := For(absent, "/nonexistent"); !errors.Is(err, errNotRecorded) {
+	if _, err := For(absent, none); !errors.Is(err, errNotRecorded) {
 		t.Fatalf("an absent record: %v", err)
 	}
-	if _, err := For(noTranscript, "/nonexistent"); !errors.Is(err, errNoTranscript) {
+	if _, err := For(noTranscript, none); !errors.Is(err, errNoTranscript) {
 		t.Fatalf("no transcript: %v", err)
 	}
 	others := map[string]registry.Record{"no bus": ccyCase(t, "--no-bus"), "not the hook's": ccyCase(t)}
 	write(t, recordPath(others["not the hook's"].Dir), "not json")
 	for name, other := range others {
-		if _, err := For(other, "/nonexistent"); err == nil || errors.Is(err, errNotRecorded) || errors.Is(err, errNoTranscript) {
+		if _, err := For(other, none); err == nil || errors.Is(err, errNotRecorded) || errors.Is(err, errNoTranscript) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
@@ -180,7 +194,7 @@ func TestForRefusesASymlinkedRecord(t *testing.T) {
 	if err := os.Symlink(elsewhere, recordPath(rec.Dir)); err != nil {
 		t.Fatal(err)
 	}
-	mustFail(t, rec, "/nonexistent", "not a regular file")
+	mustFail(t, rec, none, "not a regular file")
 }
 
 // F4: several sessions share one transcript directory, so the transcript is the recorded
@@ -192,13 +206,13 @@ func TestForNeedsTheRecordedIDsTranscriptNotTheNewest(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(dir, otherID+".jsonl"), "{}\n")
-	mustFail(t, rec, "/nonexistent", id)
+	mustFail(t, rec, none, id)
 }
 
 // Transcript is the recorded conversation's own file, and fails as For fails.
 func TestTranscriptIsTheRecordedConversationsFile(t *testing.T) {
 	rec := ccyCase(t, "--teams", "1@alpha")
-	got, err := Transcript(rec, "/nonexistent")
+	got, err := Transcript(rec, none)
 	want := filepath.Join(rec.Dir, ".claude/ccy/projects/-workspace", id+".jsonl")
 	if err != nil || got != want {
 		t.Fatalf("Transcript = %q, %v; want %q", got, err, want)
@@ -206,7 +220,7 @@ func TestTranscriptIsTheRecordedConversationsFile(t *testing.T) {
 	if err := os.Remove(want); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Transcript(rec, "/nonexistent"); err == nil || strings.Contains(err.Error(), rec.Name+": ") {
+	if _, err := Transcript(rec, none); err == nil || strings.Contains(err.Error(), rec.Name+": ") {
 		t.Fatalf("a missing transcript gave %v, want an error without the session's name in front", err)
 	}
 }

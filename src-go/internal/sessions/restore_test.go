@@ -12,6 +12,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylaunch"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation/convtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
@@ -152,6 +153,31 @@ func TestRestoreStartsEachRecordedSessionInNameOrderAndWritesThePendingManifest(
 	if h.stdout() != "" {
 		t.Fatalf("stdout %q", h.stdout())
 	}
+}
+
+// Plan 00209 DESIGN-host-cc-v2.md section 4: a session on teamchat teams is resumed from its
+// link's record in the seat store, not from v1's file in its checkout, which here names another
+// conversation (no fallback either way).
+func TestRestoreResumesATeamchatSessionFromItsSeatStoreRecord(t *testing.T) {
+	h := newHarness(t)
+	restoreHost(h)
+	a := realDir(t, h, "a")
+	rec := registry.Record{Name: "cc-v2", Dir: a, Launcher: "/launch/cc", Prefix: "cc", Restore: true, Args: []string{"--teams", "1@beta"}}
+	record(t, h, rec)
+	v2 := "11111111-2222-4333-8444-555555555555"
+	convtest.TeamchatSession(t, rec, h.app.Getenv, v2)
+	tdir, err := transcript.Dir("cc", a, conversation.ClaudeHome(h.app.Getenv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.write(strings.TrimPrefix(filepath.Join(tdir, v2+".jsonl"), h.root+"/"), "{}\n")
+	exitCodeIs(t, h.run("restore"), 0, h)
+	calls := startedSessions(h)
+	if len(calls) != 1 {
+		t.Fatalf("one session started: %v", h.ran())
+	}
+	contains(t, "cc-v2", strings.Join(calls[0].Args, " "), "/launch/cc --teams 1@beta --resume "+v2+" ")
+	lacks(t, "cc-v2", strings.Join(calls[0].Args, " "), conversationOf("cc-v2"))
 }
 
 func TestRestoreDryRunSaysWhatItWouldStartAndWritesNothing(t *testing.T) {

@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.123.0 — container 2.84.45
+
+- **A teamchat session's conversation is found** (Plan 00209 Task 5.1). `ccy --stop`, the
+  boot restore and its check, a team restart and a wind-down read a session's conversation from
+  the record of the system its teams are on: a teamchat (v2) session's in the seat store, an
+  agent-bus (v1) session's in its checkout as before. Before, every v2 session was read as v1
+  and so resumed stale or started fresh.
+
 ## 3.122.52 — container 2.84.45
 
 - **teamchat knows a seat's duty** (Plan 00209, PROPOSAL-seat-kinds.md). A v2 seat is a

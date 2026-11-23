@@ -3,17 +3,22 @@ package sessclose
 import (
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation/convtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 )
 
 var rule = strings.Repeat("─", 60)
@@ -1003,6 +1008,37 @@ func TestTheBackgroundWorkQuestionUnderAModeItCannotLeaveStaysUnanswered(t *test
 				t.Fatalf("%s: note %q lacks %q", in.mode, err, want)
 			}
 		}
+	}
+}
+
+// The production Closer finds a session's transcript through the real conversation lookup: a
+// teamchat session's from its link's record in the seat store (Plan 00209 DESIGN-host-cc-v2.md
+// section 4), where the fake world above names a path of its own.
+func TestNewFindsATeamchatSessionsTranscriptThroughItsSeatStoreRecord(t *testing.T) {
+	home, checkout := t.TempDir(), t.TempDir()
+	getenv := func(k string) string {
+		if k == "HOME" {
+			return home
+		}
+		return ""
+	}
+	const sid = "11111111-2222-4333-8444-555555555555"
+	rec := registry.Record{Name: "ccy-v2", Dir: checkout, Prefix: "ccy", Restore: true, Args: []string{"--teams", "1@beta"}}
+	convtest.TeamchatSession(t, rec, getenv, sid)
+	dir, err := transcript.Dir("ccy", checkout, conversation.ClaudeHome(getenv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, sid+".jsonl")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(want, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := New(&tmuxccy.Tmux{}, func() (*registry.Store, error) { return nil, errors.New("not read") }, getenv)
+	if got, err := c.Transcript(rec); err != nil || got != want {
+		t.Fatalf("Transcript = %q, %v; want %s", got, err, want)
 	}
 }
 

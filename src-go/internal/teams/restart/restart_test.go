@@ -156,6 +156,25 @@ func TestAStoppedSessionIsStartedResumingItsConversation(t *testing.T) {
 	)
 }
 
+// A team restart acts on agent-bus teams only (a v2 team is refused, below), so a session of
+// one resumes v1's record: a teamchat record left in the seat store under the same session name
+// is another session's and is never read (Plan 00209 DESIGN-host-cc-v2.md section 4).
+func TestAStoppedSessionResumesItsV1RecordNotASeatStoreRecordOfItsName(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	m.stop(m.find("ccy-proj"))
+	stray := "11111111-2222-4333-8444-555555555555"
+	teamtest.MustWrite(m.t, filepath.Join(m.Env["HOME"], ".local/state/teamchat/seats/sessions/ccy-proj/conversation.json"),
+		`{"v":1,"run":"0123456789abcdef","session_id":"`+stray+`","source":"startup","written_ms":1}`)
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	want := "env CCY_SESSION_RESTORE=1 /x/ccy --teams 1@alpha --supervise --resume " + conversationOf("ccy-proj")
+	if !slices.Equal(m.started, []string{want}) {
+		t.Fatalf("started %q, want %q", m.started, want)
+	}
+}
+
 // B6 with fedora-desktop#270: started as a restore starts a record, so a record provisioning
 // marked fresh-if-no-conversation whose session never took a turn (its conversation recorded,
 // no transcript) is started fresh, with no --resume, as the boot restore starts it.

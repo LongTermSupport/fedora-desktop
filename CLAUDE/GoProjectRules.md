@@ -87,6 +87,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_stdin_seam`              | a read of stdin outside `internal/stdinread` and the ui prompt seam, so an open pipe nothing writes to holds the command silently for ever                                                                    | teamchat `client/send.go` `readStdin` (`thread --close`'s Python twin waited minutes; issue #260)                                                                                                                       |
 | `project_screen_state_compared`   | what Claude's input box shows judged by `==` or `!=` against one `screen.State`, so every other screen, one the reader does not know included, takes the opposite verdict                                     | `ccy-sessions` set-going: a `/compact` held by Claude Code for review taken as submitted (fedora-desktop#288)                                                                                                           |
 | `project_tmux_gone_text`          | tmux's "not there" answer read by a loose match on a fragment, which another program in front of tmux (lxc-attach, runuser, env) also prints                                                                  | `ccy-teams shutdown`: a guest server lxc-attach never reached read as empty, "no session running", exit 0 (Plan 00257 B.13 review)                                                                                      |
+| `project_conversation_record`     | a host reader naming a session's conversation record's path outside `conversation.Locate`, so it knows one system's record only                                                                               | `conversation.read`: joined v1's `SessionDir` and `File`, so no host reader found a v2 session's conversation (Plan 00209 Task 5.1)                                                                                     |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
 `go vet -vettool=<driver> help ...` does not reach it) says what it does and
@@ -3452,6 +3453,51 @@ function under another name a finding, and the sweep found no read the narrower 
   read through a seam (guest, `placeissued.Place`, `teams/find`, `reexec`); and the ctrl+z
   guard's key relay moved, unchanged, into `internal/keyrelay`. Each entry point has an
   open-pipe test on a fake clock. Green: the rule reports nothing over either module.
+
+### project_conversation_record
+
+**What it is about.** The host reads a session's conversation to stop it (`ccy --stop`,
+shutdown's close), restore it, restart it with its team and wind it down. v1's record is
+`<checkout>/.claude/ccy/pingbus/sessions/<session>/conversation.json` (the pingbus hook's); a v2
+session's is `<seat store>/sessions/<session>/conversation.json` (its link's), for a ccy and a
+host cc session alike. Which one a session has is decided by the system its teams are live on.
+
+**Why it exists.** Plan 00209 DESIGN-host-cc-v2.md section 4: `conversation.read` joined
+`membership.SessionDir` and `File` itself, so every host reader (sessclose, restore and its check,
+team restart, wind-down) knew v1's record only, and a v2 session was resumed stale, started fresh,
+or judged against the wrong transcript.
+
+**What it flags**, in the non-test files of every package but the record's owners
+(`internal/teamchat/paths`, and `internal/teamchat/member` and below), anywhere but the function
+`Locate` of `internal/conversation`: a constant string expression, judged whole, that is
+`conversation.json` or a path ending in `/conversation.json` (reported where it is declared;
+`conversation.File`'s own declaration is the one allowed); a use of `conversation.File`; a use of
+`paths.Layout.ConversationFile` (a call, a method value, a method expression). The rule holds the
+single-reader shape; that `Locate` knows both systems is held by `internal/conversation`'s own
+table test ({ccy, cc} × {agent-bus, teamchat, mixed, no list} × {present, missing, wrong session
+id, no transcript}), not by the rule.
+
+**How to fix a violation.** Ask `conversation.Locate`, or read through `conversation.For`,
+`Transcript` or `StartPlan` with `conversation.Here(getenv)`.
+
+- Red, fixture: `testdata/conversationrecord/src/fix`: `internal/conversation` (the defect's
+  `read`, joining `SessionDir` and `File`, and a second declaration of the name, flagged; `Locate`
+  and `File`'s declaration, clean), `internal/badrecord` (a literal, a constant in pieces, `File`
+  through another import name, `ConversationFile` called, held and as a method expression,
+  flagged; its test, clean), `internal/goodrecord` (through `Locate`, other names, clean), the
+  owners `teamchat/paths` and `teamchat/member/link` (clean) and `cmd/tool` (a path ending in the
+  name, flagged). With the analyzer reporting nothing the test missed all 19 diagnostics (the
+  packages judged with and without their tests).
+- Red, real tree: one finding, `internal/conversation/conversation.go:97` (`read`'s join). The
+  independent sweep (every `conversation.json`, `conversation.File` and `ConversationFile` in
+  `src-go`) found the same one outside the owners and tests; `helpers/`, `files/` and `scripts/`
+  hold no Go reader.
+- Green: `read` goes through `Locate`; the five callers take `conversation.Here(getenv)`, and each
+  caller's tests gained a v2 row (sessclose's through the real `Transcript`, restore's resume from
+  the seat store, restart's and wind-down's v1 record read with a v2 record of the same name
+  present).
+- Not caught: a path built at run time from pieces that are not constant; v1's directory joined
+  with a name read from elsewhere.
 
 ## Control
 
