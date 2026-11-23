@@ -1005,6 +1005,11 @@ These are known and documented rather than engineered around:
   plain routes to your sign-in, not a determined agent, which could post as you; every
   agent on the team takes that as your request. Run agents in ccy sessions (or as a
   dedicated agent user) when that matters.
+- A `cc --teams` session's deny rules also keep the host seat in its lane: it deploys and
+  triages, and does not run tests, builds, lint or QA (`go test`, `make`, `scripts/qa-*.bash`,
+  `ansible-playbook` and the rest of `files/var/local/claude-code/cc-teams-settings.json`).
+  Those belong in a container seat; `meta-deploy.bash` is how a host seat deploys. The rules
+  match the command text only, so they guide rather than contain.
 - Sibling seats in one checkout share their tokens: every seat's bundle is the same user's,
   so a session in one seat can read another seat's token there and post or read as that
   member, the coordinator included. Give each seat its own checkout (or worktree) when a

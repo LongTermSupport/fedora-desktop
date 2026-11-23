@@ -165,66 +165,79 @@ v2 teams only. If Task 4.5 is built for ccy later, the host follows only if the 
 The bash files may not grow, so every new decision is Go behind command words the bash already
 calls. Each step: the failing test first, then the code.
 
-**Build status (branch `v2-host-cc`):** steps 1 to 9 built (CCY 3.124.1, container 2.84.51); the acceptance (section 8) is the host's. Step 7 as built: the keeper writes `<run>/state-root` (one absolute path) for a run with `--state`, and `reach` reads the bundle below it. Step 6 as built: a host launch lists and takes teamchat pool seats as podman does, and the Matrix consent names a teamchat seat by its pool handle (`Teamchat.Handles`, `system.Cmd.Handles`), not by `agent-bus seat choose`. Step 5 as built: `internal cc-run <tmp> <checkout> <session or empty> <cc pid> <seats> <bus> -- <claude args>`; cc-teams.bash calls `internal seat-check` and `seat-take` (system-aware) in place of agent-bus, and on teamchat the seats are taken by cc-run as the session starts, after the token chooser.
+**Build status (branch `v2-host-cc`):** steps 1 to 10 built (CCY 3.124.1, container 2.84.51; step 9's merge of `origin/v2` found it already in the branch); the acceptance (section 8) is the host's. Step 10 as built: the host-lane deny rules listed under step 10. Step 7 as built: the keeper writes `<run>/state-root` (one absolute path) for a run with `--state`, and `reach` reads the bundle below it. Step 6 as built: a host launch lists and takes teamchat pool seats as podman does, and the Matrix consent names a teamchat seat by its pool handle (`Teamchat.Handles`, `system.Cmd.Handles`), not by `agent-bus seat choose`. Step 5 as built: `internal cc-run <tmp> <checkout> <session or empty> <cc pid> <seats> <bus> -- <claude args>`; cc-teams.bash calls `internal seat-check` and `seat-take` (system-aware) in place of agent-bus, and on teamchat the seats are taken by cc-run as the session starts, after the token chooser.
 
-1. **The conversation class (section 4).** Test: the analyzer's fixture red on a reader that joins
-   `SessionDir`+`File`, green through `Locate`; `conversation_test.go` table: {ccy, cc} × {agent-bus,
-   teamchat, mixed, no list} × {record present, missing, wrong session id, no transcript}; the five
-   callers' tests gain a v2 row (sessclose's with the real `Transcript`, not the fake closer
-   `teams/shutdown/v2host_test.go:164` uses). Code: `src-go/qa/rules/conversationrecord.go`,
-   `qa/rules/table.go`, `internal/conversation/conversation.go`, CLAUDE/GoProjectRules.md row.
-2. **The host kit holds its plugin and settings.** Test: an installplay test that the `member` tag
-   assembles `<kit root>/<digest>/` with `kit.Assemble` (FACT: no production caller today,
-   `member/kit/kit.go:75-78`), and a kit test that the assembled hooks name
-   `/usr/local/lib/teamchat/kit/<digest>/bin/teamchat`. Code: a `teamchat kit assemble --into DIR`
-   verb (root, run by the play into the new digest directory before the `current` link moves),
-   `playbooks/imports/play-teamchat.yml`. INFERENCE: LXC guests copy this tree
-   (`host/lxc/kit.go:52-60`), so an LXC `--claude` member lacks the plugin today too; the coordinator
-   is told, and the LXC acceptance (Task 3.4) checks it.
-3. **`run --extra-settings FILE` (decision H4).** Test: `member/cli/launch_test.go` (only with
-   `--claude`; absolute; once), `member/agent/agent_test.go` (FILE's object merged under the kit's,
-   kit keys win; FILE holding `crossSessionInbound`, `hooks` or `statusLine` refused 78; a link or
-   another user's file refused). Code: `member/cli/launch.go`, `member/agent/agent.go`,
-   `member/keeper/prepare.go`. This changes the image's `teamchat`, so it is a container bump.
-4. **`cc-claude -- claude <args>` (decision H5).** Test: `internal/ccclaude/app_test.go` C6: a
-   first argument `--` must be followed by `claude`, and the rest is exec'd from there; anything
-   else after `--` is 64; C1 unchanged otherwise. Code: `internal/ccclaude/app.go`.
-5. **`ccy-teams internal cc-run` (both systems, one command word).** Test first in
-   `teamchatlaunch` (or a new `teams/cclaunch`): (a) agent-bus: the argv and environment are
-   byte for byte today's `cc_teams_settings` + `cc_teams_command` (a parity test against
-   `cc-teams.bash` as frozen testdata, as `ccystart/parity_test.go` does); (b) teamchat: refuse
-   without a registry session name (H2, 78); take through `Launch.Run` with no mounts; run
-   H1's line as a child, with `--extra-settings <tmp>/cc-deny.json` before its `--` and the
-   prompt line naming teamchat after `claude`; on its return run `end` with its
-   numeric status (record removed, seats released); on SIGHUP or SIGTERM forward to the child, wait,
-   and keep the seats (the signal case); (c) a mixed list is 64; (d) a relaunch of the same session
-   (restore) takes no seat twice (L5). Code: the verb, `teams/usage.txt`, the dispatcher.
-   `cc-teams.bash`: `cc_teams_settings` and `cc_teams_command` become one call of the verb
-   (shrinks), and the kit check at `:155-159` moves into the verb per system (as 4.5(a) did for
-   ccy). `cc`: the final line runs `CC_TEAMS_CMD` as now (no new line). Update the allowlist rows
-   to the new, smaller counts.
-6. **The chooser offers teamchat teams to a host launch.** Test: `chooser/teamchat_test.go`: a
-   `--type=host` launch lists this checkout's teamchat teams and takes a pool seat as podman does.
-   Code: `teamchatFor` (`chooser/teamchat.go:30-37`) returns the side for host too; the doc comment
-   at `:15-18` changes. The Matrix-client consent stays asked for host on both systems
-   (`chooser/consent.go`).
-7. **`teamchat reach` inside a `--state` session.** FACT: `reach` reads the bundle from the home
-   layout, ignoring the run's `--state` (`member/client/reach.go:63-75`). Test: a host run under
-   `--state` answers `reach --team T` from that root. Code: the keeper records its state root in the
-   run directory and `stateLayout` reads it there.
-8. **Docs and plan text** (same commits as the code they describe):
-   - `docs/ccy.md` (the `cc --teams` section, about :756-800, and the restore and `--stop` text);
-   - `docs/agent-bus.md` (host members on v2), `docs/agent-bus-cross-network.md` (issuing a host
-     seat: `--prefix <repo>+<site>.host`, `place-issued --checkout` at the cc checkout);
-   - `LAUNCH-ccy.md` (a "host launch" section pointing here), DESIGN-v2-B-member.md:16-22 (H1),
-     DESIGN-v2.md:177 (seam 56 built), DESIGN-v2-D-migration.md:363-365 and :1400, PLAN.md Tasks
-     4.3, 5.1 (gate B met) and 6.4's list;
-   - the `cc-teams.bash` header comment.
-9. **Version bumps.** `CCY_VERSION` in `files/var/local/claude-yolo/claude-yolo` (now
-   3.122.50) to the next minor with a `docs/ccy-changelog.md` entry, because ccy-teams, ccy-sessions
-   and cc change; the container version too, because step 3 changes the image's `teamchat`. The
-   meta-deploy list gets `play-teamchat.yml --tags member` and `play-claude-yolo.yml` in the same
-   commit as the code that needs them.
+01. **The conversation class (section 4).** Test: the analyzer's fixture red on a reader that joins
+    `SessionDir`+`File`, green through `Locate`; `conversation_test.go` table: {ccy, cc} × {agent-bus,
+    teamchat, mixed, no list} × {record present, missing, wrong session id, no transcript}; the five
+    callers' tests gain a v2 row (sessclose's with the real `Transcript`, not the fake closer
+    `teams/shutdown/v2host_test.go:164` uses). Code: `src-go/qa/rules/conversationrecord.go`,
+    `qa/rules/table.go`, `internal/conversation/conversation.go`, CLAUDE/GoProjectRules.md row.
+02. **The host kit holds its plugin and settings.** Test: an installplay test that the `member` tag
+    assembles `<kit root>/<digest>/` with `kit.Assemble` (FACT: no production caller today,
+    `member/kit/kit.go:75-78`), and a kit test that the assembled hooks name
+    `/usr/local/lib/teamchat/kit/<digest>/bin/teamchat`. Code: a `teamchat kit assemble --into DIR`
+    verb (root, run by the play into the new digest directory before the `current` link moves),
+    `playbooks/imports/play-teamchat.yml`. INFERENCE: LXC guests copy this tree
+    (`host/lxc/kit.go:52-60`), so an LXC `--claude` member lacks the plugin today too; the coordinator
+    is told, and the LXC acceptance (Task 3.4) checks it.
+03. **`run --extra-settings FILE` (decision H4).** Test: `member/cli/launch_test.go` (only with
+    `--claude`; absolute; once), `member/agent/agent_test.go` (FILE's object merged under the kit's,
+    kit keys win; FILE holding `crossSessionInbound`, `hooks` or `statusLine` refused 78; a link or
+    another user's file refused). Code: `member/cli/launch.go`, `member/agent/agent.go`,
+    `member/keeper/prepare.go`. This changes the image's `teamchat`, so it is a container bump.
+04. **`cc-claude -- claude <args>` (decision H5).** Test: `internal/ccclaude/app_test.go` C6: a
+    first argument `--` must be followed by `claude`, and the rest is exec'd from there; anything
+    else after `--` is 64; C1 unchanged otherwise. Code: `internal/ccclaude/app.go`.
+05. **`ccy-teams internal cc-run` (both systems, one command word).** Test first in
+    `teamchatlaunch` (or a new `teams/cclaunch`): (a) agent-bus: the argv and environment are
+    byte for byte today's `cc_teams_settings` + `cc_teams_command` (a parity test against
+    `cc-teams.bash` as frozen testdata, as `ccystart/parity_test.go` does); (b) teamchat: refuse
+    without a registry session name (H2, 78); take through `Launch.Run` with no mounts; run
+    H1's line as a child, with `--extra-settings <tmp>/cc-deny.json` before its `--` and the
+    prompt line naming teamchat after `claude`; on its return run `end` with its
+    numeric status (record removed, seats released); on SIGHUP or SIGTERM forward to the child, wait,
+    and keep the seats (the signal case); (c) a mixed list is 64; (d) a relaunch of the same session
+    (restore) takes no seat twice (L5). Code: the verb, `teams/usage.txt`, the dispatcher.
+    `cc-teams.bash`: `cc_teams_settings` and `cc_teams_command` become one call of the verb
+    (shrinks), and the kit check at `:155-159` moves into the verb per system (as 4.5(a) did for
+    ccy). `cc`: the final line runs `CC_TEAMS_CMD` as now (no new line). Update the allowlist rows
+    to the new, smaller counts.
+06. **The chooser offers teamchat teams to a host launch.** Test: `chooser/teamchat_test.go`: a
+    `--type=host` launch lists this checkout's teamchat teams and takes a pool seat as podman does.
+    Code: `teamchatFor` (`chooser/teamchat.go:30-37`) returns the side for host too; the doc comment
+    at `:15-18` changes. The Matrix-client consent stays asked for host on both systems
+    (`chooser/consent.go`).
+07. **`teamchat reach` inside a `--state` session.** FACT: `reach` reads the bundle from the home
+    layout, ignoring the run's `--state` (`member/client/reach.go:63-75`). Test: a host run under
+    `--state` answers `reach --team T` from that root. Code: the keeper records its state root in the
+    run directory and `stateLayout` reads it there.
+08. **Docs and plan text** (same commits as the code they describe):
+    - `docs/ccy.md` (the `cc --teams` section, about :756-800, and the restore and `--stop` text);
+    - `docs/agent-bus.md` (host members on v2), `docs/agent-bus-cross-network.md` (issuing a host
+      seat: `--prefix <repo>+<site>.host`, `place-issued --checkout` at the cc checkout);
+    - `LAUNCH-ccy.md` (a "host launch" section pointing here), DESIGN-v2-B-member.md:16-22 (H1),
+      DESIGN-v2.md:177 (seam 56 built), DESIGN-v2-D-migration.md:363-365 and :1400, PLAN.md Tasks
+      4.3, 5.1 (gate B met) and 6.4's list;
+    - the `cc-teams.bash` header comment.
+09. **Version bumps.** `CCY_VERSION` in `files/var/local/claude-yolo/claude-yolo` (now
+    3.122.50) to the next minor with a `docs/ccy-changelog.md` entry, because ccy-teams, ccy-sessions
+    and cc change; the container version too, because step 3 changes the image's `teamchat`. The
+    meta-deploy list gets `play-teamchat.yml --tags member` and `play-claude-yolo.yml` in the same
+    commit as the code that needs them.
+10. **The host seat's lane, static half** (Plan 00263 owner decision D3, its
+    [DESIGN.md](../00263-machine-qa-queue/DESIGN.md) section 3). cc's deny file,
+    `files/var/local/claude-code/cc-teams-settings.json`, which cc-run hands to both systems (the
+    teamchat extra settings, the agent-bus merged settings), denies a host seat the tests,
+    builds, lint and QA that belong in a container: `go test`, `go build`, `go vet`,
+    `golangci-lint`, `*scripts/qa-*.bash*`, `*run.bash qa*`, `npm test`, `npm run test`,
+    `pytest` (and `python -m pytest`, `python3 -m pytest`), `make`, `podman build`,
+    `ansible-playbook` (a host seat deploys through `meta-deploy.bash`) and `semgrep`; each
+    plain command as `Bash(<cmd>)` and `Bash(<cmd> *)`. Held by `hostlane_test.go` in
+    `teams/teamchatlaunch` (each rule in the file, and in what cc-run assembles on each system).
+    Deny rules match the command text only (not `sh -c`, an env prefix or another path); the
+    duty-aware check is the hooks daemon's handler (D3's option A), not this step. Plain `cc`
+    without `--teams` gets no deny file, as before.
 
 `cc --bus` (a session on no team) stays v1 only: a v2 launch names its seats
 (`launch.go:247-249`). See Q1.

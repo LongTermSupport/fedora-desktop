@@ -466,7 +466,11 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   - [x] ✅ Step 6: the chooser offers teamchat teams to a host launch; the consent names pool handles.
   - [x] ✅ Step 7: `teamchat reach` inside a `--state` session (`<run>/state-root`).
   - [x] ✅ Step 8: docs and plan text.
-  - [ ] ⬜ Step 9: version bumps, meta-deploy entries, the acceptance script.
+  - [x] ✅ Step 9: version bumps (CCY 3.124.1, container 2.84.51), meta-deploy entries,
+    `acceptance-host-cc-v2.bash`, [build report](subagent-reports/task-5.1-build-report.md).
+  - [x] ✅ Step 10: cc's deny file keeps a host seat out of tests, builds, lint and QA (Plan
+    00263 D3, static half; DESIGN-host-cc-v2.md step 10).
+  - [ ] ⬜ Acceptance on the host (design section 8), attended.
 - [ ] ⬜ **Task 5.2**: Docker and VM guests, after LXC (B 2.13), when a team needs one.
 
 ### Phase 6: N6, migration
