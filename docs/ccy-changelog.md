@@ -17,11 +17,11 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.12 — container 2.84.63
+## 3.124.13 — container 2.84.64
 
 The agent team bus v2 batch (Plan 00209). It was built in steps on parallel branches, the
 questions verbs and host `cc` on teamchat, and merged on the v2 integration branch. Their
-intermediate numbers, 3.122.51 to 3.124.11 and containers 2.84.44 to 2.84.62, were never
+intermediate numbers, 3.122.51 to 3.124.12 and containers 2.84.44 to 2.84.63, were never
 released, and some were used by more than one branch; this entry is the one release of all of
 it. The image carries the new `teamchat`.
 
@@ -41,7 +41,9 @@ it. The image carries the new `teamchat`.
   (an owner's answer, say) was taken as already seen and never delivered or relayed. A floor now
   names the events at its millisecond already taken, in the seat store (`floor_ids`) and in the
   room's marker, and a restore's export of what it loses keeps the events of the backup's own
-  millisecond. Rule `project_floor_by_time` holds the class.
+  millisecond. Rule `project_floor_by_time` holds the class. More than 128 events in one
+  millisecond no longer jam a seat's sync: its floor then falls to just below that millisecond,
+  and the events fetched again are dropped as already held.
 
 - **A host kit built by another Go toolchain is assembled again.** `teamchat kit assemble`
   kept a kit whose parts were all present, so the same source built by an updated Go left the
