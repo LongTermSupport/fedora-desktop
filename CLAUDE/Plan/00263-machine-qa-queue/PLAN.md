@@ -1,6 +1,6 @@
 # Plan 00263: machine qa queue
 
-**Status**: In Progress (design done; all owner decisions D1-D4 answered; building waits behind the v2 work and a host window)
+**Status**: In Progress (design done; all owner decisions D1-D4 answered; stage 1a's caps are built and land with the v2 batch (Plan 00209); their host proof and Phases B-E wait on a host window)
 **Created**: 2026-11-23
 **Owner**: joseph
 **Priority**: High
@@ -128,12 +128,30 @@ its own focused CI (see Plan 00262).
   (`acceptance.bash`, round 2), in the owner's window.
 - [ ] ⬜ **Task A.3**: The `cpuset` Delegate drop-in in `play-podman.yml`, only if A.1 shows
   `cpuset` is missing.
-- [ ] ⬜ **Task A.4**: The rules first: extend the pids-limit rules to require the slice and the
-  caps, proven red on today's container runs.
-- [ ] ⬜ **Task A.5**: The container-limits helper (Go, test first), wired into every run site,
-  with the version bump.
-- [ ] ⬜ **Task A.6**: `agents.slice` and its limits file in `play-claude-yolo.yml`.
-- [ ] ⬜ **Task A.7**: A plan script applies `podman update` to the running containers.
+- [x] ✅ **Task A.4**: The rules first: `project_container_pids_limit` now requires the whole
+  limit set (`--cgroup-parent agents.slice`, `--pids-limit`, `--memory`, `--memory-reservation`)
+  on every Go container run (c19438c1d).
+- [x] ✅ **Task A.5**: The container-limits helper: `internal/ccylimits` (Go, test first) and
+  the bash launcher's `lib/container-limits.bash`, one limit set for every ccy and ccc run
+  (memory = RAM less 16 GiB, pids 16384), with the version bump (dd5ed4743).
+- [x] ✅ **Task A.6**: `agents.slice` (MemoryMax = RAM less 16 GiB, MemoryHigh 1 GiB below) in
+  `play-claude-yolo.yml`, read back from the live user manager; a launch is refused until the
+  slice is installed (22243504e). The same commit replaces the old oomd fix, which never
+  applied: a system drop-in for `user@.service` stops systemd-oomd's pressure kill in the user
+  session (`play-systemd-user-tweaks.yml --tags oomd`). Findings, including what
+  `--memory-reservation` really sets and the LXC members' missing caps:
+  [RESULTS-ccy-caps.md](RESULTS-ccy-caps.md).
+- [ ] ⬜ **Task A.7**: The running containers take the caps. Replaced by a relaunch (`ccy --resume`), not `podman update`: `--cgroup-parent` cannot be changed on a running container.
+  It is step 6 of the v2 cut-over.
+- [ ] ⬜ **Task A.7b**: The caps probe as a plan script (`caps-acceptance.bash`, planlib, read
+  only): `user@UID.service` reports no pressure kill, `oomctl dump` watches no pressure on it,
+  `agents.slice` is loaded with its caps, and every running ccy and ccc container sits under it
+  with `memory.max` and `pids.max` set. Exit 2 when it cannot establish one. Queued in
+  `meta-deploy.list` after the cut-over.
+- [ ] ⬜ **Task A.9**: Caps for the LXC members (none has a memory or pids limit today; they are
+  rootful and sit outside `agents.slice`): `lxc.cgroup2.memory.max`, `memory.high` and
+  `pids.max` in the member config, and a system slice to cap them together. An owner decision
+  first, since it limits running members.
 - [ ] ⬜ **Task A.8**: Acceptance: two containers under load, and the owner says the desktop
   stays usable.
 
