@@ -1,12 +1,11 @@
 # Plan 00263: machine qa queue
 
-**Status**: Not Started (design questions with the owner)
+**Status**: In Progress (Task 1.2, the prior-art survey)
 **Created**: 2026-11-23
 **Owner**: joseph
 **Priority**: High
 
-**Target repository**: `qa-queue`, a standalone repository under the same GitHub owner as
-fedora-desktop. It is not built inside fedora-desktop. This plan stays here only to track it
+**Target repository**: `LongTermSupport/qa-queue`, a standalone repository (owner, Q62). It is not built inside fedora-desktop. This plan stays here only to track it
 until the repository exists; fedora-desktop then only pins and installs it.
 
 ## Overview
@@ -45,8 +44,25 @@ its own focused CI (see Plan 00262).
 
 ### Phase 1: Design (owner questions first)
 
-- [ ] ⬜ **Task 1.1**: The owner's answers on design and existing tools. The coordinator is
-  running the questions thread; the answers are recorded here.
+- [x] ✅ **Task 1.1**: The owner's answers (Q62, relayed by the coordinator), verbatim: "3 and yes
+  LongTermSupport - please first though lets fully check for prior art - even if we dont get a
+  full match, surely there's some good ideas out there that we can crib from. the container
+  mounted lock file sounds like a quick win, the downside being that it would enforce full
+  single threaded across the whole machine. I think we'd need to mount N lock files and allow
+  agents to try to lock any one of them - so we have a simple concurrency limit. And yes I think
+  any single container should be capped at (100/N+1)% of machine CPU". That gives:
+  - **Option 3, staged.** First N lock files mounted into each container (an agent takes any free
+    one, so at most N heavy jobs run at once), plus a CPU cap per container. Then the queue, on
+    the home machine and in the data centre.
+  - **Repository:** `LongTermSupport/qa-queue`.
+  - **The prior-art survey (Task 1.2) comes first, and in full.**
+  - The coordinator proposed refinements that the owner has not yet confirmed. They are inputs to
+    the design, not decisions:
+    - a low cgroup `cpu.weight`, with the hard cap as a backstop;
+    - an I/O weight and a memory ceiling per container;
+    - the wrapper exports the slot's share (`GOMAXPROCS`, `go test -p`, `pytest -n`);
+    - host seats get the same caps through a systemd slice, and the same lock;
+    - N=2 on the laptop to start.
 - [ ] ⬜ **Task 1.2**: A survey of existing tools that already do this: job queues and locks
   such as `flock`, `ts` (task-spooler), `nq`, systemd transient units with slices,
   `pueue`, and self-hosted CI runners. For each: fit, gaps and licence. Build only what no
