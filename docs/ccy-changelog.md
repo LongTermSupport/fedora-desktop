@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.123.2 — container 2.84.43
+## 3.123.3 — container 2.84.43
 
 - **Every ccy and ccc container is capped, so a runaway session cannot take the host down**
   (Plan 00263, stage 1a pulled forward). Every container ccy runs (the session, the help,

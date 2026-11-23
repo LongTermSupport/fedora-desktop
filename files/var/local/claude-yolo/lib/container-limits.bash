@@ -42,13 +42,18 @@ ccy_container_limits() {
 # desktop keeps. 1 for an override refused, or a machine too small for the default: no value is
 # picked for it. The cap cannot be turned off (0, -1 and "max" are refused).
 ccy_memory_limit() {
-    local key value total="" kib=""
-    while read -r key value _; do
+    local key value total="" kib="" number fd
+    if ! exec {fd}<"$1"; then
+        print_error "could not open $1, so no memory cap can be set for a ccy container."
+        return 1
+    fi
+    while read -r -u "$fd" key value _; do
         if [ "$key" = MemTotal: ]; then
             total="$value"
             break
         fi
-    done <"$1"
+    done
+    exec {fd}<&-
     if ! [[ "$total" =~ ^[1-9][0-9]*$ ]]; then
         print_error "could not read MemTotal from $1, so no memory cap can be set for a ccy container."
         return 1
@@ -60,11 +65,12 @@ ccy_memory_limit() {
             return 1
         fi
     elif [[ "$CCY_MEMORY_MAX" =~ ^([1-9][0-9]{0,11})([bkmgBKMG]?)$ ]]; then
+        number="${BASH_REMATCH[1]}"
         case "${BASH_REMATCH[2]}" in
-        '' | b | B) kib=$((BASH_REMATCH[1] / 1024)) ;;
-        k | K) kib=${BASH_REMATCH[1]} ;;
-        m | M) kib=$((BASH_REMATCH[1] * 1024)) ;;
-        *) kib=$((BASH_REMATCH[1] * 1048576)) ;;
+        '' | b | B) kib=$((number / 1024)) ;;
+        k | K) kib=$number ;;
+        m | M) kib=$((number * 1024)) ;;
+        *) kib=$((number * 1048576)) ;;
         esac
     fi
     if [ -z "$kib" ] || [ "$kib" -lt $((CCY_MEMORY_FLOOR_MIB * 1024)) ] || [ "$kib" -gt "$total" ]; then
