@@ -22,7 +22,11 @@ variables differ by member kind, so they stay as variables, with these values:
 | `<v2-run>`     | the per-session runtime directory                                                               | `/tmp/teamchat/<run id>` (container-private `/tmp`)                   | `$XDG_RUNTIME_DIR/teamchat/run/<run id>`                                                                                               |
 
 In the LXC guest and host `cc` column, `~` is `$HOME` as the process received it, never the
-password database's home. `run --state DIR` replaces `<v2-state>` (and so `<v2-bundle>`) alone;
+password database's home. A host `cc --teams` session on a teamchat team does not use the per-user
+roots: it runs with `--state <store>/sessions/<session>` and `--desired <store>/control/<session>`,
+the seat store's directories for that session, so two cc sessions keep two conversation records
+and the seat sweep judges them as ccy's (Task 5.1, decision H1 of DESIGN-host-cc-v2.md). The
+keeper records a run's `--state` in the run directory (`state-root`), which `reach` reads. `run --state DIR` replaces `<v2-state>` (and so `<v2-bundle>`) alone;
 area C's acceptance probe uses it, with no `--desired`, so it touches none of the owner's own
 seats or membership (C 3.3). An LXC guest runs one session per seat (C 3.9.1, n3b-D2), so
 `run --kind lxc` takes `--key K` and derives both roots from it, `~/.config/teamchat/lxc/<K>/seats`

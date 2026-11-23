@@ -785,6 +785,16 @@ list the first time.
 checkout's `.claude/ccy/` if it is not there, so a repo never used with ccy works, and
 your `gh` must be logged in.
 
+**On a teamchat (v2) team** a cc session joins as a ccy session does: its seat is a pool seat of
+the checkout, issued with `--prefix <repo>+<site>.host` and placed with `teamchat seat place-issued --checkout <dir>` ([Issuing a seat](agent-bus-cross-network.md)), never made with
+sudo; the chooser lists the checkout's teamchat teams and the consent names the pool seat's
+handle. `ccy-teams internal cc-run` runs the session under `teamchat run --kind host` with the
+seat store's directories for that session, so `ccy --stop`, `ccy-sessions` restore and a team
+restart read its conversation from the seat store, and its end releases the seats (a killed
+pane keeps them until the seat sweep finds the session gone). It must be started inside ccy's
+tmux, which names the session; a list on both systems, and `cc --bus`, stay agent-bus only.
+Design: Plan 00209 `DESIGN-host-cc-v2.md`.
+
 It runs as you, with no dedicated agent user, so it can reach what you can, including the
 Matrix session you are signed in to in Element, Nheko or Lightning (the Matrix clients this
 repository installs, one list: `helpers/pingbus/matrix_clients.json`). A misbehaving agent

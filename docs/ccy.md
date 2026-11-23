@@ -1393,7 +1393,7 @@ ccy --teams dev1@dev-team,qa2@other-team    # name the seats; quote a list writt
 ```
 
 Bare `--teams` opens the shared chooser (`ccy-teams choose-teams`), which `cc --teams` uses
-too. It lists every team on the machine with a description of what it is for, covering teams
+too, on agent-bus and on teamchat teams alike ([A cc session](agent-bus.md#a-cc-session)). It lists every team on the machine with a description of what it is for, covering teams
 first, and a row to create a team; Tab marks several, and each marked team gets its own seat
 question, so one session can be on several teams. Choosing a team that does not cover this
 checkout widens its scope to the repository only when you answer yes. The launch ends with a

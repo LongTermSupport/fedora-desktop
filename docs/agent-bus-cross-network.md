@@ -122,6 +122,9 @@ Relay from the issuing person's machine:
 read -rs pw; printf '%s\n' "$pw" | ssh <bus> sudo -S -p '' teamchat-admin member add ... --credential password | ssh <member> teamchat seat place-issued --checkout <dir>; unset pw
 ```
 
+A host `cc --teams` seat (Plan 00209 Task 5.1) is issued the same way, with
+`--prefix <repo>+<site>.host`, and placed with `--checkout` at the checkout `cc` is started in.
+
 `<bus>` and `<member>` are entries in the issuing person's own ssh configuration; no hostname
 belongs in a declaration, a file of this repository or a handle. A sudoers rule for the verb is
 the homeserver host's own configuration to make or not; the play installs none. `seat place-issued` reads one issued

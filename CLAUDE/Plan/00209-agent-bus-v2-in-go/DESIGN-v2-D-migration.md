@@ -362,7 +362,10 @@ launch:
 
 Host `cc --teams` resolves systems the same way. Until B defines the v2 host-member launch, `cc --teams` refuses
 a v2-live team (exit 64) and names the gap. M0 (5.4) then refuses to migrate a team that has a
-host `cc` member, so no host session is stranded.
+host `cc` member, so no host session is stranded. **As built (Task 5.1, DESIGN-host-cc-v2.md):**
+the host-member launch exists, so `cc --teams` launches a v2-live team on a pool seat; a list on
+both systems is refused (64). M0's refusal of a team with a host member stays until Task 6.1
+decides how such a member is carried.
 
 The reason for the refusal: two kits in one session would share one status line and one
 `crossSessionInbound` key, and two watchers would write to one inbox socket. That socket drops two
@@ -1397,7 +1400,8 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
 - ccy-teams refuses a new v1 team whose name is a v2 id (3.5), keeps sudo ready through a
   migration run (5.4), and reports its own version, the launcher's and the image's v2 kit digest
   for M0.
-- `cc --teams` refuses a v2-live team until B defines the v2 host-member launch (3.9).
+- `cc --teams` refuses a v2-live team until B defines the v2 host-member launch (3.9). Built
+  by Task 5.1: a v2-live team is launched on a pool seat.
 - The launcher and ccy-teams refuse a new v1 seat, a hot add and a hot remove for a team whose
   set is between `preflighted` and `carried`, read from the status directory (3.9).
 - ccy-teams gains `migrate`, `archive open|close`, and holds the user play lock from M2 to M5.
