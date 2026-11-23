@@ -113,116 +113,104 @@
     # - systemd-oomd.service Man Page
     #   https://www.freedesktop.org/software/systemd/man/latest/systemd-oomd.service.html
     #
+    # WHERE THE KILL COMES FROM:
+    # Fedora's systemd-oomd-defaults sets ManagedOOMMemoryPressure=kill with
+    # ManagedOOMMemoryPressureLimit=50% on the SYSTEM unit user@.service
+    # (/usr/lib/systemd/system/user@.service.d/10-oomd-user-service-defaults.conf).
+    # Over the limit (PSI "full" avg10) for 20 s, oomd kills one candidate under
+    # user@UID.service: a leaf cgroup (or one with memory.oom.group=1), the one
+    # with the highest reclaim (pgscan) rate. Any desktop app or ccy container
+    # can be that leaf. ManagedOOMPreference=avoid/omit is read from the
+    # candidate's own cgroup only, never inherited, so setting it on app.slice
+    # or session.slice protects none of the app scopes beneath them.
+    #
     # SOLUTION:
-    # Set ManagedOOMMemoryPressure=auto to disable aggressive PSI-based
-    # killing. Falls back to kernel OOM killer which only kills when
-    # actually out of memory (not false-positive pressure detection).
+    # A system drop-in that sorts after Fedora's sets user@.service back to
+    # ManagedOOMMemoryPressure=auto: oomd no longer watches the session's
+    # pressure. The kernel OOM killer still acts when memory really runs out, and
+    # ccy's containers are capped together by agents.slice (play-claude-yolo.yml),
+    # where the kernel kills inside that slice first. A drop-in in the USER
+    # manager (~/.config/systemd/user/user.slice.d) cannot do this: the user
+    # manager has no user.slice, and the kill setting is on the system unit.
     #
     # ALTERNATIVES CONSIDERED:
     # - Increase ManagedOOMMemoryPressureLimit to 95% (still has false positives)
-    # - Add explicit container memory limits (doesn't fix root cause)
-    # - Disable systemd-oomd system-wide (too aggressive, affects all users)
+    # - Disable systemd-oomd system-wide (too aggressive; -.slice's swap kill is kept)
+    # - ManagedOOMPreference on the desktop slices (not inherited; see above)
     #
     # =========================================================================
 
-    - name: Create Systemd User Config Directory
+    - name: Create The user@.service Drop-In Directory
+      become: true
       ansible.builtin.file:
-        path: "/home/{{ user_login }}/.config/systemd/user/user.slice.d"
+        path: /etc/systemd/system/user@.service.d
         state: directory
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
+        owner: root
+        group: root
         mode: "0755"
       tags:
         - systemd
         - oomd
 
-    - name: Disable systemd-oomd Aggressive Memory Pressure Killing
-      ansible.builtin.blockinfile:
-        path: "/home/{{ user_login }}/.config/systemd/user/user.slice.d/50-oom-override.conf"
-        marker: "# {mark} ANSIBLE MANAGED: Disable systemd-oomd aggressive killing"
-        block: |
-          [Slice]
-          # Disable systemd-oomd proactive memory pressure killing
-          # This prevents false-positive OOM kills when containers/processes
-          # perform normal file I/O and cache operations despite abundant RAM
-          #
-          # See playbook documentation for detailed explanation and bug references
-          ManagedOOMMemoryPressure=auto
-        create: true
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
+    - name: Stop systemd-oomd Killing In The User Session On Memory Pressure
+      become: true
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/systemd/system/user@.service.d/50-no-memory-pressure-kill.conf"
+        dest: /etc/systemd/system/user@.service.d/50-no-memory-pressure-kill.conf
+        owner: root
+        group: root
         mode: "0644"
       register: oomd_config
-      notify: reload-systemd-user-daemon
       tags:
         - systemd
         - oomd
 
-    # Apply the notified daemon-reload NOW (handlers otherwise flush only at play end), so
-    # the verify below reads the RELOADED user.slice, not its pre-drop-in value — required
-    # for the assertion to be meaningful on the first run.
-    - name: Flush handlers to apply the user daemon-reload before verifying
-      ansible.builtin.meta: flush_handlers
+    # It set the property on a unit no cgroup belongs to, so it never applied.
+    - name: Remove The Old User-Manager Drop-In That Never Applied
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/systemd/user/user.slice.d/50-oom-override.conf"
+        state: absent
+      tags:
+        - systemd
+        - oomd
 
-    # Query the single property directly (no `| grep`) so this task has ONE failure
-    # surface — it fails only if `systemctl --user` itself cannot reach the manager;
-    # the value check is the assert below, which carries the actionable message.
-    - name: Verify systemd-oomd Configuration
-      ansible.builtin.command: systemctl --user show user.slice --property=ManagedOOMMemoryPressure
+    # Its own task, not a handler, so the read-back below always sees the reloaded unit.
+    # pid 1 hands the changed property to systemd-oomd on the reload; no restart of the
+    # user manager (which would end the session) is needed.
+    - name: Reload The System Manager So user@.service Takes The Drop-In
       become: true
-      become_user: "{{ user_login }}"
-      environment:
-        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
-        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}/bus"
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: oomd_config.changed
+      tags:
+        - systemd
+        - oomd
+
+    - name: Read Back user@.service's Memory Pressure Setting
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - show
+          - "user@{{ ansible_facts['getent_passwd'][user_login][1] }}.service"
+          - --property=ManagedOOMMemoryPressure
       register: oomd_verify
       changed_when: false
       tags:
         - systemd
         - oomd
 
-    - name: Assert systemd-oomd Override Was Applied
+    - name: Assert systemd-oomd No Longer Kills In The User Session On Pressure
       ansible.builtin.assert:
         that:
-          - "'ManagedOOMMemoryPressure=auto' in oomd_verify.stdout"
+          - "'ManagedOOMMemoryPressure=auto' in oomd_verify.stdout_lines"
         fail_msg: |
-          The systemd-oomd override (ManagedOOMMemoryPressure=auto) is not present in the
-          reloaded user.slice. The drop-in was written to
-          ~/.config/systemd/user/user.slice.d/50-oom-override.conf and the user daemon was
-          reloaded, but the value did not take effect — investigate the user systemd manager
-          state (systemctl --user show user.slice).
-          Verify output: {{ oomd_verify.stdout | default('(empty)') }}
-      tags:
-        - systemd
-        - oomd
-
-    - name: Display systemd-oomd Configuration Status
-      ansible.builtin.debug:
-        msg:
-          - "════════════════════════════════════════════════════════════════"
-          - "systemd-oomd Memory Pressure Configuration"
-          - "════════════════════════════════════════════════════════════════"
-          - ""
-          - "Status: {{ 'Updated' if oomd_config.changed else 'Already configured' }}"
-          - "Current setting: {{ oomd_verify.stdout | default('unknown') }}"
-          - ""
-          - "What this does:"
-          - "  • Disables aggressive PSI-based memory pressure killing"
-          - "  • Prevents false-positive OOM kills on container workloads"
-          - "  • Falls back to kernel OOM killer (only kills when truly OOM)"
-          - ""
-          - "Impact:"
-          - "  • Rootless Podman/Docker containers won't be killed prematurely"
-          - "  • Applications can use cache memory without triggering OOM"
-          - "  • No more unexpected terminations with abundant free RAM"
-          - ""
-          - "Verification:"
-          - "  systemctl --user show user.slice | grep ManagedOOM"
-          - ""
-          - "To revert (not recommended):"
-          - "  rm ~/.config/systemd/user/user.slice.d/50-oom-override.conf"
-          - "  systemctl --user daemon-reload"
-          - ""
-          - "════════════════════════════════════════════════════════════════"
+          user@{{ ansible_facts['getent_passwd'][user_login][1] }}.service still reports
+          {{ oomd_verify.stdout | default('(empty)') }} after the drop-in
+          /etc/systemd/system/user@.service.d/50-no-memory-pressure-kill.conf was written and
+          the system manager reloaded, so systemd-oomd can still kill desktop apps on memory
+          pressure. Look for a later drop-in overriding it with
+          systemctl cat user@{{ ansible_facts['getent_passwd'][user_login][1] }}.service
+        quiet: true
       tags:
         - systemd
         - oomd
@@ -233,26 +221,9 @@
     # Add additional systemd user service configurations below following
     # the same pattern:
     # - Create necessary directories
-    # - Use blockinfile for config files
-    # - Use notify to trigger daemon-reload handler
-    # - Verify configuration
+    # - Deploy the file from files/
+    # - Reload the manager that reads it
+    # - Read the value back from the live manager and assert it
     # - Tag appropriately
     # =========================================================================
 
-  handlers:
-    # With linger enabled and user@UID.service explicitly started in this play, the user
-    # manager is guaranteed up on both profiles, so the daemon-reload no longer needs the
-    # old blanket error-suppression headless escape hatch (removed — a failure here now
-    # means the manager really is broken, which must fail the run). XDG_RUNTIME_DIR is what
-    # `systemctl --user` actually dials (its private socket); DBUS is kept for parity with
-    # the scope:user precedent at play-rclone.yml:203-205.
-    - name: reload-systemd-user-daemon
-      ansible.builtin.systemd:
-        daemon_reload: true
-        scope: user
-      become: true
-      become_user: "{{ user_login }}"
-      environment:
-        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
-        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}/bus"
-      listen: reload-systemd-user-daemon

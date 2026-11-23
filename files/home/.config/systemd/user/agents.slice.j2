@@ -1,0 +1,11 @@
+# Deployed by playbooks/imports/play-claude-yolo.yml. Every ccy and ccc container runs in this
+# slice (podman run --cgroup-parent agents.slice), so all of them together stay below the
+# machine's RAM less the 16 GiB kept for the desktop. MemoryHigh throttles the slice 1 GiB before
+# MemoryMax, where the kernel kills inside this slice only. Nothing here asks systemd-oomd to act:
+# docs/ccy.md, "Container limits".
+[Unit]
+Description=ccy containers, capped together (docs/ccy.md, Container limits)
+
+[Slice]
+MemoryMax={{ ccy_agents_slice_max_mb }}M
+MemoryHigh={{ ccy_agents_slice_high_mb }}M

@@ -63,7 +63,20 @@
 # made the seat's wants link it removes the link and STOPS that running session. From now on a
 # v2 LXC seat's session starts only on demand (teamchat-admin lxc restart --member).
 playbooks/imports/play-teamchat.yml
+# Memory caps after the out-of-memory crash (branch ccy-caps): systemd-oomd stops killing in
+# the user session on memory pressure. A system drop-in for user@.service sets
+# ManagedOOMMemoryPressure=auto over Fedora's kill at 50% for 20 s (the setting that killed
+# desktop apps and containers), the old user-manager drop-in that never applied is removed, the
+# system manager is reloaded (no logout) and the live value is read back. Swap-based killing on
+# -.slice and the kernel OOM killer are unchanged.
+playbooks/imports/play-systemd-user-tweaks.yml --tags oomd
 # The ccy image is rebuilt once for the teamchat it carries; nothing a session does changes.
+# The same run installs agents.slice (~/.config/systemd/user), the user slice every ccy and ccc
+# container now runs in: MemoryMax = RAM less 16 GiB, MemoryHigh 1 GiB below, read back from the
+# live user manager; and the launcher (ccy 3.123.x) that starts each container with
+# --cgroup-parent agents.slice, --pids-limit 16384, --memory and --memory-reservation. A launch
+# is refused until the slice is installed, so this run must precede any new session. Running
+# sessions keep their old cgroup and limits until they restart.
 # The same run installs issue #288's Go commands (ccy 3.122.26: ccy-sessions, ccy-teams and the
 # launcher's front), whose typed-line submitter no longer takes a screen with no input box as
 # entered and names what the box showed when a line stays in it. Its ccy-teams (ccy 3.122.34,

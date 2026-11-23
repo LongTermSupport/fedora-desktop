@@ -165,6 +165,56 @@ check "the launcher sources it" "1" "$(grep -c -x -F "source \"\$SCRIPT_DIR/lib/
 check "the limits are settled as soon as it is loaded, before any container runs" "yes" "$(awk '/^source "[$]SCRIPT_DIR\/lib\/container-limits[.]bash"$/ {s=NR} /^ccy_container_limits [|][|] exit 1$/ {l=NR} /(container_cmd|ccy_agent_container) run / && !r {r=NR} END {print (s && l == s + 1 && l < r) ? "yes" : "no"}' "$LAUNCHER")"
 check "the session container's run passes the whole set" "1" "$(grep -c -F "ccy_agent_container run \$DOCKER_FLAGS --rm \"\${CCY_LIMIT_ARGS[@]}\" \\" "$LAUNCHER")"
 
+echo "=== the slice's unit, as the play renders it ==="
+SLICE_TEMPLATE="$REPO_ROOT/files/home/.config/systemd/user/agents.slice.j2"
+PLAY="$REPO_ROOT/playbooks/imports/play-claude-yolo.yml"
+# The play's two values, rendered into the template by name: what Ansible writes for a machine
+# whose facts give memtotal_mb 65536 (64 GiB) and no override.
+rendered=""
+if [ -f "$SLICE_TEMPLATE" ]; then
+    rendered=$(<"$SLICE_TEMPLATE")
+    rendered=${rendered//"{{ ccy_agents_slice_max_mb }}"/49152}
+    rendered=${rendered//"{{ ccy_agents_slice_high_mb }}"/48128}
+fi
+check "the unit caps the slice at the max, and throttles 1 GiB below it" \
+    "[Unit]|Description=ccy containers, capped together (docs/ccy.md, Container limits)|[Slice]|MemoryMax=49152M|MemoryHigh=48128M" \
+    "$(grep -v -e '^#' -e '^$' <<<"$rendered" | paste -sd '|')"
+check "the unit sets nothing for systemd-oomd" "0" "$(grep -c '^ManagedOOM' <<<"$rendered")"
+check "the template holds no other placeholder" "0" "$(grep -c '{{' <<<"$rendered")"
+# The play's arithmetic is the library's: the slice's max is the RAM less the desktop's share,
+# which is a lone container's default cap, and the throttle is 1 GiB below it.
+# shellcheck source-path=SCRIPTDIR source=../files/var/local/claude-yolo/lib/container-limits.bash
+CCY_MEMORY_DESKTOP_MIB_EXPECTED=$(source "$LIB" && echo "$CCY_MEMORY_DESKTOP_MIB")
+# shellcheck source-path=SCRIPTDIR source=../files/var/local/claude-yolo/lib/container-limits.bash
+CCY_MEMORY_FLOOR_MIB_EXPECTED=$(source "$LIB" && echo "$CCY_MEMORY_FLOOR_MIB")
+check "the play's max is the RAM less the library's desktop share, or the host's override" "1" \
+    "$(grep -c -x -F "    ccy_agents_slice_max_mb: \"{{ (ccy_agents_slice_memory_max_mb | default((ansible_facts['memtotal_mb'] | int) - $CCY_MEMORY_DESKTOP_MIB_EXPECTED)) | int }}\"" "$PLAY")"
+check "the play's throttle is 1 GiB below the max" "1" \
+    "$(grep -c -x -F "    ccy_agents_slice_high_mb: \"{{ (ccy_agents_slice_max_mb | int) - 1024 }}\"" "$PLAY")"
+check "the play refuses a max under the library's floor" "1" \
+    "$(grep -c -x -F "          - ccy_agents_slice_max_mb | int >= $CCY_MEMORY_FLOOR_MIB_EXPECTED" "$PLAY")"
+check "the play installs the unit where the library looks for it" "1" \
+    "$(grep -c -x -F '        dest: "/home/{{ user_login }}/.config/systemd/user/agents.slice"' "$PLAY")"
+
+echo "=== the user manager: no memory-pressure kill ==="
+# Fedora's systemd-oomd-defaults gives user@.service ManagedOOMMemoryPressure=kill (50% for
+# 20 s) in user@.service.d/10-oomd-user-service-defaults.conf; oomd then kills the leaf cgroup
+# with the highest reclaim rate anywhere under user@UID.service, desktop apps included, and the
+# slice's MemoryHigh throttle is pressure that rolls up to it. The drop-in turns that off.
+OOMD_DROPIN_NAME=50-no-memory-pressure-kill.conf
+OOMD_DROPIN="$REPO_ROOT/files/etc/systemd/system/user@.service.d/$OOMD_DROPIN_NAME"
+check "the drop-in sets user@.service's ManagedOOMMemoryPressure to auto" "[Service]|ManagedOOMMemoryPressure=auto" \
+    "$(grep -v -e '^#' -e '^$' "$OOMD_DROPIN" 2>/dev/null | paste -sd '|')"
+check "it is read after Fedora's 10-oomd-user-service-defaults.conf, so it wins" "yes" \
+    "$(LC_ALL=C; [[ "$OOMD_DROPIN_NAME" > 10-oomd-user-service-defaults.conf ]] && echo yes || echo no)"
+TWEAKS="$REPO_ROOT/playbooks/imports/play-systemd-user-tweaks.yml"
+check "the play installs it beside the system's user@.service" "1" \
+    "$(grep -c -x -F "        dest: /etc/systemd/system/user@.service.d/$OOMD_DROPIN_NAME" "$TWEAKS")"
+check "the play no longer writes the user manager's user.slice drop-in, which no cgroup reads" "0" \
+    "$(grep -c -F 'blockinfile' "$TWEAKS")"
+check "the play reads the value back from user@UID.service" "1" \
+    "$(grep -c -F -e "- \"user@{{ ansible_facts['getent_passwd'][user_login][1] }}.service\"" "$TWEAKS")"
+
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]
