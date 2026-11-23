@@ -78,6 +78,13 @@
 #   Every non-parked member joins the questions room (only humans and the coordinator post), and a
 #   human's answer is relayed to the seat a question was asked for.
 # Nothing running changes until a session starts.
+# Rollback insurance, run once before the new teamchat: the new member program writes a seat
+# store the old one cannot read (sync.floor_ids), so this copies each of the owner's seat stores
+# (ccy and host cc seats; not LXC guests') to a new 0700 directory under the XDG state home,
+# with a manifest and the old kit digest, printing each source and copy. It reads and copies
+# only. A rollback puts them back with store-restore.bash <dir> after the old program is
+# deployed again. It fails if a store was already written by the new program.
+00209-agent-bus-v2-in-go/store-backup.bash
 playbooks/imports/play-teamchat.yml
 # Memory caps after the out-of-memory crash (branch ccy-caps): systemd-oomd stops killing in
 # the user session on memory pressure. A system drop-in for user@.service sets
