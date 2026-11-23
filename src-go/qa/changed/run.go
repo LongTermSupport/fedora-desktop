@@ -112,6 +112,7 @@ func newSession(env Env, opts options) (*session, error) {
 	if err := s.load(); err != nil {
 		return nil, err
 	}
+	s.openPasses()
 	return s, nil
 }
 
@@ -343,22 +344,41 @@ func (s *session) execute(ctx context.Context) ExitCode {
 		record(d.id, o)
 	}
 	for _, suite := range s.plan.suites {
-		for _, argv := range s.suiteRuns(suite) {
-			res, o := s.timed(ctx, true, func(c context.Context) (checkResult, error) {
-				return s.exec(c, nil, argv.argv...)
-			})
-			if o == interrupted {
-				return s.interrupted()
-			}
-			name, reasons := "suite "+strings.TrimPrefix(suite.name, "scripts/"), "("+strings.Join(suite.why, "; ")+")"
-			if o == passed {
-				o, reasons, res.output = judgeSuite(res.output, reasons, argv.rows)
-			}
-			s.report(name, reasons, res, o)
-			record(name, o)
+		if s.runSuite(ctx, suite, record) {
+			return s.interrupted()
 		}
 	}
 	return s.verdict(failures, cannot)
+}
+
+// runSuite runs one picked suite, each of its command lines, unless a local run finds its inputs
+// passed before; a suite every line of which passed is remembered. It answers whether the run
+// was interrupted.
+func (s *session) runSuite(ctx context.Context, suite pickedSuite, record func(string, outcome)) bool {
+	key, skip := s.skipSuite(suite)
+	if skip {
+		return false
+	}
+	allPassed := true
+	for _, argv := range s.suiteRuns(suite) {
+		res, o := s.timed(ctx, true, func(c context.Context) (checkResult, error) {
+			return s.exec(c, nil, argv.argv...)
+		})
+		if o == interrupted {
+			return true
+		}
+		name, reasons := "suite "+strings.TrimPrefix(suite.name, "scripts/"), "("+strings.Join(suite.why, "; ")+")"
+		if o == passed {
+			o, reasons, res.output = judgeSuite(res.output, reasons, argv.rows)
+		}
+		s.report(name, reasons, res, o)
+		record(name, o)
+		allPassed = allPassed && o == passed
+	}
+	if allPassed {
+		s.recordPass(suite, key)
+	}
+	return false
 }
 
 // summaryOf is a check's report summary; a semgrep gate narrowed to the changed files says so

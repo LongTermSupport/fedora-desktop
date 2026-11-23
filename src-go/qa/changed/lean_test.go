@@ -94,3 +94,135 @@ func TestLocallyAChangedRuleRunsTheGateWhole(t *testing.T) {
 		t.Fatalf("argv-leak ran as %v", got)
 	}
 }
+
+// suiteSkipWorld is a run world whose test-one.bash drives the teams command, built from
+// src-go/internal/teams, with a store for recorded passes.
+func suiteSkipWorld(t *testing.T) (*runWorld, string) {
+	t.Helper()
+	w := newRunWorld(t)
+	writeFile(t, w.scripts, "go-binary-suites.tsv", "teams\tscripts/test-one.bash\n")
+	w.runner.replies["go list -deps"] = proc.Result{Stdout: filepath.Join(w.root, "src-go/internal/teams") + "\n"}
+	writeFile(t, w.root, "src-go/internal/teams/t.go", "package teams\n")
+	w.env["QA_SUITE_PASSES"] = filepath.Join(t.TempDir(), "passes")
+	return w, filepath.Join(w.scripts, "test-one.bash")
+}
+
+// suiteRunsFrom counts the runs of the script among the calls from the index on.
+func suiteRunsFrom(calls []proc.Cmd, from int, script string) int {
+	n := 0
+	for _, c := range calls[from:] {
+		if len(c.Argv) > 1 && c.Argv[1] == script {
+			n++
+		}
+	}
+	return n
+}
+
+// A suite picked only because its command's build closure changed is skipped on a later local
+// run over the same inputs after it passed, and runs again once an input changes.
+func TestLocallyASuiteWhoseInputsPassedBeforeIsSkipped(t *testing.T) {
+	w, script := suiteSkipWorld(t)
+	if code := w.main(); code != ExitOK {
+		t.Fatalf("first run: exit %d, stderr %q", code, w.errOut.String())
+	}
+	if n := suiteRunsFrom(w.runner.calls, 0, script); n != 1 {
+		t.Fatalf("first run ran the suite %d times", n)
+	}
+	from := len(w.runner.calls)
+	if code := w.main(); code != ExitOK {
+		t.Fatalf("second run: exit %d, stderr %q", code, w.errOut.String())
+	}
+	if n := suiteRunsFrom(w.runner.calls, from, script); n != 0 {
+		t.Fatalf("second run over the same inputs ran the suite %d times", n)
+	}
+	if want := "✓ suite test-one.bash: skipped, unchanged since a recorded pass (builds from src-go/internal/teams/t.go); CI runs it\n"; !strings.Contains(w.out.String(), want) {
+		t.Fatalf("stdout lacks %q:\n%s", want, w.out.String())
+	}
+	writeFile(t, w.root, "src-go/internal/teams/t.go", "package teams\n\nvar x = 1\n")
+	from = len(w.runner.calls)
+	if code := w.main(); code != ExitOK {
+		t.Fatalf("third run: exit %d, stderr %q", code, w.errOut.String())
+	}
+	if n := suiteRunsFrom(w.runner.calls, from, script); n != 1 {
+		t.Fatalf("a changed input must run the suite again; ran %d times", n)
+	}
+}
+
+// A failed suite records nothing, so it runs again.
+func TestAFailedSuiteIsNotRecorded(t *testing.T) {
+	w, script := suiteSkipWorld(t)
+	w.runner.replies["bash "+script] = proc.Result{Stdout: "passed: 1 failed: 1\n", Code: 1}
+	if code := w.main(); code != ExitFailed {
+		t.Fatalf("exit %d", code)
+	}
+	w.runner.replies["bash "+script] = proc.Result{Stdout: "passed: 1 failed: 0\n"}
+	from := len(w.runner.calls)
+	if code := w.main(); code != ExitOK {
+		t.Fatalf("exit %d, stderr %q", code, w.errOut.String())
+	}
+	if n := suiteRunsFrom(w.runner.calls, from, script); n != 1 {
+		t.Fatalf("a failed suite was skipped (ran %d times)", n)
+	}
+}
+
+// With nowhere to keep passes the run says so and runs every suite; a pass that cannot be
+// written is reported and costs only a rerun.
+func TestNoStoreOrAnUnwritableOneRunsTheSuiteAndSaysSo(t *testing.T) {
+	w, script := suiteSkipWorld(t)
+	delete(w.env, "QA_SUITE_PASSES")
+	for range 2 {
+		if code := w.main(); code != ExitOK {
+			t.Fatalf("exit %d, stderr %q", code, w.errOut.String())
+		}
+		if !strings.Contains(w.errOut.String(), "no suite pass is remembered") {
+			t.Fatalf("stderr %q", w.errOut.String())
+		}
+	}
+	if n := suiteRunsFrom(w.runner.calls, 0, script); n != 2 {
+		t.Fatalf("with no store the suite ran %d times, want 2", n)
+	}
+	blocker := filepath.Join(t.TempDir(), "a-file")
+	writeFile(t, filepath.Dir(blocker), "a-file", "x")
+	w.env["QA_SUITE_PASSES"] = filepath.Join(blocker, "passes")
+	if code := w.main(); code != ExitOK {
+		t.Fatalf("exit %d, stderr %q", code, w.errOut.String())
+	}
+	if !strings.Contains(w.errOut.String(), "suite scripts/test-one.bash runs: cannot read the suite pass record") {
+		t.Fatalf("stderr %q", w.errOut.String())
+	}
+	if n := suiteRunsFrom(w.runner.calls, 0, script); n != 3 {
+		t.Fatalf("with an unreadable store the suite must run; ran %d times in all, want 3", n)
+	}
+}
+
+// In CI a recorded pass is never read: every picked suite runs.
+func TestInCIARecordedPassIsIgnored(t *testing.T) {
+	w, script := suiteSkipWorld(t)
+	if code := w.main(); code != ExitOK {
+		t.Fatalf("exit %d, stderr %q", code, w.errOut.String())
+	}
+	w.env["CI"] = "true"
+	from := len(w.runner.calls)
+	if code := w.main(); code != ExitOK {
+		t.Fatalf("exit %d, stderr %q", code, w.errOut.String())
+	}
+	if n := suiteRunsFrom(w.runner.calls, from, script); n != 1 {
+		t.Fatalf("CI skipped a suite (ran %d times)", n)
+	}
+}
+
+// A suite picked for any other reason too (it names or reaches a changed file, or changed
+// itself) always runs: the key covers only the command's build closure and the suite.
+func TestASuitePickedForAnotherReasonAlwaysRuns(t *testing.T) {
+	w, script := suiteSkipWorld(t)
+	w.changeKept()
+	for range 2 {
+		from := len(w.runner.calls)
+		if code := w.main(); code != ExitOK {
+			t.Fatalf("exit %d, stderr %q", code, w.errOut.String())
+		}
+		if n := suiteRunsFrom(w.runner.calls, from, script); n != 1 {
+			t.Fatalf("a suite that names a changed file was skipped (ran %d times)", n)
+		}
+	}
+}

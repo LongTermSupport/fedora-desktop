@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/gates"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/suitepass"
 )
 
 // checkPlan is what one check will be given.
@@ -79,6 +80,11 @@ type session struct {
 	ci bool
 	// narrowed holds, by wrapper script, how many changed files a semgrep gate was narrowed to.
 	narrowed map[string]int
+	// suiteDirs holds, by suite, the build closure directories of the commands it drives.
+	suiteDirs map[string][]string
+	// passes is the store of suite passes a local run reads and writes; nil in CI or with no
+	// cache directory, when every picked suite runs.
+	passes *suitepass.Store
 }
 
 // load reads the routing tables.
@@ -102,6 +108,7 @@ func (s *session) load() error {
 	s.probe = fileProbe{root: s.root}
 	s.plan = &plan{checks: map[string]*checkPlan{}, covered: map[string]bool{}}
 	s.kinds = map[string]int{}
+	s.suiteDirs = map[string][]string{}
 	return nil
 }
 

@@ -41,6 +41,8 @@ func newRunWorld(t *testing.T) *runWorld {
 	for _, suite := range []string{"test-one.bash", "test-two.bash"} {
 		w.runner.replies["bash "+filepath.Join(w.scripts, suite)] = proc.Result{Stdout: "passed: 1 failed: 0\n"}
 	}
+	// A local run remembers suite passes; each world keeps its own store.
+	w.env["QA_SUITE_PASSES"] = filepath.Join(t.TempDir(), "suite-passes")
 	return w
 }
 

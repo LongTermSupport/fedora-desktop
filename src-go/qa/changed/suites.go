@@ -144,6 +144,9 @@ func (s *session) buildOwners(ctx context.Context, rows []goRow) (map[string][]s
 		if err != nil {
 			return nil, err
 		}
+		for _, suite := range row.suites {
+			s.suiteDirs[suite] = append(s.suiteDirs[suite], dirs...)
+		}
 		for _, f := range s.plan.goFiles {
 			if s.ownedBy(f, dirs) {
 				for _, suite := range row.suites {
@@ -186,7 +189,7 @@ func (s *session) selectSuites(ctx context.Context) error {
 		}
 		var why []string
 		for _, f := range owners[suite] {
-			why = append(why, "builds from "+f)
+			why = append(why, buildReason+f)
 		}
 		if slices.Contains(changed, suite) {
 			why = append(why, "the suite itself changed")
