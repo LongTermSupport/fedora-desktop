@@ -164,7 +164,7 @@ func (s *session) applySubset() {
 		suites = len(s.plan.suites)
 		s.plan.suites = nil
 	}
-	s.plan.notes = append(s.plan.notes, fmt.Sprintf("%s %s: %d planned check(s) and %d suite(s) left to the run that takes the rest: %s",
+	s.plan.notes = append(s.plan.notes, fmt.Sprintf("%s %s: %d planned check(s) and %d suite(s) left to the other parts of the run: %s",
 		s.opts.subsetFlag(), strings.Join(s.opts.picked, ","), len(left), suites, strings.Join(left, " ")))
 }
 
