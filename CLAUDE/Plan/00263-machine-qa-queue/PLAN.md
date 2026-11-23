@@ -157,6 +157,19 @@ its own focused CI (see Plan 00262).
 - [ ] ⬜ **Task D.2**: A play installs the pinned runner; `qa-changed.bash` and the agents' QA
   instructions submit through the queue.
 
+### Phase E: later, auto-tuning and weighted jobs (owner direction, Q64)
+
+The owner wants "something that monitors and auto tunes this config, and something that can
+judge and weight specific job runs". The static D1 formula ships first; this phase comes after
+Phase D.
+
+- [ ] ⬜ **Task E.1**: Auto-tune N and the per-run caps from measured cgroup data
+  (`memory.peak`, the `cpu.stat` and pressure figures, queue wait), never below the owner's
+  desktop floors.
+- [ ] ⬜ **Task E.2**: Per-job weights. A job declares or learns its cost (for example, a Go
+  `-race` run weighs 3 slots and a lint weighs 1), and the queue packs slots by weight, not by
+  count.
+
 ## Success Criteria
 
 - [ ] Five agent sessions asking for QA at once run at most N jobs at a time, and the owner's
