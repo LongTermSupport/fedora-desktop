@@ -20,15 +20,16 @@ func TestTheLauncherSettlesTheLimitsFirst(t *testing.T) {
 	}
 }
 
-// withLimits is the start of the argv of a container the front runs under the limit set lim.
-func withLimits(lim []string, rest ...string) []string {
-	return slices.Concat([]string{"run", "--rm"}, lim, rest)
+// withLimits is the argv of a container the front runs: run, the start limitsOf gives, then rest.
+func withLimits(run []string, rest ...string) []string {
+	return slices.Concat(run, rest)
 }
 
-// limitsOf is the limit set with the pids limit and the memory caps given.
+// limitsOf is the start of a container run under the limit set with the pids limit and the
+// memory caps given.
 func limitsOf(pids, memory, reservation string) []string {
 	return []string{
-		"--cgroup-parent", "agents.slice", "--pids-limit", pids,
+		"run", "--rm", "--cgroup-parent", "agents.slice", "--pids-limit", pids,
 		"--memory", memory, "--memory-reservation", reservation,
 	}
 }
@@ -120,7 +121,7 @@ func TestTheLauncherChecksRunUnderTheLimits(t *testing.T) {
 				t.Fatalf("%s with %s: exit %d, stderr %q", flag, kv, code, r.stderr)
 			}
 			args := r.runner.Calls()[0].Args
-			if len(args) < 2+len(want) || !slices.Equal(args[:2+len(want)], withLimits(want)) {
+			if len(args) < len(want) || !slices.Equal(args[:len(want)], want) {
 				t.Fatalf("%s with %s ran %q, want the limit set %q", flag, kv, args, want)
 			}
 		}

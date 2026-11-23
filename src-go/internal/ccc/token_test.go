@@ -117,7 +117,7 @@ func TestFirstRunSignsInAndKeepsTheToken(t *testing.T) {
 		t.Fatalf("exit %d, stderr %q", code, w.stderr)
 	}
 	fg := w.run.Foregrounds()
-	if len(fg) != 1 || !strings.Contains(fg[0].Line(), "--entrypoint claude") || !strings.HasSuffix(fg[0].Line(), "setup-token") || !strings.Contains(fg[0].Line(), strings.Join(limitArgs, " ")) {
+	if len(fg) != 1 || !strings.Contains(fg[0].Line(), "--entrypoint claude") || !strings.HasSuffix(fg[0].Line(), "setup-token") || !strings.Contains(fg[0].Line(), strings.Join(limitRun, " ")) {
 		t.Fatalf("sign-in %v", fg)
 	}
 	if !w.guard.cmds[0].Secrets[0].Is(testToken) {

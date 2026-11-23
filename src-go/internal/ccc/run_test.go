@@ -10,9 +10,9 @@ import (
 // testLimits is the limit set of a 64 GiB machine with no override.
 var testLimits = ccylimits.Limits{Pids: "16384", MemoryMiB: 49152}
 
-// limitArgs is how testLimits reads in a container's argv.
-var limitArgs = []string{
-	"--cgroup-parent", "agents.slice", "--pids-limit", "16384",
+// limitRun is how testLimits starts a container's argv.
+var limitRun = []string{
+	"run", "--rm", "--cgroup-parent", "agents.slice", "--pids-limit", "16384",
 	"--memory", "49152m", "--memory-reservation", "47104m",
 }
 
@@ -21,7 +21,7 @@ func TestSessionArgsMountOnlyTheFolderAndTheState(t *testing.T) {
 		Agent: Claude, Folder: "/srv/u/CCC", State: "/srv/u/.local/share/ccc/claude",
 		Name: "ccc-claude-42", TimeZone: "Europe/London", Term: "xterm-256color", Limits: testLimits,
 	})
-	want := slices.Concat([]string{"run", "--rm"}, limitArgs, []string{
+	want := slices.Concat(limitRun, []string{
 		"--interactive", "--tty",
 		"--name", "ccc-claude-42",
 		"--label", "ccc=true", "--label", "ccc-agent=claude",
@@ -57,7 +57,7 @@ func TestSessionArgsLeaveOutAnUnknownZone(t *testing.T) {
 
 func TestSignInArgsMountNothing(t *testing.T) {
 	got := signInArgs(Claude, testLimits)
-	want := slices.Concat([]string{"run", "--rm"}, limitArgs, []string{"--interactive", "--tty", "--network", "podman", "--entrypoint", "claude", "claude-yolo:latest", "setup-token"})
+	want := slices.Concat(limitRun, []string{"--interactive", "--tty", "--network", "podman", "--entrypoint", "claude", "claude-yolo:latest", "setup-token"})
 	if !slices.Equal(got, want) {
 		t.Fatalf("got %q", got)
 	}

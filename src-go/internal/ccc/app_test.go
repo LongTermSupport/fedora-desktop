@@ -167,7 +167,7 @@ func TestFirstRunMakesTheFolderAndStartsClaudeThere(t *testing.T) {
 	if c.Name != "podman" || !slices.Contains(c.Args, dir+":/workspace:z") {
 		t.Fatalf("session %v", c.Args)
 	}
-	if !slices.Equal(c.Args[2:2+len(limitArgs)], limitArgs) {
+	if !slices.Equal(c.Args[:len(limitRun)], limitRun) {
 		t.Fatalf("the session runs without the app's limit set: %q", c.Args)
 	}
 	if len(c.Secrets) != 1 || c.Secrets[0].Name() != "CLAUDE_CODE_OAUTH_TOKEN" || !c.Secrets[0].Is(testToken) {

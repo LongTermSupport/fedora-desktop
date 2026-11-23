@@ -6,8 +6,10 @@
 //   - L1. The pids limit: CCY_PIDS_LIMIT, a whole number from 256 to 32768, else 16384.
 //   - L2. The memory limit: CCY_MEMORY_MAX (bytes, or a number with k, m or g), from 4 GiB to
 //     the machine's RAM; else the RAM less the 16 GiB kept for the desktop. A machine where
-//     that is under 4 GiB is refused, naming CCY_MEMORY_MAX: no value is picked for it. The
-//     soft limit (--memory-reservation, memory.high) is 2 GiB below. Neither can be turned off.
+//     that is under 4 GiB is refused, naming CCY_MEMORY_MAX: no value is picked for it. It
+//     cannot be turned off. --memory-reservation is 2 GiB below: on cgroup v2 crun writes it
+//     to memory.low, a reclaim protection and not a throttle, which inside agents.slice (no
+//     MemoryLow of its own) protects nothing; the throttle is the slice's MemoryHigh.
 //   - L3. The slice: every container runs in the user unit agents.slice, which caps all of them
 //     together; a host without its unit file is refused, naming the play that installs it.
 package ccylimits
@@ -34,7 +36,7 @@ const (
 	DesktopMiB = 16384
 	// FloorMiB is the smallest cap a container may have.
 	FloorMiB = 4096
-	// SoftGapMiB is how far below the cap the soft limit is.
+	// SoftGapMiB is how far below the cap --memory-reservation (memory.low) is.
 	SoftGapMiB = 2048
 
 	// Slice is the user slice every ccy container runs in.

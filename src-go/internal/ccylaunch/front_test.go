@@ -53,11 +53,8 @@ func machineConfig(dir string) string {
 	return "XDG_CONFIG_HOME=" + filepath.Join(dir, "machine", "config")
 }
 
-// defaultLimits is the limit set of a container run on that machine with no override.
-var defaultLimits = []string{
-	"--cgroup-parent", "agents.slice", "--pids-limit", "16384",
-	"--memory", "49152m", "--memory-reservation", "47104m",
-}
+// defaultLimits is the start of a container run on that machine with no override.
+var defaultLimits = limitsOf("16384", "49152m", "47104m")
 
 type run struct {
 	front          Front
