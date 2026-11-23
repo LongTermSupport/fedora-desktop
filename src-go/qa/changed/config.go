@@ -75,6 +75,14 @@ What each kind of file gets is scripts/qa-routing.tsv; the excluded trees are
 scripts/qa-trees.tsv; the Go command suites are scripts/go-binary-suites.tsv. A changed file
 that maps to no check is reported "not covered by qa-changed", never silently.
 
+A local run is lean; CI (the CI variable set, not false or 0) runs everything as before:
+  - a semgrep rule gate a changed file asks for scans the changed files only, unless the change
+    touches the gate itself (its .semgrep rules, the QA module, its wrapper, the trees table);
+  - a suite picked only because its Go command's build closure changed is skipped when the
+    closure, src-go's go.mod and go.sum and the suite are what a recorded pass saw. Passes are
+    kept under QA_SUITE_PASSES, else $XDG_CACHE_HOME or $HOME/.cache, in
+    fedora-desktop-qa/suite-passes. CI=1 ./scripts/qa-changed.bash runs what CI runs.
+
 QA_CHANGED_TIMEOUT is the per-check time limit as a Go duration (30m default, 0 disables).
 QA_LOCK_TIMEOUT is the longest wait for the QA lock (default: as long as it is held).
 QA_FULL_PRIORITY=1 runs at the priority started with; by default the run is nice 19, ionice idle.

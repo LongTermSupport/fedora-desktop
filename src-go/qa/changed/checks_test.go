@@ -168,7 +168,10 @@ func newTestSession(t *testing.T, runner proc.Runner) *session {
 	if err := os.MkdirAll(scripts, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return &session{env: Env{Getenv: noEnv, Umask: keepUmask, Runner: runner}, root: root, scripts: scripts}
+	return &session{
+		env: Env{Getenv: noEnv, Umask: keepUmask, Runner: runner}, root: root, scripts: scripts,
+		plan: &plan{checks: map[string]*checkPlan{}, covered: map[string]bool{}}, narrowed: map[string]int{},
+	}
 }
 
 func TestPerFileChecksRunEachFileAndFailIfAnyDoes(t *testing.T) {
