@@ -411,12 +411,14 @@ ccy_tmux_insulate() {
     ccy_registry_wants_restore "$@" || restore=no
     # Each builder's own status (#295): one that stopped part way leaves an argv that looks whole.
     # Captured, not read from < <(...), whose wait "$!" can fail falsely under load (#321). One
-    # line per argument; no output is no arguments, so the here-string's one empty line is then
-    # skipped (-s 1). $() drops trailing empty lines, so an empty LAST argument is lost.
-    args_text=$(ccy_registry_launch_args "$@") || { echo "Could not build the launch arguments for session '$name'." >&2; return 1; }
-    mapfile -s $((${#args_text} == 0)) -t launch <<<"$args_text"
-    args_text=$(ccy_registry_replay_args "$CCY_TMUX_SESSION_PREFIX" "${launch[@]}") || { echo "Could not build the replay arguments for session '$name'." >&2; return 1; }
-    mapfile -s $((${#args_text} == 0)) -t replay <<<"$args_text"
+    # line per argument, and last arguments each builder always prints whole, so $() keeps
+    # trailing empty arguments: "." for the launch builder, "-- ." for the replay one (it
+    # prints "--" whatever came before, and every argument after it). The tail is cut; alone
+    # (no arguments) it is skipped (-s).
+    args_text=$(ccy_registry_launch_args "$@" .) || { echo "Could not build the launch arguments for session '$name'." >&2; return 1; }
+    mapfile -s $((${#args_text} == 1)) -t launch <<<"${args_text%$'\n.'}"
+    args_text=$(ccy_registry_replay_args "$CCY_TMUX_SESSION_PREFIX" "${launch[@]}" -- .) || { echo "Could not build the replay arguments for session '$name'." >&2; return 1; }
+    mapfile -s $((${#args_text} == 4 ? 2 : 0)) -t replay <<<"${args_text%$'\n--\n.'}"
     ccy_registry_write "$name" "$PWD" "$launcher" "$CCY_TMUX_SESSION_PREFIX" "$restore" "${replay[@]}" || return 1
 
     # A record with no session behind it would be restored at the next boot as a session

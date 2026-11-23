@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.16 — container 2.84.64
+## 3.124.18 — container 2.84.64
 
 No launch fails falsely on a lost process-substitution child (issues #321, #322). The image is
 unchanged.
@@ -31,8 +31,9 @@ unchanged.
   shell") and stops the launch. It failed a CI run at the GPU device flags. bash always waits
   for a command substitution, so the capture's status is checked as before, and a failing
   listing still stops the launch.
-- An empty listing is no entries, as before. An empty last argument to a tmux-insulated
-  session or to `cc` is now dropped (`$()` strips trailing empty lines).
+- An empty listing is no entries, as before. The argument captures end with a marker the
+  builder's success prints, so an empty last argument to a tmux-insulated session or to `cc`
+  is kept, and no arguments stay none.
 - The NUL-separated readers (the teams canonical arguments and the restart arguments) keep
   `< <(...)` with their wait, since a variable cannot hold a NUL.
 

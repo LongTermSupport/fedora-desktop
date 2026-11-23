@@ -120,6 +120,7 @@ gate	ccy-network-disconnect	scripts/test-ccy-network-disconnect.bash	ccy --disco
 gate	ccy-info-flags	scripts/test-ccy-info-flags.bash	ccy informational-option tests failed	count
 gate	ssh-suspend-guard	scripts/test-ssh-suspend-guard.bash	ssh-suspend-guard session-detection unit tests failed	detail:VERDICT: PASS
 gate	ccy-session-registry	scripts/test-ccy-session-registry.bash	ccy session-registry unit tests failed	count
+gate	ccy-launch-args-capture	scripts/test-ccy-launch-args-capture.bash	ccy launch-argument capture tests failed	count
 gate	ccy-compose-restore	scripts/test-ccy-compose-restore.bash	ccy compose-question / unanswerable-prompt unit tests failed	count
 gate	ccy-sessions-reboot	scripts/test-ccy-sessions-reboot.bash	ccy-sessions reboot/notify/restore unit tests failed	count
 gate	ccy-sessions-take-over	scripts/test-ccy-sessions-take-over.bash	ccy-sessions take-over unit tests failed	count

@@ -72,10 +72,10 @@ ccy_tmux_banner
 # option it does not know.
 # The builder's own status (#295): one that stopped part way leaves an argv that looks whole.
 # Captured, not read from < <(...), whose wait "$!" can fail falsely under load (#321). One
-# line per argument; no output is no arguments, so the here-string's one empty line is then
-# skipped (-s 1). $() drops trailing empty lines, so an empty LAST argument is lost.
-CC_ARGS_TEXT=$(ccy_registry_launch_args "$@") || { echo "cc: could not build claude's arguments." >&2; exit 1; }
-mapfile -s $((${#CC_ARGS_TEXT} == 0)) -t CC_ARGS <<<"$CC_ARGS_TEXT"
+# line per argument, and a last "." argument the builder always prints, so $() keeps trailing
+# empty arguments; the "\n." is cut, and the "." alone (no arguments) is skipped (-s 1).
+CC_ARGS_TEXT=$(ccy_registry_launch_args "$@" .) || { echo "cc: could not build claude's arguments." >&2; exit 1; }
+mapfile -s $((${#CC_ARGS_TEXT} == 1)) -t CC_ARGS <<<"${CC_ARGS_TEXT%$'\n.'}"
 set -- "${CC_ARGS[@]}"
 # ccy-sessions restore marks the launches it makes with CCY_SESSION_RESTORE=1. cc has no
 # prompt with one safe answer to give (its token chooser is a person's choice, and

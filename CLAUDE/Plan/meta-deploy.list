@@ -139,6 +139,13 @@ playbooks/imports/play-agent-bus.yml
 # launch, round trip, stop, restore and kill of DESIGN-host-cc-v2.md section 8. Those are run
 # by hand afterwards, at a terminal, with <team> <checkout> [<session>].
 00209-agent-bus-v2-in-go/acceptance-host-cc-v2.bash
+# Issue #322 (ccy 3.124.18): line-based listings are captured first instead of read through a
+# process substitution and its wait "$!". Besides the launcher, cc and agent-bus-install (the
+# two plays above), the change reaches the user tools imgpaste, qnap-finder, raw-prune,
+# ssh-agent-start, ssh-keys-rekey and ssh-with-agent.bash, fedora-desktop-self-update,
+# docker-in-lxc and the host-health kernel-change script. changed-plays is expected to pick up
+# the plays that deploy those.
+changed-plays
 # Q15 (last, since it can remove the passwordless sudo the runs above may need): passwordless sudo is now the host's declared choice, applied by this new last play.
 # Run it only while this host's environment/localhost/host_vars/localhost.yml declares
 # `passwordless_sudo_for_unattended_deploys: true` (this host's unattended deploys need
