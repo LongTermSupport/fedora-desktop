@@ -52,8 +52,19 @@ const (
 // TMPDIR and run is XDG_RUNTIME_DIR. dev holds the GPU directory (the launcher refuses an
 // override under no directory) and zoneinfo is the zone database, holding only the zones a
 // world places there (the launcher checks a zone's file exists, nothing more): so neither the
-// machine's GPU nor its tzdata decides a golden.
-var sandboxDirs = []string{"bin", "home", cwdProject, cwdOutside, "tmp", "run", "dev", zoneinfoDir}
+// machine's GPU nor its tzdata decides a golden. config is XDG_CONFIG_HOME, holding the
+// agents slice's unit (sliceUnit) where the play installs it; it is not snapshotted.
+var sandboxDirs = []string{"bin", "home", cwdProject, cwdOutside, "tmp", "run", "dev", zoneinfoDir, configDir}
+
+const (
+	// configDir is the sandbox's XDG_CONFIG_HOME.
+	configDir = "config"
+	// sliceUnit is the agents slice's unit under it: without it every launch is refused.
+	sliceUnit = "systemd/user/agents.slice"
+	// memoryMax is every run's CCY_MEMORY_MAX, so a container's caps are the same on every
+	// machine; the machine's real /proc/meminfo only bounds it (at least 8 GiB of RAM).
+	memoryMax = "8g"
+)
 
 // snapshotDirs are the sandbox directories whose files the golden records after a run.
 var snapshotDirs = []string{"home", cwdProject, cwdOutside, "tmp", "run"}
@@ -310,6 +321,11 @@ func newSandbox(t *testing.T, epoch int64) sandbox {
 			t.Fatal(mkErr)
 		}
 	}
+	unit := filepath.Join(root, configDir, filepath.FromSlash(sliceUnit))
+	if err = os.MkdirAll(filepath.Dir(unit), dirMode); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, unit, "[Slice]\n", libMode)
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -392,6 +408,8 @@ func (s sandbox) baseEnv() map[string]string {
 		"TZ":                  "UTC",
 		"TMPDIR":              filepath.Join(s.root, "tmp"),
 		"XDG_RUNTIME_DIR":     filepath.Join(s.root, "run"),
+		"XDG_CONFIG_HOME":     filepath.Join(s.root, configDir),
+		"CCY_MEMORY_MAX":      memoryMax,
 		"GIT_CONFIG_NOSYSTEM": "1",
 		"CCY_DOCKERFILE_DIR":  filepath.Join(s.root, buildContext),
 		"CCY_GPU_DEVICE_DIR":  filepath.Join(s.root, gpuDir),
@@ -702,11 +720,13 @@ func (l launcher) normalise(o outcome, root string, pid pidMarker, marks *string
 
 // volatile are the parts of a run that differ every time by design, each written as a fixed
 // mark: a name mktemp chose (or, for the usage fetch's tmp.*, os.CreateTemp, whose random part
-// is one to ten digits: ccylaunch D6), and $RANDOM.
+// is one to ten digits: ccylaunch D6), and $RANDOM; and the RAM of the machine the run is on,
+// which a refused memory cap names (the real /proc/meminfo, which the sandbox cannot replace).
 var volatile = []struct {
 	re   *regexp.Regexp
 	with string
 }{
+	{regexp.MustCompile(`(this machine's )[0-9]+( MiB of RAM)`), "${1}{ram}${2}"},
 	{regexp.MustCompile(`(/tmp/claude-yolo-)[A-Za-z0-9]{6}\b`), "${1}XXXXXX"},
 	{regexp.MustCompile(`(/tmp/ccy-[a-z-]+-)[A-Za-z0-9]{6}(\.log|\.txt)`), "${1}XXXXXX${2}"},
 	{regexp.MustCompile(`(launch-[0-9]+-\{pid\}-)[0-9]+`), "${1}{random}"},
