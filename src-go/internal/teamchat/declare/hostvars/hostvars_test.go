@@ -84,6 +84,16 @@ func TestReadValid(t *testing.T) {
 	}
 }
 
+// A team's duties are a mapping of handles, read from YAML as the play hands them over.
+func TestReadDuties(t *testing.T) {
+	doc := strings.Replace(valid, "    coordinator: myrepo.1+desk.podman\n",
+		"    coordinator: myrepo.1+desk.podman\n    duties:\n      myrepo.2+desk.podman: host\n", 1)
+	d, err := Read([]byte(doc))
+	if err != nil || d.Teams[0].DutyOf("myrepo.2+desk.podman") != "host" {
+		t.Fatalf("duties %v, %v", d.Teams[0].Duties, err)
+	}
+}
+
 func TestReadNoV2Keys(t *testing.T) {
 	d, err := Read([]byte("user_login: someone\nflag: on\n"))
 	if err != nil || len(d.Teams) != 0 || d.Address != "" {

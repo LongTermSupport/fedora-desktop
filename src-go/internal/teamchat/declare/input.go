@@ -109,6 +109,9 @@ func (t Team) members() []proto.Member {
 	if t.Coordinator != "" {
 		members = append(members, proto.M(keyCoordinator, proto.Str(t.Coordinator)))
 	}
+	if len(t.Duties) > 0 {
+		members = append(members, proto.M(keyDuties, dutiesValue(t.Duties)))
+	}
 	members = append(members, proto.M(keyTrust, t.Trust.Encode()))
 	if t.Colour != "" {
 		members = append(members, proto.M(keyColour, proto.Str(t.Colour)))
@@ -159,7 +162,7 @@ func DecodeTeamFile(raw []byte) (Team, error) {
 	if err = fileVersion(n); err != nil {
 		return Team{}, err
 	}
-	f, err := n.object(teamFileKeys, keyCoordinator, keyColour, keyCarriedFrom)
+	f, err := n.object(teamFileKeys, keyCoordinator, keyDuties, keyColour, keyCarriedFrom)
 	if err != nil {
 		return Team{}, err
 	}
