@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
@@ -176,7 +177,7 @@ type Env struct {
 	Runner proc.Runner
 }
 
-const usageText = `usage: qa-gh-scopes [--root DIR] [--scripts DIR]
+const usageText = `usage: qa-gh-scopes [--root DIR] [--scripts DIR] [-- FILE...]
 
 Applies the semgrep rule in .semgrep/gh-scopes.yml (a GitHub OAuth scope named outside
 vars/github-required-scopes.yml) to every file git would publish, after proving the rule against
@@ -185,11 +186,13 @@ its fixture.
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
   -h, --help      this text
+  -- FILE...      scan only these repository-relative files, not the tree (qa-changed's
+                  local run names the changed files); none in scope is a pass
 
 Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
 `
 
-const findRaceUsageText = `usage: qa-find-race [--root DIR] [--scripts DIR]
+const findRaceUsageText = `usage: qa-find-race [--root DIR] [--scripts DIR] [-- FILE...]
 
 Applies the semgrep rule in .semgrep/find-race.yml (find -ignore_readdir_race with a negated
 stat test, which matches an entry that vanished during the walk) to every file git would
@@ -198,11 +201,13 @@ publish, after proving the rule against its fixture.
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
   -h, --help      this text
+  -- FILE...      scan only these repository-relative files, not the tree (qa-changed's
+                  local run names the changed files); none in scope is a pass
 
 Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
 `
 
-const archPinUsageText = `usage: qa-arch-pin [--root DIR] [--scripts DIR]
+const archPinUsageText = `usage: qa-arch-pin [--root DIR] [--scripts DIR] [-- FILE...]
 
 Applies the semgrep rule in .semgrep/arch-pin.yml (a download, package or image fixed to one
 CPU architecture, with no selection by the architecture the build or host runs on) to every
@@ -211,11 +216,13 @@ file git would publish, after proving the rule against its fixture.
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
   -h, --help      this text
+  -- FILE...      scan only these repository-relative files, not the tree (qa-changed's
+                  local run names the changed files); none in scope is a pass
 
 Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
 `
 
-const argvLeakUsageText = `usage: qa-argv-leak [--root DIR] [--scripts DIR]
+const argvLeakUsageText = `usage: qa-argv-leak [--root DIR] [--scripts DIR] [-- FILE...]
 
 Applies the semgrep rules in .semgrep/argv-leak.yml (a passphrase, password or other
 secret on a process's command line, or rendered by Ansible into one) to every file git would
@@ -224,11 +231,13 @@ publish, after proving the rules against their fixture.
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
   -h, --help      this text
+  -- FILE...      scan only these repository-relative files, not the tree (qa-changed's
+                  local run names the changed files); none in scope is a pass
 
 Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
 `
 
-const placeIssuedUsageText = `usage: qa-place-issued-token [--root DIR] [--scripts DIR]
+const placeIssuedUsageText = `usage: qa-place-issued-token [--root DIR] [--scripts DIR] [-- FILE...]
 
 Applies the semgrep rule in .semgrep/place-issued-token.yml (a bundle issued with --credential
 token piped into teamchat seat place-issued, which places only a pool seat's password) to every
@@ -237,11 +246,13 @@ file git would publish, after proving the rule against its fixture.
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
   -h, --help      this text
+  -- FILE...      scan only these repository-relative files, not the tree (qa-changed's
+                  local run names the changed files); none in scope is a pass
 
 Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
 `
 
-const ghPollUsageText = `usage: qa-gh-poll [--root DIR] [--scripts DIR]
+const ghPollUsageText = `usage: qa-gh-poll [--root DIR] [--scripts DIR] [-- FILE...]
 
 Applies the semgrep rule in .semgrep/gh-poll.yml (gh's run or checks watcher with no interval
 of 60 seconds or more, so GitHub is asked every 3 seconds) to every file git would publish,
@@ -250,11 +261,13 @@ after proving the rule against its fixture.
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
   -h, --help      this text
+  -- FILE...      scan only these repository-relative files, not the tree (qa-changed's
+                  local run names the changed files); none in scope is a pass
 
 Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
 `
 
-const bootHoldUsageText = `usage: qa-boot-hold [--root DIR] [--scripts DIR]
+const bootHoldUsageText = `usage: qa-boot-hold [--root DIR] [--scripts DIR] [-- FILE...]
 
 Applies the semgrep rule in .semgrep/boot-hold.yml (a systemd unit wanted by a boot target
 whose declared start is longer than 90 s and that is not ordered after that target, so the
@@ -264,11 +277,13 @@ fixture.
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
   -h, --help      this text
+  -- FILE...      scan only these repository-relative files, not the tree (qa-changed's
+                  local run names the changed files); none in scope is a pass
 
 Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
 `
 
-const secretScreenUsageText = `usage: qa-secret-screen [--root DIR] [--scripts DIR]
+const secretScreenUsageText = `usage: qa-secret-screen [--root DIR] [--scripts DIR] [-- FILE...]
 
 Applies the semgrep rules in .semgrep/secret-screen.yml (a password, token or other secret
 written to a terminal's normal screen, where its scrollback and tmux history keep it: shell,
@@ -278,29 +293,55 @@ fixtures, one per language.
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
   -h, --help      this text
+  -- FILE...      scan only these repository-relative files, not the tree (qa-changed's
+                  local run names the changed files); none in scope is a pass
 
 Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
 `
 
 // options is the parsed command line.
 type options struct {
-	help    bool
 	root    string
 	scripts string
+	// named are the files after --, when there is a --: the run scans them, not the tree.
+	named []string
+	help  bool
+	// narrowed is whether a -- was given, even with no file after it.
+	narrowed bool
 }
 
-// parseArgs reads the command line; anything unknown is a usage error.
+// namedSeparator ends the flags; what follows are the files to scan instead of the whole tree
+// (qa-changed names the changed files, so a local run reads those alone).
+const namedSeparator = "--"
+
+// parseArgs reads the command line; anything unknown is a usage error. A named file must be
+// repository-relative and stay inside the root.
 func parseArgs(args []string) (options, error) {
-	parsed, err := rootargs.Strict(args)
-	return options{help: parsed.Help, root: parsed.Root, scripts: parsed.Scripts}, err
+	head, named, narrowed := args, []string(nil), false
+	if i := slices.Index(args, namedSeparator); i >= 0 {
+		head, named, narrowed = args[:i], args[i+1:], true
+	}
+	parsed, err := rootargs.Strict(head)
+	if err != nil {
+		return options{}, err
+	}
+	for _, rel := range named {
+		if !filepath.IsLocal(rel) {
+			return options{}, fmt.Errorf("named file %q is not a repository-relative path inside the root", rel)
+		}
+	}
+	return options{help: parsed.Help, root: parsed.Root, scripts: parsed.Scripts, named: named, narrowed: narrowed}, nil
 }
 
 // gate is one run.
 type gate struct {
-	spec   Spec
 	env    Env
+	spec   Spec
 	root   string
+	named  []string
 	stdout bytes.Buffer
+	// narrowed is a run over the named files only.
+	narrowed bool
 }
 
 // Main runs the gh-scopes gate and returns the exit status.
@@ -319,7 +360,7 @@ func (s Spec) Main(args []string, env Env) ExitCode {
 	if err != nil {
 		return s.fail(env, err, false)
 	}
-	g := &gate{spec: s, env: env, root: root}
+	g := &gate{spec: s, env: env, root: root, named: opts.named, narrowed: opts.narrowed}
 	verdict, err := g.run()
 	if err != nil {
 		s.fail(env, err, false)
@@ -375,6 +416,10 @@ func (g *gate) run() (ExitCode, error) {
 	files, err := g.handOver(ctx, within)
 	if err != nil {
 		return ExitCannotRun, err
+	}
+	if g.narrowed && len(files) == 0 {
+		fmt.Fprintf(&g.stdout, "passed: 0 failed: 0 (none of the %d named file(s) is one this gate reads)\n", len(g.named))
+		return ExitOK, nil
 	}
 	rep, err := g.scan(ctx, files)
 	if err != nil {

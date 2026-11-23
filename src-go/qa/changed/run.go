@@ -108,7 +108,7 @@ func newSession(env Env, opts options) (*session, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &session{env: env, opts: opts, root: root, scripts: scripts, timeout: timeout}
+	s := &session{env: env, opts: opts, root: root, scripts: scripts, timeout: timeout, ci: ciEnabled(env.Getenv), narrowed: map[string]int{}}
 	if err := s.load(); err != nil {
 		return nil, err
 	}
@@ -339,7 +339,7 @@ func (s *session) execute(ctx context.Context) ExitCode {
 		if o == interrupted {
 			return s.interrupted()
 		}
-		s.report(d.id, d.summaryFor(cp), res, o)
+		s.report(d.id, s.summaryOf(d, cp), res, o)
 		record(d.id, o)
 	}
 	for _, suite := range s.plan.suites {
@@ -359,6 +359,29 @@ func (s *session) execute(ctx context.Context) ExitCode {
 		}
 	}
 	return s.verdict(failures, cannot)
+}
+
+// summaryOf is a check's report summary; a semgrep gate narrowed to the changed files says so
+// in place of "whole gate".
+func (s *session) summaryOf(d checkDef, cp *checkPlan) string {
+	for wrapper, n := range s.narrowed {
+		if gateCheck[wrapper] == d.id {
+			return fmt.Sprintf("%s, %d changed file(s) (CI runs it whole)", strings.TrimSuffix(d.fixed, ", whole gate"), n)
+		}
+	}
+	return d.summaryFor(cp)
+}
+
+// gateCheck is the check id of each semgrep gate's wrapper.
+var gateCheck = map[string]string{
+	"qa-gh-scopes.bash":          "gh-scopes",
+	"qa-find-race.bash":          "find-race",
+	"qa-arch-pin.bash":           "arch-pin",
+	"qa-argv-leak.bash":          "argv-leak",
+	"qa-place-issued-token.bash": "place-issued-token",
+	"qa-boot-hold.bash":          "boot-hold",
+	"qa-gh-poll.bash":            "gh-poll",
+	"qa-secret-screen.bash":      "secret-screen",
 }
 
 // suiteRun is one command of a picked suite and the row that gives it, which judges its output.

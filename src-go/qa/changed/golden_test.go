@@ -175,7 +175,9 @@ func replay(t *testing.T, world map[string]string, sc goldenScenario) goldenReco
 	runner := &goldenRunner{t: t, exits: sc.Exits, findings: sc.SemgrepFindings, world: current}
 	var out, errOut bytes.Buffer
 	env := Env{
-		Getenv: func(string) string { return "" },
+		// The replay runs as CI does: every gate whole, every suite run, as the bash did. What a
+		// local run narrows or skips is lean_test.go's.
+		Getenv: func(k string) string { return map[string]string{"CI": "true"}[k] },
 		Stdout: &out,
 		Stderr: &errOut,
 		Runner: runner,

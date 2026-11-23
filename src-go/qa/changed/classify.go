@@ -73,6 +73,12 @@ type session struct {
 	temps    []string
 	writeErr error
 	iso      *gates.Isolation
+
+	// ci is a run in CI (ciEnabled), which runs every gate as it always has; a local run narrows
+	// the semgrep gates to the changed files and skips a suite whose inputs passed before.
+	ci bool
+	// narrowed holds, by wrapper script, how many changed files a semgrep gate was narrowed to.
+	narrowed map[string]int
 }
 
 // load reads the routing tables.
