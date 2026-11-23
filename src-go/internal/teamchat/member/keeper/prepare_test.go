@@ -337,6 +337,24 @@ func TestDesiredAtLaunch(t *testing.T) {
 		if k := w.keeperJSON(); k.Session != nil || k.Kind != state.KindHost {
 			t.Fatalf("keeper.json %+v", k)
 		}
+		if exists(t, w.runDir().StateRoot()) {
+			t.Fatal("a run with no --state recorded a state root")
+		}
+		c.code(0)
+		l.expect(t, wire.KindEnd)
+		l.code(0)
+		exitOf(t, res, term.ExitOK)
+	})
+	// Task 5.1 step 7: a run's --state is recorded in the run, so a verb CMD runs (reach) reads
+	// its seats from the root the keeper holds them in.
+	t.Run("host with state", func(t *testing.T) {
+		w := newWorld(t, "--claude", "--kind", "host", "--state", "STATE", "--", "claude")
+		l, c, res := w.running(0)
+		data, err := os.ReadFile(w.runDir().StateRoot())
+		mustDo(t, err)
+		if string(data) != w.dir+"/state\n" {
+			t.Fatalf("state root record %q, want %q", data, w.dir+"/state\n")
+		}
 		c.code(0)
 		l.expect(t, wire.KindEnd)
 		l.code(0)

@@ -285,6 +285,7 @@ func layoutNames(t *testing.T) map[string][]string {
 			"Run.Session":             {r.Session()},
 			"Run.PID":                 {r.PID()},
 			"Run.Status":              {r.Status()},
+			"Run.StateRoot":           {r.StateRoot()},
 		} {
 			names[name] = append(names[name], value...)
 		}

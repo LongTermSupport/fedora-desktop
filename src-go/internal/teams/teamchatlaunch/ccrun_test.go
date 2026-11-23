@@ -86,7 +86,7 @@ func (w *ccWorld) ccRun(session, seats, bus string, claudeArgs ...string) term.E
 // teamchat run as a child with cc's deny rules as extra settings and the teamchat prompt line.
 func TestCCRunOnTeamchatRunsTheSessionAsAChild(t *testing.T) {
 	w := newCC(t)
-	w.pool("alpha", "repo.1+site.host")
+	w.pool("repo.1+site.host")
 	if code := w.ccRun("cc-s1", "1@alpha", "false", "--model", "opus"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, w.err)
 	}
@@ -123,7 +123,7 @@ func TestCCRunOnTeamchatRunsTheSessionAsAChild(t *testing.T) {
 // (b) A status ends the session whatever it is; the tool's own code is the documented one.
 func TestCCRunOnTeamchatEndsOnAnyStatus(t *testing.T) {
 	w := newCC(t)
-	w.pool("alpha", "repo.1+site.host")
+	w.pool("repo.1+site.host")
 	w.holder.holdings = []seat.Holding{holding(t, "cc-s1", "repo.1+site.host")}
 	w.fg.exit = execx.Exit{Code: 3}
 	if code := w.ccRun("cc-s1", "1@alpha", "false"); code != term.ExitFailure {
@@ -139,7 +139,7 @@ func TestCCRunOnTeamchatEndsOnAnyStatus(t *testing.T) {
 func TestCCRunOnTeamchatKeepsTheSeatsOnASignal(t *testing.T) {
 	for _, sig := range []os.Signal{syscall.SIGHUP, syscall.SIGTERM} {
 		w := newCC(t)
-		w.pool("alpha", "repo.1+site.host")
+		w.pool("repo.1+site.host")
 		w.holder.holdings = []seat.Holding{holding(t, "cc-s1", "repo.1+site.host")}
 		w.fg.exit = execx.Exit{Code: 129, Received: []os.Signal{sig}}
 		w.ccRun("cc-s1", "1@alpha", "false")
@@ -153,7 +153,7 @@ func TestCCRunOnTeamchatKeepsTheSeatsOnASignal(t *testing.T) {
 // before anything is taken or started.
 func TestCCRunOnTeamchatNeedsASessionName(t *testing.T) {
 	w := newCC(t)
-	w.pool("alpha", "repo.1+site.host")
+	w.pool("repo.1+site.host")
 	if code := w.ccRun("", "1@alpha", "false"); code != term.ExitConfig {
 		t.Fatalf("exit %d: %s", code, w.err)
 	}
@@ -173,7 +173,7 @@ func TestCCRunRefusesAMissingKit(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newCC(t)
-			w.pool("alpha", "repo.1+site.host")
+			w.pool("repo.1+site.host")
 			if err := os.Remove(filepath.Join(filepath.Dir(filepath.Dir(w.cc.V1Kit)), c.missing)); err != nil {
 				t.Fatal(err)
 			}
@@ -190,7 +190,7 @@ func TestCCRunRefusesAMissingKit(t *testing.T) {
 // (c) A list on both systems is system.One's refusal, 64.
 func TestCCRunRefusesAMixedList(t *testing.T) {
 	w := newCC(t)
-	w.pool("alpha", "repo.1+site.host")
+	w.pool("repo.1+site.host")
 	if code := w.ccRun("cc-s1", "1@alpha,1@v1team", "false"); code != term.ExitUsage {
 		t.Fatalf("exit %d: %s", code, w.err)
 	}
@@ -203,7 +203,7 @@ func TestCCRunRefusesAMixedList(t *testing.T) {
 // the store keeps the seats it already holds (L5, TestStoreTakerKeepsTheSeatsTheSessionHolds).
 func TestCCRunRelaunchTakesForTheSameSession(t *testing.T) {
 	w := newCC(t)
-	w.pool("alpha", "repo.1+site.host")
+	w.pool("repo.1+site.host")
 	w.fg.exit = execx.Exit{Received: []os.Signal{syscall.SIGHUP}}
 	var sessions []paths.SessionName
 	for range 2 {

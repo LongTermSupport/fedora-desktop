@@ -66,6 +66,8 @@
 # program (teamchat kit assemble) into a new digest directory, with the plugin, hooks, skill and
 # settings a host cc `run --claude` needs; the program is kept beside the kits as
 # /usr/local/lib/teamchat/teamchat-member-<digest>. Nothing running changes until a session starts.
+# Plan 00209 Task 5.1 steps 3 and 7 ride on the same member program: teamchat run takes
+# --extra-settings (host cc's deny rules), and reach reads a --state session's seats.
 playbooks/imports/play-teamchat.yml
 # The ccy image is rebuilt once for the teamchat it carries; nothing a session does changes.
 # The same run installs issue #288's Go commands (ccy 3.122.26: ccy-sessions, ccy-teams and the
@@ -75,6 +77,12 @@ playbooks/imports/play-teamchat.yml
 # only on this host's LXC member whose entry has service: true (Plan 00257 B.12). It also
 # deploys Plan 00258's watchlist command (full clones and study runs; internal/gitx, which ccy
 # links, changed). Running sessions keep the old ccy until they restart.
+# Plan 00209 Task 5.1 (ccy 3.124.1, container 2.84.51): host cc --teams joins teamchat teams.
+# The run installs the new ccy-teams (internal cc-run, the host chooser and consent on
+# teamchat), cc, cc-teams.bash, cc-claude, and cc-teams-settings.json with the host lane's deny
+# rules (no tests, builds, lint or QA in a host cc --teams session; Plan 00263 D3); the image is
+# rebuilt for its teamchat. A cc
+# session already running keeps the old launch until it is started again.
 playbooks/imports/play-claude-yolo.yml
 # Plan 00257 B.12: the v1 agent-bus play rewrites each LXC member's agent-bus-claude-<user>
 # unit (service: true) with no [Install] and Restart=no, and DISABLES AND STOPS one an earlier
@@ -91,6 +99,12 @@ playbooks/imports/play-agent-bus.yml
 # offline, say), fewer units found than members declared, a probe that did not answer, or a
 # failed lxc-stop or lxc-start.
 00257-cross-host-lxc-team-members/lxc-no-autostart-acceptance.bash
+# Plan 00209 Task 5.1 acceptance, read-only: it asks at the terminal for the teamchat team and
+# the checkout cc is started in, then checks the host kit holds its plugin and settings, the
+# deployed ccy is 3.124.1, and ccy-teams system says teamchat there. It exits 2 (COULD NOT
+# ESTABLISH) until the host seat has placed a pool seat and launched cc --teams in its own tmux
+# (DESIGN-host-cc-v2.md section 8); run it again by hand with the session name for the record.
+00209-agent-bus-v2-in-go/acceptance-host-cc-v2.bash
 # Q15 (last, since it can remove the passwordless sudo the runs above may need): passwordless sudo is now the host's declared choice, applied by this new last play.
 # Run it only while this host's environment/localhost/host_vars/localhost.yml declares
 # `passwordless_sudo_for_unattended_deploys: true` (this host's unattended deploys need

@@ -74,6 +74,9 @@ func TestCmdAnswersTheChooserFromThisCheckoutsPool(t *testing.T) {
 	if got, err := w.cmd.SeatParts("fresh"); err != nil || strings.Join(got, ",") != "1" {
 		t.Fatalf("SeatParts: got %v %v, want [1]", got, err)
 	}
+	if got, err := w.cmd.Handles("fresh"); err != nil || strings.Join(got, ",") != "repo.1+site.podman" {
+		t.Fatalf("Handles: got %v %v, want [repo.1+site.podman]", got, err)
+	}
 	if got, err := w.cmd.SeatParts("old"); err != nil || got != nil {
 		t.Fatalf("SeatParts of a team with no seat here: got %v %v, want none", got, err)
 	}

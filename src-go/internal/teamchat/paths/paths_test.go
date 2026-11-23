@@ -304,6 +304,7 @@ func TestSessionRuntimeFiles(t *testing.T) {
 		{r.Session(), "session.json"},
 		{r.PID(), "session.pid"},
 		{r.Status(), "status.json"},
+		{r.StateRoot(), "state-root"},
 	} {
 		if want := r.Dir() + "/" + c.want; c.got != want {
 			t.Errorf("got %q, want %q", c.got, want)
