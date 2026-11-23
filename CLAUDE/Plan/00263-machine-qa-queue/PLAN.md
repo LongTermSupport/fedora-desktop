@@ -143,11 +143,12 @@ its own focused CI (see Plan 00262).
   [RESULTS-ccy-caps.md](RESULTS-ccy-caps.md).
 - [ ] ⬜ **Task A.7**: The running containers take the caps. Replaced by a relaunch (`ccy --resume`), not `podman update`: `--cgroup-parent` cannot be changed on a running container.
   It is step 6 of the v2 cut-over.
-- [ ] ⬜ **Task A.7b**: The caps probe as a plan script (`caps-acceptance.bash`, planlib, read
-  only): `user@UID.service` reports no pressure kill, `oomctl dump` watches no pressure on it,
-  `agents.slice` is loaded with its caps, and every running ccy and ccc container sits under it
-  with `memory.max` and `pids.max` set. Exit 2 when it cannot establish one. Queued in
-  `meta-deploy.list` after the cut-over.
+- [ ] 🔄 **Task A.7b**: The caps probe as a plan script, written: `caps-acceptance.bash`
+  (planlib, read only). It checks that `user@UID.service` reports no pressure kill, that
+  `oomctl dump` watches no pressure on it, that `agents.slice` is loaded with its caps, and that
+  every running ccy and ccc container's live cgroup is under it, with its scope's MemoryMax and
+  TasksMax set. Exit 2 when it cannot establish one. Owed: its first host run, queued in
+  `meta-deploy.list` once the v2 cut-over's list has run.
 - [ ] ⬜ **Task A.9**: Caps for the LXC members (none has a memory or pids limit today; they are
   rootful and sit outside `agents.slice`): `lxc.cgroup2.memory.max`, `memory.high` and
   `pids.max` in the member config, and a system slice to cap them together. An owner decision
