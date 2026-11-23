@@ -226,6 +226,13 @@ func entry(t paths.TeamID, self string, it Item, from Namer) (proto.Entry, bool)
 	case itemHuman:
 		h := it.Verdict.Human
 		e.Kind, e.From, e.Body, e.Re, e.Revises = proto.KindHuman, s.name, h.Body, h.ReplyTo, h.Revises
+		if r := it.Verdict.Relayed; r != nil {
+			// A relayed post (A 10.6): the question is the coordinator's claim, and it is named.
+			e.RelayedBy = ask(from, r.By).name
+			if e.Question == nil {
+				e.Question = &proto.EntryQuestion{N: int(r.Q)}
+			}
+		}
 	case itemPeer:
 		c := it.Verdict.Content
 		e.Kind, e.From, e.Role = proto.KindPeer, s.name, s.role

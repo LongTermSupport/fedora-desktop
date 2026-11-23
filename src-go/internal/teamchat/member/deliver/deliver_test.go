@@ -190,6 +190,10 @@ func TestMappingGoldens(t *testing.T) {
 	restored := human('h', sentMS, "queued before the restart")
 	restored.Pending.Restored = true
 	restored.Pending.Repeat = true
+	// A relayed post (A 10.6): its question is the relay's claim, and the coordinator is named.
+	relayed := human('h', sentMS, "Use port 8080.")
+	relayed.Pending.Room = proto.PurposeQuestions
+	relayed.Verdict.Relayed = &proto.Relayed{By: coord, Q: 4}
 	peerBody := peer('e', sentMS, "")
 	peerBody.Verdict.Content.Body = "the body, when the text is empty"
 	for name, item := range map[string]deliver.Item{
@@ -197,7 +201,7 @@ func TestMappingGoldens(t *testing.T) {
 		"human-questions": questions, "peer-copy": copied, "peer-body": peerBody, "ping": pinged, "ping-answer": answer,
 		"ping-check": check, "notice-left": notice('n', sentMS), "notice-added": added, "notice-moved": moved,
 		"carried-ping": carriedPing, "carried-text": carriedText, "timeout": timeout('t'), "timeout-ref": withRef,
-		"timeout-reminder": reminder, "restored": restored,
+		"timeout-reminder": reminder, "restored": restored, "human-relayed": relayed,
 	} {
 		t.Run(name, func(t *testing.T) {
 			b := build(t, []deliver.Item{item}, deliver.Facts{})

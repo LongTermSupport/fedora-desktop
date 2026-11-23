@@ -229,7 +229,24 @@ the link's serving of every verb (the engine, `engine/questionsverbs.go`), `repl
 and the thread form of a reply to an unattached post (2.3). Step 6 built: `verify --room`
 (2.8). Step 8 built on `v2-questions-docs`: the skill text and the reminder's `teamchat bump Q<n>`
 (A 13.3), and the owner's Lightning check (section 9), which waits for the owner. Step 7,
-delivery (section 4), is being built on `v2-questions`.
+delivery (section 4), built on `v2-questions`: questions holds every non-parked member (A
+4.1; a park kicks, the rooms engine's membership diff shows a member missing, health's VW5 no
+longer names a worker in the room), its open power levels list the coordinator at 50 beside the
+humans with messages at 50, so a worker's post there is refused (A 4.2), and a worker accepts
+its invite (A 6.3) but joins only when a read by event ID is refused (`verify`, the relay),
+never syncing the room. In proto: the `relay` key (decoded, composed, rule 08), the relay check
+(`Judge.Relayed`, and `Judge.Fetched` for a restored item), the relay's transaction ID derived
+from the post and the seat, and the `relayed by:` line. The coordinator's sync (never a build
+or a catch-up page) owes a relay for each human post it delivers from the room's floor on that
+is attached to a question with `asked_by`, one per asking seat (`Batch.Relays`); the engine
+queues each in `sending` in the batch's own write, under the derived ID and never twice, so a
+batch fetched again or a restart sends it once. The worker's link takes a delivered relay to the
+relay check (fetch, join if refused, judge as fetched) and gives a HUMAN item in `room: questions` with the relay's account (`question: Q<n>` and `relayed by:`), or drops it
+`provenance`. An edit is relayed as its own post, and its HUMAN item carries `revises:` from
+the human's edit; the relay key itself has no `revises`. Restart: a relayed item restored is
+fetched again and judged as fetched by ID (`Refetch`), losing its `relayed by:` line and its
+question number (`question: none`). A worker cannot answer a relayed post with `reply` (it
+does not post in questions); the skill says to answer with `say --to-coordinator`.
 
 Known gaps of step 5, each a choice made in the build:
 

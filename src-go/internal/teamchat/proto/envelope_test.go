@@ -112,6 +112,22 @@ func TestEntryHumanInQuestions(t *testing.T) {
 		"revises: "+qid('o'),
 		"to: this session, as "+envHandle,
 	)
+	e.RelayedBy = envWorker
+	wantLines(t, "relayed", mustLines(t, e)[5:8],
+		"revises: "+qid('o'),
+		"relayed by: "+envWorker+" (the question number is its claim; the text was fetched from questions)",
+		"to: this session, as "+envHandle,
+	)
+	for name, bad := range map[string]Entry{
+		"a bad handle":  func() Entry { b := e; b.RelayedBy = "not a handle"; return b }(),
+		"not questions": func() Entry { b := e; b.Questions = false; return b }(),
+		"not human":     func() Entry { b := peerEntry(); b.RelayedBy = envWorker; return b }(),
+	} {
+		if _, err := bad.Lines(); err == nil {
+			t.Errorf("%s: a relayed line rendered", name)
+		}
+	}
+	e.RelayedBy = ""
 	e.Question.Headline = ""
 	if got := mustLines(t, e)[4]; got != "question: Q7" {
 		t.Errorf("no headline: %q", got)

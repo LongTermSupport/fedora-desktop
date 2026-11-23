@@ -358,17 +358,13 @@ func (r *reader) derived() *proto.Roster {
 	return &roster
 }
 
-// questions checks the questions room item by item (VW5): no worker joined or invited, the
-// open coordinator joined, and the form the roster gives.
+// questions checks the questions room item by item (VW5): the open coordinator joined, and the
+// form the roster gives. Who else belongs there (every non-parked member, A 4.1) is the rooms
+// engine's membership diff, shown as its drift.
 func (r *reader) questions(ctx context.Context) error {
 	id := r.in.Rooms.Questions
 	if id == "" {
 		return nil
-	}
-	for _, m := range r.view.Members {
-		if s := m.Rooms[proto.PurposeQuestions]; m.Role == proto.RoleWorker && (s == joined || s == invited) {
-			r.problem("the worker "+m.Handle+" is in the questions room", r.applyFix())
-		}
 	}
 	f := r.in.Roster
 	c, ok := f.Members[f.Coordinator]

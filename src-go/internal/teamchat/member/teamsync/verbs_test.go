@@ -78,22 +78,28 @@ func TestVerifyInTheQuestionsRoom(t *testing.T) {
 	}
 }
 
-// R10: a worker that is not in the questions room cannot read it: its verify of a questions
-// post is 23 not-found; once it is a member (DESIGN-questions-v2 section 4), it reads it.
+// R10 and A 4.1: a worker the room holds no invite for cannot read it: its verify of a questions
+// post is 23 not-found. Invited, as every non-parked member is, its link joins the room at the
+// refused read and reads the post (DESIGN-questions-v2 section 4), never syncing the room.
 func TestAWorkersVerifyOfAQuestionsPost(t *testing.T) {
 	w := newWorld(t)
 	w.inQuestions(alice, false)
 	q := w.adminQuestion(3)
 	answer := w.sayIn(w.qroom(), alice, inThread("port 8080", q))
+	w.uninvited(me)
+	before := w.joinsOf(w.qroom())
 	tm := w.newTeam()
 	if _, err := tm.Verify(t.Context(), answer, nil); !isCode(err, exits.CodeNotFound) {
-		t.Fatalf("a worker outside questions: %v, want not-found", err)
+		t.Fatalf("a worker with no invite: %v, want not-found", err)
 	}
-	w.inQuestions(me, true)
+	w.invited(me)
 	got, err := tm.Verify(t.Context(), answer, nil)
 	check(t, err)
 	if !got.Human || got.Question == nil || *got.Question != "Q3" {
-		t.Errorf("a worker in questions verified %+v, want the human's post on Q3", got)
+		t.Errorf("an invited worker verified %+v, want the human's post on Q3", got)
+	}
+	if n := w.joinsOf(w.qroom()) - before; n != 2 {
+		t.Errorf("%d joins of questions, want 2 (the refused one and the one that read)", n)
 	}
 }
 

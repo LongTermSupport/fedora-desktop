@@ -88,13 +88,13 @@ func TestDesiredMembership(t *testing.T) {
 	if !slices.Equal(reports.Invite, []string{aliceID}) || !slices.Equal(reports.Members, wantMain) {
 		t.Fatalf("reports invite %v members %v", reports.Invite, reports.Members)
 	}
-	wantQ := []string{coordID, aliceID}
+	wantQ := []string{coordID, lxcWorkerID, workerID, aliceID}
 	slices.Sort(wantQ)
 	if !slices.Equal(questions.Invite, wantQ) || !slices.Equal(questions.Members, wantQ) {
 		t.Fatalf("questions %v / %v", questions.Invite, questions.Members)
 	}
-	invite, kick := MembershipDiff(questions.Members, []string{aliceID, workerID, AdminID(testServer)}, testServer)
-	if !slices.Equal(invite, []string{coordID}) || !slices.Equal(kick, []string{workerID}) {
+	invite, kick := MembershipDiff(questions.Members, []string{aliceID, workerID, lxcWorkerID, probeID, AdminID(testServer)}, testServer)
+	if !slices.Equal(invite, []string{coordID}) || !slices.Equal(kick, []string{probeID}) {
 		t.Fatalf("diff invite %v kick %v", invite, kick)
 	}
 }
@@ -152,8 +152,17 @@ func TestDesiredStateSideRooms(t *testing.T) {
 			t.Errorf("%s = %s\nwant %s", name, got, c.want)
 		}
 	}
-	if !stateOf(t, questions, "m.room.power_levels").Equal(stateOf(t, specFor(t, specs, PurposeMain), "m.room.power_levels")) {
-		t.Fatal("open questions power levels differ from main")
+	openPower := `{"users":{"` + aliceID + `":50,"` + coordID + `":50},"users_default":0,"events_default":100,"state_default":100,` +
+		`"invite":100,"kick":100,"ban":100,"redact":100,"notifications":{"room":50},"events":{"m.room.message":50}}`
+	if aliceID > coordID {
+		openPower = `{"users":{"` + coordID + `":50,"` + aliceID + `":50},"users_default":0,"events_default":100,"state_default":100,` +
+			`"invite":100,"kick":100,"ban":100,"redact":100,"notifications":{"room":50},"events":{"m.room.message":50}}`
+	}
+	if got := string(stateOf(t, questions, "m.room.power_levels").Compact()); got != openPower {
+		t.Fatalf("open questions power %s\nwant %s", got, openPower)
+	}
+	if err := CheckPowerLevels(stateOf(t, questions, "m.room.power_levels"), testServer); err != nil {
+		t.Fatalf("open questions power levels break A 6.4: %v", err)
 	}
 	r.Members[coordID] = RosterMember{Role: RoleCoordinator, HumanText: true, Parked: true}
 	closed := specFor(t, Desired(testServer, r, allRooms(), "", ""), PurposeQuestions)
@@ -163,7 +172,12 @@ func TestDesiredStateSideRooms(t *testing.T) {
 	if ev, ok := stateOf(t, closed, "m.room.power_levels").Get("events"); !ok || string(ev.Compact()) != `{"m.room.message":100}` {
 		t.Fatalf("closed questions events %s", ev.Compact())
 	}
-	if !slices.Equal(closed.Invite, []string{aliceID}) {
+	if users, ok := stateOf(t, closed, "m.room.power_levels").Get("users"); !ok || string(users.Compact()) != `{"`+aliceID+`":50}` {
+		t.Fatalf("closed questions users %s", users.Compact())
+	}
+	wantClosed := []string{lxcWorkerID, workerID, aliceID}
+	slices.Sort(wantClosed)
+	if !slices.Equal(closed.Invite, wantClosed) {
 		t.Fatalf("closed questions invite %v", closed.Invite)
 	}
 }

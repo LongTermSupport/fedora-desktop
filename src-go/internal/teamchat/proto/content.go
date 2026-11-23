@@ -232,10 +232,20 @@ type Ping struct {
 	Branch string
 }
 
-// Text is `teamchat.text` (A 7.3).
+// Text is `teamchat.text` (A 7.3); Relay is the coordinator's relay of a human post, nil for
+// none.
 type Text struct {
-	To   []string
-	Text string
+	To    []string
+	Text  string
+	Relay *Relay
+}
+
+// Relay is a text's `relay` (A 7.3, 10.6): a human post in questions, by event ID, attached to
+// Q<Q> by the coordinator's index. The number is the coordinator's claim; the receiver fetches
+// the post itself.
+type Relay struct {
+	Room, ID string
+	Q        int64
 }
 
 // Notice is `teamchat.notice` (A 7.4): Reason for `left`, Role for `added` and `role`, no
@@ -374,7 +384,7 @@ func relationAllowed(c Content) bool {
 	case KeyPing:
 		return true
 	case KeyText:
-		return c.Relation.Kind != RelThread
+		return c.Relation.Kind != RelThread && (c.Text.Relay == nil || c.Relation.Kind == RelNone)
 	case KeyThread:
 		t := c.Thread
 		switch {
@@ -434,6 +444,14 @@ func decodePingObject(c *Content, obj Value) string {
 func decodeTextObject(c *Content, obj Value) string {
 	f := readFields(obj, ReasonSchema)
 	c.Text = Text{To: sortedStrs(f.strs("to", true, ReasonSchema)), Text: f.str("text", true, ReasonSchema)}
+	if raw, ok := f.object("relay", false, ReasonSchema); ok {
+		rf := readFields(raw, ReasonSchema)
+		r := Relay{Room: rf.str("room", true, ReasonSchema), ID: rf.str("id", true, ReasonSchema), Q: rf.integer("q", true, 0, ReasonSchema)}
+		if rf.rule != "" || r.Room != PurposeQuestions || !ValidEventID(r.ID) || r.Q < 1 {
+			return ReasonSchema
+		}
+		c.Text.Relay = &r
+	}
 	switch {
 	case f.rule != "" || c.Text.Text == "":
 		return ReasonSchema

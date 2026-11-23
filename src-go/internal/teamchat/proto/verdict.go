@@ -158,6 +158,16 @@ type Verdict struct {
 	Answer  *Answer
 	Forge   *ForgeCheck
 	Redacts string
+	// Relayed is the relay a human post in questions was delivered through (A 10.6), nil for
+	// none.
+	Relayed *Relayed
+}
+
+// Relayed is the relay's account of the human post it named: the coordinator who relayed it and
+// the question it claims the post is attached to.
+type Relayed struct {
+	By string
+	Q  int64
 }
 
 // Judge judges the events of one room for one member against the roster as it stands now
@@ -528,6 +538,9 @@ func (r Roster) checkAgent(sender string, class SenderClass, c Content, probeChe
 		reason, forge := r.checkPing(class, c.Ping, c.Relation, probeCheck)
 		return KindPing, reason, forge
 	case KeyText:
+		if c.Text.Relay != nil {
+			return KindPeer, checkRelay(class, c.Text.To, r), nil
+		}
 		return KindPeer, checkTo(c.Text.To, MaxTextTo, func(id string) bool { return r.AddressableAgent(id) || r.IsHuman(id) }), nil
 	}
 	n := c.Notice
