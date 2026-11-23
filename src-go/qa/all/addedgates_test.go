@@ -56,6 +56,7 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"gitleaks-tests", "issue #329: the local gitleaks gate fails on a planted fake token and never scans an ignored file, and its own suite proves it"},
 	{"teamchat-play-jinja", "Plan 00209 Task 3.3: play-teamchat.yml's LXC Jinja rendered by the real ansible over good and bad inputs"},
 	{"kickstart-sudo", "Q15: the kickstart's first-boot sudo lasts for first boot only, and passwordless sudo is the host's declared choice, set by the last play"},
+	{"ccy-launch-args-capture", "issue #322: cc and ccy_tmux_insulate keep every argument their builders print, an empty last one included, and a failing builder still stops the launch"},
 }
 
 func isAddedAfterPort(name string) bool {

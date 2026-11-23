@@ -20,7 +20,9 @@
 #              detail:<ERE>   the text the POSIX ERE matches on the last line that matches
 #            A gate whose reader finds nothing FAILS: it proved nothing.
 #
-# Adding a gate is adding a row here (and a row in CLAUDE/QA.md). Nothing else lists the gates.
+# Adding a gate is adding a row here, a row in CLAUDE/QA.md, and its name with the reason in
+# addedAfterPort (src-go/qa/all/addedgates_test.go): the golden replay was recorded before it
+# existed, so without that entry the replay fails on its missing summary line.
 # Toolchain first: every verdict below is a property of the binary that produced it. It does
 # not abort, because a drifted toolchain makes the verdicts unreliable, not unrunnable.
 gate	toolchain	scripts/qa-toolchain.bash	QA tool versions do not match .qa-versions — verdicts below are not comparable	detail:TOOLCHAIN-OK .+
