@@ -61,20 +61,30 @@ its own focused CI (see Plan 00262).
     - a low cgroup `cpu.weight`, with the hard cap as a backstop;
     - an I/O weight and a memory ceiling per container;
     - the wrapper exports the slot's share (`GOMAXPROCS`, `go test -p`, `pytest -n`);
-    - host seats get the same caps through a systemd slice, and the same lock;
+    - ~~host seats get the same caps through a systemd slice, and the same lock~~ (dropped by the
+      owner's third answer, below);
     - N=2 on the laptop to start.
   - **Owner, second answer on Q62 (verbatim):** "3 - this relies on codebases/agents being honest
     and aware of the slots. Is there a way to cap this at container level?" So the cap must hold
     whatever an agent does. The coordinator proposed an answer, not yet confirmed by the owner:
     **kernel enforcement first.**
-    - One parent `agents.slice` holds every ccy container (`podman --cgroup-parent`) and every
-      host session (`systemd-run --slice`). It has a total `CPUQuota`, a low `CPUWeight`, an
-      `IOWeight` and a `MemoryMax`.
+    - One parent `agents.slice` holds every ccy container (`podman --cgroup-parent`). It has a
+      total `CPUQuota`, a low `CPUWeight`, an `IOWeight` and a `MemoryMax`. Host sessions are left
+      out (the owner's third answer, below).
     - Each container gets `--cpus` and `--cpuset-cpus`, so nproc, affinity and GOMAXPROCS size
       themselves, plus `--memory` and `--pids-limit`.
     - The slot lock becomes an optimisation for fairness and throughput, not the safety.
     - The order is: the slice and caps, then the lock, then the queue. Task 1.2 checks rootless
       podman's cgroup v2 delegation on F44, and Go's cgroup-aware GOMAXPROCS.
+  - **Owner, third answer on Q62 (verbatim):** "host sessions should not be running tests - host
+    seats are for running deployments or triage at desktop level - for now we can leave them out
+    but we do need to think about ways to ensure they stay in their lane - they are not workers".
+    So host sessions are not in the slice and do not take the lock.
+  - **Open design item, the host seat's lane:** host seats run deployments and desktop-level
+    triage, never tests or QA. How is that enforced, not just asked? Candidates:
+    - a hooks-daemon rule that refuses QA, test and build commands in a `+local.host` seat;
+    - the `cc` launcher's deny rules (the settings `cc` already passes to Claude Code).
+      Task 1.3 weighs them; the owner decides.
 - [ ] ⬜ **Task 1.2**: A survey of existing tools that already do this: job queues and locks
   such as `flock`, `ts` (task-spooler), `nq`, systemd transient units with slices,
   `pueue`, and self-hosted CI runners. For each: fit, gaps and licence. Build only what no
