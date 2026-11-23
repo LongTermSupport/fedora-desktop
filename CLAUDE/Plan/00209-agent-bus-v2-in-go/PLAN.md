@@ -441,9 +441,11 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
     deliveries reaching one fake session; and each system's exit.
     Built after Task 4.4 (the first real v2 launch), whose pilot proves the v2 half this reuses,
     unless the design finds a shared change that has to land with it.
-- [ ] 🔄 **Task 4.6**: Seat duties (coordinator, worker, host), approved by the owner
+- [x] ✅ **Task 4.6**: Seat duties (coordinator, worker, host), approved by the owner
   (PROPOSAL-seat-kinds.md, section 7): the approval-gated `duties` field, `teamchat whoami --json`
-  and duty on the status rows. Being built test first on its own branch.
+  and duty on the status rows. Built test first on `v2-seat-duty`, merged into v2 at fe67f23c3;
+  [build report](subagent-reports/seat-duty-build-report.md). A duty does not change a host
+  `cc --teams` session's deny rules (Task 5.1 step 10).
 - [ ] 🔄 **Task 4.7**: The coordinator-retrospective backlog,
   [BACKLOG-coordinator-retro.md](BACKLOG-coordinator-retro.md) (R0-R12, v2 only): an owner's
   answer delivered to the seat that asked, a needs-owner digest, reply routing, a required
@@ -451,12 +453,13 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   host load visible in the container, and the size and questions-room verify issues. R12 (owner,
   Q67) is resumes that can never clash. Its first step, refusing `--continue` with teams, ships
   with the ccy caps; then a per-conversation lock for every resume; then `--continue` is banned.
-  - R0, the questions verbs ([DESIGN-questions-v2.md](DESIGN-questions-v2.md) section 5), on
-    branch `v2-questions`: steps 1-6 built (sizes, attachment, the forms; QX3, QX4, QX7 and the
-    `uncounted` hook line; the verbs end to end with the link-back; `verify --room`); step 7,
-    delivery to the asking seat, being built on `v2-questions`; step 8 built on
-    `v2-questions-docs` (the skill text, the owner's Lightning check HC-Q1 in the design's
-    section 9, not yet run). [Build report](subagent-reports/r0-build-report.md).
+  - R0, the questions verbs ([DESIGN-questions-v2.md](DESIGN-questions-v2.md) section 5): steps
+    1-6 built on `v2-questions` and merged into v2 (sizes, attachment, the forms; QX3, QX4, QX7
+    and the `uncounted` hook line; the verbs end to end with the link-back; `verify --room`);
+    step 8 built on `v2-questions-docs` and merged into v2 at 1b7c5c2f8 (the skill text; the
+    owner's Lightning check HC-Q1 in the design's section 9 is not yet run); step 7, delivery to
+    the asking seat, being built on `v2-questions`. DESIGN-v2-B-member.md section 2.2.1's verb
+    table matches the built verbs. [Build report](subagent-reports/r0-build-report.md).
 
 ### Phase 5: N5, other member kinds
 
@@ -472,7 +475,8 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   - [x] ✅ Step 6: the chooser offers teamchat teams to a host launch; the consent names pool handles.
   - [x] ✅ Step 7: `teamchat reach` inside a `--state` session (`<run>/state-root`).
   - [x] ✅ Step 8: docs and plan text.
-  - [x] ✅ Step 9: version bumps (CCY 3.124.1, container 2.84.51), meta-deploy entries,
+  - [x] ✅ Step 9: version bumps (CCY 3.124.1, container 2.84.51 on its branch; the v2 batch is
+    released as CCY 3.124.7, container 2.84.58, after the v2 review), meta-deploy entries,
     `acceptance-host-cc-v2.bash`, [build report](subagent-reports/task-5.1-build-report.md).
   - [x] ✅ Step 10: cc's deny file keeps a host seat out of tests, builds, lint and QA (Plan
     00263 D3, static half; DESIGN-host-cc-v2.md step 10).
