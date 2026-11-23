@@ -88,6 +88,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_screen_state_compared`   | what Claude's input box shows judged by `==` or `!=` against one `screen.State`, so every other screen, one the reader does not know included, takes the opposite verdict                                     | `ccy-sessions` set-going: a `/compact` held by Claude Code for review taken as submitted (fedora-desktop#288)                                                                                                           |
 | `project_tmux_gone_text`          | tmux's "not there" answer read by a loose match on a fragment, which another program in front of tmux (lxc-attach, runuser, env) also prints                                                                  | `ccy-teams shutdown`: a guest server lxc-attach never reached read as empty, "no session running", exit 0 (Plan 00257 B.13 review)                                                                                      |
 | `project_conversation_record`     | a host reader naming a session's conversation record's path outside `conversation.Locate`, so it knows one system's record only                                                                               | `conversation.read`: joined v1's `SessionDir` and `File`, so no host reader found a v2 session's conversation (Plan 00209 Task 5.1)                                                                                     |
+| `project_floor_by_time`           | an event-ordering floor in teamchat's member tree held as a millisecond alone, or a wall-clock since bound cut by `<=` or `>`, so the events sharing its millisecond are dropped                              | `teamsync` qtake and relays: an owner's answer posted in the millisecond of the post before it was skipped as below the questions floor (Plan 00209 R0 step 7)                                                          |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
 `go vet -vettool=<driver> help ...` does not reach it) says what it does and
@@ -3527,3 +3528,45 @@ switch on one, `strings.HasPrefix`/`Contains` on one, a `key.Binding{}` literal,
 with no Tab binding) were red at `f66868db` (7 wants unmet, fixtures
 `fix/internal/ui/evasions.go` and `fix/internal/ui/notab`) and green at the next commit; the
 sweep again found none.
+
+### project_floor_by_time
+
+**What it is about.** Two Matrix events can share an `origin_server_ts`. A floor raised to the
+newest event's millisecond and judged by `ts <= floor` takes every later event sent in that
+millisecond as already seen, and drops it; a floor judged by `ts < floor` repeats the ones it
+took. A wall-clock bound with no event behind it cannot name the events of its millisecond.
+
+**Why it exists.** Plan 00209 R0 step 7: the questions room's floor skipped a human post whose
+`origin_server_ts` was the floor's own millisecond, so an owner's answer posted in the same
+millisecond as the post before it was lost; the coordinator test had to step the fake clock past
+it.
+
+**What it flags** (outside `_test.go`): in `internal/teamchat/member/...`, an ordered comparison,
+or a `max`/`min` argument, that is an integer named for a floor (identifier, field, map read or
+called function whose name holds "floor") or the `MS` of `state.Floor` outside `Floor`'s own
+methods; anywhere in `internal/teamchat`, a `<=` or `>` of an integer named for a "since" with an
+integer named for a time (ending `ts` or `ms`). A comparison with a constant is a validation and
+is not judged.
+
+**Scope, examined.** Outside `member/` a "floor" is an age threshold (`health`'s backup age,
+`status`'s event prune) or a question number (`proto`'s `QuestionFloor`), none an event cut. A
+since compared with a stream position (`fakehs`'s `pos`) is the right form. Wider rule considered:
+every ordered comparison of two event times in teamchat; not built, because a tie between two
+times is the hazard only where one of them is a cutoff, and the rest are ages and deadlines.
+
+**Not caught:** a floor held under a name without "floor" and compared as a bare integer, and a
+cutoff judged through a helper that takes the integers apart from their names.
+
+**How to fix:** hold the floor as a `state.Floor` (the millisecond and the event IDs at it already
+taken), judge by `Covers(ts, id)`, raise by `Raised` and `Max`; a wall-clock since keeps its
+boundary millisecond (drop by `ts < since`).
+
+- Red, fixture: `testdata/floor/src/fix/internal/teamchat/member/badfloor` (the originating
+  qtake, a max raise, floor against floor, a struct field on the right, a map read, a call, a
+  `Floor`'s `MS` taken apart) and `.../admin/badsince` (both orders); `Floor`'s own methods,
+  `Covers`, `Max`, equality, a constant, a since cut by `<`, a position, an age floor outside
+  `member`, a test file and `floorelsewhere` clean.
+- Red, real tree (the defence commit, the driver as `go vet -vettool`, untagged and with
+  `busfailpoints,tuwunel`): 19 findings, in `teamsync` (builder, questions, relay, session),
+  `engine` (recv, storewrite) and `admin/serverestore.go`. The independent search found the same
+  set, and `notice.go`'s `ts < SinceMS` (which keeps its boundary, clean).
