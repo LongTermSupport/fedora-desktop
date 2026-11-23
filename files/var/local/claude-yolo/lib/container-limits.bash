@@ -42,19 +42,8 @@ ccy_container_limits() {
 # desktop keeps. 1 for an override refused, or a machine too small for the default: no value is
 # picked for it. The cap cannot be turned off (0, -1 and "max" are refused).
 ccy_memory_limit() {
-    local key value total="" kib="" number fd
-    if ! exec {fd}<"$1"; then
-        print_error "could not open $1, so no memory cap can be set for a ccy container."
-        return 1
-    fi
-    while read -r -u "$fd" key value _; do
-        if [ "$key" = MemTotal: ]; then
-            total="$value"
-            break
-        fi
-    done
-    exec {fd}<&-
-    if ! [[ "$total" =~ ^[1-9][0-9]*$ ]]; then
+    local total kib="" number
+    if ! total=$(awk '$1 == "MemTotal:" { print $2; exit }' "$1") || ! [[ "$total" =~ ^[1-9][0-9]*$ ]]; then
         print_error "could not read MemTotal from $1, so no memory cap can be set for a ccy container."
         return 1
     fi
