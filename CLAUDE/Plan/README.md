@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00263-machine-qa-queue](00263-machine-qa-queue/) - Not Started (design questions with the owner). A machine-level QA queue, so that many agent sessions on one machine run at most N heavy QA jobs at once, in cached checkouts. It is built as the standalone repository `qa-queue`; this plan tracks it until that repository exists.
+
 - [00262-split-tool-repos](00262-split-tool-repos/) - Proposed (awaiting owner decisions). The owner's question: split ccy, teamchat and the other tool projects into their own repositories with their own CI, fedora-desktop pinning their releases. The proposal measures where CI time goes (the Go gate is about half a full run; CI never restores a Go cache), recommends interim CI fixes first, then a Go base module, teamchat and ccy, only after Plan 00209's v2 cut-over and v1 removal.
 
 - [00261-dbf-declared-but-unenforced-configuration](00261-dbf-declared-but-unenforced-configuration/) - Not Started. A Defence Before Fix analyzer that fails when a team-record or member-config field is read only by its parser or validator.
