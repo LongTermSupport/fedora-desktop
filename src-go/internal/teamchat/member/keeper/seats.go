@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/duty"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/failpoint"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/cli"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/lock"
@@ -24,6 +25,7 @@ import (
 type seat struct {
 	team      paths.TeamID
 	name      string
+	duty      duty.Duty
 	path      paths.Seat
 	lock      *lock.SeatLock
 	startedMS int64
@@ -230,7 +232,7 @@ func (k *keeper) reconcile() {
 	}
 	for _, d := range k.desired.Seats {
 		if k.seatOf(d.Team) == nil {
-			k.add(want{d.Team, d.Seat})
+			k.add(want{d.Team, d.Seat, d.Duty})
 		}
 	}
 }

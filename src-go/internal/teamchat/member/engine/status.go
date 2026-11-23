@@ -147,6 +147,10 @@ func (e *Engine) statusRow(h *held) state.StatusTeam {
 		role := h.health.Role
 		row.Role = &role
 	}
+	if h.duty != "" {
+		d := h.duty
+		row.Duty = &d
+	}
 	if f, ok := failures[h.shown().Stopped]; ok {
 		row.Failed = &f
 	}

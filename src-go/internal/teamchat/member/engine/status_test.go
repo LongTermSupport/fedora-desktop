@@ -7,11 +7,13 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/colour"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/duty"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/wire"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
@@ -203,6 +205,32 @@ func TestStatusJSONNamesTheMemberAndTheColour(t *testing.T) {
 	}
 	if held.Colour != colour.Auto("ops") || refused.Colour != colour.Auto("dev") {
 		t.Fatalf("colours %s, %s", held.Colour, refused.Colour)
+	}
+}
+
+// A seat's duty, as its add gave it, is its row's duty; a seat added with none, and a refused
+// team, show null (PROPOSAL-seat-kinds.md).
+func TestStatusJSONCarriesTheSeatsDuty(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops, dev, qa := tid(t, "ops"), tid(t, "dev"), tid(t, "qa")
+	f := w.fake(ops)
+	check(t, w.e.Add(t.Context(), ops, w.seat(ops, false, encodeStore(t, w.newStore(ops))), nil, duty.Host))
+	<-f.running
+	w.held(dev)
+	check(t, w.e.Refuse(t.Context(), qa, w.run))
+	st := w.status()
+	if len(st.Teams) != 3 {
+		t.Fatalf("status.json = %+v", st)
+	}
+	byTeam := map[paths.TeamID]state.StatusTeam{}
+	for _, row := range st.Teams {
+		byTeam[row.Team] = row
+	}
+	if d := byTeam[ops].Duty; d == nil || *d != duty.Host {
+		t.Fatalf("ops duty %v", d)
+	}
+	if byTeam[dev].Duty != nil || byTeam[qa].Duty != nil {
+		t.Fatalf("duties without one given: %v, %v", byTeam[dev].Duty, byTeam[qa].Duty)
 	}
 }
 

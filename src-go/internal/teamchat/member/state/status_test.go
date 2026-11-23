@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	statusTeam = `{"team":"alpha","role":"coordinator","down":false,"failed":null,"delivery":"socket","pending":0,"missing":0,` +
+	statusTeam = `{"team":"alpha","role":"coordinator","duty":"coordinator","down":false,"failed":null,"delivery":"socket","pending":0,"missing":0,` +
 		`"member":"repo.1","colour":"#2dd4bf","stalled":false}`
 	statusDoc = `{"v":1,"run":"` + sampleRun + `","written_ms":1760000000000,"desired":"applied","unusable_hook_stdin":0,` +
 		`"teams":[` + statusTeam + `]}`
@@ -16,6 +16,9 @@ func TestDecodeStatus(t *testing.T) {
 	none := edit(t, statusDoc, `[`+statusTeam+`]`, `[]`)
 	accepts(t, DecodeStatus, statusDoc, none,
 		edit(t, statusDoc, `"role":"coordinator"`, `"role":null`),
+		edit(t, statusDoc, `"duty":"coordinator"`, `"duty":null`),
+		edit(t, statusDoc, `"duty":"coordinator"`, `"duty":"worker"`),
+		edit(t, statusDoc, `"duty":"coordinator"`, `"duty":"host"`),
 		edit(t, edit(t, statusDoc, `"down":false`, `"down":true`), `"desired":"applied"`, `"desired":"refused"`),
 		edit(t, statusDoc, `"teams":[`, `"teams":[`+strings.ReplaceAll(statusTeam, "alpha", "beta")+`,`),
 		edit(t, statusDoc, `"member":"repo.1"`, `"member":null`),
@@ -25,7 +28,7 @@ func TestDecodeStatus(t *testing.T) {
 		accepts(t, DecodeStatus, edit(t, statusDoc, `"failed":null`, `"failed":"`+why+`"`))
 	}
 	s, err := DecodeStatus([]byte(statusDoc))
-	if err != nil || len(s.Teams) != 1 || *s.Teams[0].Role != "coordinator" || *s.Teams[0].Member != "repo.1" ||
+	if err != nil || len(s.Teams) != 1 || *s.Teams[0].Role != "coordinator" || *s.Teams[0].Duty != "coordinator" || *s.Teams[0].Member != "repo.1" ||
 		s.Teams[0].Colour != "#2dd4bf" || s.Teams[0].Stalled {
 		t.Fatalf("DecodeStatus = %+v, %v", s, err)
 	}
@@ -38,6 +41,9 @@ func TestDecodeStatus(t *testing.T) {
 		{`"teams":[`, `"teams":[` + statusTeam + `,`, CodeSchema},
 		{`"team":"alpha"`, `"team":"SECRET"`, CodeSchema},
 		{`"role":"coordinator"`, `"role":"SECRET"`, CodeSchema},
+		{`"duty":"coordinator"`, `"duty":"reviewer"`, CodeSchema},
+		{`"duty":"coordinator"`, `"duty":""`, CodeSchema},
+		{`,"duty":"coordinator"`, ``, CodeSchema},
 		{`"down":false`, `"down":null`, CodeSchema},
 		{`"failed":null`, `"failed":"SECRET"`, CodeSchema},
 		{`"delivery":"socket"`, `"delivery":"SECRET"`, CodeSchema},
@@ -61,7 +67,7 @@ func TestDecodeStatus(t *testing.T) {
 // TestStatusCap holds the largest status.json within its cap: every team at the longest id and
 // the widest values, the longest member name among them.
 func TestStatusCap(t *testing.T) {
-	team := `{"team":"%s","role":"coordinator","down":false,"failed":"unauthorized","delivery":"socket","pending":2048,"missing":16,` +
+	team := `{"team":"%s","role":"coordinator","duty":"coordinator","down":false,"failed":"unauthorized","delivery":"socket","pending":2048,"missing":16,` +
 		`"member":"` + strings.Repeat("r", 48) + `.` + strings.Repeat("s", 12) + `","colour":"#2dd4bf","stalled":true}`
 	doc := edit(t, statusDoc, `[`+statusTeam+`]`, `[`+teamsJSON(maxTeams, team)+`]`)
 	doc = edit(t, doc, `"unusable_hook_stdin":0`, `"unusable_hook_stdin":9007199254740991`)

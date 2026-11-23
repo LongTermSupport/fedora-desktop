@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/colour"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/duty"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -34,14 +35,15 @@ type Status struct {
 	Teams             []StatusTeam `json:"teams"`
 }
 
-// StatusTeam is one held team's row: its role (null until the roster names one), whether it
-// is down, the permanent failure that stopped it, and its delivery, owed and missing counts;
+// StatusTeam is one held team's row: its role (null until the roster names one), the seat's
+// duty (PROPOSAL-seat-kinds.md; null where the desired membership gave none), whether it is down, the permanent failure that stopped it, and its delivery, owed and missing counts;
 // and what the status line draws it with (B27, n3e-D2): this session's short member name
 // there (null until the link knows its handle), the team's colour (the admin's override, else
 // colour.Auto, always stored hex), and whether delivery is stalled (B 2.7.3's 120 s).
 type StatusTeam struct {
 	Team     paths.TeamID `json:"team"`
 	Role     *string      `json:"role"`
+	Duty     *duty.Duty   `json:"duty"`
 	Failed   *string      `json:"failed"`
 	Delivery string       `json:"delivery"`
 	Pending  int64        `json:"pending"`
@@ -77,6 +79,7 @@ func (s Status) check(c *rules) {
 		c.need(!seen[t.Team], "teams holds a team twice")
 		seen[t.Team] = true
 		c.need(optionalOf(t.Role, roles), "a team's role is not coordinator, worker, probe or null")
+		c.need(t.Duty == nil || t.Duty.Valid(), "a team's duty is not coordinator, worker, host or null")
 		c.need(optionalOf(t.Failed, failures), "a team's failed is not unauthorized, forbidden, trust, bundle or null")
 		c.need(slices.Contains(deliveries, t.Delivery), "a team's delivery is not socket, wait or none")
 		c.need(t.Pending >= 0 && t.Pending <= capPending, "a team's pending is not a count its store holds")

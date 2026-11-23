@@ -13,6 +13,7 @@
 :(glob)src-go/internal/stdinread/*
 :(glob)src-go/internal/teamchat/clock/*
 :(glob)src-go/internal/teamchat/colour/*
+:(glob)src-go/internal/teamchat/duty/*
 :(glob)src-go/internal/teamchat/failpoint/*
 :(glob)src-go/internal/teamchat/matrix/*
 :(glob)src-go/internal/teamchat/member/agent/*

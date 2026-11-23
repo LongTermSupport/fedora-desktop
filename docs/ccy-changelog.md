@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.51 — container 2.84.44
+
+- **teamchat knows a seat's duty** (Plan 00209, PROPOSAL-seat-kinds.md). A v2 seat is a
+  coordinator, a worker or a host in each team it holds. The duty comes from the host in the
+  session's desired membership, is shown in `status.json`, and `teamchat whoami --json` prints
+  each held seat's team, handle, role and duty, for the hooks-daemon's role probe.
+
 ## 3.122.50 — container 2.84.43
 
 - **A lone Enter is no longer lost to tmux copy mode either** (Plan 00257). 3.122.49 took a pane
