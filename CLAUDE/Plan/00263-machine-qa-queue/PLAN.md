@@ -1,6 +1,6 @@
 # Plan 00263: machine qa queue
 
-**Status**: In Progress (Task 1.2, the prior-art survey)
+**Status**: In Progress (design done; blocked on the owner decisions D1-D4, a host window, and the heavy-work pause)
 **Created**: 2026-11-23
 **Owner**: joseph
 **Priority**: High
@@ -96,22 +96,49 @@ its own focused CI (see Plan 00262).
   - The recommendation is to build thin: stage 1 as a slice, caps, a slotted-flock wrapper and
     a hook; stage 2 as a small queue whose runners start each job as a systemd transient unit,
     with pueue and Woodpecker weighed as the alternatives.
-- [ ] 🔄 **Task 1.3**: The design: the job format, how a container submits (socket, spool
-  directory or bus), the security of running a submitted command (allowed repositories and
-  commands, the user it runs as), the checkout cache and its TTL, CPU and IO limits (cgroups),
-  results and logs, pause and cancel.
+- [x] ✅ **Task 1.3**: The design: [DESIGN.md](DESIGN.md). It covers the kernel caps, the slot
+  lock, the host seat's lane and the queue, with four owner decisions (D1-D4, DESIGN.md section 6)
+  and the build in four phases (DESIGN.md section 5).
+- [ ] ⬜ **Task 1.4**: The owner decides D1-D4 (N; the CPU and memory budget; the lane guard;
+  stage 2 built or adopted).
 
-### Phase 2: Build (in the standalone repository)
+### Phase A: stage 1a, kernel caps (fedora-desktop)
 
-- [ ] ⬜ **Task 2.1**: Create the `qa-queue` repository with its own CI. Go, test first, under
-  the same rules as fedora-desktop's `src-go`.
-- [ ] ⬜ **Task 2.2**: The queue, the runner and the client command, as the design says.
+- [ ] ⬜ **Task A.1**: The read-only probe of cgroup delegation and the CPU topology on the host
+  (`triage.bash`, DESIGN.md 1.6, round 1), in a window the owner picks.
+- [ ] ⬜ **Task A.2**: The proof that a rootless container goes under the user slice
+  (`acceptance.bash`, round 2), in the owner's window.
+- [ ] ⬜ **Task A.3**: The `cpuset` Delegate drop-in in `play-podman.yml`, only if A.1 shows
+  `cpuset` is missing.
+- [ ] ⬜ **Task A.4**: The rules first: extend the pids-limit rules to require the slice and the
+  caps, proven red on today's container runs.
+- [ ] ⬜ **Task A.5**: The container-limits helper (Go, test first), wired into every run site,
+  with the version bump.
+- [ ] ⬜ **Task A.6**: `agents.slice` and its limits file in `play-claude-yolo.yml`.
+- [ ] ⬜ **Task A.7**: A plan script applies `podman update` to the running containers.
+- [ ] ⬜ **Task A.8**: Acceptance: two containers under load, and the owner says the desktop
+  stays usable.
 
-### Phase 3: Adopt in fedora-desktop
+### Phase B: stage 1b, slots (`qa-queue`, then fedora-desktop)
 
-- [ ] ⬜ **Task 3.1**: A play installs a pinned release and its unit.
-- [ ] ⬜ **Task 3.2**: `qa-changed.bash` and the agents' QA instructions submit through the
-  queue; the docs and the QA rule are updated.
+- [ ] ⬜ **Task B.1**: Create the `LongTermSupport/qa-queue` repository and its CI.
+- [ ] ⬜ **Task B.2**: `qa-slot run -- <cmd>`, test first, plus a test across two containers,
+  then a release.
+- [ ] ⬜ **Task B.3**: The slot directory and its mount, and the pinned install in the image
+  (version bump).
+- [ ] ⬜ **Task B.4**: `qa-all.bash` and `qa-changed.bash` wrap themselves in a slot; a PreToolUse
+  handler refuses known-heavy commands run outside the wrapper.
+
+### Phase C: the host seat's lane
+
+- [ ] ⬜ **Task C.1**: The guard chosen in D3 (DESIGN.md section 3), test first.
+
+### Phase D: stage 2, the queue
+
+- [ ] ⬜ **Task D.1**: The job format, the spool, the runner, the checkout cache, results and
+  logs, as D4 decides (DESIGN.md section 4).
+- [ ] ⬜ **Task D.2**: A play installs the pinned runner; `qa-changed.bash` and the agents' QA
+  instructions submit through the queue.
 
 ## Success Criteria
 
@@ -122,4 +149,4 @@ its own focused CI (see Plan 00262).
 
 ## Delivery & Milestones
 
-- Plan scaffolded; awaiting the owner's design answers.
+- Phase 1 research and design: RESEARCH-prior-art.md, DESIGN.md.
