@@ -269,7 +269,7 @@ var table = []Verb{
 		Flags: []Flag{{Name: "room", Value: "main|questions", check: checkRoom}, {Name: "limit", Value: "N", check: checkCount}},
 		Does:  "what this member received and sent, read from the room, newest first",
 	},
-	{Name: "verify", Team: TeamOne, Agent: true, Args: []Arg{eventArg}, Does: "re-fetches one event from the homeserver: its verified kind, sender, team, room, full text and SHA-256"},
+	{Name: "verify", Team: TeamOne, Agent: true, Args: []Arg{eventArg}, Flags: []Flag{{Name: "room", Value: "main|questions", check: checkRoom}}, Does: "re-fetches one event from the homeserver: its verified kind, sender, team, room, full text and SHA-256"},
 	{Name: "status", Team: TeamMulti, Agent: true, Does: "this session's teams, roles, members, side rooms, delivery state, open pings and runtime"},
 	{Name: verbVersion, Agent: true, Does: "the binary's source digest and the record version it prints"},
 	{

@@ -412,8 +412,9 @@ func TestTheVerbsArgs(t *testing.T) {
 		want string
 	}{
 		{[]string{"inbox"}, wire.OpInbox, `{"team":null}`},
-		{[]string{"verify", eventID}, wire.OpVerify, `{"id":"$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","team":null}`},
-		{[]string{"verify", eventID, "--team", "alpha"}, wire.OpVerify, `{"id":"$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","team":"alpha"}`},
+		{[]string{"verify", eventID}, wire.OpVerify, `{"id":"$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","room":null,"team":null}`},
+		{[]string{"verify", eventID, "--team", "alpha"}, wire.OpVerify, `{"id":"$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","room":null,"team":"alpha"}`},
+		{[]string{"verify", eventID, "--room", "questions"}, wire.OpVerify, `{"id":"$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","room":"questions","team":null}`},
 		{[]string{"history"}, wire.OpHistory, `{"limit":20,"room":"main","team":null}`},
 		{[]string{"history", "--room", "questions", "--limit", "5"}, wire.OpHistory, `{"limit":5,"room":"questions","team":null}`},
 		{[]string{"wait"}, wire.OpWait, `{"team":null,"timeout_s":110}`},

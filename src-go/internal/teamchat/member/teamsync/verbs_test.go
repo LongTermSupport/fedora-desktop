@@ -24,7 +24,7 @@ func TestVerify(t *testing.T) {
 	w := newWorld(t)
 	tm := w.newTeam()
 	hid := w.say(alice, human("not for me"))
-	got, err := tm.Verify(t.Context(), hid)
+	got, err := tm.Verify(t.Context(), hid, nil)
 	check(t, err)
 	sum := sha256.Sum256([]byte("not for me"))
 	if got.Item != records.KindHuman || got.From != user(alice) || got.Room != proto.PurposeMain || got.Text != "not for me" ||
@@ -32,15 +32,68 @@ func TestVerify(t *testing.T) {
 		t.Errorf("verified = %+v", got)
 	}
 	pid := w.agentText(peer, "to coord", user(coord))
-	if got, err := tm.Verify(t.Context(), pid); err != nil || got.Item != records.KindPeer || got.Text != "to coord" {
+	if got, err := tm.Verify(t.Context(), pid, nil); err != nil || got.Item != records.KindPeer || got.Text != "to coord" {
 		t.Errorf("peer = %+v, %v", got, err)
 	}
-	if _, err := tm.Verify(t.Context(), "$"+"nosucheventanywhere_aaaaaaaaaaaaaaaaaaaaaa"); !isCode(err, exits.CodeNotFound) {
+	if _, err := tm.Verify(t.Context(), "$"+"nosucheventanywhere_aaaaaaaaaaaaaaaaaaaaaa", nil); !isCode(err, exits.CodeNotFound) {
 		t.Errorf("a missing event: %v", err)
 	}
 	emote := w.say(alice, map[string]any{"msgtype": "m.emote", "body": "waves"})
-	if _, err := tm.Verify(t.Context(), emote); !isCode(err, exits.CodeUntrusted) {
+	if _, err := tm.Verify(t.Context(), emote, nil); !isCode(err, exits.CodeUntrusted) {
 		t.Errorf("an emote: %v", err)
+	}
+}
+
+// R10 (#369, DESIGN-questions-v2 2.8): verify reads the questions room by --room, or after main
+// answers 404; the record says whether the sender is a team human and, from the event's own
+// relation, the question it names; a human post in main names none (null).
+func TestVerifyInTheQuestionsRoom(t *testing.T) {
+	w := newWorld(t)
+	w.asCoordinator()
+	w.inQuestions(coord, false)
+	w.inQuestions(alice, false)
+	q := w.adminQuestion(3)
+	answer := w.sayIn(w.qroom(), alice, inThread("port 8080", q))
+	tm := w.newTeam()
+	for name, room := range map[string]*string{"--room questions": new(proto.PurposeQuestions), "main first": nil} {
+		got, err := tm.Verify(t.Context(), answer, room)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got.Room != proto.PurposeQuestions || got.Item != records.KindHuman || !got.Human || got.Text != "port 8080" {
+			t.Errorf("%s: verified %+v", name, got)
+		}
+		if got.Question == nil || *got.Question != "Q3" || got.Headline == nil || *got.Headline != "Which port does the deploy use?" {
+			t.Errorf("%s: question %v headline %v, want Q3 and its headline", name, got.Question, got.Headline)
+		}
+	}
+	if _, err := tm.Verify(t.Context(), answer, new(proto.PurposeMain)); !isCode(err, exits.CodeNotFound) {
+		t.Errorf("--room main for a questions post: %v, want not-found", err)
+	}
+	hid := w.say(alice, human("in main"))
+	got, err := tm.Verify(t.Context(), hid, nil)
+	check(t, err)
+	if !got.Human || got.Question != nil || got.Headline != nil || got.Room != proto.PurposeMain {
+		t.Errorf("a main post verified %+v, want human and no question", got)
+	}
+}
+
+// R10: a worker that is not in the questions room cannot read it: its verify of a questions
+// post is 23 not-found; once it is a member (DESIGN-questions-v2 section 4), it reads it.
+func TestAWorkersVerifyOfAQuestionsPost(t *testing.T) {
+	w := newWorld(t)
+	w.inQuestions(alice, false)
+	q := w.adminQuestion(3)
+	answer := w.sayIn(w.qroom(), alice, inThread("port 8080", q))
+	tm := w.newTeam()
+	if _, err := tm.Verify(t.Context(), answer, nil); !isCode(err, exits.CodeNotFound) {
+		t.Fatalf("a worker outside questions: %v, want not-found", err)
+	}
+	w.inQuestions(me, true)
+	got, err := tm.Verify(t.Context(), answer, nil)
+	check(t, err)
+	if !got.Human || got.Question == nil || *got.Question != "Q3" {
+		t.Errorf("a worker in questions verified %+v, want the human's post on Q3", got)
 	}
 }
 
@@ -194,7 +247,7 @@ func TestNotices(t *testing.T) {
 		t.Errorf("messages %+v, %v", page, err)
 	}
 	check(t, n.SetPresence(t.Context(), user(me), "online"))
-	if _, err := tm.Verify(t.Context(), id); err != nil {
+	if _, err := tm.Verify(t.Context(), id, nil); err != nil {
 		t.Errorf("verify %v", err)
 	}
 	if _, ok := n.Roster(); !ok {
@@ -210,7 +263,7 @@ func TestNotices(t *testing.T) {
 		func() error { _, err := n.Messages(t.Context(), w.main, matrix.MessagesRequest{}); return err }(),
 		func() error { _, err := n.Send(t.Context(), w.main, proto.MessageType, "", nil); return err }(),
 		n.SetPresence(t.Context(), user(me), "online"),
-		func() error { _, err := tm.Verify(t.Context(), id); return err }(),
+		func() error { _, err := tm.Verify(t.Context(), id, nil); return err }(),
 		func() error { _, err := tm.History(t.Context(), proto.PurposeMain, 1); return err }(),
 		func() error { _, err := tm.Refetch(t.Context(), proto.PurposeMain, id); return err }(),
 		tm.FlushFloor(t.Context()),
@@ -247,7 +300,7 @@ func TestLN6ServerFailuresAreTheirExits(t *testing.T) {
 			if _, err := tm.History(t.Context(), proto.PurposeMain, 2); !isCode(err, tc.code) {
 				t.Errorf("History: %v", err)
 			}
-			if _, err := tm.Verify(t.Context(), hid); !isCode(err, tc.code) {
+			if _, err := tm.Verify(t.Context(), hid, nil); !isCode(err, tc.code) {
 				t.Errorf("Verify: %v", err)
 			}
 		})

@@ -235,8 +235,8 @@ type Team interface {
 	Run(ctx context.Context) error
 	// Refetch judges a restored item again (B 2.7.3); ErrItemGone when it never can be.
 	Refetch(ctx context.Context, room, id string) (proto.Verdict, error)
-	// Verify is LN6.
-	Verify(ctx context.Context, id string) (records.Verified, error)
+	// Verify is LN6 in the room named (main or questions), or main then questions for nil (R10).
+	Verify(ctx context.Context, id string, room *string) (records.Verified, error)
 	History(ctx context.Context, room string, limit int) ([]records.History, error)
 	// Notices is for the ends; it works before Run and after it returns.
 	Notices() Notices

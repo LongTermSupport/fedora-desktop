@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.5 — container 2.84.56
+
+- **`teamchat verify` reads the questions room** (Plan 00209, backlog R10, issue #369).
+  `verify <id> --room questions` checks a human's answer in the questions room; without
+  `--room` it looks in main and then in questions. Its record now says whether the sender is a
+  team human and which question (`Q<n>`, with its headline) the message belongs to. The image
+  carries the new `teamchat`.
+
 ## 3.124.4 — container 2.84.55
 
 - **teamchat tells the coordinator a question that was not counted** (Plan 00209, backlog R0).

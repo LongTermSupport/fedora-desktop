@@ -372,6 +372,12 @@ type Verified struct {
 	Text       string       `json:"text"`
 	BodySHA256 string       `json:"body_sha256"`
 	SentMS     int64        `json:"sent_ms"`
+	// Human is whether the sender is a declared team human; Question is the question the event
+	// names, `Q<n>`, `none` (this member's index holds it attached to none), or null when this
+	// member cannot tell; Headline is that question's headline, else null (R10).
+	Human    bool    `json:"human"`
+	Question *string `json:"question"`
+	Headline *string `json:"headline"`
 }
 
 // More ends a recv or wait that stopped at the caps; its team is null, as it counts all teams.

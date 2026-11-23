@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
@@ -18,6 +19,7 @@ import (
 
 const (
 	notInMain    exits.Template = "event {} is not in the team's main room"
+	notInRooms   exits.Template = "event {} is not in the team's main room, nor in a questions room this member reads"
 	notAuthentic exits.Template = "event {} is from no member of the team, or does not read as its sender's"
 	notARoom     exits.Template = "{} is not a room this member reads"
 
@@ -64,6 +66,36 @@ type message struct {
 	text       string
 	human      proto.Human
 	content    proto.Content
+}
+
+// readRoomMessage is readMessage for an event of room purpose: in questions a human's message,
+// or the coordinator's or the admin's question or thread post (A 10.2, 10.3); in main,
+// readMessage's.
+func readRoomMessage(raw json.RawMessage, r proto.Roster, server, purpose string) (message, bool) {
+	if purpose != proto.PurposeQuestions {
+		return readMessage(raw, r, server)
+	}
+	v, err := proto.Parse(raw)
+	if err != nil || str(v, "type") != proto.MessageType {
+		return message{}, false
+	}
+	if _, isState := v.Get("state_key"); isState {
+		return message{}, false
+	}
+	m := message{id: str(v, "event_id"), sender: str(v, "sender"), ts: originTs(v)}
+	content := member(v, "content")
+	switch r.Sender(m.sender, server) {
+	case proto.SenderHuman:
+		h, reason := proto.DecodeHuman(content)
+		m.kind, m.text, m.human = records.KindHuman, h.Body, h
+		return m, reason == ""
+	case proto.SenderCoordinator, proto.SenderAdmin:
+		c, reason := proto.DecodeContent(content, proto.QuestionKeys)
+		m.kind, m.text, m.content = records.KindNotice, c.Body, c
+		return m, reason == ""
+	case proto.SenderWorker, proto.SenderProbe, proto.SenderNone:
+	}
+	return message{}, false
 }
 
 // readMessage judges an event's authenticity by its sender's class in the roster: a human's
@@ -132,14 +164,15 @@ func (t *Team) rosterFor(ctx context.Context, c *matrix.Client, a proto.Anchors)
 	return r, nil
 }
 
-// Verify is LN6: the event re-fetched from main and judged authentic, with its full text and
-// that text's SHA-256.
-func (t *Team) Verify(ctx context.Context, id string) (records.Verified, error) {
-	v, err := t.verify(ctx, id)
+// Verify is LN6: the event re-fetched from room (main or questions; nil is main, then questions
+// when main has no such event, R10) and judged authentic, with its full text, that text's
+// SHA-256, whether its sender is a team human, and the question it names.
+func (t *Team) Verify(ctx context.Context, id string, room *string) (records.Verified, error) {
+	v, err := t.verify(ctx, id, room)
 	return v, t.verbErr(err)
 }
 
-func (t *Team) verify(ctx context.Context, id string) (records.Verified, error) {
+func (t *Team) verify(ctx context.Context, id string, room *string) (records.Verified, error) {
 	c, pair, err := t.current()
 	if err != nil {
 		return records.Verified{}, err
@@ -149,22 +182,91 @@ func (t *Team) verify(ctx context.Context, id string) (records.Verified, error) 
 	if err != nil {
 		return records.Verified{}, err
 	}
-	raw, err := c.GetEvent(ctx, a.MainRoom, id)
-	if errors.Is(err, matrix.ErrNotFound) {
-		return records.Verified{}, exits.New(exits.CodeNotFound, &t.cfg.Team, notInMain, exits.Name(id))
+	rooms := []string{proto.PurposeMain}
+	switch {
+	case room != nil:
+		rooms = []string{*room}
+	case r.Rooms.Questions != "":
+		rooms = append(rooms, proto.PurposeQuestions)
 	}
-	if err != nil {
-		return records.Verified{}, err
+	for _, purpose := range rooms {
+		roomID, err := t.roomOf(purpose, a, r)
+		if err != nil {
+			return records.Verified{}, err
+		}
+		raw, err := c.GetEvent(ctx, roomID, id)
+		// A member outside questions is refused its events: to it they are not there.
+		if errors.Is(err, matrix.ErrNotFound) || purpose == proto.PurposeQuestions && errors.Is(err, matrix.ErrForbidden) {
+			continue
+		}
+		if err != nil {
+			return records.Verified{}, err
+		}
+		m, ok := readRoomMessage(raw, r, a.Server, purpose)
+		if !ok || m.id != id {
+			return records.Verified{}, exits.New(exits.CodeUntrusted, &t.cfg.Team, notAuthentic, exits.Name(id))
+		}
+		return t.verifiedRecord(ctx, c, m, purpose, roomID, r, a), nil
 	}
-	m, ok := readMessage(raw, r, a.Server)
-	if !ok || m.id != id {
-		return records.Verified{}, exits.New(exits.CodeUntrusted, &t.cfg.Team, notAuthentic, exits.Name(id))
+	msg := notInMain
+	if slices.Contains(rooms, proto.PurposeQuestions) {
+		msg = notInRooms
 	}
+	return records.Verified{}, exits.New(exits.CodeNotFound, &t.cfg.Team, msg, exits.Name(id))
+}
+
+// verifiedRecord is m, read from room purpose, as verify's record.
+func (t *Team) verifiedRecord(ctx context.Context, c *matrix.Client, m message, purpose, roomID string, r proto.Roster, a proto.Anchors) records.Verified {
 	sum := sha256.Sum256([]byte(m.text))
-	return records.Verified{
-		Team: t.cfg.Team, ID: id, Item: m.kind, From: m.sender, Room: proto.PurposeMain, Text: m.text,
-		BodySHA256: hex.EncodeToString(sum[:]), SentMS: m.ts,
-	}, nil
+	v := records.Verified{
+		Team: t.cfg.Team, ID: m.id, Item: m.kind, From: m.sender, Room: purpose, Text: m.text,
+		BodySHA256: hex.EncodeToString(sum[:]), SentMS: m.ts, Human: m.kind == records.KindHuman,
+	}
+	if purpose == proto.PurposeQuestions {
+		v.Question, v.Headline = t.questionOf(ctx, c, m, roomID, r, a)
+	}
+	return v
+}
+
+// questionOf is the question a questions-room message names, and its headline: a question is
+// its own; this member's index answers for a human post it holds (`none` when attached to
+// none); else the post's own relation, when it names a question this member can fetch (A 10.4
+// rules 1 and 2); else null.
+func (t *Team) questionOf(ctx context.Context, c *matrix.Client, m message, roomID string, r proto.Roster, a proto.Anchors) (*string, *string) {
+	if m.content.Key == proto.KeyQuestion {
+		return questionNamed(m.content.Question.N, m.text)
+	}
+	if q := t.qget(); q.idx != nil && q.room == roomID && m.kind == records.KindHuman {
+		if n, seen := q.idx.Attachment(m.id); seen && n == 0 {
+			return new("none"), nil
+		} else if iq, ok := q.idx.Question(n); seen && ok {
+			return new(fmt.Sprintf("Q%d", n)), new(iq.Headline)
+		}
+	}
+	for _, rel := range []string{m.human.ThreadRoot, m.human.ReplyTo} {
+		if rel == "" {
+			continue
+		}
+		raw, err := c.GetEvent(ctx, roomID, rel)
+		if err != nil {
+			t.log.Printf("verify: the question %s names was not read: %s", m.id, matrix.Cause(err))
+			continue
+		}
+		if root, ok := readRoomMessage(raw, r, a.Server, proto.PurposeQuestions); ok && root.content.Key == proto.KeyQuestion {
+			return questionNamed(root.content.Question.N, root.text)
+		}
+	}
+	return nil, nil
+}
+
+// questionNamed is `Q<n>` and the headline of a question whose body is text.
+func questionNamed(n int64, text string) (*string, *string) {
+	name := fmt.Sprintf("Q%d", n)
+	h, err := proto.Headline(strings.TrimPrefix(text, name+" "))
+	if err != nil {
+		return &name, nil
+	}
+	return &name, &h
 }
 
 // History is LN6: a room's messages read backwards, at most limit (and maxHistory), given oldest
