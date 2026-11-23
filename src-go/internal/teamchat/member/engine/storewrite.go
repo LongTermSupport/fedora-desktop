@@ -260,6 +260,7 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
 		for _, txn := range dropped.sends {
 			e.logf("team %s: the questions post sent as %s is dropped with the questions room; it may have landed", b.Team, txn)
 		}
+		h.keepUncounted(b)
 		h.counts = addCounts(h.counts, b.Counts)
 		h.delivery.hold(b, lines)
 		h.note(notes, pruned)
@@ -271,6 +272,17 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
 		return 0, err
 	}
 	return floor, out
+}
+
+// keepUncounted is a written batch's uncounted own posts kept for their hook line (QX3), as the
+// store's count was raised; a demotion's write forgets them with the count.
+func (h *held) keepUncounted(b team.Batch) {
+	switch {
+	case b.DropQuestions:
+		h.uncounted = nil
+	case b.Questions != nil:
+		h.uncounted = append(h.uncounted, b.QuestionsUncounted...)
+	}
 }
 
 // apply is b in a copy of its store; it is the items added, with their verdicts.

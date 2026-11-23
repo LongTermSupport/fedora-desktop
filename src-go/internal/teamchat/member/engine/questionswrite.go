@@ -32,7 +32,7 @@ func applyQuestions(s *state.Store, b team.Batch) (questionsDrop, error) {
 			return out, fmt.Errorf("engine: team %s: copy the questions key: %w", b.Team, err)
 		}
 		s.Questions = &key
-		s.Outbox.Folded(b.QuestionsFolded, b.QuestionsUncounted)
+		s.Outbox.Folded(b.QuestionsFolded, int64(len(b.QuestionsUncounted)))
 	}
 	if b.Handover {
 		s.Outbox.QuestionsHandover = true

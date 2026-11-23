@@ -57,8 +57,8 @@ func TestQuestionIndexProvisionalEntryDroppedWhenItsEchoIsNotCounted(t *testing.
 		t.Fatalf("dropped before its own echo: %v", got)
 	}
 	r.post(qid('y'), coordID, 8000, questionPost(1, goodQuestion, ""))
-	if got := r.index.TakeDropped(); len(got) != 1 || got[0] != "txn-1" {
-		t.Errorf("TakeDropped() = %v, want [txn-1]", got)
+	if got := r.index.TakeDropped(); len(got) != 1 || got[0] != (Dropped{Txn: "txn-1", N: 1}) {
+		t.Errorf("TakeDropped() = %v, want txn-1, the question Q1", got)
 	}
 	if got := r.index.TakeDropped(); len(got) != 0 {
 		t.Errorf("TakeDropped() again = %v", got)

@@ -577,9 +577,9 @@ func (s *sess) qtake(j *judged, jr roomJudged, idx *proto.QuestionIndex, floor i
 		}
 		s.take(j, v, e.id, nil, jr.lk, counted, proto.PurposeQuestions)
 	}
-	for _, txn := range idx.TakeDropped() {
-		s.t.log.Printf("the questions post sent as %s was not counted: another question holds its number", txn)
-		j.batch.QuestionsUncounted++
+	for _, d := range idx.TakeDropped() {
+		s.t.log.Printf("the questions post sent as %s was not counted: another question holds its number", d.Txn)
+		j.batch.QuestionsUncounted = append(j.batch.QuestionsUncounted, d)
 	}
 	if jr.floor > floor {
 		if j.batch.Floors == nil {

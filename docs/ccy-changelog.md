@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.4 — container 2.84.55
+
+- **teamchat tells the coordinator a question that was not counted** (Plan 00209, backlog R0).
+  When a question or thread post the coordinator sent as `Q<n>` loses its number to another
+  question, the next prompt or session start says so once, naming `Q<n>` and pointing at
+  `teamchat questions`; after a restart the numbers are not known and the posts are told
+  together. The image carries the new `teamchat`.
+
 ## 3.124.3 — container 2.84.54
 
 - **teamchat rebuilds the questions index after an admin redaction** (Plan 00209, backlog R0).

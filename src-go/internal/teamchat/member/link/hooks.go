@@ -107,9 +107,9 @@ func (l *link) answerHook(ctx context.Context, op string, a wire.HookArgs, usabl
 	}
 	switch op {
 	case wire.OpHookSessionStart:
-		return l.sessionStart(v)
+		return l.sessionStart(ctx, v)
 	case wire.OpHookPrompt:
-		return l.prompt(v)
+		return l.prompt(ctx, v)
 	}
 	return l.stop(v, a.StopHookFalse)
 }
@@ -144,7 +144,7 @@ func (l *link) takeToken(token string) {
 
 // sessionStart is the frame, every team's block and the mode, then any pending, failure and
 // refusal line; told is set to the teams now, and frame_told, before the answer.
-func (l *link) sessionStart(v engine.HookView) hooktext.Answer {
+func (l *link) sessionStart(ctx context.Context, v engine.HookView) hooktext.Answer {
 	teams := make([]hooktext.FrameTeam, 0, len(v.Teams))
 	for _, t := range v.Teams {
 		teams = append(teams, hooktext.FrameTeam{
@@ -157,6 +157,7 @@ func (l *link) sessionStart(v engine.HookView) hooktext.Answer {
 	}
 	lines = append(lines, failureLines(v, true)...)
 	lines = append(lines, l.refusals(v, true)...)
+	lines = append(lines, l.uncounted(ctx, v)...)
 	l.logErr("record the frame told", l.tellFrame(v))
 	return hooktext.Context(eventSessionStart, strings.Join(lines, "\n"))
 }
@@ -164,7 +165,7 @@ func (l *link) sessionStart(v engine.HookView) hooktext.Answer {
 // prompt is UserPromptSubmit's lines: the membership notice the socket could not take, the
 // pending counts when the socket will not push them, a failure line once per 10 minutes and the
 // refusals not yet told.
-func (l *link) prompt(v engine.HookView) hooktext.Answer {
+func (l *link) prompt(ctx context.Context, v engine.HookView) hooktext.Answer {
 	lines := l.owedMembership()
 	if p := pendingLine(v); p != "" {
 		lines = append(lines, p)
@@ -181,7 +182,33 @@ func (l *link) prompt(v engine.HookView) hooktext.Answer {
 		}
 	}
 	lines = append(lines, l.refusals(v, false)...)
+	lines = append(lines, l.uncounted(ctx, v)...)
 	return hooktext.Context(eventPrompt, strings.Join(lines, "\n"))
+}
+
+// uncounted are SPEC-n3f QX3's owed lines, one per own questions post not counted (those whose
+// numbers a restart lost, one line together), each team's told recorded in its store before
+// the answer, so a line is said once; a team whose record fails says nothing now and is owed.
+func (l *link) uncounted(ctx context.Context, v engine.HookView) []string {
+	var lines []string
+	for _, t := range v.Teams {
+		var team []string
+		if t.UncountedUnknown > 0 {
+			team = append(team, hooktext.UncountedUnknown(t.Team, t.UncountedUnknown))
+		}
+		for _, d := range t.Uncounted {
+			team = append(team, hooktext.Uncounted(t.Team, d.N, d.Thread))
+		}
+		if len(team) == 0 {
+			continue
+		}
+		if err := l.eng.UncountedSaid(ctx, t.Team, t.UncountedUnknown+int64(len(t.Uncounted))); err != nil {
+			l.logf("link: team %s: the uncounted lines are not said now, their record failed: %v", t.Team, err)
+			continue
+		}
+		lines = append(lines, team...)
+	}
+	return lines
 }
 
 // stop is HK2: nothing unless stop_hook_active was the literal false; a block only when its

@@ -213,10 +213,15 @@ it itself (#364: a worker must not act on a peer's relay of an owner ruling).
 
 Each step: write the test, see it fail, then the code. Fakes only (fakehs, the fake clock).
 
-**Status:** steps 1-3 built on `v2-questions`; step 4's QX3 and QX4 built (own posts placed and
-sent to the questions room, `questions_unechoed` and the `uncounted` count written, one compose
-at a time under the team's judging hold); QX7's redaction rebuild and the `uncounted` hook line
-not yet. Step 5 in part: the verbs' command line (`ask-human`, `thread --note`, `close`,
+**Status:** steps 1-4 built on `v2-questions`: QX3 and QX4 (own posts placed and sent to the
+questions room, `questions_unechoed` and the `uncounted` count written, one compose at a time
+under the team's judging hold), QX7's rebuild (an admin redaction folded by the sync, a
+catch-up or a build past its start writes the key as a build owed and builds again; a
+redaction a job has already built again for is history to its next build, so a build whose
+backward read starts at a position before the redaction ends) and QX3's `uncounted` hook line,
+said once at the next prompt or session start and recorded by raising `said`. The store keeps
+only `{count, said}` (SPEC-n3f's shape), so the numbers live in the link's memory: after a
+restart the posts still owed are told by one line together, without their numbers. Step 5 in part: the verbs' command line (`ask-human`, `thread --note`, `close`,
 `retitle`, `bump`, `questions --waiting/--for/--digest`; `run.go`'s `unbuilt` empty), the client
 (`--skeleton` printed with no session, close's not-retitled stderr line), the wire args, and the
 `question` record's `why`, `for`, `waiting_since_ms` and `retitled` with the `bump` record; and

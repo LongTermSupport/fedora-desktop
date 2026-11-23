@@ -149,6 +149,43 @@ func TestQX3AQueuedQuestionWaitsForTheIndexAndIsDroppedWhenItsNumberIsTaken(t *t
 	}
 }
 
+// QX3's hook line: the uncounted posts a written batch folded are owed to the hooks with their
+// numbers; a line told raises `said` in the store, so it is never owed again; a count above
+// `said` with no number known (a restart) is owed as posts whose numbers are unknown.
+func TestUncountedPostsAreOwedToTheHooksUntilSaid(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	s := w.newStore(ops)
+	s.Outbox.QuestionsUncounted = state.Uncounted{Count: 1}
+	w.add(ops, encodeStore(t, s))
+	w.persistBatch(team.Batch{Team: ops, NextBatch: "s1", Questions: questionsKey("s1"), QuestionsUncounted: []proto.Dropped{{Txn: "t1", N: 4}, {Txn: "t2", N: 5, Thread: true}}})
+	ht := w.hookTeam(ops)
+	if ht.UncountedUnknown != 1 || !slices.Equal(ht.Uncounted, []proto.Dropped{{Txn: "t1", N: 4}, {Txn: "t2", N: 5, Thread: true}}) {
+		t.Fatalf("owed %+v and %d unknown, want Q4 and the thread post Q5, and 1 unknown", ht.Uncounted, ht.UncountedUnknown)
+	}
+	check(t, w.e.UncountedSaid(t.Context(), ops, 2))
+	if u := w.store(ops).Outbox.QuestionsUncounted; u != (state.Uncounted{Count: 3, Said: 2}) {
+		t.Errorf("stored %+v, want 3 counted and 2 said", u)
+	}
+	if ht := w.hookTeam(ops); ht.UncountedUnknown != 0 || !slices.Equal(ht.Uncounted, []proto.Dropped{{Txn: "t2", N: 5, Thread: true}}) {
+		t.Errorf("owed %+v and %d unknown after two said, want the thread post Q5 alone", ht.Uncounted, ht.UncountedUnknown)
+	}
+}
+
+// hookTeam is the hooks' view of team id.
+func (w *world) hookTeam(id paths.TeamID) HookTeam {
+	w.t.Helper()
+	v, err := w.e.HookView(w.t.Context())
+	check(w.t, err)
+	for _, ht := range v.Teams {
+		if ht.Team == id {
+			return ht
+		}
+	}
+	w.t.Fatalf("team %s is not in the hooks' view", id)
+	return HookTeam{}
+}
+
 // QX3: the write that folds the own post's echo sets questions_unechoed back to null and counts
 // an uncounted echo; a write that folds other events leaves it.
 func TestPersistClearsTheUnechoedPostWhenItsEchoIsFolded(t *testing.T) {
@@ -162,7 +199,7 @@ func TestPersistClearsTheUnechoedPostWhenItsEchoIsFolded(t *testing.T) {
 	if w.store(ops).Outbox.QuestionsUnechoed == nil {
 		t.Fatal("another event's fold cleared the unechoed post")
 	}
-	w.persistBatch(team.Batch{Team: ops, NextBatch: "s2", Questions: questionsKey("s2"), QuestionsFolded: []string{unechoed}, QuestionsUncounted: 1})
+	w.persistBatch(team.Batch{Team: ops, NextBatch: "s2", Questions: questionsKey("s2"), QuestionsFolded: []string{unechoed}, QuestionsUncounted: []proto.Dropped{{Txn: "t1", N: 1}}})
 	if o := w.store(ops).Outbox; o.QuestionsUnechoed != nil || o.QuestionsUncounted.Count != 1 {
 		t.Errorf("unechoed %v, uncounted %+v: want null and 1", o.QuestionsUnechoed, o.QuestionsUncounted)
 	}

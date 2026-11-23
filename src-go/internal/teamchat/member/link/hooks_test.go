@@ -303,6 +303,39 @@ func TestThePromptCountsPendingWhenNotLive(t *testing.T) {
 	}
 }
 
+// SPEC-n3f QX3: an own questions post not counted is told by one line at the next prompt, word
+// for word, and not again: the line taken raises `said` in the store; SessionStart tells it the
+// same way.
+func TestUncountedToldOnce(t *testing.T) {
+	a := tid(t, "alpha")
+	w := newHookWorld(t, a)
+	_, err := w.link().eng.Persist(t.Context(), team.Batch{
+		Team: a, NextBatch: "s1", Questions: headKey(a, "s1"), QuestionsUncounted: []proto.Dropped{{Txn: "t1", N: 4}},
+	})
+	check(t, err)
+	line := hooktext.Uncounted(a, 4, false)
+	if text := contextOf(t, w.hook(wire.OpHookPrompt)); !strings.Contains(text, line) {
+		t.Fatalf("prompt %q lacks %q", text, line)
+	}
+	if text := w.hook(wire.OpHookPrompt); strings.Contains(text, "was not counted") {
+		t.Fatalf("the line was said twice: %q", text)
+	}
+	_, err = w.link().eng.Persist(t.Context(), team.Batch{
+		Team: a, NextBatch: "s2", Questions: headKey(a, "s2"), QuestionsUncounted: []proto.Dropped{{Txn: "t2", N: 6, Thread: true}},
+	})
+	check(t, err)
+	if text := contextOf(t, w.hook(wire.OpHookSessionStart)); !strings.Contains(text, hooktext.Uncounted(a, 6, true)) {
+		t.Fatalf("SessionStart %q lacks the thread post's line", text)
+	}
+}
+
+// headKey is a questions key of an empty index at the head, at token.
+func headKey(id paths.TeamID, token string) *proto.QuestionsState {
+	st := proto.NewQuestionIndex(paths.ServerName(id), 0).State()
+	last := evAt(9)
+	return &proto.QuestionsState{Index: &st, Token: &token, Last: &last}
+}
+
 // HK2: Stop blocks once per distinct pending set, only on stop_hook_active false, and never
 // when session.json cannot be written.
 func TestStopBlocksOncePerPendingSet(t *testing.T) {

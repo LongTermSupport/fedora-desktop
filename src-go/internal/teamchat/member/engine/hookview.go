@@ -9,6 +9,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
 // HookView is what the link answers the hooks from (HK1, HK2), read on the state goroutine
@@ -36,6 +37,10 @@ type HookTeam struct {
 	Failed                                 *string
 	Down                                   bool
 	Current                                bool
+	// Uncounted are the own questions posts not counted whose hook line is owed (QX3), oldest
+	// first, after UncountedUnknown more whose numbers this link does not know (a restart).
+	Uncounted        []proto.Dropped
+	UncountedUnknown int64
 }
 
 // TeamRole is one held team as the membership notice names it (DV6); Role is "" until the
@@ -99,6 +104,7 @@ func hookTeam(h *held, live bool) HookTeam {
 	if h.store == nil {
 		return ht
 	}
+	ht.Uncounted, ht.UncountedUnknown = h.owedUncounted()
 	for _, p := range h.store.Pending {
 		if p.Handed != nil || !p.Held && live {
 			continue
@@ -110,6 +116,38 @@ func hookTeam(h *held, live bool) HookTeam {
 		}
 	}
 	return ht
+}
+
+// owedUncounted are the uncounted posts whose line is owed (the store's count above `said`): the
+// newest of them this link folded, by number, and how many older ones it holds no number for.
+func (h *held) owedUncounted() ([]proto.Dropped, int64) {
+	u := h.store.Outbox.QuestionsUncounted
+	owed := u.Count - u.Said
+	known := h.uncounted[max(0, int64(len(h.uncounted))-owed):]
+	return slices.Clone(known), owed - int64(len(known))
+}
+
+// UncountedSaid records n owed uncounted lines of team id told (QX3): `said` raised in one store
+// write, and the numbers no longer owed forgotten, so a restart neither repeats nor loses one.
+func (e *Engine) UncountedSaid(ctx context.Context, id paths.TeamID, n int64) error {
+	var out error
+	err := e.do(ctx, func() {
+		out = e.changeLocked(id, func(_ *held, s *state.Store) (bool, error) {
+			u := &s.Outbox.QuestionsUncounted
+			u.Said = min(u.Count, u.Said+n)
+			return true, nil
+		})
+		if out != nil {
+			return
+		}
+		h := e.teams[id]
+		u := h.store.Outbox.QuestionsUncounted
+		h.uncounted = h.uncounted[max(0, int64(len(h.uncounted))-(u.Count-u.Said)):]
+	})
+	if err != nil {
+		return err
+	}
+	return out
 }
 
 // count adds one item of kind to c.

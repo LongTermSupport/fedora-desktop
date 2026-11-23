@@ -55,9 +55,10 @@ type Batch struct {
 	Page bool
 	// QuestionsFolded are the questions room's events this batch folded, and QuestionsUncounted
 	// the own posts among them whose echo was not counted (QX3): the write clears
-	// `outbox.questions_unechoed` when it names that event, and raises the uncounted count.
+	// `outbox.questions_unechoed` when it names that event, and raises the uncounted count by
+	// their number; the engine keeps them for the hook line that names each (QX3).
 	QuestionsFolded    []string
-	QuestionsUncounted int64
+	QuestionsUncounted []proto.Dropped
 	// Handover sets `outbox.questions_handover`, the ready line owed (QX1): the first page write of
 	// a build begun with no `questions` key.
 	Handover bool
