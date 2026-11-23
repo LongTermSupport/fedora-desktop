@@ -189,7 +189,10 @@ Open (each can be answered in a line; my recommendation follows each):
   down and restarted on the next token in the set with headroom, resuming the same
   conversation (`ccy --resume <id>`, with `--teams` for a seat, per Q67), at most once per
   15 minutes plus jitter, and the switch is reported in the team room for a seat. General in
-  ccy on every machine that runs it, not only `ccy-teams`.
+  ccy on every machine that runs it, not only `ccy-teams`. ccy installs the timer itself, as
+  an opt-in user unit (as `ccy-sessions` does for restore), so no play is needed on any
+  machine. It covers host `cc` seats too, through the shared conversation record: a `cc`
+  seat stops its process where a ccy seat stops its container. LXC is out of scope (Q65).
 - [ ] ⬜ **Task 2.5**: `CCY_VERSION` bump, `docs/ccy-changelog.md`, `docs/ccy.md` Tokens
   section ("switching account mid-session", the cold-cache cost, the `/login` hatch), help
   text.
