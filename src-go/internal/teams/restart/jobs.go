@@ -239,7 +239,7 @@ func (r *Restart) prepareStart(j *job) {
 		j.done(resultFailed, "its folder no longer exists: "+j.rec.Dir)
 		return
 	}
-	start, err := conversation.StartPlan(j.rec, conversation.ClaudeHome(r.Getenv))
+	start, err := conversation.StartPlan(j.rec, conversation.Here(r.Getenv))
 	if err != nil {
 		j.done(resultFailed, strings.TrimPrefix(err.Error(), j.rec.Name+": "))
 		return

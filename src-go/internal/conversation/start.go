@@ -30,8 +30,8 @@ func (e *ArgsError) Unwrap() error { return e.Err }
 // conversation to resume: the hook recorded none (Plan 00135 Phase 13), or the one it recorded
 // has no transcript, as a session that never took a turn has none (fedora-desktop#270). Any
 // other failure of the lookup is For's error, whatever the mark.
-func StartPlan(rec registry.Record, claudeHome string) (Start, error) {
-	id, err := read(rec, claudeHome)
+func StartPlan(rec registry.Record, where Where) (Start, error) {
+	id, err := read(rec, where)
 	switch {
 	case err == nil:
 		args, argsErr := registry.ResumeArgs(rec.Compose, rec.Prefix, rec.Args, id)

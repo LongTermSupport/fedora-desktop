@@ -13,6 +13,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -79,6 +80,23 @@ func TestASessionAtTheFloorIsCompactedOnceItHasAnswered(t *testing.T) {
 		"alpha: 1 wound down, 0 failed, 2 not running.",
 		"alpha: 1 compacted, 0 not compacted.",
 	)
+}
+
+// A wind-down acts on agent-bus teams, so a session of one is judged on v1's record: a teamchat
+// record left in the seat store under its name, naming a conversation with no transcript, is
+// never read (Plan 00209 DESIGN-host-cc-v2.md section 4).
+func TestASessionIsJudgedOnItsV1RecordNotASeatStoreRecordOfItsName(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	s := m.proj()
+	m.converse(s, largeTokens)
+	teamtest.MustWrite(m.t, filepath.Join(m.Env["HOME"], ".local/state/teamchat/seats/sessions/ccy-proj/conversation.json"),
+		`{"v":1,"run":"0123456789abcdef","session_id":"11111111-2222-4333-8444-555555555555","source":"startup","written_ms":1}`)
+	s.answerLooks, s.compactLooks = 4, 3
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	m.errHas(t, "alpha: 1 compacted, 0 not compacted.")
 }
 
 // WC2: below the floor, a session is not compacted, and the report gives both numbers.

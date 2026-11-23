@@ -8,8 +8,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
+	"strings"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/gates"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qalock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qaverdict"
@@ -59,7 +62,7 @@ type Env struct {
 	Now func() time.Time
 }
 
-const usageText = `usage: qa-all [--root DIR] [--scripts DIR] [--no-wait]
+const usageText = `usage: qa-all [--root DIR] [--scripts DIR] [--no-wait] [--only GATES | --except GATES]
 
 The full QA run, which GitHub CI runs on every push. Runs every gate of scripts/qa-gates.tsv
 in order, never stopping at the first failure, prints one stage line per gate and one
@@ -72,6 +75,10 @@ waits, naming that run on stderr once and then every minute.
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory holding qa-gates.tsv and the gates
   --no-wait       exit 2 at once, naming the holder, if another QA run holds the lock
+  --only GATES    run only the named gates (comma-separated stage-line names), in table order
+  --except GATES  run every gate but the named ones; --only A and --except A run each gate once
+                  (CI splits the table across parallel jobs this way). A name the table does not
+                  hold is exit 2. A subset is not the full run: it writes no verdict record.
   -h, --help      this text
 
 QA_ALL_TIMEOUT    the per-gate time limit as a Go duration (30m default, 0 disables).
@@ -90,6 +97,62 @@ type options struct {
 	noWait  bool
 	root    string
 	scripts string
+	// picked is the gate names of --only or --except; except says which. Empty is every gate.
+	picked []string
+	except bool
+}
+
+// subset is whether the run takes only part of the table.
+func (o options) subset() bool { return len(o.picked) > 0 }
+
+// subsetFlag is the flag the subset was given with, for messages.
+func (o options) subsetFlag() string {
+	if o.except {
+		return "--except"
+	}
+	return "--only"
+}
+
+// takeSubset reads the value of --only or --except: one subset per run, every name non-empty.
+func takeSubset(rest []string, opts *options, except bool, flag string) ([]string, error) {
+	if opts.subset() {
+		return rest, &usageError{msg: "give one of --only and --except, once"}
+	}
+	var list string
+	rest, err := takeValue(rest, &list, flag+" needs a comma-separated list of gate names")
+	if err != nil {
+		return rest, err
+	}
+	names := strings.Split(list, ",")
+	if slices.Contains(names, "") {
+		return rest, &usageError{msg: fmt.Sprintf("%s %q holds an empty gate name", flag, list)}
+	}
+	opts.picked, opts.except = names, except
+	return rest, nil
+}
+
+// pickGates is the gates of the table a subset runs, in table order. A name the table does not
+// hold is refused, so a renamed gate cannot drop out of every CI job unnoticed; a subset that
+// leaves nothing to run proves nothing and is refused too.
+func pickGates(table []gates.Gate, opts options) ([]gates.Gate, error) {
+	if !opts.subset() {
+		return table, nil
+	}
+	for _, name := range opts.picked {
+		if !slices.ContainsFunc(table, func(g gates.Gate) bool { return g.Name == name }) {
+			return nil, fmt.Errorf("%s names %q, which is no gate of qa-gates.tsv", opts.subsetFlag(), name)
+		}
+	}
+	var picked []gates.Gate
+	for _, g := range table {
+		if slices.Contains(opts.picked, g.Name) != opts.except {
+			picked = append(picked, g)
+		}
+	}
+	if len(picked) == 0 {
+		return nil, fmt.Errorf("%s %s leaves no gate to run", opts.subsetFlag(), strings.Join(opts.picked, ","))
+	}
+	return picked, nil
 }
 
 // usageError is a command line the tool refuses.
@@ -120,6 +183,8 @@ func parseArgs(args []string) (options, error) {
 			rest, err = takeValue(rest, &opts.root, "--root needs a directory")
 		case "--scripts":
 			rest, err = takeValue(rest, &opts.scripts, "--scripts needs a directory")
+		case "--only", "--except":
+			rest, err = takeSubset(rest, &opts, arg == "--except", arg)
 		default:
 			err = &usageError{msg: fmt.Sprintf("unknown argument '%s'", arg), listUsage: true}
 		}

@@ -238,7 +238,7 @@ type Closer struct {
 // New is the production Closer over a tmux server and the session registry; getenv says where
 // Claude Code keeps a host session's transcripts.
 func New(t *tmuxccy.Tmux, reg func() (*registry.Store, error), getenv func(string) string) *Closer {
-	home := conversation.ClaudeHome(getenv)
+	home := conversation.Here(getenv)
 	return &Closer{
 		Tmux: t, Registry: reg, Transcripts: transcript.NewCache(),
 		Transcript: func(rec registry.Record) (string, error) { return conversation.Transcript(rec, home) },

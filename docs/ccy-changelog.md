@@ -17,12 +17,21 @@ Two version numbers move independently — see
 
 ---
 
-## 3.122.54 — container 2.84.47
+## 3.123.1 — container 2.84.48
 
 - **teamchat's questions verbs for v2** (Plan 00209, backlog R0, DESIGN-questions-v2.md), built
   in steps on one branch. A size refusal now names the text's size and the limit (#365). A
   human's reply to anything attached to a question attaches to it, top level included (#367).
-  (3.122.53 / container 2.84.46 was this work's first, unreleased step.)
+  (3.122.53 to 3.122.54 / containers 2.84.46 to 2.84.47 were this work's earlier, unreleased
+  steps.)
+
+## 3.123.0 — container 2.84.45
+
+- **A teamchat session's conversation is found** (Plan 00209 Task 5.1). `ccy --stop`, the
+  boot restore and its check, a team restart and a wind-down read a session's conversation from
+  the record of the system its teams are on: a teamchat (v2) session's in the seat store, an
+  agent-bus (v1) session's in its checkout as before. Before, every v2 session was read as v1
+  and so resumed stale or started fresh.
 
 ## 3.122.52 — container 2.84.45
 
