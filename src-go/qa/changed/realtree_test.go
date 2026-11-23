@@ -293,7 +293,7 @@ func goPathMentions(t *testing.T, srcGo string) map[string][]string {
 		if d.IsDir() && (d.Name() == "vendor" || d.Name() == "testdata") {
 			return fs.SkipDir
 		}
-		if d.IsDir() || !strings.HasSuffix(p, ".go") {
+		if !d.Type().IsRegular() || !strings.HasSuffix(p, ".go") {
 			return nil
 		}
 		body, err := fs.ReadFile(tree, p)
