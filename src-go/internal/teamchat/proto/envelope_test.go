@@ -267,7 +267,7 @@ func TestEntryTimeouts(t *testing.T) {
 		"to: this session, as "+envHandle,
 		"id: "+qid('q'),
 		"silent: humans",
-		"authority: none. A fact about your own question: remind the humans with teamchat thread Q4 --ask, or go on.",
+		"authority: none. A fact about your own question: remind the humans with teamchat bump Q4, or go on.",
 	)
 	e := timeoutEntry()
 	e.Silent, e.Ref, e.Repeat = "alice", "", true
