@@ -196,8 +196,14 @@ func (r *run) load(ctx context.Context) error {
 	return nil
 }
 
-// checkRoles refuses a coordinator that can never hold the role before any change (n2b-D6).
+// checkRoles refuses a coordinator that can never hold the role (n2b-D6), and a declared duty
+// for a handle the roster does not hold (PROPOSAL-seat-kinds.md), before any change.
 func (r *run) checkRoles(context.Context) error {
+	for _, d := range slices.Sorted(maps.Keys(r.team.Duties)) {
+		if _, ok := r.files.roster.Members[d]; !ok {
+			return refused(StepRoles, fmt.Errorf("the declared duties name %s, which is not a member of the team; add it first, or remove its entry", d))
+		}
+	}
 	h := r.team.Coordinator
 	m, ok := r.files.roster.Members[h]
 	switch {

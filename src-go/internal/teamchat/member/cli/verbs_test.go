@@ -31,7 +31,7 @@ func mustSeat(t *testing.T, s string) paths.SeatName {
 var bVerbs = []string{
 	"recv", "wait", "inbox", "reply", "say", "ping", "report", "ask", "thread", "questions",
 	"history", "verify", "status", "version", "help",
-	"run", "link", "hook", "status-line", "reach", "tls", "seat disconnected", "seat set-aside", "seat place-issued",
+	"run", "link", "hook", "status-line", "whoami", "reach", "tls", "seat disconnected", "seat set-aside", "seat place-issued",
 	"guest check", "guest place-bundle", "guest membership", "guest remove",
 }
 
@@ -70,11 +70,11 @@ func btoi(b bool) int {
 	return 0
 }
 
-// The verbs cmd/teamchat passes in Env.Verbs (n3c-D5): n3e's hook and status line, n3c's, and
-// n3d's sends.
+// The verbs cmd/teamchat passes in Env.Verbs (n3c-D5): n3e's hook and status line, whoami
+// (PROPOSAL-seat-kinds.md), n3c's, and n3d's sends.
 func TestOutsideAreTheHooksN3csVerbsAndTheSends(t *testing.T) {
 	want := []string{
-		"hook", "status-line",
+		"hook", "status-line", "whoami",
 		"run", "link", "recv", "wait", "inbox", "status", "verify", "history", "seat disconnected", "reach",
 		"tls", "reply", "say", "ping", "report",
 	}

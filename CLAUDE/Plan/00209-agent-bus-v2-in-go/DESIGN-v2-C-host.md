@@ -53,7 +53,7 @@ fixes in section 6.
 | C3  | A team's id and its `server_name` never change once the team exists; a change is refused by name before anything is touched. A changed id is a removal and a new team.                                                                                                            | R4, H 7.08             |
 | C44 | A team can be renamed: its display name and description change, and nothing else does.                                                                                                                                                                                            | 00201 Task 2.16; new   |
 | C45 | Every ccy-teams flow the owner uses for a v1 team (create, add and remove members and humans, roles, hot add and remove, sign-in, backup, restore, LXC add) exists for a v2 team, with the same steps from the owner's side; its wording changes only where a v2 rule changes it. | R36                    |
-| C46 | A change to a team's security fields (`humans`, `coordinator`, `networks`, `url`, `trust`, the team's LXC members) or a new team is applied only after the owner approved it with the password; a declaration edit alone changes nothing (DC18).                                  | new (security 2)       |
+| C46 | A change to a team's security fields (`humans`, `coordinator`, `duties`, `networks`, `url`, `trust`, the team's LXC members) or a new team is applied only after the owner approved it with the password; a declaration edit alone changes nothing (DC18).                        | new (security 2)       |
 | C47 | A restore keeps every member's sync correct (no member skips an event because its sync position is ahead of the restored database) and reports every event it loses, exported and counted.                                                                                        | new (operations 3)     |
 | C4  | Each homeserver runs under its own kernel identity: no homeserver can read another team's files, its own team's admin credential, or any host secret it does not need.                                                                                                            | R5 (strengthened), new |
 | C5  | Hardened units: no resolver, no D-Bus, no home, private devices and PIDs, strict system protection, `Type=notify` with a watchdog, `Restart=always` with no start limit, dependency on each listen interface.                                                                     | R5, H 7.22, H 7.23     |
@@ -747,7 +747,7 @@ still up (operations 22).
 
 **Security policy approval (decision DC18, security 2).** `host_vars` is a file every ccy session on
 the repository can write, so a declaration edit alone must not change who can reach a team or
-act in it. The security fields are each team's `humans`, `coordinator`, `networks`,
+act in it. The security fields are each team's `humans`, `coordinator`, `duties`, `networks`,
 `url` and `trust`, the team's existence itself, and the team's LXC members (each
 `teamchat_lxc_members` entry's team, container, checkout, seat, user and `human_text`: an entry
 creates an account and places a token, and its checkout and seat name the member, 3.9.1). `teamchat-admin team approve --team T` (root, password sudo, the
@@ -1680,7 +1680,9 @@ teamchat_teams:
     url: http://<bus_ip>:<port>         # optional; the members' base URL; default from teamchat_address
     connections_per_source: <n>         # optional, 1-256, default 256: the most connections the terminator lets one source address hold (Plan 00246 X18)
     humans: ["<name>"]                  # 1-16
-    coordinator: <handle>               # optional; at most one per team
+    coordinator: <handle>               # optional; at most one per team; never a host member (+<site>.host)
+    duties:                             # optional, gated: member handle -> worker | host (PROPOSAL-seat-kinds.md)
+      <handle>: host
     trust:                              # area A owns the meaning AND the shape; this shape is an example
       org: <owner>
       exclude: ["<repo>"]
@@ -1719,6 +1721,17 @@ What changed from v1's keys, and why:
 - `coordinator` is a team-level key, the one place the role is declared (C30, DC6). LXC entries
   lose `role`. A ccy member's role used to live only in the registry, set by `set-role`, and an LXC
   member's role in its entry: two truths that a live change and the next apply could fight over.
+- `duties` is each seat's duty (PROPOSAL-seat-kinds.md, owner decisions OD1-OD5), a sparse map
+  of member handle to `worker` or `host`. The default: the coordinator's handle is
+  `coordinator`, a host member (`+<site>.host`) is `host`, every other member is `worker`; an
+  entry overrides it. The coordinator's duty follows from `coordinator` alone, so `duties` never
+  names the coordinator nor gives the coordinator duty, and a host member is never the
+  coordinator (OD1). The declaration reader refuses an unknown duty, a key that is not an agent
+  handle, and those cases; `team apply` refuses a handle its roster does not hold. The field is
+  gated (DC18) and carried in `approved.json` (written only when not empty, so an older file
+  reads as approving none) and `team.json`. It never reaches the Matrix wire: the host writes
+  each seat's duty into the session's `desired.json` (OD2 (a)) and the status record's member
+  rows; the session shows it in its `status.json` and `teamchat whoami --json`.
 - LXC entries lose `repo`, which existed only to park a destroyed container's handle. The LXC
   apply record keeps the (team, container, checkout, seat) to handle map on the host (3.9), so the handle is
   known without it.
@@ -1817,7 +1830,7 @@ parsed back:
 | guest seat root         | `~/.config/teamchat/lxc/<key>/seats/` (B's `<v2-state>`, which `run --kind lxc --key <key>` derives), the seat directory `<team>/` below it                                                                         | per seat, as a ccy session's `sessions/<session>/` (3.7.1): B's state root holds one directory per team, so two seats of one user in one team cannot share one                                                                                                                                                                             |
 | guest desired directory | `~/.config/teamchat/lxc/<key>/membership/` (B's `<v2-desired>`)                                                                                                                                                     | per seat, as ccy's `control/<session>/` (3.7.5), for the reason below                                                                                                                                                                                                                                                                      |
 | host copy               | `/var/lib/teamchat-admin/_lxc/<container>/<key>.json`                                                                                                                                                               | 3.9.3                                                                                                                                                                                                                                                                                                                                      |
-| member target           | `<container>/<key>` (`lxc apply --member`, `lxc restart --member`, `lxc start --member`)                                                                                                                                              | ccy-teams computes the key with the same function                                                                                                                                                                                                                                                                                          |
+| member target           | `<container>/<key>` (`lxc apply --member`, `lxc restart --member`, `lxc start --member`)                                                                                                                            | ccy-teams computes the key with the same function                                                                                                                                                                                                                                                                                          |
 | output field            | `<user>@<container>/<repo>-<seat>-<key>`                                                                                                                                                                            | 3.9.3's lines                                                                                                                                                                                                                                                                                                                              |
 
 **Why the desired membership is per seat, not per checkout.** B's desired file holds at most one

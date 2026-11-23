@@ -1223,7 +1223,7 @@ func (r *run) copyOf(m *member) (lxcstate.Copy, bool, error) {
 		if !ok {
 			return lxcstate.Copy{}, false, errors.New("the seat's handle is not a handle")
 		}
-		seats = []memberstate.DesiredSeat{{Team: m.team.ID, Seat: h.Seat}}
+		seats = []memberstate.DesiredSeat{{Team: m.team.ID, Seat: h.Seat, Duty: m.team.DutyOf(m.handle)}}
 	}
 	next, changed := cp.Next(seats, nil)
 	if changed {

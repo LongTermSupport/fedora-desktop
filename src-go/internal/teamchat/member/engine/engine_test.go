@@ -541,7 +541,7 @@ func encodeStore(t *testing.T, s state.Store) []byte {
 func (w *world) add(id paths.TeamID, store []byte) *fakeTeam {
 	w.t.Helper()
 	f := w.fake(id)
-	check(w.t, w.e.Add(w.t.Context(), id, w.seat(id, false, store), nil))
+	check(w.t, w.e.Add(w.t.Context(), id, w.seat(id, false, store), nil, ""))
 	return f
 }
 

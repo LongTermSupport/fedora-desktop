@@ -125,7 +125,7 @@ func TestN3dD3NoSeatJSONIsNoCache(t *testing.T) {
 	ops := tid(t, "ops")
 	check(t, w.root.MkdirAll(w.layout.Seat(ops).Dir()))
 	check(t, state.Write(w.root, w.layout.Seat(ops).RosterCache(), state.RosterCache{Rev: 5, Content: rosterContent(ops, 5)}))
-	check(t, w.e.Add(t.Context(), ops, w.seat(ops, true, nil), nil))
+	check(t, w.e.Add(t.Context(), ops, w.seat(ops, true, nil), nil, ""))
 	if _, rev := w.cached(ops); rev != 0 {
 		t.Fatal("a cache was read with no seat.json")
 	}

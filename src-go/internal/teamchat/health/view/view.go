@@ -206,7 +206,8 @@ func (r *reader) memberList() []status.Member {
 		if handle == f.Coordinator {
 			role = proto.RoleCoordinator
 		}
-		out = append(out, status.Member{Handle: handle, Kind: m.Kind, Role: role, State: m.State, Rooms: r.roomsOf(handle)})
+		d := r.in.Team.DutyOf(handle)
+		out = append(out, status.Member{Handle: handle, Kind: m.Kind, Role: role, Duty: &d, State: m.State, Rooms: r.roomsOf(handle)})
 	}
 	return out
 }

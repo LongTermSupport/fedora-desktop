@@ -81,16 +81,16 @@ func TestAStoreThatDoesNotDecodeIsTheTeamsFailureOnly(t *testing.T) {
 func TestAddRefusesAnotherTeamsSeatAndATeamHeldTwice(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops, dev := tid(t, "ops"), tid(t, "dev")
-	if err := w.e.Add(t.Context(), ops, w.seat(dev, false, nil), nil); err == nil {
+	if err := w.e.Add(t.Context(), ops, w.seat(dev, false, nil), nil, ""); err == nil {
 		t.Fatal("Add took another team's seat")
 	}
 	l := w.seat(dev, false, nil)
-	check(t, w.e.Add(t.Context(), dev, l, nil))
+	check(t, w.e.Add(t.Context(), dev, l, nil, ""))
 	f, err := l.Dup()
 	check(t, err)
 	again, err := lock.AdoptSeat(w.root, f, w.layout.Seat(dev))
 	check(t, err)
-	if err := w.e.Add(t.Context(), dev, again, nil); err == nil || !strings.Contains(err.Error(), "already held") {
+	if err := w.e.Add(t.Context(), dev, again, nil, ""); err == nil || !strings.Contains(err.Error(), "already held") {
 		t.Fatalf("a second Add = %v", err)
 	}
 	check(t, l.Held())
@@ -100,7 +100,7 @@ func TestAddWithNoSeatJSONHoldsTheTeamWithNoHandle(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops := tid(t, "ops")
 	f := w.fake(ops)
-	check(t, w.e.Add(t.Context(), ops, w.seat(ops, true, nil), []string{agent(ops, 2)}))
+	check(t, w.e.Add(t.Context(), ops, w.seat(ops, true, nil), []string{agent(ops, 2)}, ""))
 	<-f.running
 	if len(f.cfg.RemovedUserIDs) != 1 || f.cfg.Lock == nil {
 		t.Fatalf("the team's config = %+v", f.cfg)
@@ -128,7 +128,7 @@ func TestATeamWhoseGoroutineCannotBeMadeIsStoppedAsBundle(t *testing.T) {
 	w.mu.Lock()
 	w.newTeamErr = errors.New("no token")
 	w.mu.Unlock()
-	check(t, w.e.Add(t.Context(), ops, w.seat(ops, false, encodeStore(t, w.newStore(ops))), nil))
+	check(t, w.e.Add(t.Context(), ops, w.seat(ops, false, encodeStore(t, w.newStore(ops))), nil, ""))
 	st := w.status()
 	if len(st.Teams) != 1 || st.Teams[0].Failed == nil || *st.Teams[0].Failed != state.FailedBundle {
 		t.Fatalf("status.json = %+v", st.Teams)
@@ -331,7 +331,7 @@ func TestATeamIsGivenTheLinksForge(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops := tid(t, "ops")
 	f := w.fake(ops)
-	check(t, w.e.Add(t.Context(), ops, w.seat(ops, true, nil), nil))
+	check(t, w.e.Add(t.Context(), ops, w.seat(ops, true, nil), nil, ""))
 	<-f.running
 	if got, ok := f.cfg.Forge.(*fakeForge); !ok || got != w.forge {
 		t.Fatalf("the team's forge = %#v, want the engine's", f.cfg.Forge)

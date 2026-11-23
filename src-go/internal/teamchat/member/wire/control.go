@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/duty"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -100,11 +101,13 @@ type Launch struct {
 }
 
 // Add hands the link a seat, with the seat lock's descriptor; RemovedUserIDs are the team's
-// user ids the keeper saw removed, for SY1 (c) (n3c-D13).
+// user ids the keeper saw removed, for SY1 (c) (n3c-D13). Duty is the seat's duty as the
+// desired membership gave it, absent where it gave none (PROPOSAL-seat-kinds.md).
 type Add struct {
 	Team           paths.TeamID `json:"team"`
 	Seat           string       `json:"seat"`
 	RemovedUserIDs []string     `json:"removed_user_ids"`
+	Duty           duty.Duty    `json:"duty,omitempty"`
 }
 
 // Remove takes a seat out: Farewell is why (nil for none), Txn the keeper's (LN8, n3c-D14).
@@ -324,6 +327,9 @@ func (a *Add) check() string {
 	}
 	if a.RemovedUserIDs == nil {
 		return "removed_user_ids is not a list"
+	}
+	if a.Duty != "" && !a.Duty.Valid() {
+		return "duty is not coordinator, worker or host"
 	}
 	for _, id := range a.RemovedUserIDs {
 		if !agentOf(a.Team, id) {

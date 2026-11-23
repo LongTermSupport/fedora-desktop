@@ -458,6 +458,31 @@ func TestRefusalsBeforeAnyChange(t *testing.T) {
 	}
 }
 
+// A team's duties name members only (PROPOSAL-seat-kinds.md): a declared duty for a handle the
+// roster does not hold is refused before any change, and passes once the member is added.
+func TestADutyForAHandleNotAMemberIsRefused(t *testing.T) {
+	w := newWorld(t)
+	w.applied(t, teamDoc())
+	doc := teamDoc()
+	docTeam(doc)["duties"] = map[string]any{other: "host"}
+	in := input(t, doc)
+	w.approve(t, in)
+	mark := w.mark()
+	res, err := Run(t.Context(), w.deps(), in)
+	e, ok := errors.AsType[*Error](err)
+	if !ok || e.Step != StepRoles || !e.Drift || !strings.Contains(err.Error(), other+", which is not a member") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(res.Changed) != 0 || len(w.writes(mark)) != 0 {
+		t.Fatalf("changed %v, writes %v", res.Changed, w.writes(mark))
+	}
+	w.addMember(t, other, enrolled())
+	res = w.run(t, in)
+	if !strings.Contains(string(res.TeamFile), `"duties":{"`+other+`":"host"}`) {
+		t.Fatalf("team.json %s", res.TeamFile)
+	}
+}
+
 func TestAFailureKeepsWhatChangedBeforeIt(t *testing.T) {
 	w := newWorld(t)
 	in := input(t, teamDoc())
