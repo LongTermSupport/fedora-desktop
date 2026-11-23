@@ -85,11 +85,18 @@ its own focused CI (see Plan 00262).
     - a hooks-daemon rule that refuses QA, test and build commands in a `+local.host` seat;
     - the `cc` launcher's deny rules (the settings `cc` already passes to Claude Code).
       Task 1.3 weighs them; the owner decides.
-- [ ] ⬜ **Task 1.2**: A survey of existing tools that already do this: job queues and locks
+- [x] ✅ **Task 1.2**: A survey of existing tools that already do this: job queues and locks
   such as `flock`, `ts` (task-spooler), `nq`, systemd transient units with slices,
   `pueue`, and self-hosted CI runners. For each: fit, gaps and licence. Build only what no
-  existing tool covers.
-- [ ] ⬜ **Task 1.3**: The design: the job format, how a container submits (socket, spool
+  existing tool covers. Done: [RESEARCH-prior-art.md](RESEARCH-prior-art.md). In short:
+  - Kernel caps can hold the limit at container level: a parent slice plus per-container caps.
+    Rootless `--cgroup-parent` into a user slice is unproven and is tested first.
+  - flock in a bind mount is the right slot lock.
+  - No existing tool fits whole, but five small agent tools have ideas worth taking.
+  - The recommendation is to build thin: stage 1 as a slice, caps, a slotted-flock wrapper and
+    a hook; stage 2 as a small queue whose runners start each job as a systemd transient unit,
+    with pueue and Woodpecker weighed as the alternatives.
+- [ ] 🔄 **Task 1.3**: The design: the job format, how a container submits (socket, spool
   directory or bus), the security of running a submitted command (allowed repositories and
   commands, the user it runs as), the checkout cache and its TTL, CPU and IO limits (cgroups),
   results and logs, pause and cancel.
