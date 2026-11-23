@@ -1,6 +1,6 @@
 # Plan 00263: machine qa queue
 
-**Status**: In Progress (design done; blocked on the owner decision D3 (D1, D2 and D4 answered), a host window, and the heavy-work pause)
+**Status**: In Progress (design done; all owner decisions D1-D4 answered; building waits behind the v2 work and a host window)
 **Created**: 2026-11-23
 **Owner**: joseph
 **Priority**: High
@@ -100,7 +100,7 @@ its own focused CI (see Plan 00262).
 - [x] ✅ **Task 1.3**: The design: [DESIGN.md](DESIGN.md). It covers the kernel caps, the slot
   lock, the host seat's lane and the queue, with four owner decisions (D1-D4, DESIGN.md section 6)
   and the build in four phases (DESIGN.md section 5).
-- [ ] 🔄 **Task 1.4**: The owner decides D1-D4 (N; the CPU and memory budget; the lane guard;
+- [x] ✅ **Task 1.4**: The owner decides D1-D4 (N; the CPU and memory budget; the lane guard;
   stage 2 built or adopted). Owner, on the design (verbatim): "lets start a naming convention -
   "agentic-" prefix for all of our AI / workflow tooling under LongTermSupport - so make it
   "agentic-qa-queue". 50% is a dumb threshold - my laptop is not RAM constrained at all - a
@@ -115,8 +115,9 @@ its own focused CI (see Plan 00262).
   - no IOWeight, with `io.max` as an optional probe item;
   - runners on the laptop and the home server only.
     D1 is answered (Q64): N is computed per machine at install time, one run per 12 agent
-    threads, rounded up (DESIGN.md section 6, D1; its memory term is provisional until the owner
-    confirms it). D3 (the lane guard) is still open.
+    threads, rounded up, capped by memory (DESIGN.md section 6, D1; the owner confirmed the
+    memory term). D3 is answered (Q64): yes, the hooks-daemon guard (A) plus the Claude Code deny
+    rules (B).
 
 ### Phase A: stage 1a, kernel caps (fedora-desktop)
 
