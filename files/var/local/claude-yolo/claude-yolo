@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.122.50"  # Container 2.84.43: a lone Enter (a close's dialog answer, a line entered again) takes the pane out of tmux copy mode first, or is not pressed. See docs/ccy-changelog.md.
+CCY_VERSION="3.123.0"  # Container 2.84.43: every ccy container runs in agents.slice with a memory cap and a pids limit of 16384. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -422,7 +422,7 @@ EOF
         # The engine's own message is kept and shown: "help unavailable" on its
         # own tells the user nothing about WHY, and the reason (image broken,
         # engine not running, entrypoint missing) is what they need.
-        if claude_help=$(container_cmd run --rm --pids-limit "$CCY_PIDS_LIMIT" --entrypoint claude "$IMAGE_NAME" --help 2>&1); then
+        if claude_help=$(container_cmd run --rm "${CCY_LIMIT_ARGS[@]}" --entrypoint claude "$IMAGE_NAME" --help 2>&1); then
             printf '%s\n' "$claude_help"
         else
             echo "Note: the image exists, but 'claude --help' would not run inside it."
@@ -959,7 +959,7 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
         grep -q '^Usage:' <<< "$claude_help" || claude_help=""
     fi
     if [ -z "$claude_help" ] && container_cmd image inspect "$IMAGE_NAME" &>/dev/null; then
-        if ! claude_help=$(container_cmd run --rm --pids-limit "$CCY_PIDS_LIMIT" --entrypoint claude "$IMAGE_NAME" --help 2>&1); then
+        if ! claude_help=$(container_cmd run --rm "${CCY_LIMIT_ARGS[@]}" --entrypoint claude "$IMAGE_NAME" --help 2>&1); then
             print_error "Could not run 'claude --help' in $IMAGE_NAME to validate flags"
             echo "$claude_help" >&2
             exit 1
@@ -1943,7 +1943,7 @@ update_claude_inplace() {
     # Claude Code, so an updated binary is protected the moment it starts and
     # this path no longer has a version-churn failure mode to compensate for.
     if ! container_cmd run \
-        --name "$temp_name" --pids-limit "$CCY_PIDS_LIMIT" \
+        --name "$temp_name" "${CCY_LIMIT_ARGS[@]}" \
         --entrypoint sh \
         "$image_name" \
         -c 'set -e; npm install -g @anthropic-ai/claude-code@latest 2>&1'; then
@@ -2414,8 +2414,8 @@ if [ "$DEBUG_CCY" = true ]; then
     echo "SSH agent forwarded: ${SSH_AGENT_FORWARDED:-0}"
     echo "SSH alias stanza: ${SSH_CONFIG_EXTRA_B64:+yes} pins: ${SSH_KNOWN_HOSTS_PINS:-none}"
     echo ""
-    printf 'Docker command (simplified):\n  %s run -it --rm --pids-limit %s \\\n    -e CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-... \\\n    -v %s:/workspace \\\n    ... (other mounts) ...\n    %s \\\n    claude --dangerously-skip-permissions %s\n' \
-        "$CONTAINER_ENGINE" "$CCY_PIDS_LIMIT" "$PWD" "$IMAGE_NAME" "${CLAUDE_ARGS[*]}"
+    printf 'Docker command (simplified):\n  %s run -it --rm %s \\\n    -e CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-... \\\n    -v %s:/workspace \\\n    ... (other mounts) ...\n    %s \\\n    claude --dangerously-skip-permissions %s\n' \
+        "$CONTAINER_ENGINE" "${CCY_LIMIT_ARGS[*]}" "$PWD" "$IMAGE_NAME" "${CLAUDE_ARGS[*]}"
     echo "════════════════════════════════════════════════════════════════════════════════"
     cat <<EOF
 
@@ -3800,7 +3800,7 @@ container_rc=0
 # BSH-09: the secrets go by env NAME (-e VAR, no '=value'), never in the `podman run` argv
 # (world-readable in /proc/<pid>/cmdline), set in this one command's environment only, as are
 # an opencode launch's provider keys (ccy_agent_container, lib/agent-choice.bash).
-CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN" GH_TOKEN="$GH_TOKEN" ccy_agent_container run $DOCKER_FLAGS --rm --pids-limit "$CCY_PIDS_LIMIT" \
+CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN" GH_TOKEN="$GH_TOKEN" ccy_agent_container run $DOCKER_FLAGS --rm "${CCY_LIMIT_ARGS[@]}" \
     --name "$CONTAINER_NAME" \
     --label ccy=true \
     --label "ccy-project=$PROJECT_NAME" \

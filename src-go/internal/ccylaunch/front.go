@@ -30,8 +30,9 @@
 //     (CCY_LIBS, read from the launcher, common-pure and launcher-path) is missing or unreadable, its text
 //     holds a NUL or is not UTF-8, or it has no CCY_VERSION or CCY_LIBS line; lib/ holds no
 //     .bash file; an override of lib/host-paths.bash is one ccy_host_dir refuses; or
-//     CCY_PIDS_LIMIT is a value lib/container-limits.bash refuses (pidslimit.go), which the
-//     bash refuses before it answers any flag.
+//     lib/container-limits.bash refuses the limits (limits.go: CCY_PIDS_LIMIT or CCY_MEMORY_MAX
+//     refused, a machine too small for the default memory cap, the agents slice not installed),
+//     which the bash refuses before it answers any flag.
 //   - F5. Where the bash would answer, the front does: either engine, an empty variable, an
 //     override the library accepts.
 //   - F6. A front whose version is not the bash launcher's CCY_VERSION is half of two
@@ -42,8 +43,8 @@
 //   - F8. `--help` or `-h` prints the bash launcher's help text (help.txt, held to the
 //     launcher's by a test), then asks the engine for the image (engine E10): an engine that
 //     ran and said no, how to build it; one that could not run, that and its error; present,
-//     claude --help from the image (its container under the --pids-limit the library settles:
-//     CCY_PIDS_LIMIT, else its default), or the engine's own words when that fails ("no
+//     claude --help from the image (its container under the limit set the library settles:
+//     ccylimits.Limits.Run), or the engine's own words when that fails ("no
 //     output" and the run's failure when it said none). Exit 0, as the bash.
 //   - F9. Output that could not be written is exit 1.
 //   - F10. `--list-tokens` as the only argument prints the token pool as the bash's list_tokens
@@ -137,9 +138,9 @@
 //     Claude Code version in the image and the npm registry's latest; exit 1 with the cause
 //     (the image's run, the registry's reach or answer) when either could not be read. Answered
 //     under CCY_LEGACY too: the bash asks it.
-//   - F17-F19 run their container under the --pids-limit the library settles (CCY_PIDS_LIMIT,
-//     else its default; pidslimit.go, engine E14); a value it refuses runs nothing and is exit
-//     1, naming the variable.
+//   - F17-F19 run their container under the limit set the library settles (limits.go,
+//     internal/ccylimits, engine E14); limits it refuses run nothing and are exit 1, saying why
+//     (the variable refused, the machine too small, the slice and the play that installs it).
 //   - F20-F22. `--list-containers ENGINE [--all] [FILTER...]`, `--stop-containers ENGINE
 //     NAME...` and `--remove-network ENGINE NETWORK` (containers.go): a listing that failed is
 //     exit 1 with its cause, never "no containers"; a stop or removal that failed is "already
@@ -220,6 +221,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylimits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/engine"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
@@ -304,9 +306,9 @@ type Front struct {
 
 // launcher is what the front read of the bash launcher beside it.
 type launcher struct {
-	version   string
-	hash      string
-	pidsLimit string // the --pids-limit of every container it runs, as the library settles it
+	version string
+	hash    string
+	limits  ccylimits.Limits // the limit set of every container it runs, as the library settles it
 }
 
 // Run answers the run or hands it to the bash launcher.
@@ -342,7 +344,7 @@ func (f Front) Run(ctx context.Context) term.ExitCode {
 	if f.Args[0] == "--version" || f.Args[0] == "-v" {
 		p.Print(f.Stdout, "ccy version "+f.Version+"\nHash: "+l.hash+"\n")
 	} else {
-		f.help(ctx, &p, kind, l.pidsLimit)
+		f.help(ctx, &p, kind, l.limits)
 	}
 	if err := p.Err(); err != nil {
 		return f.fail("ccy: could not write the answer: " + err.Error())
@@ -480,12 +482,12 @@ func (f Front) plan(bash string) (engine.Kind, launcher, flagKind, string) {
 			return "", launcher{}, flag, d.env + " is refused by the library"
 		}
 	}
-	limit, ok := pidsLimit(f.getenv(pidsLimitEnv))
-	if !ok {
-		return "", launcher{}, flag, pidsLimitEnv + " is refused by the library"
+	limits, why := f.limits()
+	if why != "" {
+		return "", launcher{}, flag, "the library refuses the limits: " + why
 	}
 	l, why := readLauncher(bash)
-	l.pidsLimit = limit
+	l.limits = limits
 	return kind, l, flag, why
 }
 
@@ -566,7 +568,7 @@ func readLauncher(bash string) (launcher, string) {
 }
 
 // help is F8.
-func (f Front) help(ctx context.Context, p *term.Printer, kind engine.Kind, pidsLimit string) {
+func (f Front) help(ctx context.Context, p *term.Printer, kind engine.Kind, lim ccylimits.Limits) {
 	p.Print(f.Stdout, helpText)
 	eng, err := engine.New(kind, f.Runner)
 	if err == nil {
@@ -583,7 +585,7 @@ func (f Front) help(ctx context.Context, p *term.Printer, kind engine.Kind, pids
 		return
 	}
 	p.Print(f.Stdout, helpRule+"Claude Code Help (from container):\n"+helpRule+"\n")
-	out, err := eng.ClaudeHelp(ctx, imageName, pidsLimit)
+	out, err := eng.ClaudeHelp(ctx, imageName, lim)
 	// As a shell's $(...) gives it: NUL bytes dropped, trailing newlines removed.
 	out = strings.TrimRight(strings.ReplaceAll(out, "\x00", ""), "\n")
 	if err == nil {

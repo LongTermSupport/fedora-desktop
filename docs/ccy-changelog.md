@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.123.0 — container 2.84.43
+
+- **Every ccy container is capped, so a runaway session cannot take the host down** (Plan
+  00263, stage 1a pulled forward). Every container ccy runs (the session, the help, version and
+  update probes, the token check and sign-in) is started with one limit set,
+  `CCY_LIMIT_ARGS`: `--cgroup-parent agents.slice`, a pids limit of 16384 (was 4096), and a
+  memory cap of the machine's RAM less 16 GiB (`--memory`), with the soft limit
+  (`--memory-reservation`, memory.high) 2 GiB below it. `CCY_MEMORY_MAX` overrides the cap per
+  machine; it cannot turn it off. A machine where RAM less 16 GiB is under 4 GiB is refused,
+  naming `CCY_MEMORY_MAX`. `agents.slice` caps all ccy containers together; a host without
+  its unit (installed by `play-claude-yolo.yml`) is refused. A running session keeps its old
+  limits until it is restarted. See [Container limits](ccy.md#container-limits).
+
 ## 3.122.50 — container 2.84.43
 
 - **A lone Enter is no longer lost to tmux copy mode either** (Plan 00257). 3.122.49 took a pane

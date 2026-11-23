@@ -67,7 +67,7 @@ func (f Front) checkToken(ctx context.Context) term.ExitCode {
 	if why != "" {
 		return f.fail(checkUnchecked + why)
 	}
-	limit, why := f.settledPidsLimit()
+	limit, why := f.limits()
 	if why != "" {
 		return f.fail(checkUnchecked + why)
 	}

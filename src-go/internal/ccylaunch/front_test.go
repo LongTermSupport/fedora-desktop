@@ -34,8 +34,23 @@ func install(t *testing.T) string {
 		"lib/host-paths.bash":       "paths\n",
 		"lib/ssh_agent_filter.py":   "agent\n",
 		"lib/README-not-hashed.txt": "x\n",
+		machineMeminfo:              "MemTotal:       67108864 kB\n",
+		machineSlice:                "[Slice]\n",
 	})
 	return dir
+}
+
+// The machine a run is on: 64 GiB of RAM (/proc/meminfo under ProcRoot) and the agents slice
+// installed (under XDG_CONFIG_HOME), so its containers get the default limit set.
+const (
+	machineMeminfo = "machine/proc/meminfo"
+	machineSlice   = "machine/config/systemd/user/agents.slice"
+)
+
+// defaultLimits is the limit set of a container run on that machine with no override.
+var defaultLimits = []string{
+	"--cgroup-parent", "agents.slice", "--pids-limit", "16384",
+	"--memory", "49152m", "--memory-reservation", "47104m",
 }
 
 type run struct {
@@ -54,7 +69,8 @@ func newRun(dir string, args ...string) *run {
 		Version:  fixtureVersion,
 		Self:     filepath.Join(dir, "claude-yolo"),
 		Args:     args,
-		Environ:  []string{"HOME=/nonexistent", "PATH=/usr/bin"},
+		Environ:  []string{"HOME=/nonexistent", "PATH=/usr/bin", "XDG_CONFIG_HOME=" + filepath.Join(dir, "machine", "config")},
+		ProcRoot: filepath.Join(dir, "machine", "proc"),
 		LookPath: func(name string) (string, error) { return "/usr/bin/" + name, nil },
 		Runner:   r.runner,
 		Execer:   r.execer,
