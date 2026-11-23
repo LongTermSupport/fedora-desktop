@@ -310,7 +310,7 @@ func (e *Engine) prepare(j *job, got map[key]fetched) (dial, pace) {
 			h.delivery.fetchAfter = now + retryWait
 		}
 	}
-	c := copies{e: e, stores: map[paths.TeamID]*state.Store{}, raised: map[paths.TeamID]int64{}}
+	c := copies{e: e, stores: map[paths.TeamID]*state.Store{}, raised: map[paths.TeamID]state.Floor{}}
 	e.rejudgeAll(got, &c)
 	if failed := e.commit(c.stores); failed[j.id] {
 		return dial{}, paceRetry
@@ -344,7 +344,7 @@ func (e *Engine) dropFailed(h *held, ids []string) {
 		return
 	}
 	var (
-		floor int64
+		floor state.Floor
 		moved bool
 	)
 	if err := e.changeLocked(h.id, func(_ *held, s *state.Store) (bool, error) {
@@ -414,7 +414,7 @@ func (e *Engine) await(j *job, d dial, size int64) (bool, bool) {
 		return true, false
 	}
 	var (
-		floor int64
+		floor state.Floor
 		moved bool
 	)
 	if err := e.changeLocked(j.id, func(_ *held, s *state.Store) (bool, error) {

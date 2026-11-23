@@ -236,6 +236,8 @@ func fixedWritten() map[string]int {
 		"sync.next_batch":  2 + 6*maxNextBatch,
 		"sync.floor_ms":    2 + len(storeRooms)*(len(`"questions":,`)+16),
 		"outbox.last_sent": 2 + 44,
+		// Each room's list of the event ids (44 bytes, quoted, comma) at its floor.
+		"sync.floor_ids,omitempty": 2 + len(storeRooms)*(len(`"questions":[],`)+maxFloorIDs*(2+44+1)),
 		// The questions room's keys (SPEC-n3f QX6). Each list is its frame (the key and the
 		// brackets) and its entries; the key `questions` is bounded whole by its codec, which
 		// counts the escaping, so it is one leaf; an event id has no character to escape.

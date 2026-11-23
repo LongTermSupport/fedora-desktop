@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -71,7 +72,7 @@ const (
 // under the judging hold; stored is the job's key's state, loaded then.
 type buildRun struct {
 	room     string
-	floor    int64
+	floor    state.Floor
 	stored   *proto.IndexState
 	idx      *proto.QuestionIndex
 	token    string
@@ -388,9 +389,9 @@ func (r *buildRun) owedKey(idx *proto.QuestionIndex, events []json.RawMessage, p
 // owes, the questions floor raised, the redactions kept as met.
 func (s *sess) rebegin(r *buildRun, b team.Batch, fresh []string) {
 	floor := r.floor
-	if fl, ok := b.Floors[proto.PurposeQuestions]; ok && fl > floor {
+	if fl, ok := b.Floors[proto.PurposeQuestions]; ok && floor.Below(fl) {
 		floor = fl
-		s.t.qset(r.room, func(q *qstate) { q.floor = max(q.floor, fl) })
+		s.t.qset(r.room, func(q *qstate) { q.floor = q.floor.Max(fl) })
 	}
 	met := r.met
 	if met == nil {
@@ -411,9 +412,9 @@ func (s *sess) paged(r *buildRun, b team.Batch, idx *proto.QuestionIndex, passed
 	if passed && r.rec != nil {
 		r.rec.After = nil
 	}
-	if fl, ok := b.Floors[proto.PurposeQuestions]; ok && fl > r.floor {
+	if fl, ok := b.Floors[proto.PurposeQuestions]; ok && r.floor.Below(fl) {
 		r.floor = fl
-		s.t.qset(r.room, func(q *qstate) { q.floor = max(q.floor, fl) })
+		s.t.qset(r.room, func(q *qstate) { q.floor = q.floor.Max(fl) })
 	}
 	if head {
 		r.done = true

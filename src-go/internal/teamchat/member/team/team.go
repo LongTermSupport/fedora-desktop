@@ -24,9 +24,9 @@ type Batch struct {
 	NextBatch    string
 	RestoreEpoch int64
 	Items        []Item
-	// Floors are the floor_ms this batch moved, keyed by room purpose (proto.PurposeMain,
+	// Floors are the floors this batch moved, keyed by room purpose (proto.PurposeMain,
 	// PurposeQuestions), as the store's floor_ms and Pending.Room are; never a room id.
-	Floors map[string]int64
+	Floors map[string]state.Floor
 	// Answered are the answer-form events to this member's own pings (SY4).
 	Answered []Answer
 	// Echoes are this member's own pings come back in sync (n3d-D9).
@@ -214,7 +214,7 @@ type Engine interface {
 	View(t paths.TeamID, ids, relations []string, r proto.Roster) (View, error)
 	// Persist is one store write of b, then a wake of delivery; ErrRemoved after a remove. It
 	// answers the main room's floor the store then keeps (B 2.3.2), which the marker carries.
-	Persist(ctx context.Context, b Batch) (mainFloor int64, err error)
+	Persist(ctx context.Context, b Batch) (mainFloor state.Floor, err error)
 	// ResetPosition is SY6: drop next_batch and store the new epoch; fresh stays as it is.
 	ResetPosition(ctx context.Context, t paths.TeamID, epoch int64) error
 	// SetEnded records the store's run's end (EN1, EN3).
@@ -258,7 +258,7 @@ type Team interface {
 	// FloorRaised is the store's main floor raised outside a sync answer (an ack or a drop
 	// settled what it owed, B 2.3.2), once written; the marker follows. It must not block: the
 	// engine's state goroutine calls it.
-	FloorRaised(floor int64)
+	FloorRaised(floor state.Floor)
 	// VerifyReports is RP4, at a `report` and again at the sender before a queued report is
 	// posted: the join tried when this member is not in the reports room (RP1), then the room's
 	// state read and judged against main's verified roster. Nil is a room that verifies; an

@@ -211,10 +211,10 @@ func roomID(main string, r proto.Roster, purpose string) string {
 // store's main floor after the write. An item already pending or delivered is not added twice.
 // A full pending list refuses the whole batch, loudly (B 2.3.2), so nothing is dropped and the
 // batch is fetched again; an answer in a refused batch is not counted until it is (SY7 case 4).
-func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
+func (e *Engine) Persist(ctx context.Context, b team.Batch) (state.Floor, error) {
 	var (
 		out   error
-		floor int64
+		floor state.Floor
 	)
 	if err := e.do(ctx, func() {
 		defer e.arm()
@@ -238,7 +238,7 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
 			if dropped.relayed, err = queueRelays(s, b, now); err != nil {
 				return false, err
 			}
-			floor = s.Sync.FloorMS[proto.PurposeMain]
+			floor, _ = s.Sync.Floor(proto.PurposeMain)
 			notes, unknown = applyOutbox(s, b)
 			lines = answeredLines(s, b)
 			pruned = pruneOutbox(s, now)
@@ -266,7 +266,7 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
 		}
 		e.wake()
 	}); err != nil {
-		return 0, err
+		return state.Floor{}, err
 	}
 	return floor, out
 }
@@ -288,10 +288,9 @@ func apply(s *state.Store, b team.Batch) (map[string]proto.Verdict, error) {
 	if !b.Page {
 		s.Sync.NextBatch, s.Sync.RestoreEpoch, s.Sync.Fresh = b.NextBatch, b.RestoreEpoch, b.Fresh
 	}
-	if len(b.Floors) > 0 && s.Sync.FloorMS == nil {
-		s.Sync.FloorMS = map[string]int64{}
+	for room, f := range b.Floors {
+		s.Sync.SetFloor(room, f)
 	}
-	maps.Copy(s.Sync.FloorMS, b.Floors)
 	known := map[string]bool{}
 	for _, p := range s.Pending {
 		known[p.ID] = true
@@ -323,7 +322,7 @@ func apply(s *state.Store, b team.Batch) (map[string]proto.Verdict, error) {
 }
 
 // ownedFloors is B 2.3.2's floor rule: a room the store owes items in has its floor just below
-// the oldest of them, so each is newer than its floor and survives a restart (B44); a room it
+// the oldest of them, so none is covered by its floor and each survives a restart (B44); a room it
 // owes none in keeps the batch's high-water. B 2.3.2 counts `awaiting` too, whose entries carry
 // ids only: whatever writes them must give them a sent time, or set the floor before moving
 // items there. A TIMEOUT is not counted (fromServer).
@@ -332,27 +331,25 @@ func ownedFloors(s *state.Store) {
 		if !fromServer(p) {
 			continue
 		}
-		if s.Sync.FloorMS == nil {
-			s.Sync.FloorMS = map[string]int64{}
-		}
-		if floor, ok := s.Sync.FloorMS[p.Room]; !ok || p.SentMS <= floor {
-			s.Sync.FloorMS[p.Room] = max(p.SentMS-1, 0)
+		if floor, ok := s.Sync.Floor(p.Room); !ok || floor.Covers(p.SentMS, p.ID) {
+			s.Sync.SetFloor(p.Room, state.Before(p.SentMS))
 		}
 	}
 }
 
 // raiseFloors is B 2.3.2's floor rule after items left pending outside a sync answer (an ack,
 // a drop): each room they were in is raised to just below the oldest item it still owes, or,
-// owing none, to the newest that left; a floor is never lowered here. It is main's floor, and
-// whether that moved. A TIMEOUT is not counted (fromServer).
-func raiseFloors(s *state.Store, left []state.Pending) (int64, bool) {
-	newest := map[string]int64{}
+// owing none, to the items that left (the newest millisecond, and those of them sent in it); a
+// floor is never lowered here. It is main's floor, and whether that moved. A TIMEOUT is not
+// counted (fromServer).
+func raiseFloors(s *state.Store, left []state.Pending) (state.Floor, bool) {
+	newest := map[string]state.Floor{}
 	for _, p := range left {
 		if fromServer(p) {
-			newest[p.Room] = max(newest[p.Room], p.SentMS)
+			newest[p.Room] = newest[p.Room].Raised(p.SentMS, p.ID)
 		}
 	}
-	before := s.Sync.FloorMS[proto.PurposeMain]
+	before, _ := s.Sync.Floor(proto.PurposeMain)
 	for room, to := range newest {
 		owes, oldest := false, int64(0)
 		for _, p := range s.Pending {
@@ -361,17 +358,14 @@ func raiseFloors(s *state.Store, left []state.Pending) (int64, bool) {
 			}
 		}
 		if owes {
-			to = oldest - 1
+			to = state.Before(oldest)
 		}
-		if s.Sync.FloorMS == nil {
-			s.Sync.FloorMS = map[string]int64{}
-		}
-		if floor, ok := s.Sync.FloorMS[room]; !ok || to > floor {
-			s.Sync.FloorMS[room] = max(to, 0)
+		if floor, ok := s.Sync.Floor(room); !ok || floor.Below(to) {
+			s.Sync.SetFloor(room, to)
 		}
 	}
-	after := s.Sync.FloorMS[proto.PurposeMain]
-	return after, after != before
+	after, _ := s.Sync.Floor(proto.PurposeMain)
+	return after, !after.Equal(before)
 }
 
 // fromServer is whether p is an event the server handed, which a floor must keep fetchable; a

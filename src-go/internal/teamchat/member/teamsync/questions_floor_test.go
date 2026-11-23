@@ -21,7 +21,7 @@ func (w *world) coordMarker(room string) int64 {
 	if !ok {
 		w.t.Fatalf("marker %s", raw)
 	}
-	return floor
+	return floor.MS
 }
 
 // QS5, SY10: the marker is per room. A questions floor moved by an answer is put in the
@@ -42,7 +42,7 @@ func TestQS5AQuestionsFloorMoveIsMarkedInTheQuestionsRoom(t *testing.T) {
 	if len(b.Items) != 1 || b.Items[0].Pending.ID != id {
 		t.Fatalf("items %v, want the post", itemIDs(b))
 	}
-	if got, want := w.coordMarker(w.qroom()), b.Items[0].Pending.SentMS-1; got != want {
+	if got, want := w.coordMarker(w.qroom()), b.Items[0].Pending.SentMS; got != want {
 		t.Errorf("the questions room's marker %d, want %d (just below the owed post)", got, want)
 	}
 	if got := w.coordMarker(w.main); got != mainBefore {
@@ -90,7 +90,7 @@ func TestQS5WithNoStoreFloorTheBuildResumesFromTheEarlierOfMarkerAndRelease(t *t
 			now := w.clk.WallMS()
 			if c.marker > 0 {
 				check(t, w.client(coord).PutRoomAccountData(t.Context(), user(coord), w.qroom(), paths.FloorAccountData,
-					markerContent(now-c.marker, w.roster.RestoreEpoch)))
+					markerContent(state.Floor{MS: now - c.marker}, w.roster.RestoreEpoch)))
 			}
 			w.asCoordinator()
 			if c.released > 0 {
@@ -109,8 +109,8 @@ func TestQS5WithNoStoreFloorTheBuildResumesFromTheEarlierOfMarkerAndRelease(t *t
 			if c.wantMarker {
 				want = now - c.marker
 			}
-			if jobs[0].Floor != want {
-				t.Errorf("the build's floor %d, want %d", jobs[0].Floor, want)
+			if jobs[0].Floor.MS != want {
+				t.Errorf("the build's floor %+v, want %d", jobs[0].Floor, want)
 			}
 		})
 	}

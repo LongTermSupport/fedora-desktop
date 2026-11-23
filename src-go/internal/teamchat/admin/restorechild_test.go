@@ -85,7 +85,7 @@ func TestRestoreChildSwapsAndExports(t *testing.T) {
 	if string(w.files.token) != "tar-token" || string(w.files.rooms) != string(apply.EncodeRooms(alpha(t), ids)) || string(w.files.roster) != string(f.Encode()) {
 		t.Fatalf("files %q %q %q", w.files.token, w.files.rooms, w.files.roster)
 	}
-	since := w.send(t, ids.Main, "at-since")
+	since := w.send(t, ids.Main, "before") + 1
 	first := w.send(t, ids.Main, "one")
 	x, err := c.Export(t.Context(), alpha(t), restore.ExportArgs{TeamFile: tf, Backup: 3, SinceMS: since})
 	if err != nil || x.Count != 1 || x.FirstMS != first || x.Truncated || !slices.Equal(bodiesOf(t, w.files.lost[3]), []string{"one"}) {

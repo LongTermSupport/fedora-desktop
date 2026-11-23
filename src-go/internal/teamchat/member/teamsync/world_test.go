@@ -455,13 +455,13 @@ func (e *fakeEngine) View(_ paths.TeamID, ids, relations []string, _ proto.Roste
 // for engine.ownedFloors, enough for the marker tests here; the rule itself is proven by the
 // engine's own tests and by the Tuwunel run over the real engine, not by these. Main's floor is
 // set only when the store already has one, as the main tests were written against.
-func (e *fakeEngine) Persist(_ context.Context, b team.Batch) (int64, error) {
+func (e *fakeEngine) Persist(_ context.Context, b team.Batch) (state.Floor, error) {
 	e.mu.Lock()
 	hook := e.persistErr
 	e.mu.Unlock()
 	if hook != nil {
 		if err := hook(b); err != nil {
-			return 0, err
+			return state.Floor{}, err
 		}
 	}
 	e.mu.Lock()
@@ -470,7 +470,9 @@ func (e *fakeEngine) Persist(_ context.Context, b team.Batch) (int64, error) {
 		s.Sync.NextBatch, s.Sync.Fresh, s.Sync.RestoreEpoch = b.NextBatch, b.Fresh, b.RestoreEpoch
 	}
 	s.Outbox.QuestionsHandover = s.Outbox.QuestionsHandover || b.Handover
-	maps.Copy(s.Sync.FloorMS, b.Floors)
+	for room, f := range b.Floors {
+		s.Sync.SetFloor(room, f)
+	}
 	for _, it := range b.Items {
 		if !slices.ContainsFunc(s.Pending, func(p state.Pending) bool { return p.ID == it.Pending.ID }) {
 			s.Pending = append(s.Pending, it.Pending)
@@ -489,11 +491,11 @@ func (e *fakeEngine) Persist(_ context.Context, b team.Batch) (int64, error) {
 	}
 	e.persisted++
 	for _, p := range s.Pending {
-		if floor, ok := s.Sync.FloorMS[p.Room]; p.Room == proto.PurposeQuestions && !ok || ok && p.SentMS <= floor {
-			s.Sync.FloorMS[p.Room] = max(p.SentMS-1, 0)
+		if floor, ok := s.Sync.Floor(p.Room); p.Room == proto.PurposeQuestions && !ok || ok && floor.Covers(p.SentMS, p.ID) {
+			s.Sync.SetFloor(p.Room, state.Before(p.SentMS))
 		}
 	}
-	floor := s.Sync.FloorMS[proto.PurposeMain]
+	floor, _ := s.Sync.Floor(proto.PurposeMain)
 	e.mu.Unlock()
 	e.batches <- b
 	return floor, nil

@@ -48,7 +48,9 @@ const (
 	capReports    = 60
 	capRemindLate = proto.MaxOpenQuestions
 
-	maxNextBatch      = 1024
+	maxNextBatch = 1024
+	// maxFloorIDs bounds the events of one millisecond a floor names.
+	maxFloorIDs       = 256
 	maxTranscriptPath = 1024
 	// maxUserID is A4's bound on a user id, which the entry sizes assume.
 	maxUserID = 128
@@ -156,6 +158,9 @@ type Sync struct {
 	Fresh        bool             `json:"fresh"`
 	RestoreEpoch int64            `json:"restore_epoch"`
 	FloorMS      map[string]int64 `json:"floor_ms"`
+	// FloorIDs are, per room, the events at its floor_ms already taken; a room absent here has
+	// every event at its floor_ms taken (Floor).
+	FloorIDs map[string][]string `json:"floor_ids,omitempty"`
 }
 
 // Pending is an item the store owes.
@@ -353,6 +358,11 @@ func (s *Sync) check(c *rules) {
 	c.need(s.RestoreEpoch >= 0 && s.FloorMS != nil, "restore_epoch is negative, or floor_ms is not an object")
 	for room, floor := range s.FloorMS {
 		c.need(slices.Contains(storeRooms, room) && validMS(floor), "floor_ms holds an unknown room or a floor that is not a time")
+	}
+	for room, ids := range s.FloorIDs {
+		_, floored := s.FloorMS[room]
+		c.need(floored && ids != nil && len(ids) <= maxFloorIDs && !slices.ContainsFunc(ids, func(id string) bool { return !proto.ValidEventID(id) }),
+			"floor_ids holds a room with no floor_ms, too many ids, or one that is not an event id")
 	}
 }
 

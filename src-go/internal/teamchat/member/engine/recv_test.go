@@ -228,8 +228,8 @@ func TestARestoredItemThatIsGoneIsDroppedAndHoldsNothing(t *testing.T) {
 	if p := w.store(ops).Pending; len(p) != 1 || p[0].ID != evID(2) {
 		t.Fatalf("pending = %+v", p)
 	}
-	if got := w.store(ops).Sync.FloorMS[proto.PurposeMain]; got != 199 {
-		t.Fatalf("floor %d after the drop", got)
+	if got, _ := w.store(ops).Sync.Floor(proto.PurposeMain); !got.Equal(state.Before(200)) {
+		t.Fatalf("floor %+v after the drop", got)
 	}
 	if !strings.Contains(w.log.String(), "restored item "+evID(1)+" dropped: it can no longer be fetched") {
 		t.Fatalf("link.log = %q", w.log.String())
@@ -243,26 +243,27 @@ func TestAnAckRaisesTheFloor(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops := tid(t, "ops")
 	f := w.held(ops)
-	first := team.Batch{Team: ops, NextBatch: "s1", Floors: map[string]int64{proto.PurposeMain: 500}, Items: []team.Item{humanItem(ops, 1, 100, "a")}}
-	if got := w.persistBatch(first); got != 99 {
-		t.Fatalf("floor %d", got)
+	first := team.Batch{Team: ops, NextBatch: "s1", Floors: map[string]state.Floor{proto.PurposeMain: {MS: 500}}, Items: []team.Item{humanItem(ops, 1, 100, "a")}}
+	if got := w.persistBatch(first); !got.Equal(state.Before(100)) {
+		t.Fatalf("floor %+v", got)
 	}
 	ack1 := w.done(wire.OpRecv, wire.TeamsArgs{}).Ack
 	w.persist(ops, humanItem(ops, 2, 200, "b"))
 	check(t, w.e.Ack(t.Context(), ack1))
-	if got := w.store(ops).Sync.FloorMS[proto.PurposeMain]; got != 199 {
-		t.Fatalf("floor after the first ack %d", got)
+	if got, _ := w.store(ops).Sync.Floor(proto.PurposeMain); !got.Equal(state.Before(200)) {
+		t.Fatalf("floor after the first ack %+v", got)
 	}
 	ack2 := w.done(wire.OpRecv, wire.TeamsArgs{}).Ack
 	check(t, w.e.Ack(t.Context(), ack2))
-	if got := w.store(ops).Sync.FloorMS[proto.PurposeMain]; got != 200 {
-		t.Fatalf("floor after the last ack %d", got)
+	last := state.Floor{}.Raised(200, evID(2))
+	if got, _ := w.store(ops).Sync.Floor(proto.PurposeMain); !got.Equal(last) {
+		t.Fatalf("floor after the last ack %+v", got)
 	}
 	check(t, w.e.Return(t.Context(), "ffffffff"))
 	f.mu.Lock()
 	raised := slices.Clone(f.raised)
 	f.mu.Unlock()
-	if !slices.Equal(raised, []int64{199, 200}) {
+	if !slices.EqualFunc(raised, []state.Floor{state.Before(200), last}, state.Floor.Equal) {
 		t.Fatalf("FloorRaised %v", raised)
 	}
 }
@@ -445,5 +446,23 @@ func TestN3dD30AnAckedPingKeepsItsVerb(t *testing.T) {
 	s := w.store(ops)
 	if len(s.Ledger) != 1 || s.Ledger[0].Verb == nil || *s.Ledger[0].Verb != "review" {
 		t.Fatalf("the ledger = %+v", s.Ledger)
+	}
+}
+
+// A floor raised by the items that left names them, so an event sent in their millisecond that
+// the member has not taken stays above it (Plan 00209, project_floor_by_time).
+func TestAnAckedFloorLeavesItsMillisecondsOtherEvents(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	s := w.newStore(ops)
+	floor, moved := raiseFloors(&s, []state.Pending{humanItem(ops, 1, 200, "a").Pending})
+	if !moved || !floor.Covers(200, evID(1)) {
+		t.Fatalf("floor %+v moved %v: the acked item is not covered", floor, moved)
+	}
+	if floor.Covers(200, evID(2)) {
+		t.Fatalf("floor %+v covers an event of its millisecond that was never taken", floor)
+	}
+	if again, _ := s.Sync.Floor(proto.PurposeMain); !again.Equal(floor) {
+		t.Fatalf("the store keeps %+v, not %+v", again, floor)
 	}
 }

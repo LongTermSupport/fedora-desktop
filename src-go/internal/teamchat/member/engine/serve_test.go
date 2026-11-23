@@ -197,7 +197,7 @@ func TestPersistAddsEachItemOnceAppliesRedactionsAndFloors(t *testing.T) {
 	d := w.done(wire.OpRecv, wire.TeamsArgs{})
 	check(t, w.e.Ack(t.Context(), d.Ack))
 	w.persistBatch(team.Batch{
-		Team: ops, NextBatch: "s2", RestoreEpoch: 3, Floors: map[string]int64{proto.PurposeQuestions: 9},
+		Team: ops, NextBatch: "s2", RestoreEpoch: 3, Floors: map[string]state.Floor{proto.PurposeQuestions: {MS: 9}},
 		Items:   []team.Item{humanItem(ops, 1, 1, "again"), humanItem(ops, 3, 3, "c"), humanItem(ops, 4, 4, "d"), humanItem(ops, 4, 4, "d")},
 		Redacts: []string{evID(3)},
 	})
@@ -220,22 +220,22 @@ func TestPersistFloorsSitBelowTheOldestOwedItem(t *testing.T) {
 	ops := tid(t, "ops")
 	w.held(ops)
 	floor, err := w.e.Persist(t.Context(), team.Batch{
-		Team: ops, NextBatch: "s1", Floors: map[string]int64{proto.PurposeMain: 300},
+		Team: ops, NextBatch: "s1", Floors: map[string]state.Floor{proto.PurposeMain: {MS: 300}},
 		Items: []team.Item{humanItem(ops, 2, 200, "b"), humanItem(ops, 1, 100, "a")},
 	})
 	check(t, err)
-	if floor != 99 {
-		t.Fatalf("Persist's floor = %d, not the store's 99", floor)
+	if !floor.Equal(state.Before(100)) {
+		t.Fatalf("Persist's floor = %+v, not the store's, below 100", floor)
 	}
-	if got := w.store(ops).Sync.FloorMS[proto.PurposeMain]; got != 99 {
-		t.Fatalf("the floor with items owed = %d", got)
+	if got, _ := w.store(ops).Sync.Floor(proto.PurposeMain); !got.Equal(state.Before(100)) {
+		t.Fatalf("the floor with items owed = %+v", got)
 	}
 	d := w.done(wire.OpRecv, wire.TeamsArgs{})
 	check(t, w.e.Ack(t.Context(), d.Ack))
-	floor, err = w.e.Persist(t.Context(), team.Batch{Team: ops, NextBatch: "s2", Floors: map[string]int64{proto.PurposeMain: 500}})
+	floor, err = w.e.Persist(t.Context(), team.Batch{Team: ops, NextBatch: "s2", Floors: map[string]state.Floor{proto.PurposeMain: {MS: 500}}})
 	check(t, err)
-	if floor != 500 {
-		t.Fatalf("Persist's floor with none owed = %d", floor)
+	if floor.MS != 500 {
+		t.Fatalf("Persist's floor with none owed = %+v", floor)
 	}
 	if got := w.store(ops).Sync.FloorMS[proto.PurposeMain]; got != 500 {
 		t.Fatalf("the floor with none owed = %d", got)

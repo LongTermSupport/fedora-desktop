@@ -449,7 +449,7 @@ func roomsOf(team declare.Team, d apply.Deps) (proto.RoomIDs, error) {
 	return ids, err
 }
 
-// serveExport is RC3: the live server's events after since_ms, written to the lost file.
+// serveExport is RC3: the live server's events from since_ms on, written to the lost file.
 func serveExport(ctx context.Context, o Opened, team declare.Team, a restoreArgs) Answer {
 	c, ok := o.Admin.(restoreAdmin)
 	if !ok {
@@ -477,7 +477,7 @@ type timed struct {
 	line []byte
 }
 
-// exportEvents is every event of the rooms after since, in time order, one per line, kept to
+// exportEvents is every event of the rooms from since on, in time order, one per line, kept to
 // limit bytes from the newest; EndMS is the newest kept event's time.
 func exportEvents(ctx context.Context, c messagesReader, ids proto.RoomIDs, since int64, limit, page int) (restore.Export, []byte, error) {
 	var all []timed
@@ -511,8 +511,9 @@ func exportEvents(ctx context.Context, c messagesReader, ids proto.RoomIDs, sinc
 	return ex, buf.Bytes(), nil
 }
 
-// roomEvents reads room backwards from its end until an event at or before since, oldest
-// first; cut is set when limit stopped it first.
+// roomEvents reads room backwards from its end until an event before since, oldest first; an
+// event of since's own millisecond is kept, since is a time no event names. cut is set when
+// limit stopped it first.
 func roomEvents(ctx context.Context, c messagesReader, room string, since int64, limit, page int) ([]timed, bool, error) {
 	var out []timed
 	size, from := 0, ""
@@ -527,7 +528,7 @@ func roomEvents(ctx context.Context, c messagesReader, room string, since int64,
 			if err != nil {
 				return nil, false, err
 			}
-			if e.ts <= since {
+			if e.ts < since {
 				older = true
 				continue
 			}

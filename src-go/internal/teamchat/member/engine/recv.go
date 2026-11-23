@@ -151,7 +151,7 @@ func rosters(teams map[paths.TeamID]team.Team) map[paths.TeamID]namer {
 // items chosen within the caps marked handed by ack, one write per store, before any record is
 // sent.
 func (e *Engine) handOut(p plan, got map[key]fetched, names map[paths.TeamID]namer, ack string) handout {
-	c := copies{e: e, stores: map[paths.TeamID]*state.Store{}, raised: map[paths.TeamID]int64{}}
+	c := copies{e: e, stores: map[paths.TeamID]*state.Store{}, raised: map[paths.TeamID]state.Floor{}}
 	e.rejudgeAll(got, &c)
 	chosen, recs := e.choose(p, names, ack, &c)
 	failed := e.commit(c.stores)
@@ -180,7 +180,7 @@ func (e *Engine) handOut(p plan, got map[key]fetched, names map[paths.TeamID]nam
 type copies struct {
 	e      *Engine
 	stores map[paths.TeamID]*state.Store
-	raised map[paths.TeamID]int64
+	raised map[paths.TeamID]state.Floor
 }
 
 func (c *copies) of(h *held) *state.Store {
@@ -324,7 +324,7 @@ func (e *Engine) rejudge(h *held, id string, v proto.Verdict) string {
 	if i < 0 {
 		return ""
 	}
-	if floor, ok := h.store.Sync.FloorMS[h.store.Pending[i].Room]; ok && v.Event.OriginTs <= floor {
+	if floor, ok := h.store.Sync.Floor(h.store.Pending[i].Room); ok && floor.Covers(v.Event.OriginTs, id) {
 		return "it is not newer than its room's floor"
 	}
 	return ""
@@ -509,7 +509,7 @@ func (e *Engine) settle(ctx context.Context, ack string, deliver func(*state.Sto
 // an item went back to pending.
 func (e *Engine) settleTeam(id paths.TeamID, ack string, now int64, wrote bool, deliver func(*state.Store, state.Pending, int64) bool) (bool, bool, error) {
 	var (
-		floor          int64
+		floor          state.Floor
 		moved, changed bool
 		back           bool
 	)
@@ -560,7 +560,7 @@ func settleStore(h *held, s *state.Store, ack string, now int64, deliver func(*s
 
 // floorRaised tells t's team goroutine its store's main floor rose outside a sync answer, once
 // the store holds it, so the marker follows (SY10); on the state goroutine.
-func (e *Engine) floorRaised(t paths.TeamID, floor int64) {
+func (e *Engine) floorRaised(t paths.TeamID, floor state.Floor) {
 	if h := e.teams[t]; h != nil && h.team != nil {
 		h.team.FloorRaised(floor)
 	}

@@ -18,6 +18,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/bundle"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -173,9 +174,10 @@ type pageBound struct{ size, max int }
 // floorMarker is SY10's state: the floor to put, whether it is owed (dirty) and owed at once
 // (urgent, a move down), when a put was last tried, and what the last put that succeeded held.
 type floorMarker struct {
-	ms, epoch int64
+	floor     state.Floor
+	epoch     int64
 	putAt     time.Duration
-	sentMS    int64
+	sentFloor state.Floor
 	sentEpoch int64
 	known     bool
 	dirty     bool
