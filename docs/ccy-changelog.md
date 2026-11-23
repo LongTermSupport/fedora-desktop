@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.17 — container 2.84.65
+
+The image carries a fixed `teamchat` (issue #385).
+
+- **An admin redaction in the questions room is built for once.** When the questions index build
+  reaches the head, the sync's first questions batch can start behind it. An unlimited timeline
+  was folded whole, so a redaction the build had already met was folded again and owed a second
+  full rebuild. The sync now skips through the index's last folded event on an unlimited timeline
+  too, as it already did on a limited one (SPEC-n3f, the first questions batch).
+
 ## 3.124.15 — container 2.84.64
 
 The memory caps on a host under 20 GiB of RAM (issue #383). The image is unchanged. 3.124.14

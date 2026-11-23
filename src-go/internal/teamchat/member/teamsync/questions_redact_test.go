@@ -12,6 +12,18 @@ func owedBuild(b team.Batch) bool {
 	return k != nil && k.Build != nil && k.Build.Start == nil && k.Index == nil && k.Token == nil && k.Last == nil
 }
 
+// movedOn waits until the sync has handled an answer: a long-poll from a position other than the
+// first one it sees. handle persists and settles an answer, a rebuild it owes begun, before the
+// next long-poll starts from that answer's position.
+func (r *running) movedOn(t *testing.T) {
+	t.Helper()
+	first := r.poll(t)
+	since := first
+	for since == first {
+		since = r.poll(t)
+	}
+}
+
 // QX7 (n3f-D21): an admin redaction in questions that the sync folds writes the key as a build
 // owed, `after` the answer's last questions event and `late_from` the index's next number, and
 // begins the build with that key; the room is out of the filter until the build is at the head.
@@ -50,7 +62,7 @@ func TestQX7ARedactionMetAfterTheBuildsStartBuildsAgain(t *testing.T) {
 	g := w.gateQuestions()
 	tm := w.newTeam(withIndexBuilder())
 	b := watchBuilds(tm)
-	w.startTeam(tm)
+	r := w.startTeam(tm)
 	// The backward read: one page of events, then the room's start.
 	for range 2 {
 		check(t, g.Held(t.Context()))
@@ -62,6 +74,12 @@ func TestQX7ARedactionMetAfterTheBuildsStartBuildsAgain(t *testing.T) {
 	}
 	g.Open()
 	b.ended(t)
+	// At the head the filter takes questions, and the sync's first answer holds the redaction the
+	// build already met: once that answer is handled (the long-poll moves on), it owes no build.
+	r.movedOn(t)
+	if n := w.log.count("built again"); n != 1 {
+		t.Errorf("%d rebuilds for one redaction, want 1: the sync folded again what the build had folded", n)
+	}
 	if back := readsIn(w.teamReads(w.qroom()), "b"); back != 4 {
 		t.Errorf("%d backward reads over %d events, want 4: the build was not begun again", back, events)
 	}
