@@ -406,18 +406,6 @@
             quiet: true
           tags: [admin]
 
-        # The kit is assembled whole by its own program (binary, plugin, hooks, skill and
-        # settings), into an empty directory named for the build, so a host `run --claude`
-        # finds the plugin and the settings. The assembly refuses a directory that is not empty.
-        - name: Make the Kit Directory
-          ansible.builtin.file:
-            path: "{{ tc_kit_root }}/{{ tc_tree.stdout }}"
-            state: directory
-            owner: root
-            group: root
-            mode: "0755"
-          tags: [member]
-
         - name: Copy the Member Program Beside the Kits
           ansible.builtin.copy:
             src: "{{ tc_build_dir.path }}/{{ teamchat_arch[tc_arch].goarch }}/teamchat"
@@ -442,6 +430,11 @@
             quiet: true
           tags: [member]
 
+        # The kit is placed whole by its own program (binary, plugin, hooks, skill and
+        # settings) at the directory named for the build, so a host `run --claude` finds the
+        # plugin and the settings. The program assembles it in a sibling directory and renames
+        # it into place, leaves a whole kit alone and replaces anything else, and clears a
+        # leftover sibling first; so it runs every time and its stdout says whether it assembled.
         - name: Assemble the Member Kit
           ansible.builtin.command:
             argv:
@@ -450,7 +443,42 @@
               - assemble
               - --into
               - "{{ tc_kit_root }}/{{ tc_tree.stdout }}"
-            creates: "{{ tc_kit_root }}/{{ tc_tree.stdout }}/settings.json"
+          register: tc_kit_assembled
+          changed_when: tc_kit_assembled.stdout.startswith('assembled ')
+          tags: [member]
+
+        - name: Read Every Part of the Kit
+          ansible.builtin.stat:
+            path: "{{ tc_kit_root }}/{{ tc_tree.stdout }}/{{ item.part }}"
+          loop:
+            - {part: bin, kind: dir}
+            - {part: bin/teamchat, kind: file}
+            - {part: settings.json, kind: file}
+            - {part: plugin, kind: dir}
+            - {part: plugin/teamchat, kind: dir}
+            - {part: plugin/teamchat/.claude-plugin, kind: dir}
+            - {part: plugin/teamchat/.claude-plugin/plugin.json, kind: file}
+            - {part: plugin/teamchat/hooks, kind: dir}
+            - {part: plugin/teamchat/hooks/hooks.json, kind: file}
+            - {part: plugin/teamchat/skills, kind: dir}
+            - {part: plugin/teamchat/skills/teamchat, kind: dir}
+            - {part: plugin/teamchat/skills/teamchat/SKILL.md, kind: file}
+          loop_control:
+            label: "{{ item.part }}"
+          register: tc_kit_parts
+          tags: [member]
+
+        - name: Check the Kit Is Whole
+          ansible.builtin.assert:
+            that:
+              - tc_kit_parts.results | rejectattr('stat.exists') | list | length == 0
+              - tc_kit_parts.results | selectattr('item.kind', 'eq', 'dir') | rejectattr('stat.isdir') | list | length == 0
+              - tc_kit_parts.results | selectattr('item.kind', 'eq', 'file') | rejectattr('stat.isreg') | list | length == 0
+            fail_msg: >-
+              The kit at {{ tc_kit_root }}/{{ tc_tree.stdout }} is not whole: a part is missing or of the wrong kind
+              (missing: {{ tc_kit_parts.results | rejectattr('stat.exists') | map(attribute='item.part') | list }}),
+              so the current link is not moved to it. Run the play again: the assembly replaces a kit that is not whole.
+            quiet: true
           tags: [member]
 
         - name: Read the Kit's Member Program

@@ -190,15 +190,18 @@ func TestTheWrapperFormExecsClaudeWithTheRest(t *testing.T) {
 	}
 }
 
-// C7: anything else after a first -- is a usage error, and nothing is exec'd.
-func TestTheWrapperFormNeedsClaudeAfterTheSeparator(t *testing.T) {
-	for _, args := range [][]string{{"--"}, {"--", "--model"}, {"--", "/usr/bin/claude"}, {"--", "claudex"}, {"--", "--", "claude"}} {
+// C7: a first -- followed by anything but claude is not the wrapper form: every argument goes to
+// claude unchanged, as in C1, so `cc -- <prompt>` still reaches claude as `claude -- <prompt>`.
+func TestAFirstSeparatorWithoutClaudeGoesToClaudeUnchanged(t *testing.T) {
+	for _, args := range [][]string{{"--"}, {"--", "fix the build"}, {"--", "--model"}, {"--", "/usr/bin/claude"}, {"--", "claudex"}, {"--", "--", "claude"}} {
 		w := newWorld()
-		if code := w.run(args...); code != term.ExitUsage {
-			t.Errorf("%q: exit %d", args, code)
+		if code := w.run(args...); code != term.ExitOK {
+			t.Errorf("%q: exit %d, stderr %q", args, code, w.stderr.String())
+			continue
 		}
-		if len(w.fake.Execs()) != 0 || !strings.Contains(w.stderr.String(), "cc-claude -- claude") {
-			t.Errorf("%q: execs %v, stderr %q", args, w.fake.Execs(), w.stderr.String())
+		c := w.only(t)
+		if c.Name != "claude" || !slices.Equal(c.Args, args) || w.stderr.Len() != 0 {
+			t.Errorf("%q: exec'd %q, stderr %q", args, c.Line(), w.stderr.String())
 		}
 	}
 }

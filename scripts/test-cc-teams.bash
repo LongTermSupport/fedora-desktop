@@ -12,10 +12,11 @@
 # sign-in; cc's own settings file denies Claude's file tools Element's folders. Each of these
 # is a property a later edit could quietly lose, so each is checked here: the argument split,
 # the chooser called with the host type (attended only) and the list it prints checked by the
-# seat check, the seats taken as `host`, the launch block, cc's deny rules, the session's
-# text, and the command line, `ccy-teams internal cc-run` (Plan 00209 Task 5.1), whose
-# settings and session line are Go's, tested there against this library's earlier bash
-# (teamchatlaunch's parity test). A fake ccy-teams and agent-bus stand in for the two programs.
+# seat check, the seats taken as `host`, the launch block, cc's deny rules, the plugin's text,
+# and the command line, `ccy-teams internal cc-run` (Plan 00209 Task 5.1). cc-run's settings,
+# session line and prompt are Go's, tested there by running it (teamchatlaunch's parity test
+# against this library's earlier bash, and ccrun_prompt_test.go for the prompt on each system).
+# A fake ccy-teams and agent-bus stand in for the two programs.
 #
 # `set -e` is deliberately NOT used: every case must run so the summary reports the full
 # picture, and each result is checked explicitly.
@@ -234,17 +235,8 @@ check "deny Edit of the acceptance record's folder" "true" \
 
 echo "=== what the session reads ==="
 
-# Both systems' prompt lines are constants in cc-run's Go source.
-CCRUN_GO="$REPO_ROOT/src-go/internal/teams/teamchatlaunch/ccrun.go"
-for sys_prog in "V1Prompt pingbus agent-bus" "TeamchatPrompt teamchat teamchat"; do
-    read -r const prog sys <<<"$sys_prog"
-    prompt=$(grep -E "^\s*$const\s*=" "$CCRUN_GO" | cut -d'"' -f2)
-    check "$const names no team: they are in the session context and may change (H32)" "yes" \
-        "$(yes_no grep -qF "Your $sys teams and seats are given in the session context and may change while you run; the latest $sys membership notice is current." <<<"$prompt")"
-    check "$const says to post through $prog" "yes" "$(yes_no grep -q "only with $prog" <<<"$prompt")"
-    check "$const never mentions Element, sign-ins or other people's accounts" "no" \
-        "$(yes_no grep -qiE 'element|riot|matrix session|sign|login|log in|owner|human|as anyone|impersonat' <<<"$prompt")"
-done
+# The prompt line cc-run hands claude on each system, and the plugin directory it passes, are
+# checked by running cc-run in Go (teamchatlaunch's ccrun_prompt_test.go), not here.
 check "the plugin's text never mentions the owner's Element session either" "no" \
     "$(yes_no grep -rqiE "owner'?s element|your element|element session|im\.riot" "$KIT_SRC/plugin")"
 
@@ -282,7 +274,6 @@ hooks_json="$KIT_SRC/plugin/pingbus/hooks/hooks.json"
 # The command's inert guard (Plan 00203 H33) passes a session with no PINGBUS_MEMBERSHIP, as cc's is.
 check "the plugin cc passes runs pingbus's SessionStart hook, which writes the per-session teams file" "exec pingbus hook session-start" \
     "$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$hooks_json" | grep -oF 'exec pingbus hook session-start')"
-check "cc-run passes that plugin directory" "yes" "$(yes_no grep -qF -- '"--plugin-dir", kit + "/plugin/pingbus"' "$CCRUN_GO")"
 check "cc puts the kit first on PATH so the hook runs the kit's pingbus" "yes" \
     "$(yes_no grep -qF "PATH=\"\$CC_TEAMS_KIT:\$PATH\"" "$REPO_ROOT/files/var/local/claude-code/cc")"
 

@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
 # Plan 00209 Task 5.1 acceptance, the read-only part (DESIGN-host-cc-v2.md section 8).
 #
-# Before a host cc session on a teamchat team (no session named):
+# UNATTENDED (no <team> and <checkout> given; under meta-deploy.bash, which sets
+# PLAN_ASSUME_YES, or with no terminal): the deployed parts only:
 #   - the member program answers `teamchat version`, and the host kit
-#     (/usr/local/lib/teamchat/kit/current/) holds settings.json and the teamchat plugin;
-#   - the deployed ccy is this checkout's CCY_VERSION;
-#   - `ccy-teams system <team>`, run in <checkout>, says teamchat.
-# After the attended launch (a session named): its record in the seat store,
-# <store>/sessions/<session>/conversation.json, names a transcript Claude Code wrote.
+#     (/usr/local/lib/teamchat/kit/current/) is whole: its program, settings, plugin manifest,
+#     hooks and skill;
+#   - the deployed ccy is this checkout's CCY_VERSION.
+# Everything that needs a team, a checkout or a person is listed as ATTENDED and not judged; the
+# exit is 0 when the deployed parts hold.
 #
+# ATTENDED (run by hand, <team> and <checkout> given or asked at the terminal), as well:
+#   - `ccy-teams system <team>`, run in <checkout>, says teamchat;
+#   - after the launch (a session named): its record in the seat store,
+#     <store>/sessions/<session>/conversation.json, names a transcript Claude Code wrote.
 # The launch, the round trip, the stop, the restore and the kill (section 8 steps 2-4, 6-8) need
 # a person at the session; the script lists them and does not judge them.
 #
-# Exit 0: every check it can make holds. Exit 1: one fails. Exit 2: COULD NOT ESTABLISH (no team
-# or checkout given and no terminal to ask, or no session named yet: the session steps remain).
+# Exit 0: every check it makes holds. Exit 1: one fails. Exit 2: COULD NOT ESTABLISH (an attended
+# run with no session named yet: the session steps remain).
 set -euo pipefail
 scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 repoRoot="${scriptDir}"
@@ -37,7 +42,8 @@ PLAN_USAGE="usage: $(basename "$0") [-h|--help] [<team> <checkout> [<session>]]
 Read-only checks of a host cc session on teamchat team <team>, started in <checkout>. With no
 <session> the before checks run and the script exits 2 (the session steps remain); with the
 tmux session name of the running or stopped session, its conversation record is checked too.
-Without <team> and <checkout> they are asked at the terminal."
+Without <team> and <checkout> they are asked at the terminal; under meta-deploy.bash
+(PLAN_ASSUME_YES) or with no terminal, only the unattended checks run and the rest is listed."
 plan_parse_common_flags "$@"
 plan_mode gather
 plan_require_host "it reads this host's teamchat kit, ccy and seat store"
@@ -59,28 +65,30 @@ unsure() {
     unknown=1
 }
 
+attended=1
 if [[ -z "${team}" || -z "${checkout}" ]]; then
-    if ! { : </dev/tty; } 2>/dev/null; then
-        unsure "no <team> and <checkout> given, and no terminal to ask them on"
-        exit 2
+    if [[ "${PLAN_ASSUME_YES:-0}" == "1" ]] || ! { : </dev/tty; } 2>/dev/null; then
+        attended=0
+    else
+        read -r -p 'teamchat team the host seat joins: ' team </dev/tty
+        read -r -p 'checkout cc is started in (absolute path): ' checkout </dev/tty
     fi
-    read -r -p 'teamchat team the host seat joins: ' team </dev/tty
-    read -r -p 'checkout cc is started in (absolute path): ' checkout </dev/tty
 fi
-if [[ "${checkout:0:1}" != "/" || ! -d "${checkout}/" ]]; then
+if ((attended)) && [[ "${checkout:0:1}" != "/" || ! -d "${checkout}/" ]]; then
     bad "checkout '${checkout}' is not an absolute path to a directory"
     exit 1
 fi
 
-# 1. The member program and the host kit.
+# 1. The member program and the host kit, whole (the parts the install play checks).
 if version="$(teamchat version 2>&1)"; then
     pass "teamchat version: ${version}"
 else
     bad "teamchat version failed: ${version} (run play-teamchat.yml --tags member)"
 fi
 kit=/usr/local/lib/teamchat/kit/current
-for f in settings.json plugin/teamchat/.claude-plugin/plugin.json; do
-    if [[ -f "${kit}/${f}" ]]; then
+for f in bin/teamchat settings.json plugin/teamchat/.claude-plugin/plugin.json \
+    plugin/teamchat/hooks/hooks.json plugin/teamchat/skills/teamchat/SKILL.md; do
+    if [[ -f "${kit}/${f}" && ! -L "${kit}/${f}" ]]; then
         pass "the host kit holds ${f}"
     else
         bad "${kit}/${f} is missing (play-teamchat.yml --tags member assembles it)"
@@ -93,6 +101,21 @@ if got="$(ccy --version 2>&1)" && [[ -n "${want}" && "${got/"${want}"/}" != "${g
     pass "ccy --version names ${want}"
 else
     bad "ccy --version said '${got}', want ${want} (run play-claude-yolo.yml)"
+fi
+
+if ((!attended)); then
+    cat <<'EOF'
+ATTENDED, not judged in this unattended run (run this script by hand at a terminal, with
+<team> <checkout> [<session>], or answer its questions, for these):
+  - ccy-teams system <team> in <checkout> says teamchat (a pool seat is placed there);
+  - the session's conversation record names a transcript (after the launch);
+  - section 8 of DESIGN-host-cc-v2.md: seat, launch, round trip, stop, restore and kill.
+EOF
+    if ((failed)); then
+        exit 1
+    fi
+    printf '==> the deployed parts hold; the attended steps above remain\n'
+    exit 0
 fi
 
 # 3. The team is on teamchat for the checkout: the third word of its line is the system.

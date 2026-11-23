@@ -17,9 +17,11 @@
 //     exit 1, naming the error. Never a silent no-op.
 //   - C5. Each of Defaults is the default the ccy launcher passes into its container.
 //   - C7. The wrapper form `cc-claude -- claude <args>` (Plan 00209 Task 5.1 H5), which
-//     `teamchat run --claude` needs to find claude by name: a first argument `--` must be
-//     followed by `claude`, and the arguments after it go to claude as in C1. Anything else
-//     after a first `--` is a usage error (64) and nothing is exec'd.
+//     `teamchat run --claude` needs to find claude by name: a first `--` followed by `claude`
+//     is dropped with that `claude`, and the arguments after them go to claude as in C1. A
+//     first `--` followed by anything else is not the wrapper form and goes to claude
+//     unchanged (C1), so `cc -- <prompt>` reaches claude as `claude -- <prompt>`; only a
+//     prompt that is the one word `claude` cannot be given that way.
 //
 // stdout is claude's; cc-claude writes only errors, to stderr.
 package ccclaude
@@ -71,11 +73,7 @@ func NewApp() *App {
 
 // Run execs claude; it returns only when that failed, or under a fake.
 func (a *App) Run(args []string) term.ExitCode {
-	if len(args) > 0 && args[0] == wrapperSeparator {
-		if len(args) < 2 || args[1] != "claude" {
-			a.out.Print(a.Stderr, tool+": after a first -- comes claude: cc-claude -- claude [args]\n")
-			return term.ExitUsage
-		}
+	if len(args) > 1 && args[0] == wrapperSeparator && args[1] == "claude" {
 		args = args[2:]
 	}
 	cmd := execx.Cmd{Name: "claude", Args: args}
