@@ -17,9 +17,10 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.14 — container 2.84.64
+## 3.124.15 — container 2.84.64
 
-The memory caps on a host under 20 GiB of RAM (issue #383). The image is unchanged.
+The memory caps on a host under 20 GiB of RAM (issue #383). The image is unchanged. 3.124.14
+was this change's first step on its branch and was never released.
 
 - **A container's default memory cap is the agents slice's `MemoryMax`**, read from the unit
   the play installs, instead of being worked out again from the RAM. The one host_vars setting

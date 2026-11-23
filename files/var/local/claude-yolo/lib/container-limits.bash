@@ -45,19 +45,19 @@ ccy_container_limits() {
 # slice with no MemoryMax or one out of bounds: no value is picked for it. The cap cannot be
 # turned off (0, -1 and "max" are refused).
 ccy_memory_limit() {
-    local total kib="" number line
+    local total kib="" number line fd
     if ! total=$(awk '$1 == "MemTotal:" { print $2; exit }' "$1") || ! [[ "$total" =~ ^[1-9][0-9]*$ ]]; then
         print_error "could not read MemTotal from $1, so no memory cap can be set for a ccy container."
         return 1
     fi
     if [ -z "${CCY_MEMORY_MAX:-}" ]; then
-        while IFS= read -r line || [ -n "$line" ]; do
+        exec {fd}<"$2" || { print_error "could not read $2, so no memory cap can be set for a ccy container."; return 1; }
+        while IFS= read -r -u "$fd" line || [ -n "$line" ]; do
             if [[ "$line" =~ ^MemoryMax=([1-9][0-9]{0,8})M$ ]]; then kib=$((BASH_REMATCH[1] * 1024)); fi
-        done <"$2"
-        if [ -z "$kib" ]; then
-            print_error "$CCY_AGENTS_SLICE has no MemoryMax=<MiB>M line, which a container's default memory cap is read from. Deploy it with playbooks/imports/play-claude-yolo.yml, then launch again (or set CCY_MEMORY_MAX on this host)."
-            return 1
-        elif [ "$kib" -lt $((CCY_MEMORY_FLOOR_MIB * 1024)) ] || [ "$kib" -gt "$total" ]; then
+        done
+        exec {fd}<&-
+        [ -n "$kib" ] || { print_error "$CCY_AGENTS_SLICE has no MemoryMax=<MiB>M line, which a container's default memory cap is read from. Deploy it with playbooks/imports/play-claude-yolo.yml, then launch again (or set CCY_MEMORY_MAX on this host)."; return 1; }
+        if [ "$kib" -lt $((CCY_MEMORY_FLOOR_MIB * 1024)) ] || [ "$kib" -gt "$total" ]; then
             print_error "$CCY_AGENTS_SLICE's MemoryMax is $((kib / 1024)) MiB, a container's default memory cap, which must be from the $CCY_MEMORY_FLOOR_MIB MiB floor to this machine's $((total / 1024)) MiB of RAM. Set $CCY_AGENTS_SLICE_SETTING in this host's host_vars to the MiB all ccy containers together may use and run playbooks/imports/play-claude-yolo.yml (docs/ccy.md, \"Container limits\")."
             return 1
         fi

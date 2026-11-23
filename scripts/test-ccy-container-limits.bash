@@ -121,6 +121,13 @@ done
 memory 8388608 - '[Slice]\nMemoryMax=9000M\n' >/dev/null
 check "  the refusal names the host_vars setting, the floor and the RAM, and picks no value" "1" "$(grep -c "agents.slice's MemoryMax is 9000 MiB.*from the 2048 MiB floor to this machine's 8192 MiB of RAM. Set ccy_agents_slice_memory_max_mb in this host's host_vars" "$work/err")"
 check "an override needs no MemoryMax in the slice" "0 3072" "$(memory "$GIB64" 3g '[Slice]\n')"
+check "a slice unit that cannot be read is refused, naming it" "1|1" "$(
+    # shellcheck source-path=SCRIPTDIR source=../files/var/local/claude-yolo/lib/container-limits.bash
+    source "$LIB"
+    unset CCY_MEMORY_MAX
+    ccy_memory_limit "$work/meminfo" "$work/no-such-unit" 2>"$work/err" >/dev/null
+    printf '%s|%s' "$?" "$(grep -c "could not read $work/no-such-unit" "$work/err")"
+)"
 printf 'MemFree: 1 kB\n' >"$work/nototal"
 check "a meminfo with no MemTotal is refused" "1" "$(
     # shellcheck source-path=SCRIPTDIR source=../files/var/local/claude-yolo/lib/container-limits.bash
