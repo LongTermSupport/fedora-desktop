@@ -39,6 +39,8 @@ func sendArgs(e cli.Env, inv cli.Invocation, op string, clk stdinread.Clock) (an
 	case wire.OpReport:
 		text, err := readCapped(e, inv, clk, proto.MaxReportBody)
 		return wire.ReportArgs{Team: inv.Team}, text, err
+	case wire.OpAskHuman, wire.OpThread, wire.OpClose, wire.OpRetitle, wire.OpBump:
+		return questionsArgs(e, inv, op, clk)
 	case wire.OpPing:
 		a := wire.PingArgs{
 			Team: inv.Team, Verb: inv.Args[0], To: addressees(inv), ToCoordinator: inv.Has(flagToCoordinator),

@@ -269,6 +269,8 @@ func TestDeadlineIsLN2sTable(t *testing.T) {
 		OpReply: 30 * time.Second, OpSay: 30 * time.Second, OpPing: 30 * time.Second, OpVerify: 30 * time.Second,
 		OpReport:  30 * time.Second, // RP6: a send's deadline, the reports state read and the join inside it
 		OpHistory: time.Minute, OpQuestions: time.Minute,
+		OpAskHuman: 30 * time.Second, OpThread: 30 * time.Second, OpClose: 30 * time.Second,
+		OpRetitle: 30 * time.Second, OpBump: 30 * time.Second,
 		OpWait: 110 * time.Second,
 	} {
 		if got := Deadline(op, 110*time.Second); got != want {
@@ -380,6 +382,53 @@ func TestN3dSendArgsRefuseAMissingTeamOrAnUnknownKey(t *testing.T) {
 		"say unknown key":   {`{"team":null,"to":[],"to_coordinator":false,"text":"hi"}`, &SayArgs{}},
 		"ping no team":      {`{"verb":"halt","ref":null,"to":[],"to_coordinator":false,"branch":null}`, &PingArgs{}},
 		"ping unknown key":  {`{"team":null,"verb":"halt","ref":null,"to":[],"to_coordinator":false,"branch":null,"x":1}`, &PingArgs{}},
+	} {
+		err := DecodeArgs(json.RawMessage(c.raw), c.out)
+		if exit, code := refused(t, err); exit != 10 || code != exits.CodeSchema {
+			t.Errorf("%s: exit %d code %s", name, exit, code)
+		}
+	}
+}
+
+// DESIGN-questions-v2 2.1-2.7: the questions verbs' args decode strictly, every key present.
+func TestQuestionsArgsDecodeStrictly(t *testing.T) {
+	var a AskArgs
+	check(t, DecodeArgs(json.RawMessage(`{"team":null,"for":["repo.2"],"re":[],"remind_after_s":600,"check":true}`), &a))
+	if len(a.For) != 1 || len(a.Re) != 0 || a.RemindAfterS == nil || *a.RemindAfterS != 600 || !a.Check {
+		t.Fatalf("ask-human %+v", a)
+	}
+	var th ThreadArgs
+	check(t, DecodeArgs(json.RawMessage(`{"team":"alpha","q":"Q4","note":true}`), &th))
+	if th.Q != "Q4" || !th.Note {
+		t.Fatalf("thread %+v", th)
+	}
+	var c CloseArgs
+	check(t, DecodeArgs(json.RawMessage(`{"team":null,"qs":["Q4","Q5"]}`), &c))
+	if len(c.Qs) != 2 {
+		t.Fatalf("close %+v", c)
+	}
+	var r RetitleArgs
+	check(t, DecodeArgs(json.RawMessage(`{"team":null,"q":"Q4"}`), &r))
+	var b BumpArgs
+	check(t, DecodeArgs(json.RawMessage(`{"team":null,"qs":[],"waiting":true,"note":"still?","min_age_s":3600}`), &b))
+	if !b.Waiting || b.Note == nil || *b.Note != "still?" || b.MinAgeS != 3600 {
+		t.Fatalf("bump %+v", b)
+	}
+	var q QuestionsArgs
+	check(t, DecodeArgs(json.RawMessage(`{"team":null,"all":false,"waiting":true,"for":"repo.2","digest":false}`), &q))
+	if !q.Waiting || q.For == nil || *q.For != "repo.2" {
+		t.Fatalf("questions %+v", q)
+	}
+	for name, c := range map[string]struct {
+		raw string
+		out any
+	}{
+		"ask-human no check":  {`{"team":null,"for":[],"re":[],"remind_after_s":null}`, &AskArgs{}},
+		"thread unknown key":  {`{"team":null,"q":"Q4","note":false,"ask":true}`, &ThreadArgs{}},
+		"close no team":       {`{"qs":["Q4"]}`, &CloseArgs{}},
+		"bump no min age":     {`{"team":null,"qs":[],"waiting":true,"note":null}`, &BumpArgs{}},
+		"questions no digest": {`{"team":null,"all":false,"waiting":false,"for":null}`, &QuestionsArgs{}},
+		"retitle a list":      {`{"team":null,"q":["Q4"]}`, &RetitleArgs{}},
 	} {
 		err := DecodeArgs(json.RawMessage(c.raw), c.out)
 		if exit, code := refused(t, err); exit != 10 || code != exits.CodeSchema {

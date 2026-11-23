@@ -38,11 +38,13 @@ type Flag struct {
 }
 
 // Arg is one positional argument of a verb, written <Name> in its usage unless Form says
-// otherwise.
+// otherwise. Repeat, on the last argument alone, takes it one or more times (none when it is
+// also Optional), each checked.
 type Arg struct {
 	Name     string
 	Form     string
 	Optional bool
+	Repeat   bool
 	check    *checker
 	missing  func() error
 }
@@ -145,7 +147,7 @@ const (
 	verbRun       = "run"
 	verbVersion   = "version"
 	verbHelp      = "help"
-	verbAsk       = "ask"
+	verbAsk       = "ask-human"
 	verbReport    = "report"
 	verbQuestions = "questions"
 )
@@ -174,7 +176,6 @@ const (
 	flagKey  = "key"
 	flagTo   = "to"
 	flagToC  = "to-coordinator"
-	flagAsk  = "ask"
 	flagVerb = "verb"
 	argVerb  = "verb"
 )
@@ -200,6 +201,8 @@ var (
 		{Name: flagToC, Group: groupTo},
 	}
 	eventArg = Arg{Name: "event-id", check: checkEvent}
+	qArg     = Arg{Name: "question", Form: "Q<n>", check: checkQ}
+	qsArg    = Arg{Name: "question", Form: "Q<n>", Repeat: true, check: checkQ}
 	userFlag = Flag{Name: "user", Value: "U", Required: true, check: checkUser}
 	keyFlag  = Flag{Name: flagKey, Value: "K", Required: true, check: checkKey}
 
@@ -233,15 +236,34 @@ var table = []Verb{
 	{Name: verbReport, Team: TeamOne, Agent: true, Does: "a quiet report to the reports room; headline then body on stdin"},
 	{
 		Name: verbAsk, Team: TeamOne, Agent: true,
-		Flags: []Flag{{Name: "asked-by", Value: "N,...", check: checkList}, {Name: "re", Value: "ID,...", check: checkList}, {Name: "remind-after", Value: "S", check: checkCount}},
-		Does:  "the coordinator asks the team's humans a numbered question; text on stdin",
+		Flags: []Flag{
+			{Name: "for", Value: "N,...", check: checkList},
+			{Name: "re", Value: "ID,...", check: checkList},
+			{Name: "remind-after", Value: "S", check: checkCount},
+			{Name: "check"},
+			{Name: "skeleton"},
+		},
+		Does: "the coordinator asks the team's humans a numbered question, notifying them; text on stdin. --check sends nothing; --skeleton prints the form",
 	},
 	{
-		Name: "thread", Team: TeamOne, Agent: true, Args: []Arg{{Name: "question", Form: "Q<n>", check: checkQ}},
-		Flags: []Flag{{Name: flagAsk}, {Name: "close"}},
-		Does:  "the coordinator posts in a question's thread (quiet, --ask to notify the humans, --close to close it)",
+		Name: "thread", Team: TeamOne, Agent: true, Args: []Arg{qArg}, Flags: []Flag{{Name: "note"}},
+		Does: "the coordinator posts in a question's thread, notifying the humans (--note: quietly); text on stdin",
 	},
-	{Name: verbQuestions, Team: TeamMulti, Agent: true, Flags: []Flag{{Name: "all"}}, Does: "the coordinator's open questions and the human replies not yet answered"},
+	{
+		Name: "close", Team: TeamOne, Agent: true, Args: []Arg{qsArg},
+		Does: "the coordinator closes questions with a quiet thread post (a note on stdin, if given) and retitles its own",
+	},
+	{Name: "retitle", Team: TeamOne, Agent: true, Args: []Arg{qArg}, Does: "the coordinator edits its own question's headline; the new headline on stdin"},
+	{
+		Name: "bump", Team: TeamOne, Agent: true, Args: []Arg{{Name: "question", Form: "Q<n>", Optional: true, Repeat: true, check: checkQ}},
+		Flags: []Flag{{Name: "waiting"}, {Name: "note", Value: "TEXT"}, {Name: "min-age", Value: "S", check: checkCount}},
+		Does:  "the coordinator reminds the humans of questions waiting on them, those named or --waiting; one waiting less than --min-age (3600 s) is skipped",
+	},
+	{
+		Name: verbQuestions, Team: TeamMulti, Agent: true,
+		Flags: []Flag{{Name: "all"}, {Name: "waiting"}, {Name: "for", Value: "SEAT"}, {Name: "digest"}},
+		Does:  "the coordinator's open questions and the human replies not yet answered; --digest posts the waiting ones as a report",
+	},
 	{
 		Name: "history", Team: TeamMulti, Agent: true,
 		Flags: []Flag{{Name: "room", Value: "main|questions", check: checkRoom}, {Name: "limit", Value: "N", check: checkCount}},
@@ -347,6 +369,9 @@ func (a Arg) usage() []string {
 		return nil
 	case "":
 		form = "<" + a.Name + ">"
+	}
+	if a.Repeat {
+		form += "..."
 	}
 	if a.Optional {
 		form = "[" + form + "]"

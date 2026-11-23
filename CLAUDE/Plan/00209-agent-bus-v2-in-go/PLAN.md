@@ -450,7 +450,9 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   "Why a human:" field, seat capabilities, a one-seat-per-team session lock, team wind-down,
   host load visible in the container, and the size and questions-room verify issues.
   - R0, the questions verbs ([DESIGN-questions-v2.md](DESIGN-questions-v2.md) section 5), on
-    branch `v2-questions`: steps 1-3 built (sizes, attachment, the forms); step 4 in part (QX3, QX4); steps 5-8 to do.
+    branch `v2-questions`: steps 1-3 built (sizes, attachment, the forms); step 4 in part (QX3, QX4);
+    step 5 in part (the verbs' command line, client, wire args and records; the link serves them
+    next); steps 6-8 to do.
 
 ### Phase 5: N5, other member kinds
 

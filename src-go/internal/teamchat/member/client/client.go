@@ -85,6 +85,9 @@ func Main(verb string) cli.RunFunc {
 }
 
 func run(e cli.Env, inv cli.Invocation, op string, d deps) term.ExitCode {
+	if op == wire.OpAskHuman && inv.Has(flagSkeleton) {
+		return skeleton(e, inv)
+	}
 	req, wait, err := request(e, inv, op, d.clock)
 	if err != nil {
 		return exits.Write(e.Stderr, err)
@@ -106,7 +109,7 @@ func request(e cli.Env, inv cli.Invocation, op string, clk clock.Clock) (wire.Re
 		timeout time.Duration
 	)
 	switch op {
-	case wire.OpReply, wire.OpSay, wire.OpPing, wire.OpReport:
+	case wire.OpReply, wire.OpSay, wire.OpPing, wire.OpReport, wire.OpAskHuman, wire.OpThread, wire.OpClose, wire.OpRetitle, wire.OpBump:
 		var err error
 		if args, stdin, err = sendArgs(e, inv, op, clk); err != nil {
 			return wire.Request{}, 0, err
@@ -129,6 +132,8 @@ func request(e cli.Env, inv cli.Invocation, op string, clk clock.Clock) (wire.Re
 			room = historyRoom
 		}
 		args = wire.HistoryArgs{Team: inv.Team, Room: room, Limit: int(limit)}
+	case wire.OpQuestions:
+		args = wire.QuestionsArgs{Team: inv.Team, All: inv.Has("all"), Waiting: inv.Has("waiting"), For: optionalFlag(inv, "for"), Digest: inv.Has("digest")}
 	}
 	raw, err := json.Marshal(args)
 	if err != nil {
@@ -264,7 +269,11 @@ func (c conn) once(req wire.Request, deadline time.Duration) outcome {
 // isSend is a verb whose request, once taken, may be charged and posted whatever the client
 // hears afterwards (B-m3).
 func isSend(op string) bool {
-	return op == wire.OpReply || op == wire.OpSay || op == wire.OpPing || op == wire.OpReport
+	switch op {
+	case wire.OpReply, wire.OpSay, wire.OpPing, wire.OpReport, wire.OpAskHuman, wire.OpThread, wire.OpClose, wire.OpRetitle, wire.OpBump:
+		return true
+	}
+	return false
 }
 
 // copy copies record lines to stdout until the done; then flushes stdout and, for a hand-out,
@@ -283,6 +292,9 @@ func (c conn) copy(sock *net.UnixConn) outcome {
 			return outcome{copied: through.n > 0, gone: true}
 		case !bytes.HasPrefix(line, []byte(`{"done":`)):
 			if _, err := out.Write(line); err != nil {
+				return outcome{code: exits.Write(c.stderr, err), copied: true}
+			}
+			if err := notRetitled(c.stderr, line); err != nil {
 				return outcome{code: exits.Write(c.stderr, err), copied: true}
 			}
 			continue

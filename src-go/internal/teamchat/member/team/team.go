@@ -294,6 +294,30 @@ type Placement struct {
 	Thread   *proto.PlacedThread
 }
 
+// PlacementOf is the placement of an own questions content sent as txn (QX3), false for one
+// that places nothing (a link-back, a retitle, or content that does not decode).
+func PlacementOf(txn string, content json.RawMessage) (Placement, bool) {
+	v, err := proto.Parse(content)
+	if err != nil {
+		return Placement{}, false
+	}
+	dc, reason := proto.DecodeContent(v, proto.QuestionKeys)
+	switch {
+	case reason != "":
+		return Placement{}, false
+	case dc.Key == proto.KeyQuestion:
+		q := dc.Question
+		return Placement{Txn: txn, Question: &q, Body: dc.Body}, true
+	case dc.Key == proto.KeyThread && dc.Thread.Link == "":
+		th := proto.PlacedThread{N: dc.Thread.N, Close: dc.Thread.Close}
+		if th.N == 0 {
+			th.ReplyTo = dc.Relation.InReplyTo
+		}
+		return Placement{Txn: txn, Thread: &th}, true
+	}
+	return Placement{}, false
+}
+
 // The states of a reports room (SPEC-n3f RP1, RP4): its join is not answered yet, it is joined
 // and verified or not yet checked, its join was refused, or it fails a check.
 const (

@@ -153,34 +153,11 @@ func sendingPlacements(store state.Store) []team.Placement {
 		if x.Room != proto.PurposeQuestions {
 			continue
 		}
-		if p, ok := placementOf(x.Txn, x.Content); ok {
+		if p, ok := team.PlacementOf(x.Txn, x.Content); ok {
 			ps = append(ps, p)
 		}
 	}
 	return ps
-}
-
-// placementOf is the placement of a questions content, false for one that places nothing.
-func placementOf(txn string, content json.RawMessage) (team.Placement, bool) {
-	v, err := proto.Parse(content)
-	if err != nil {
-		return team.Placement{}, false
-	}
-	dc, reason := proto.DecodeContent(v, proto.QuestionKeys)
-	switch {
-	case reason != "":
-		return team.Placement{}, false
-	case dc.Key == proto.KeyQuestion:
-		q := dc.Question
-		return team.Placement{Txn: txn, Question: &q, Body: dc.Body}, true
-	case dc.Key == proto.KeyThread && dc.Thread.Link == "":
-		th := proto.PlacedThread{N: dc.Thread.N, Close: dc.Thread.Close}
-		if th.N == 0 {
-			th.ReplyTo = dc.Relation.InReplyTo
-		}
-		return team.Placement{Txn: txn, Thread: &th}, true
-	}
-	return team.Placement{}, false
 }
 
 // QuestionPosted is team.Team's: the post id is this run's, so a compose does not wait for it.

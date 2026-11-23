@@ -295,3 +295,20 @@ func TestQuestionsStateKeepsWhyFromAndWaiting(t *testing.T) {
 		t.Error("a negative waiting_ms passed")
 	}
 }
+
+// A retitle's root as the homeserver gives it (A 10.4): DecodeEvent reads it by rule 02, and a
+// redacted root or one with no id is refused.
+func TestDecodeEventReadsAFetchedRoot(t *testing.T) {
+	raw := `{"event_id":"` + qid('a') + `","type":"m.room.message","sender":"` + coordID + `","origin_server_ts":9000,"content":` + questionPost(1, goodQuestion, `,"why":"decision"`) + `}`
+	ev, ok := DecodeEvent(mustParse(t, raw))
+	if !ok || ev.ID != qid('a') || ev.Sender != coordID || ev.OriginTs != 9000 {
+		t.Fatalf("decoded %+v, %v", ev, ok)
+	}
+	if _, ok := DecodeEvent(mustParse(t, `{"type":"m.room.message","sender":"`+coordID+`","origin_server_ts":1,"content":{}}`)); ok {
+		t.Error("an event with no id decoded")
+	}
+	redacted := `{"event_id":"` + qid('a') + `","type":"m.room.message","sender":"` + coordID + `","origin_server_ts":1,"content":{},"unsigned":{"redacted_because":{}}}`
+	if _, ok := DecodeEvent(mustParse(t, redacted)); ok {
+		t.Error("a redacted event decoded")
+	}
+}

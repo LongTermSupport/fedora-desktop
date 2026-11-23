@@ -211,7 +211,11 @@ Each step: write the test, see it fail, then the code. Fakes only (fakehs, the f
 **Status:** steps 1-3 built on `v2-questions`; step 4's QX3 and QX4 built (own posts placed and
 sent to the questions room, `questions_unechoed` and the `uncounted` count written, one compose
 at a time under the team's judging hold); QX7's redaction rebuild and the `uncounted` hook line
-not yet.
+not yet. Step 5 in part: the verbs' command line (`ask-human`, `thread --note`, `close`,
+`retitle`, `bump`, `questions --waiting/--for/--digest`; `run.go`'s `unbuilt` empty), the client
+(`--skeleton` printed with no session, close's not-retitled stderr line), the wire args, and the
+`question` record's `why`, `for`, `waiting_since_ms` and `retitled` with the `bump` record; the
+link's serving of them (the engine) is next.
 
 Step 3 settled three points the sections above left open. The index keeps each question's
 sender (`from`, 128 bytes at most), so the fold itself checks that a retitle edit comes from the

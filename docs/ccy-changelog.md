@@ -17,14 +17,17 @@ Two version numbers move independently — see
 
 ---
 
-## 3.123.4 — container 2.84.51
+## 3.123.5 — container 2.84.52
 
 - **teamchat's questions verbs for v2, continued** (Plan 00209, backlog R0; 3.123.2 below was its
-  first release on the integration branch). The coordinator's questions posts are composed one
-  at a time per team and placed in the question index as soon as they are charged, so the next
-  question numbers above a queued one; the sender posts them to the questions room once the
-  index is ready, and an own post whose echo another question beat to its number is counted
-  (`uncounted`). The image carries the new `teamchat`.
+  first release on the integration branch, and 3.123.4 an earlier, unreleased step of it). The
+  coordinator's questions posts are composed one at a time per team and placed in the question
+  index as soon as they are charged, so the next question numbers above a queued one; the sender
+  posts them to the questions room once the index is ready, and an own post whose echo another
+  question beat to its number is counted (`uncounted`). The command line gains the v2 verbs
+  `ask-human` (with `--for`, `--check` and `--skeleton`), `thread --note`, `close`, `retitle`,
+  `bump` and `questions --waiting/--for/--digest`, and the `question` record gains `why`, `for`,
+  `waiting_since_ms` and `retitled`. The image carries the new `teamchat`.
 
 ## 3.123.3 — container 2.84.50
 

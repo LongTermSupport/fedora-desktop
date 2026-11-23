@@ -27,9 +27,14 @@ func TestParseAcceptsBsForms(t *testing.T) {
 		{[]string{"say", "--to-coordinator", "--team", "beta"}, "say", nil, map[string][]string{"to-coordinator": {""}, "team": {"beta"}}},
 		{[]string{"ping", "review", "pr:o/r#12@abc", "--to", "repo.3", "--branch", "feat/x"}, "ping", []string{"review", "pr:o/r#12@abc"}, map[string][]string{"to": {"repo.3"}, "branch": {"feat/x"}}},
 		{[]string{"ping", "check", "--to", `"$1"`, "--team", "alpha"}, "ping", []string{"check"}, map[string][]string{"to": {`"$1"`}, "team": {"alpha"}}},
-		{[]string{"ask", "--asked-by", "repo.1,repo.2", "--re", eventID, "--remind-after", "600"}, "ask", nil, map[string][]string{"asked-by": {"repo.1,repo.2"}, "re": {eventID}, "remind-after": {"600"}}},
-		{[]string{"thread", "Q4", "--ask", "--close"}, "thread", []string{"Q4"}, map[string][]string{"ask": {""}, "close": {""}}},
+		{[]string{"ask-human", "--for", "repo.1,repo.2", "--re", eventID, "--remind-after", "600", "--check"}, "ask-human", nil, map[string][]string{"for": {"repo.1,repo.2"}, "re": {eventID}, "remind-after": {"600"}, "check": {""}}},
+		{[]string{"thread", "Q4", "--note"}, "thread", []string{"Q4"}, map[string][]string{"note": {""}}},
+		{[]string{"close", "Q4", "Q5"}, "close", []string{"Q4", "Q5"}, map[string][]string{}},
+		{[]string{"retitle", "Q4"}, "retitle", []string{"Q4"}, map[string][]string{}},
+		{[]string{"bump", "--waiting", "--note", "still?", "--min-age", "60"}, "bump", nil, map[string][]string{"waiting": {""}, "note": {"still?"}, "min-age": {"60"}}},
+		{[]string{"bump", "Q2", "Q3"}, "bump", []string{"Q2", "Q3"}, map[string][]string{}},
 		{[]string{"questions", "--all"}, "questions", nil, map[string][]string{"all": {""}}},
+		{[]string{"questions", "--waiting", "--for", "repo.2", "--digest"}, "questions", nil, map[string][]string{"waiting": {""}, "for": {"repo.2"}, "digest": {""}}},
 		{[]string{"history", "--room", "questions", "--limit", "20"}, "history", nil, map[string][]string{"room": {"questions"}, "limit": {"20"}}},
 		{[]string{"verify", eventID}, "verify", []string{eventID}, nil},
 		{[]string{"version"}, "version", nil, nil},
@@ -82,14 +87,14 @@ func TestParseRun(t *testing.T) {
 }
 
 func TestInvocationAccessors(t *testing.T) {
-	inv, err := Parse([]string{"thread", "Q1", "--ask"})
+	inv, err := Parse([]string{"thread", "Q1", "--note"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !inv.Has("ask") || inv.Has("close") {
+	if !inv.Has("note") || inv.Has("team") {
 		t.Error("Has")
 	}
-	if v, ok := inv.Flag("close"); ok || v != "" {
+	if v, ok := inv.Flag("team"); ok || v != "" {
 		t.Error("Flag of an absent flag")
 	}
 }
@@ -141,6 +146,16 @@ func TestParseRefusals(t *testing.T) {
 		{"ping", "review", "--to", "a", "--branch", "bad branch"},
 		{"thread", "4"},
 		{"thread"},
+		{"thread", "Q4", "--ask"},
+		{"thread", "Q4", "--close"},
+		{"ask", "--asked-by", "a"},
+		{"ask-human", "--asked-by", "a"},
+		{"close"},
+		{"close", "Q4", "4"},
+		{"retitle"},
+		{"retitle", "Q4", "Q5"},
+		{"bump", "Q4", "five"},
+		{"bump", "--min-age", "x"},
 		{"history", "--room", "reports"},
 		{"history", "--limit", "x"},
 		{"hook"},

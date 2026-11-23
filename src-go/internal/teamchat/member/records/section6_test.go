@@ -14,20 +14,40 @@ func TestSection6RecordsAreBytePinned(t *testing.T) {
 		want string
 	}{
 		"a question": {
-			Question{Team: a, N: 4, State: "open", ID: new(id43), Headline: headline, AskedBy: []string{"repo.2"}, Re: []string{id43}, AskedMS: new(int64(1760000000000)), Unanswered: []string{id43}},
-			`{"kind":"question","v":1,"team":"alpha","n":4,"state":"open","id":"` + id43 + `","headline":"` + headline + `","asked_by":["repo.2"],"re":["` + id43 + `"],"asked_ms":1760000000000,"remind_after_s":null,"unanswered":["` + id43 + `"],"unanswered_more":0,"redacted":false}`,
+			Question{Team: a, N: new(int64(4)), State: "open", ID: new(id43), Headline: headline, AskedBy: []string{"repo.2"}, Re: []string{id43}, AskedMS: new(int64(1760000000000)), Unanswered: []string{id43}},
+			`{"kind":"question","v":1,"team":"alpha","n":4,"state":"open","id":"` + id43 + `","headline":"` + headline + `","asked_by":["repo.2"],"re":["` + id43 + `"],"asked_ms":1760000000000,"remind_after_s":null,"unanswered":["` + id43 + `"],"unanswered_more":0,"redacted":false,"why":null,"for":[],"waiting_since_ms":null,"retitled":null}`,
 		},
 		"a question with a reminder, more unanswered than listed": {
-			Question{Team: a, N: 5, State: "answered", ID: new(id43), Headline: "h", AskedBy: []string{"repo.2", "repo.3"}, Re: []string{id43, id43}, AskedMS: new(int64(1)), RemindAfterS: new(int64(600)), Unanswered: []string{id43}, UnansweredMore: 3},
-			`{"kind":"question","v":1,"team":"alpha","n":5,"state":"answered","id":"` + id43 + `","headline":"h","asked_by":["repo.2","repo.3"],"re":["` + id43 + `","` + id43 + `"],"asked_ms":1,"remind_after_s":600,"unanswered":["` + id43 + `"],"unanswered_more":3,"redacted":false}`,
+			Question{Team: a, N: new(int64(5)), State: "answered", ID: new(id43), Headline: "h", AskedBy: []string{"repo.2", "repo.3"}, Re: []string{id43, id43}, AskedMS: new(int64(1)), RemindAfterS: new(int64(600)), Unanswered: []string{id43}, UnansweredMore: 3},
+			`{"kind":"question","v":1,"team":"alpha","n":5,"state":"answered","id":"` + id43 + `","headline":"h","asked_by":["repo.2","repo.3"],"re":["` + id43 + `","` + id43 + `"],"asked_ms":1,"remind_after_s":600,"unanswered":["` + id43 + `"],"unanswered_more":3,"redacted":false,"why":null,"for":[],"waiting_since_ms":null,"retitled":null}`,
 		},
 		"a queued question has no id and no asked_ms": {
-			Question{Team: a, N: 6, State: "open", Headline: "h", AskedBy: []string{"repo.2"}},
-			`{"kind":"question","v":1,"team":"alpha","n":6,"state":"open","id":null,"headline":"h","asked_by":["repo.2"],"re":[],"asked_ms":null,"remind_after_s":null,"unanswered":[],"unanswered_more":0,"redacted":false}`,
+			Question{Team: a, N: new(int64(6)), State: "open", Headline: "h", AskedBy: []string{"repo.2"}},
+			`{"kind":"question","v":1,"team":"alpha","n":6,"state":"open","id":null,"headline":"h","asked_by":["repo.2"],"re":[],"asked_ms":null,"remind_after_s":null,"unanswered":[],"unanswered_more":0,"redacted":false,"why":null,"for":[],"waiting_since_ms":null,"retitled":null}`,
 		},
 		"a redacted question keeps its number and nothing else": {
-			Question{Team: a, N: 7, State: "closed", Redacted: true},
-			`{"kind":"question","v":1,"team":"alpha","n":7,"state":"closed","id":null,"headline":"","asked_by":[],"re":[],"asked_ms":null,"remind_after_s":null,"unanswered":[],"unanswered_more":0,"redacted":true}`,
+			Question{Team: a, N: new(int64(7)), State: "closed", Redacted: true},
+			`{"kind":"question","v":1,"team":"alpha","n":7,"state":"closed","id":null,"headline":"","asked_by":[],"re":[],"asked_ms":null,"remind_after_s":null,"unanswered":[],"unanswered_more":0,"redacted":true,"why":null,"for":[],"waiting_since_ms":null,"retitled":null}`,
+		},
+		"a v2 question waits on a human, for a seat (DESIGN-questions-v2 2.1, 2.6)": {
+			Question{Team: a, N: new(int64(8)), State: "open", ID: new(id43), Headline: "h", AskedBy: []string{"repo.2"}, AskedMS: new(int64(5)), Why: new("decision"), For: []string{"repo.2"}, WaitingSinceMS: new(int64(5))},
+			`{"kind":"question","v":1,"team":"alpha","n":8,"state":"open","id":"` + id43 + `","headline":"h","asked_by":["repo.2"],"re":[],"asked_ms":5,"remind_after_s":null,"unanswered":[],"unanswered_more":0,"redacted":false,"why":"decision","for":["repo.2"],"waiting_since_ms":5,"retitled":null}`,
+		},
+		"ask-human --check's question has no number yet": {
+			Question{Team: a, State: "open", Headline: "h", Why: new("physical")},
+			`{"kind":"question","v":1,"team":"alpha","n":null,"state":"open","id":null,"headline":"h","asked_by":[],"re":[],"asked_ms":null,"remind_after_s":null,"unanswered":[],"unanswered_more":0,"redacted":false,"why":"physical","for":[],"waiting_since_ms":null,"retitled":null}`,
+		},
+		"a close of another seat's question says it was not retitled": {
+			Question{Team: a, N: new(int64(9)), State: "closed", ID: new(id43), Headline: "h", AskedMS: new(int64(1)), Retitled: new(false)},
+			`{"kind":"question","v":1,"team":"alpha","n":9,"state":"closed","id":"` + id43 + `","headline":"h","asked_by":[],"re":[],"asked_ms":1,"remind_after_s":null,"unanswered":[],"unanswered_more":0,"redacted":false,"why":null,"for":[],"waiting_since_ms":null,"retitled":false}`,
+		},
+		"a bump skipped as answered": {
+			Bump{Team: a, Q: "Q4", Why: new(BumpAnswered)},
+			`{"kind":"bump","v":1,"team":"alpha","q":"Q4","bumped":false,"why":"answered"}`,
+		},
+		"a bump posted": {
+			Bump{Team: a, Q: "Q5", Bumped: true},
+			`{"kind":"bump","v":1,"team":"alpha","q":"Q5","bumped":true,"why":null}`,
 		},
 		"an unattached post": {
 			Unattached{Team: a, ID: id43, From: "alice", SentMS: 1760000000000},
@@ -85,15 +105,19 @@ func TestARedactedQuestionCarriesNothingButItsNumber(t *testing.T) {
 		"a reminder":          func(q *Question) { q.RemindAfterS = new(int64(60)) },
 		"an unanswered":       func(q *Question) { q.Unanswered = []string{id43} },
 		"an unanswered count": func(q *Question) { q.UnansweredMore = 1 },
+		"a why":               func(q *Question) { q.Why = new("decision") },
+		"a seat it is for":    func(q *Question) { q.For = []string{"repo.2"} },
+		"a waiting time":      func(q *Question) { q.WaitingSinceMS = new(int64(1)) },
+		"no number":           func(q *Question) { q.N = nil },
 	}
 	for name, leak := range leaks {
-		q := Question{Team: a, N: 3, State: "closed", Redacted: true}
+		q := Question{Team: a, N: new(int64(3)), State: "closed", Redacted: true}
 		leak(&q)
 		if got, err := Encode(q); err == nil {
 			t.Errorf("a redacted question with %s encoded: %s", name, got)
 		}
 	}
-	if _, err := Encode(Question{Team: a, N: 3, State: "closed", Redacted: true}); err != nil {
+	if _, err := Encode(Question{Team: a, N: new(int64(3)), State: "closed", Redacted: true}); err != nil {
 		t.Errorf("a clean redacted question was refused: %v", err)
 	}
 }
@@ -134,6 +158,25 @@ func TestAQuestionLabelIsRefusedUnlessItIsOneOfTheThree(t *testing.T) {
 		if _, err := Encode(rec); err != nil {
 			t.Errorf("%s was refused: %v", name, err)
 		}
+	}
+}
+
+// A bump record names a question; one not posted says why (answered or young), one posted says
+// nothing more (DESIGN-questions-v2 2.7).
+func TestABumpRecordSaysWhyExactlyWhenItWasSkipped(t *testing.T) {
+	a := teamID(t, "alpha")
+	for name, rec := range map[string]Bump{
+		"skipped with no why":   {Team: a, Q: "Q4"},
+		"skipped for another":   {Team: a, Q: "Q4", Why: new("late")},
+		"posted with a why":     {Team: a, Q: "Q4", Bumped: true, Why: new(BumpYoung)},
+		"not a question's name": {Team: a, Q: "4", Bumped: true},
+	} {
+		if got, err := Encode(rec); err == nil {
+			t.Errorf("%s encoded: %s", name, got)
+		}
+	}
+	if _, err := Encode(Bump{Team: a, Q: "Q4", Why: new(BumpYoung)}); err != nil {
+		t.Errorf("a young skip was refused: %v", err)
 	}
 }
 
