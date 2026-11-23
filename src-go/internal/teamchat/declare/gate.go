@@ -3,10 +3,12 @@ package declare
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/duty"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	statefile "github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
@@ -16,7 +18,11 @@ import (
 const FieldTeam = keyTeam
 
 // gatedFields are the security fields of AG1, in the order AG3 lists their differences.
-var gatedFields = []string{keyHumans, keyCoordinator, keyNetworks, keyURL, keyTrust, keyLXCMembers}
+var gatedFields = []string{keyHumans, keyCoordinator, keyDuties, keyNetworks, keyURL, keyTrust, keyLXCMembers}
+
+// approvedRequired are the gated fields every `approved.json` holds; `duties` is optional there,
+// so a file written before it existed reads as approving none.
+var approvedRequired = []string{keyHumans, keyCoordinator, keyNetworks, keyURL, keyTrust, keyLXCMembers}
 
 // none is a difference's side that has no value (AG3).
 const none = "-"
@@ -86,6 +92,8 @@ type Gated struct {
 	Humans []string
 	// Coordinator is empty when none is declared.
 	Coordinator string
+	// Duties are the declared duty overrides (PROPOSAL-seat-kinds.md OD3), nil for none.
+	Duties map[string]duty.Duty
 	// Networks are the declared networks (X1), not the effective set.
 	Networks []string
 	// URL is the resolved URL (n2b-D2).
@@ -97,8 +105,9 @@ type Gated struct {
 // Gated is the input's security fields; every LXC entry of the team counts, whatever its state.
 func (in Input) Gated() Gated {
 	g := Gated{
-		Humans: sorted(in.Team.Humans), Coordinator: in.Team.Coordinator, Networks: sorted(in.Team.Networks),
-		URL: in.Team.URL, Trust: in.Team.Trust,
+		Humans: sorted(in.Team.Humans), Coordinator: in.Team.Coordinator, Duties: maps.Clone(in.Team.Duties),
+		Networks: sorted(in.Team.Networks),
+		URL:      in.Team.URL, Trust: in.Team.Trust,
 	}
 	for _, m := range in.LXC {
 		g.LXC = append(g.LXC, LXCEntry{
@@ -122,12 +131,13 @@ func sortLXC(list []LXCEntry) {
 func (g Gated) clone() Gated {
 	g.Humans, g.Networks = slices.Clone(g.Humans), slices.Clone(g.Networks)
 	g.LXC = slices.Clone(g.LXC)
+	g.Duties = maps.Clone(g.Duties)
 	return g
 }
 
 // listField is a field compared and approved as a set of entries (n2b-D3).
 func listField(field string) bool {
-	return field == keyHumans || field == keyNetworks || field == keyLXCMembers
+	return field == keyHumans || field == keyNetworks || field == keyLXCMembers || field == keyDuties
 }
 
 // entries is a list field's entries as AG3 prints them.
@@ -137,6 +147,8 @@ func (g Gated) entries(field string) []string {
 		return g.Humans
 	case keyNetworks:
 		return g.Networks
+	case keyDuties:
+		return dutyEntries(g.Duties)
 	}
 	out := make([]string, 0, len(g.LXC))
 	for _, e := range g.LXC {
@@ -316,6 +328,8 @@ func applyChange(approved *Gated, ch Change) (Gated, error) {
 		g.LXC, err = changeLXC(g.LXC, ch)
 	case keyCoordinator:
 		g.Coordinator, err = changeCoordinator(g.Coordinator, ch)
+	case keyDuties:
+		g.Duties, err = changeDuties(g.Duties, g.Coordinator, ch)
 	case keyURL:
 		g.URL, err = changeScalar(g.URL, ch, validURL)
 	case keyTrust:
@@ -440,10 +454,13 @@ func (g Gated) value() proto.Value {
 			proto.M(keySeat, proto.Int(int64(e.Seat))), proto.M(keyUser, proto.Str(e.User.String())),
 			proto.M(keyHumanText, proto.Bool(e.HumanText))))
 	}
-	return proto.Obj(
-		proto.M(keyHumans, strArray(g.Humans)), proto.M(keyCoordinator, coordinator),
-		proto.M(keyNetworks, strArray(g.Networks)),
-		proto.M(keyURL, proto.Str(g.URL)), proto.M(keyTrust, g.Trust.Encode()), proto.M(keyLXCMembers, proto.Arr(lxc...)))
+	members := []proto.Member{proto.M(keyHumans, strArray(g.Humans)), proto.M(keyCoordinator, coordinator)}
+	if len(g.Duties) > 0 {
+		members = append(members, proto.M(keyDuties, dutiesValue(g.Duties)))
+	}
+	return proto.Obj(append(members,
+		proto.M(keyNetworks, strArray(g.Networks)), proto.M(keyURL, proto.Str(g.URL)), proto.M(keyTrust, g.Trust.Encode()),
+		proto.M(keyLXCMembers, proto.Arr(lxc...)))...)
 }
 
 // EncodeApproved is a team's `approved.json` (AG2).
@@ -491,7 +508,7 @@ func parseApprovedObject(raw string) (Gated, error) {
 
 // readGated reads the `approved` object by the declaration's value rules.
 func readGated(n node) (Gated, error) {
-	f, err := n.object(gatedFields)
+	f, err := n.object(approvedRequired, keyDuties)
 	if err != nil {
 		return Gated{}, err
 	}
@@ -503,6 +520,14 @@ func readGated(n node) (Gated, error) {
 		if g.Coordinator, err = c.coordinator(); err != nil {
 			return Gated{}, err
 		}
+	}
+	if f.has(keyDuties) {
+		if g.Duties, err = f.at(keyDuties).duties(); err != nil {
+			return Gated{}, err
+		}
+	}
+	if err = checkDuties(g.Coordinator, g.Duties, f); err != nil {
+		return Gated{}, err
 	}
 	if g.Networks, err = f.at(keyNetworks).networks(); err != nil {
 		return Gated{}, err

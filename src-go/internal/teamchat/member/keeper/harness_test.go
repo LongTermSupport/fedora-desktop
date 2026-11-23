@@ -392,13 +392,19 @@ func (w *world) changed() {
 	w.watch.events <- WatchEvent{Name: "desired.json", Op: unix.IN_MOVED_TO}
 }
 
-// desiredJSON is a desired.json with the given seats ("team/seat") and inbound.
+// desiredJSON is a desired.json with the given seats ("team/seat", or "team/seat/duty") and
+// inbound.
 func desiredJSON(gen int, inbound string, seats ...string) string {
 	list := make([]string, 0, len(seats))
 	for _, s := range seats {
-		team, seat, ok := strings.Cut(s, "/")
+		team, rest, ok := strings.Cut(s, "/")
 		if !ok {
 			panic("a desired seat is team/seat: " + s)
+		}
+		seat, d, withDuty := strings.Cut(rest, "/")
+		if withDuty {
+			list = append(list, fmt.Sprintf(`{"team":%q,"seat":%q,"duty":%q}`, team, seat, d))
+			continue
 		}
 		list = append(list, fmt.Sprintf(`{"team":%q,"seat":%q}`, team, seat))
 	}

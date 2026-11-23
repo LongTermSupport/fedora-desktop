@@ -3,6 +3,7 @@ package state
 import (
 	"slices"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/duty"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -35,10 +36,18 @@ type Desired struct {
 	Inbound    string            `json:"inbound"`
 }
 
-// DesiredSeat is a seat the session should hold: the team and the handle's seat.
+// DesiredSeat is a seat the session should hold: the team, the handle's seat, and the seat's
+// duty in the team (PROPOSAL-seat-kinds.md OD2 (a)), absent where the host that wrote the file
+// does not know it.
 type DesiredSeat struct {
 	Team paths.TeamID `json:"team"`
 	Seat string       `json:"seat"`
+	Duty duty.Duty    `json:"duty,omitempty"`
+}
+
+// Holds is whether the file names the seat of team in seats, whatever its duty.
+func (d Desired) Holds(team paths.TeamID, seat string) bool {
+	return slices.ContainsFunc(d.Seats, func(s DesiredSeat) bool { return s.Team == team && s.Seat == seat })
 }
 
 // Farewell is a seat taken out of the session, and why.
@@ -73,6 +82,7 @@ func (d Desired) check(c *rules) {
 	teams := map[paths.TeamID]bool{}
 	for _, s := range d.Seats {
 		c.needCode(proto.ValidSeat(s.Seat), CodeSeat, "a seat is not a handle's seat")
+		c.need(s.Duty == "" || s.Duty.Valid(), "a seat's duty is not coordinator, worker or host")
 		c.needCode(!teams[s.Team], CodeSeat, "seats holds a team twice")
 		teams[s.Team] = true
 	}
@@ -82,7 +92,7 @@ func (d Desired) check(c *rules) {
 		c.needCode(proto.ValidSeat(f.Seat), CodeSeat, "a farewell's seat is not a handle's seat")
 		c.need(f.Reason == FarewellReleased || f.Reason == FarewellRemoved || f.Reason == FarewellParked, "a farewell's reason is not released, removed or parked")
 		c.needCode(!gone[seat], CodeSeat, "farewell holds a seat twice")
-		c.needCode(!slices.Contains(d.Seats, seat), CodeSeat, "farewell holds a seat that seats holds")
+		c.needCode(!d.Holds(f.Team, f.Seat), CodeSeat, "farewell holds a seat that seats holds")
 		gone[seat] = true
 	}
 }

@@ -153,6 +153,7 @@ const (
 const (
 	verbHook       = "hook"
 	verbStatusLine = "status-line"
+	verbWhoami     = "whoami"
 )
 
 // The guest operations' verbs and seat set-aside, which runs names too.
@@ -259,6 +260,10 @@ var table = []Verb{
 	},
 	{Name: verbHook, Args: []Arg{{Name: "event", Form: strings.Join(HookEvents, "|"), check: checkHook}}, Does: "one Claude Code hook, run from the plugin's hooks.json"},
 	{Name: verbStatusLine, Does: "the status line, run by Claude Code from the session's settings"},
+	{
+		Name: verbWhoami, Flags: []Flag{{Name: "json", Required: true}},
+		Does: "this session's held seats as JSON, each team's handle, role and duty, read from status.json alone",
+	},
 	{Name: "reach", Flags: []Flag{required(teamFlag)}, Does: "an unauthenticated GET of the team homeserver's versions, so a route is proven from the member side"},
 	{
 		Name:  "tls",

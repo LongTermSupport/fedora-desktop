@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/duty"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
@@ -49,6 +50,7 @@ func sample(t *testing.T) []Msg {
 		}},
 		{Kind: KindAdd, Add: &Add{Team: ops, Seat: "2", RemovedUserIDs: []string{agentID(ops)}}},
 		{Kind: KindAdd, Add: &Add{Team: ops, Seat: "2", RemovedUserIDs: []string{}}},
+		{Kind: KindAdd, Add: &Add{Team: ops, Seat: "2", RemovedUserIDs: []string{}, Duty: duty.Host}},
 		{Kind: KindRemove, Remove: &Remove{Team: ops, Farewell: new(state.FarewellParked), Txn: txn}},
 		{Kind: KindRemove, Remove: &Remove{Team: ops, Txn: txn}},
 		{Kind: KindOwed, Owed: &Owed{Team: ops, Txn: txn}},
@@ -239,6 +241,7 @@ func TestBodyRules(t *testing.T) {
 		"launch config dir":    launchWith(t, func(l *Launch) { l.ClaudeConfigDir = new("rel") }),
 		"add seat":             {Kind: KindAdd, Add: &Add{Team: ops, RemovedUserIDs: []string{}}},
 		"add null ids":         {Kind: KindAdd, Add: &Add{Team: ops, Seat: "2"}},
+		"add duty":             {Kind: KindAdd, Add: &Add{Team: ops, Seat: "2", RemovedUserIDs: []string{}, Duty: "reviewer"}},
 		"add another server":   addOf(agentID(dev)),
 		"add a human":          addOf("@alice:" + paths.ServerName(ops)),
 		"add a long id":        addOf("@" + strings.Repeat("r", 120) + ".2+site.podman:" + paths.ServerName(ops)),

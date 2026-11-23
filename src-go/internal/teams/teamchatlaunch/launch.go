@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/duty"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -155,11 +156,27 @@ func HandleState(rec status.Record, found bool, name paths.SeatName) (seat.Handl
 	return 0, fmt.Errorf("%w: %s is not on the team's roster", ErrSeat, name)
 }
 
-// Chosen is one seat of the launch: its team, its pool seat and the handle's seat part.
+// SeatDuty is the seat's duty as the team's status record's row gives it, "" where this machine
+// has no record for the team or the row gives none (PROPOSAL-seat-kinds.md OD2 (a)).
+func SeatDuty(rec status.Record, found bool, name paths.SeatName) duty.Duty {
+	if !found {
+		return ""
+	}
+	for _, m := range rec.Members {
+		if m.Handle == name.String() && m.Duty != nil {
+			return *m.Duty
+		}
+	}
+	return ""
+}
+
+// Chosen is one seat of the launch: its team, its pool seat, the handle's seat part and the
+// seat's duty ("" for none known).
 type Chosen struct {
 	Team paths.TeamID
 	Name paths.SeatName
 	Seat string
+	Duty duty.Duty
 }
 
 // Desired is generation 1 of the session's desired.json (C 3.7.5): the launch's seats, no
@@ -170,7 +187,7 @@ func Desired(session paths.SessionName, chosen []Chosen, nowMS int64) ([]byte, e
 		Seats: []state.DesiredSeat{}, Farewell: []state.Farewell{}, Inbound: state.InboundAccept,
 	}
 	for _, c := range chosen {
-		d.Seats = append(d.Seats, state.DesiredSeat{Team: c.Team, Seat: c.Seat})
+		d.Seats = append(d.Seats, state.DesiredSeat{Team: c.Team, Seat: c.Seat, Duty: c.Duty})
 	}
 	return d.Encode()
 }
@@ -269,7 +286,7 @@ func (l *Launch) choose(list string) ([]Chosen, []seat.Take, error) {
 		if err != nil {
 			return nil, nil, fmt.Errorf("team %s: %w", s.Team, err)
 		}
-		chosen = append(chosen, Chosen{Team: team, Name: name, Seat: s.Seat})
+		chosen = append(chosen, Chosen{Team: team, Name: name, Seat: s.Seat, Duty: SeatDuty(rec, found, name)})
 		takes = append(takes, seat.Take{Seat: seat.Seat{Team: team, Name: name}, State: st})
 	}
 	return chosen, takes, nil

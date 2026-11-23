@@ -298,7 +298,7 @@ func (k *keeper) launchMsg(seats int) *wire.Launch {
 // sendAdd hands l the seat with its lock's descriptor, closed once sent.
 func (k *keeper) sendAdd(l *link, s *seat, fd *os.File) {
 	ids := append([]string{}, k.removedIDs[s.team]...)
-	k.tell(l, wire.Msg{Kind: wire.KindAdd, Add: &wire.Add{Team: s.team, Seat: s.name, RemovedUserIDs: ids}}, fd)
+	k.tell(l, wire.Msg{Kind: wire.KindAdd, Add: &wire.Add{Team: s.team, Seat: s.name, RemovedUserIDs: ids, Duty: s.duty}}, fd)
 	k.closeQuietly(fd)
 }
 
