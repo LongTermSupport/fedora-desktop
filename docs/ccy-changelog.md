@@ -17,6 +17,27 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.14 — container 2.84.64
+
+The memory caps on a host under 20 GiB of RAM (issue #383). The image is unchanged.
+
+- **A container's default memory cap is the agents slice's `MemoryMax`**, read from the unit
+  the play installs, instead of being worked out again from the RAM. The one host_vars setting
+  `ccy_agents_slice_memory_max_mb` therefore sets both the slice and each container's cap, for
+  every launch path, `ccy-sessions-restore.service` included. `CCY_MEMORY_MAX` still overrides
+  it. A slice unit with no `MemoryMax=<n>M` line, or one under the floor or over the RAM, is
+  refused, naming the play or the setting.
+- **Small hosts get a slice.** The play's default is the RAM less 16 GiB as before; where that
+  leaves under 4 GiB, 4 GiB, or three quarters of the RAM where that is less. Every machine from
+  a 4 GiB server up gets a cap, and the cap never shrinks as the RAM grows. Hosts with 20 GiB or
+  more are unchanged. The slice throttles 1 GiB below its max, or a quarter below on a slice
+  under 4 GiB.
+- **The floor is 2 GiB** (was 4 GiB), and `--memory-reservation` is 2 GiB below the cap, or
+  half the cap where that is less.
+- **The play refuses before it changes anything.** Its slice-size assert is now its first task,
+  so a refused machine keeps the launcher it had; before, it failed with the new launcher
+  installed and no slice, and every launch was refused.
+
 ## 3.124.13 — container 2.84.64
 
 The agent team bus v2 batch (Plan 00209) and the container memory and pids caps (Plan 00263).

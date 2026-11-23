@@ -116,7 +116,7 @@ func TestLimitsSettleFromTheMachine(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(unit), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(unit, []byte("[Slice]\n"), 0o600); err != nil {
+	if err := os.WriteFile(unit, []byte("[Slice]\nMemoryMax=49152M\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got, err := limits(env, meminfo)

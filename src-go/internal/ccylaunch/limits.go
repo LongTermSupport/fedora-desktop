@@ -10,7 +10,7 @@ import (
 // limits is the limit set of every container ccy runs, as lib/container-limits.bash settles it
 // as soon as the bash launcher has loaded its libraries, before it answers --version or --help
 // (internal/ccylimits, held to the library by its tests): the pids limit, the memory caps from
-// this machine's /proc/meminfo, and the agents slice. The reason is non-empty where the library
+// the agents slice's MemoryMax within this machine's /proc/meminfo, and the slice. The reason is non-empty where the library
 // refuses: then the front hands over and the bash prints its own refusal.
 func (f Front) limits() (ccylimits.Limits, string) {
 	meminfo, err := os.ReadFile(filepath.Join(f.procRoot(), "meminfo"))

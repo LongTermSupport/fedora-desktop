@@ -64,16 +64,18 @@ limits() {
     )
 }
 
-# memory <MemTotal kB> [value|-] — ccy_memory_limit over a fake /proc/meminfo with that MemTotal
-# and CCY_MEMORY_MAX set to the value: "<rc> <MiB printed>".
+# memory <MemTotal kB> [value|-] [slice text] — ccy_memory_limit over a fake /proc/meminfo with
+# that MemTotal, a slice unit holding the text (default: the play's unit for 64 GiB) and
+# CCY_MEMORY_MAX set to the value: "<rc> <MiB printed>".
 memory() {
     printf 'MemFree:  123 kB\nMemTotal:       %s kB\nSwapTotal: 0 kB\n' "$1" >"$work/meminfo"
+    printf '%b' "${3-[Unit]\nDescription=x\n\n[Slice]\nMemoryMax=49152M\nMemoryHigh=48128M\n}" >"$work/slice"
     (
         # shellcheck source-path=SCRIPTDIR source=../files/var/local/claude-yolo/lib/container-limits.bash
         source "$LIB"
         if [ "${2:--}" = - ]; then unset CCY_MEMORY_MAX; else CCY_MEMORY_MAX="$2"; fi
         rc=0
-        out=$(ccy_memory_limit "$work/meminfo" 2>"$work/err") || rc=$?
+        out=$(ccy_memory_limit "$work/meminfo" "$work/slice" 2>"$work/err") || rc=$?
         printf '%s %s' "$rc" "$out"
     )
 }
@@ -102,16 +104,23 @@ done
 limits nope >/dev/null
 check "the refusal names the variable and what it takes" "1" "$(grep -c 'CCY_PIDS_LIMIT=nope is not a pids limit: a whole number from 256 to 32768; it cannot be turned off' "$work/err")"
 
-echo "=== the memory cap: from the machine's RAM ==="
-check "64 GiB: the RAM less the desktop's 16 GiB" "0 49152" "$(memory "$GIB64")"
-check "32 GiB: 16 GiB" "0 16384" "$(memory 33554432)"
-check "20 GiB: exactly the 4 GiB floor" "0 4096" "$(memory 20971520)"
+echo "=== the memory cap: the slice's MemoryMax ==="
+check "the play's unit on 64 GiB: its MemoryMax" "0 49152" "$(memory "$GIB64")"
 check "an empty override is no override" "0 49152" "$(memory "$GIB64" '')"
-for small in 20971519 16777216 8388608; do
-    check "$small kB: under the floor, refused" "1 " "$(memory "$small")"
+check "exactly the 2 GiB floor" "0 2048" "$(memory 4194304 - '[Slice]\nMemoryMax=2048M\nMemoryHigh=1536M\n')"
+check "the last MemoryMax wins, as systemd reads it" "0 6144" "$(memory "$GIB64" - '[Slice]\nMemoryMax=8192M\nMemoryMax=6144M\n')"
+check "a last line with no newline is read" "0 4096" "$(memory "$GIB64" - '[Slice]\nMemoryMax=4096M')"
+for bad in '' '[Slice]\n' '[Slice]\nMemoryMax=infinity\n' '[Slice]\nMemoryMax=8G\n' '[Slice]\nMemoryMax=0M\n' '[Slice]\nMemoryMax= 4096M\n' '[Slice]\n#MemoryMax=4096M\n'; do
+    check "slice '$bad': no MemoryMax in the play's form, refused" "1 " "$(memory "$GIB64" - "$bad")"
 done
-memory 16777216 >/dev/null
-check "  the refusal names CCY_MEMORY_MAX and the floor, and picks no value" "1" "$(grep -c 'this machine has 16384 MiB of RAM: less the 16384 MiB kept for the desktop, that is under the 4096 MiB floor.*Set CCY_MEMORY_MAX on this host' "$work/err")"
+memory "$GIB64" - '[Slice]\n' >/dev/null
+check "  the refusal names MemoryMax and the play" "1" "$(grep -c 'agents.slice has no MemoryMax=<MiB>M line.*Deploy it with playbooks/imports/play-claude-yolo.yml' "$work/err")"
+for bad in '[Slice]\nMemoryMax=2047M\n' '[Slice]\nMemoryMax=65537M\n'; do
+    check "slice '$bad': out of bounds, refused" "1 " "$(memory "$GIB64" - "$bad")"
+done
+memory 8388608 - '[Slice]\nMemoryMax=9000M\n' >/dev/null
+check "  the refusal names the host_vars setting, the floor and the RAM, and picks no value" "1" "$(grep -c "agents.slice's MemoryMax is 9000 MiB.*from the 2048 MiB floor to this machine's 8192 MiB of RAM. Set ccy_agents_slice_memory_max_mb in this host's host_vars" "$work/err")"
+check "an override needs no MemoryMax in the slice" "0 3072" "$(memory "$GIB64" 3g '[Slice]\n')"
 printf 'MemFree: 1 kB\n' >"$work/nototal"
 check "a meminfo with no MemTotal is refused" "1" "$(
     # shellcheck source-path=SCRIPTDIR source=../files/var/local/claude-yolo/lib/container-limits.bash
@@ -121,26 +130,38 @@ check "a meminfo with no MemTotal is refused" "1" "$(
 )"
 
 echo "=== the memory cap: an override ==="
-for pair in 8g:8192 8G:8192 8192m:8192 8192M:8192 4g:4096 64g:65536 8388608k:8192 8589934592:8192 8589934592b:8192 8589935000:8192 40000m:40000; do
+for pair in 8g:8192 8G:8192 8192m:8192 8192M:8192 4g:4096 2g:2048 3g:3072 64g:65536 8388608k:8192 8589934592:8192 8589934592b:8192 8589935000:8192 40000m:40000; do
     check "CCY_MEMORY_MAX=${pair%%:*}" "0 ${pair#*:}" "$(memory "$GIB64" "${pair%%:*}")"
 done
 
 echo "=== the memory cap: refused; it cannot be turned off ==="
-for bad in 0 -1 max 00 3g 4095m 65g 65537m 1t '8 g' ' 8g' '8g ' 8gb 8.5g 08g +8g 1e10 9999999999999g 8gi; do
+for bad in 0 -1 max 00 1g 2047m 65g 65537m 1t '8 g' ' 8g' '8g ' 8gb 8.5g 08g +8g 1e10 9999999999999g 8gi; do
     check "CCY_MEMORY_MAX='$bad' refused" "1 " "$(memory "$GIB64" "$bad")"
 done
 memory "$GIB64" max >/dev/null
-check "the refusal names the variable, what it takes and the machine's RAM" "1" "$(grep -c 'CCY_MEMORY_MAX=max is not a memory cap: bytes, or a number with k, m or g, from 4096m to this machine.s 65536 MiB of RAM; it cannot be turned off' "$work/err")"
+check "the refusal names the variable, what it takes and the machine's RAM" "1" "$(grep -c 'CCY_MEMORY_MAX=max is not a memory cap: bytes, or a number with k, m or g, from 2048m to this machine.s 65536 MiB of RAM; it cannot be turned off' "$work/err")"
 
 echo "=== the slice and the argument set ==="
-check "the set every run passes: slice, pids, memory and the soft limit 2 GiB below" \
-    "--cgroup-parent agents.slice --pids-limit 16384 --memory 4096m --memory-reservation 2048m|4096m" "$(
+# settled <CCY_MEMORY_MAX> — the set ccy_container_limits fills, and the cap it settled.
+settled() {
+    (
         # shellcheck source-path=SCRIPTDIR source=../files/var/local/claude-yolo/lib/container-limits.bash
         source "$LIB"
         unset CCY_PIDS_LIMIT
-        CCY_MEMORY_MAX=4g
+        CCY_MEMORY_MAX="$1"
         ccy_container_limits 2>/dev/null && printf '%s|%s' "${CCY_LIMIT_ARGS[*]}" "$CCY_MEMORY_MAX"
-    )"
+    )
+}
+check "the set every run passes: slice, pids, memory and the soft limit 2 GiB below" \
+    "--cgroup-parent agents.slice --pids-limit 16384 --memory 8192m --memory-reservation 6144m|8192m" "$(settled 8g)"
+check "a cap under 4 GiB: the soft limit half below" \
+    "--cgroup-parent agents.slice --pids-limit 16384 --memory 3000m --memory-reservation 1500m|3000m" "$(settled 3000m)"
+check "at the floor: the soft limit half below" \
+    "--cgroup-parent agents.slice --pids-limit 16384 --memory 2048m --memory-reservation 1024m|2048m" "$(settled 2g)"
+printf '[Slice]\nMemoryMax=3072M\nMemoryHigh=2304M\n' >"$work/config/systemd/user/agents.slice"
+check "no override: the installed slice's MemoryMax, read where the play puts it" \
+    "--cgroup-parent agents.slice --pids-limit 16384 --memory 3072m --memory-reservation 1536m|3072m" "$(settled '')"
+printf '[Slice]\n' >"$work/config/systemd/user/agents.slice"
 check "no slice unit: refused, naming the play" "1|1" "$(
     # shellcheck source-path=SCRIPTDIR source=../files/var/local/claude-yolo/lib/container-limits.bash
     source "$LIB"
@@ -181,18 +202,40 @@ check "the unit caps the slice at the max, and throttles 1 GiB below it" \
     "$(grep -v -e '^#' -e '^$' <<<"$rendered" | paste -sd '|')"
 check "the unit sets nothing for systemd-oomd" "0" "$(grep -c '^ManagedOOM' <<<"$rendered")"
 check "the template holds no other placeholder" "0" "$(grep -c '{{' <<<"$rendered")"
-# The play's arithmetic is the library's: the slice's max is the RAM less the desktop's share,
-# which is a lone container's default cap, and the throttle is 1 GiB below it.
-# shellcheck source-path=SCRIPTDIR source=../files/var/local/claude-yolo/lib/container-limits.bash
-CCY_MEMORY_DESKTOP_MIB_EXPECTED=$(source "$LIB" && echo "$CCY_MEMORY_DESKTOP_MIB")
+# The slice's max is a lone container's default cap (the launcher reads it): the host's
+# override, else the RAM less the desktop's 16 GiB, else 4 GiB or three quarters of the RAM.
+# The throttle is 1 GiB below it, or a quarter below on a slice under 4 GiB.
 # shellcheck source-path=SCRIPTDIR source=../files/var/local/claude-yolo/lib/container-limits.bash
 CCY_MEMORY_FLOOR_MIB_EXPECTED=$(source "$LIB" && echo "$CCY_MEMORY_FLOOR_MIB")
-check "the play's max is the RAM less the library's desktop share, or the host's override" "1" \
-    "$(grep -c -x -F "    ccy_agents_slice_max_mb: \"{{ (ccy_agents_slice_memory_max_mb | default((ansible_facts['memtotal_mb'] | int) - $CCY_MEMORY_DESKTOP_MIB_EXPECTED)) | int }}\"" "$PLAY")"
-check "the play's throttle is 1 GiB below the max" "1" \
-    "$(grep -c -x -F "    ccy_agents_slice_high_mb: \"{{ (ccy_agents_slice_max_mb | int) - 1024 }}\"" "$PLAY")"
+# shellcheck source-path=SCRIPTDIR source=../files/var/local/claude-yolo/lib/container-limits.bash
+CCY_AGENTS_SLICE_SETTING_EXPECTED=$(source "$LIB" && echo "$CCY_AGENTS_SLICE_SETTING")
+check "the play's RAM is the host's facts" "1" \
+    "$(grep -c -x -F "    ccy_agents_slice_ram_mb: \"{{ ansible_facts['memtotal_mb'] | int }}\"" "$PLAY")"
+check "the play's max is the host's override (the setting the library names), else the default" "1" \
+    "$(grep -c -x -F "    ccy_agents_slice_max_mb: \"{{ ($CCY_AGENTS_SLICE_SETTING_EXPECTED | default([(ccy_agents_slice_ram_mb | int) - 16384, [(ccy_agents_slice_ram_mb | int) * 3 // 4, 4096] | min] | max)) | int }}\"" "$PLAY")"
+check "the play's throttle is 1 GiB below the max, or a quarter where that is less" "1" \
+    "$(grep -c -x -F "    ccy_agents_slice_high_mb: \"{{ (ccy_agents_slice_max_mb | int) - ([1024, (ccy_agents_slice_max_mb | int) // 4] | min) }}\"" "$PLAY")"
+# The default, worked the way the play's expression is, for the machines it must serve: each
+# is at or over the floor, at or under the RAM, and never shrinks as the RAM grows.
+slice_default() { local a=$(($1 - 16384)) b=$(($1 * 3 / 4)); b=$((b < 4096 ? b : 4096)); echo $((a > b ? a : b)); }
+previous=0 ok=yes
+for ram in 3700 3900 7800 11900 16000 20479 20480 20481 24000 26000 28000 32000 65536; do
+    d=$(slice_default "$ram")
+    { [ "$d" -ge "$CCY_MEMORY_FLOOR_MIB_EXPECTED" ] && [ "$d" -le "$ram" ] && [ "$d" -ge "$previous" ]; } || ok="no at $ram MiB: $d"
+    previous=$d
+done
+check "the default fits every machine from a 4 GiB server up and only grows with the RAM" "yes" "$ok"
+check "  a 4 GiB server (3900 MiB): three quarters" "2925" "$(slice_default 3900)"
+check "  an 8 GiB server: 4 GiB" "4096" "$(slice_default 7800)"
+check "  a 28 GiB machine: the RAM less 16 GiB, as before" "11616" "$(slice_default 28000)"
 check "the play refuses a max under the library's floor" "1" \
     "$(grep -c -x -F "          - ccy_agents_slice_max_mb | int >= $CCY_MEMORY_FLOOR_MIB_EXPECTED" "$PLAY")"
+check "the play refuses a max over the RAM" "1" \
+    "$(grep -c -x -F "          - ccy_agents_slice_max_mb | int <= ccy_agents_slice_ram_mb | int" "$PLAY")"
+# A refused machine is left as it was: the assert is the play's first task, before any install.
+check "the play asserts the slice's size before its first task changes anything" \
+    "- name: Assert The Agents Slice Leaves Room For A Container" \
+    "$(awk '/^  tasks:$/ {t=1; next} t && /^    - name: / {sub(/^    /, ""); print; exit}' "$PLAY")"
 check "the play installs the unit where the library looks for it" "1" \
     "$(grep -c -x -F '        dest: "/home/{{ user_login }}/.config/systemd/user/agents.slice"' "$PLAY")"
 

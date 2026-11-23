@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # Sourced by the ccy test suites. ccy settles the container limits (lib/container-limits.bash)
 # before it starts any container: it refuses to run without the agents slice's unit, and caps
-# memory from the machine's RAM unless CCY_MEMORY_MAX says otherwise.
+# memory at the slice's MemoryMax unless CCY_MEMORY_MAX says otherwise.
 #
 # ccy_test_limits <home> — installs the slice's unit where the play puts it, under
 # <home>/.config, points XDG_CONFIG_HOME there and exports a memory cap every machine allows.

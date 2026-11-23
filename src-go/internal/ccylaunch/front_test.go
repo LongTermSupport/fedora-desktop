@@ -35,7 +35,7 @@ func install(t *testing.T) string {
 		"lib/ssh_agent_filter.py":   "agent\n",
 		"lib/README-not-hashed.txt": "x\n",
 		machineMeminfo:              "MemTotal:       67108864 kB\n",
-		machineSlice:                "[Slice]\n",
+		machineSlice:                "[Slice]\nMemoryMax=49152M\nMemoryHigh=48128M\n",
 	})
 	return dir
 }

@@ -1,6 +1,6 @@
 === exit 1
 === stdout
 === stderr
-[0;31mERROR:[0m CCY_MEMORY_MAX=max is not a memory cap: bytes, or a number with k, m or g, from 4096m to this machine's {ram} MiB of RAM; it cannot be turned off (docs/ccy.md, "Container limits").
+[0;31mERROR:[0m CCY_MEMORY_MAX=max is not a memory cap: bytes, or a number with k, m or g, from 2048m to this machine's {ram} MiB of RAM; it cannot be turned off (docs/ccy.md, "Container limits").
 === calls
 === files
