@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.18 — container 2.84.64
+## 3.124.18 — container 2.84.65
 
 No launch fails falsely on a lost process-substitution child (issues #321, #322). The image is
 unchanged.
@@ -31,11 +31,21 @@ unchanged.
   shell") and stops the launch. It failed a CI run at the GPU device flags. bash always waits
   for a command substitution, so the capture's status is checked as before, and a failing
   listing still stops the launch.
-- An empty listing is no entries, as before. The argument captures end with a marker the
-  builder's success prints, so an empty last argument to a tmux-insulated session or to `cc`
-  is kept, and no arguments stay none.
+- An empty listing is no entries, as before. Each argument builder is given last arguments it
+  always prints whole, cut off again after the capture, so an empty last argument to a
+  tmux-insulated session or to `cc` is kept, and no arguments stay none.
 - The NUL-separated readers (the teams canonical arguments and the restart arguments) keep
   `< <(...)` with their wait, since a variable cannot hold a NUL.
+
+## 3.124.17 — container 2.84.65
+
+The image carries a fixed `teamchat` (issue #385).
+
+- **An admin redaction in the questions room is built for once.** When the questions index build
+  reaches the head, the sync's first questions batch can start behind it. An unlimited timeline
+  was folded whole, so a redaction the build had already met was folded again and owed a second
+  full rebuild. The sync now skips through the index's last folded event on an unlimited timeline
+  too, as it already did on a limited one (SPEC-n3f, the first questions batch).
 
 ## 3.124.15 — container 2.84.64
 

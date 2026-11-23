@@ -600,15 +600,18 @@ func (s *sess) qtake(j *judged, jr roomJudged, idx *proto.QuestionIndex, floor s
 // come oldest first; reached is false when the fill did not reach it (past the bound, or the
 // room's start with no such event), which only QX1's catch-up can then place.
 func (s *sess) qgap(ctx context.Context, q qstate, since string, tl matrix.Timeline) ([]json.RawMessage, bool, error) {
+	isLast := func(raw json.RawMessage) bool {
+		v, err := proto.Parse(raw)
+		return err == nil && q.last != "" && str(v, "event_id") == q.last
+	}
 	if !tl.Limited {
+		if i := slices.IndexFunc(tl.Events, isLast); i >= 0 {
+			return tl.Events[i+1:], true, nil
+		}
 		return tl.Events, true, nil
 	}
 	if tl.PrevBatch == "" {
 		return nil, false, nil
-	}
-	isLast := func(raw json.RawMessage) bool {
-		v, err := proto.Parse(raw)
-		return err == nil && q.last != "" && str(v, "event_id") == q.last
 	}
 	to := ""
 	if q.chain {
