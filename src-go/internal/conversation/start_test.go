@@ -18,7 +18,7 @@ func transcriptPath(rec string) string {
 // A recorded conversation with its transcript is resumed, by its id.
 func TestStartPlanResumesTheRecordedConversation(t *testing.T) {
 	rec := ccyCase(t, "--teams", "1@alpha")
-	got, err := StartPlan(rec, "/nonexistent")
+	got, err := StartPlan(rec, none)
 	if err != nil || got.Fresh || got.ID != id {
 		t.Fatalf("StartPlan = %+v, %v", got, err)
 	}
@@ -35,7 +35,7 @@ func TestStartPlanStartsAMarkedRecordWithNothingRecordedFresh(t *testing.T) {
 	if err := os.Remove(recordPath(rec.Dir)); err != nil {
 		t.Fatal(err)
 	}
-	got, err := StartPlan(rec, "/nonexistent")
+	got, err := StartPlan(rec, none)
 	if err != nil || !got.Fresh || got.ID != "" || slices.Contains(got.Args, "--resume") {
 		t.Fatalf("StartPlan = %+v, %v", got, err)
 	}
@@ -53,7 +53,7 @@ func TestStartPlanStartsAMarkedRecordWhoseConversationHasNoTranscriptFresh(t *te
 	if err := os.Remove(transcriptPath(rec.Dir)); err != nil {
 		t.Fatal(err)
 	}
-	got, err := StartPlan(rec, "/nonexistent")
+	got, err := StartPlan(rec, none)
 	if err != nil || !got.Fresh || got.ID != "" || slices.Contains(got.Args, "--resume") {
 		t.Fatalf("StartPlan = %+v, %v", got, err)
 	}
@@ -73,7 +73,7 @@ func TestStartPlanRefusesAnUnmarkedRecordWithNoConversation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for says, rec := range map[string]registry.Record{"has no transcript": noTranscript, "no conversation is recorded": nothing} {
-		if _, err := StartPlan(rec, "/nonexistent"); err == nil || !strings.Contains(err.Error(), says) || isArgsError(err) {
+		if _, err := StartPlan(rec, none); err == nil || !strings.Contains(err.Error(), says) || isArgsError(err) {
 			t.Errorf("%s: %v", says, err)
 		}
 	}
@@ -86,7 +86,7 @@ func TestStartPlanRefusesAMarkedRecordForAnythingElse(t *testing.T) {
 	write(t, recordPath(notTheHooks.Dir), "not json")
 	for name, rec := range map[string]registry.Record{"no bus": ccyCase(t, "--no-bus"), "not the hook's": notTheHooks} {
 		rec.FreshIfNoConversation = true
-		if got, err := StartPlan(rec, "/nonexistent"); err == nil {
+		if got, err := StartPlan(rec, none); err == nil {
 			t.Errorf("%s: StartPlan = %+v, want a refusal", name, got)
 		}
 	}
@@ -96,14 +96,14 @@ func TestStartPlanRefusesAMarkedRecordForAnythingElse(t *testing.T) {
 func TestStartPlanMarksUnworkableArguments(t *testing.T) {
 	rec := ccyCase(t)
 	rec.Compose = "maybe"
-	if _, err := StartPlan(rec, "/nonexistent"); !isArgsError(err) || !strings.Contains(err.Error(), "maybe") {
+	if _, err := StartPlan(rec, none); !isArgsError(err) || !strings.Contains(err.Error(), "maybe") {
 		t.Fatalf("resume: %v", err)
 	}
 	rec.FreshIfNoConversation = true
 	if err := os.Remove(recordPath(rec.Dir)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := StartPlan(rec, "/nonexistent"); !isArgsError(err) {
+	if _, err := StartPlan(rec, none); !isArgsError(err) {
 		t.Fatalf("fresh: %v", err)
 	}
 }
