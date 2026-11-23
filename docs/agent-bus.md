@@ -785,6 +785,16 @@ list the first time.
 checkout's `.claude/ccy/` if it is not there, so a repo never used with ccy works, and
 your `gh` must be logged in.
 
+**On a teamchat (v2) team** a cc session joins as a ccy session does: its seat is a pool seat of
+the checkout, issued with `--prefix <repo>+<site>.host` and placed with `teamchat seat place-issued --checkout <dir>` ([Issuing a seat](agent-bus-cross-network.md)), never made with
+sudo; the chooser lists the checkout's teamchat teams and the consent names the pool seat's
+handle. `ccy-teams internal cc-run` runs the session under `teamchat run --kind host` with the
+seat store's directories for that session, so `ccy --stop`, `ccy-sessions` restore and a team
+restart read its conversation from the seat store, and its end releases the seats (a killed
+pane keeps them until the seat sweep finds the session gone). It must be started inside ccy's
+tmux, which names the session; a list on both systems, and `cc --bus`, stay agent-bus only.
+Design: Plan 00209 `DESIGN-host-cc-v2.md`.
+
 It runs as you, with no dedicated agent user, so it can reach what you can, including the
 Matrix session you are signed in to in Element, Nheko or Lightning (the Matrix clients this
 repository installs, one list: `helpers/pingbus/matrix_clients.json`). A misbehaving agent
@@ -995,6 +1005,11 @@ These are known and documented rather than engineered around:
   plain routes to your sign-in, not a determined agent, which could post as you; every
   agent on the team takes that as your request. Run agents in ccy sessions (or as a
   dedicated agent user) when that matters.
+- A `cc --teams` session's deny rules also keep the host seat in its lane: it deploys and
+  triages, and does not run tests, builds, lint or QA (`go test`, `make`, `scripts/qa-*.bash`,
+  `ansible-playbook` and the rest of `files/var/local/claude-code/cc-teams-settings.json`).
+  Those belong in a container seat; `meta-deploy.bash` is how a host seat deploys. The rules
+  match the command text only, so they guide rather than contain.
 - Sibling seats in one checkout share their tokens: every seat's bundle is the same user's,
   so a session in one seat can read another seat's token there and post or read as that
   member, the coordinator included. Give each seat its own checkout (or worktree) when a

@@ -639,6 +639,10 @@ func (r Run) PID() string { return r.Dir() + "/session.pid" }
 // Status is the status line's record for the session.
 func (r Run) Status() string { return r.Dir() + "/status.json" }
 
+// StateRoot records the run's --state root, one absolute path and a newline, so a verb its
+// session runs (reach) reads the seats the keeper holds; absent for a run with none.
+func (r Run) StateRoot() string { return r.Dir() + "/state-root" }
+
 // StateHome is the XDG state home: $XDG_STATE_HOME when it is absolute (the XDG spec ignores a
 // relative one), else <home>/.local/state.
 func StateHome(home, xdgStateHome string) (string, error) {

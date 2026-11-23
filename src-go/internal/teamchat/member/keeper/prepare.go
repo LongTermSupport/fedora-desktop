@@ -422,6 +422,12 @@ func (k *keeper) makeRun(ctx context.Context) error {
 	if err := k.writeSessionPID(nil); err != nil {
 		return err
 	}
+	if k.cfg.Launch.State != "" {
+		if err := k.runRoot.Create(k.run.StateRoot(), []byte(k.cfg.Layout.State()+"\n"), 0o600); err != nil {
+			k.logf("write %s: %v", k.run.StateRoot(), err)
+			return fault(exits.CodeRuntime, msgRunDir, exits.Name(final.Dir()))
+		}
+	}
 	if err := k.runRoot.Rename(k.run.Dir(), final.Dir()); err != nil {
 		k.logf("rename %s to %s: %v", k.run.Dir(), final.Dir(), err)
 		return fault(exits.CodeRuntime, msgRunDir, exits.Name(final.Dir()))

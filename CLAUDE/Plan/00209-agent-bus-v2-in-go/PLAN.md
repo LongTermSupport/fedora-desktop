@@ -407,7 +407,7 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   `choose-teams` for a ccy (podman) launch lists this checkout's teamchat teams (those with a
   pool seat here) first, and a teamchat team, listed or named alone, gets its one pool seat or
   the one chosen of several; no seat here is refused (78) and teams on both systems are refused
-  (64) until (a) of Task 4.5. A host (`cc`) launch stays agent-bus only (Task 5.1).
+  (64) until (a) of Task 4.5. A host (`cc`) launch does the same since Task 5.1 step 6.
 - [ ] ⬜ **Task 4.4**: Acceptance: H-C7 and H-C8, and H-C15's held-ccy-session clause (Task 2.5); the v2-native pilot `teamchat-pilot` with one ccy
   session and one LXC member, its cost measured (P3); `teamchat-coexist` run whole, with the ccy
   seat (D 4.3). **Gate B** (Task 0.5): the pilot's ccy seat and H-C8's are pool seats, so
@@ -456,18 +456,23 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
 
 ### Phase 5: N5, other member kinds
 
-- [ ] ⬜ **Task 5.1**: Host `cc` members on v2 (seam 56), refused until then (D 3.9). **Gate B**
-  (Task 0.5): a host `cc` member's seat is a pool seat; none is added before the owner's
-  confirmation. Design and build order: [DESIGN-host-cc-v2.md](DESIGN-host-cc-v2.md) section 6.
+- [ ] 🔄 **Task 5.1**: Host `cc` members on v2 (seam 56), refused until then (D 3.9). **Gate B**
+  (Task 0.5) is met: a host `cc` member's seat is a pool seat, and the owner chose INT6 on
+  2026-10-30. Design and build order: [DESIGN-host-cc-v2.md](DESIGN-host-cc-v2.md) section 6;
+  built, its acceptance (section 8) is the host's, queued in `meta-deploy.list`.
   - [x] ✅ Step 1: the conversation-record class (`project_conversation_record`, `conversation.Locate`).
   - [x] ✅ Step 2: the host kit holds its plugin and settings (`teamchat kit assemble`).
   - [x] ✅ Step 3: `teamchat run --extra-settings FILE` (H4).
   - [x] ✅ Step 4: `cc-claude -- claude <args>` (H5).
   - [x] ✅ Step 5: `ccy-teams internal cc-run`, both systems.
-  - [ ] ⬜ Step 6: the chooser offers teamchat teams to a host launch.
-  - [ ] ⬜ Step 7: `teamchat reach` inside a `--state` session.
-  - [ ] ⬜ Step 8: docs and plan text.
-  - [ ] ⬜ Step 9: version bumps, meta-deploy entries, the acceptance script.
+  - [x] ✅ Step 6: the chooser offers teamchat teams to a host launch; the consent names pool handles.
+  - [x] ✅ Step 7: `teamchat reach` inside a `--state` session (`<run>/state-root`).
+  - [x] ✅ Step 8: docs and plan text.
+  - [x] ✅ Step 9: version bumps (CCY 3.124.1, container 2.84.51), meta-deploy entries,
+    `acceptance-host-cc-v2.bash`, [build report](subagent-reports/task-5.1-build-report.md).
+  - [x] ✅ Step 10: cc's deny file keeps a host seat out of tests, builds, lint and QA (Plan
+    00263 D3, static half; DESIGN-host-cc-v2.md step 10).
+  - [ ] ⬜ Acceptance on the host (design section 8), attended.
 - [ ] ⬜ **Task 5.2**: Docker and VM guests, after LXC (B 2.13), when a team needs one.
 
 ### Phase 6: N6, migration
@@ -501,7 +506,8 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
      verbs yet), then every session on it is relaunched on the v2 team only.
   6. Only then the v1 team is `state: absent`, purged or not as the owner decides.
      A v1 team with no v2 destination (LXC members, which v2 cannot deploy until Phase 5) stays on
-     v1. No v1 team is retired before its replacement passes step 4.
+     v1. A host `cc` seat moves like a ccy one (Task 5.1): a pool seat issued with
+     `--prefix <repo>+<site>.host`, placed at the cc checkout. No v1 team is retired before its replacement passes step 4.
 - [ ] ⬜ **Task 6.5**: removing v1, D 7.2 steps 4 to 7, once every `agent_bus_teams` entry is
   absent: the v1 software and host objects (`agent-bus*`, its sudoers file, network, user and
   state roots), its Element profiles and launchers, the v1 kit out of the ccy image (CCY bump)

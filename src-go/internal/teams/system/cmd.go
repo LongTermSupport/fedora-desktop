@@ -75,6 +75,22 @@ func (c *Cmd) Live(ctx context.Context, team string) (bool, error) {
 // SeatParts are the seat parts of the handles of the working directory's pool seats of team,
 // in pool order: the `<seat>` a launch names as `<seat>@<team>`.
 func (c *Cmd) SeatParts(team string) ([]string, error) {
+	handles, err := c.Handles(team)
+	if err != nil {
+		return nil, err
+	}
+	var parts []string
+	for _, s := range handles {
+		if h, ok := proto.ParseHandle(s); ok {
+			parts = append(parts, h.Seat)
+		}
+	}
+	return parts, nil
+}
+
+// Handles are the member handles of the working directory's pool seats of team, in pool order:
+// what a host launch's Matrix consent names (Task 5.1).
+func (c *Cmd) Handles(team string) ([]string, error) {
 	id, err := paths.ParseTeamID(team)
 	if err != nil {
 		return nil, fmt.Errorf("team %s: %w", team, err)
@@ -87,13 +103,11 @@ func (c *Cmd) SeatParts(team string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var parts []string
+	var handles []string
 	for _, s := range seats {
-		if h, ok := proto.ParseHandle(s.String()); ok {
-			parts = append(parts, h.Seat)
-		}
+		handles = append(handles, s.String())
 	}
-	return parts, nil
+	return handles, nil
 }
 
 // PoolTeams are the teams with a seat in the working directory's pool, sorted.

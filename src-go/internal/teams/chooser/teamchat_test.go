@@ -35,6 +35,13 @@ func newTeamchatRig(t *testing.T, entries string, seats map[string][]string) *te
 			return ok, r.liveErr
 		},
 		Seats: func(team string) ([]string, error) { return r.seats[team], nil },
+		Handles: func(team string) ([]string, error) {
+			var handles []string
+			for _, s := range r.seats[team] {
+				handles = append(handles, "proj."+s+"+local.host")
+			}
+			return handles, nil
+		},
 		Teams: func() ([]string, error) {
 			var teams []string
 			for team, s := range r.seats {
@@ -94,13 +101,42 @@ func TestATeamchatTeamThatCannotBeDecidedIsAFailure(t *testing.T) {
 	r.lacksOutput(t)
 }
 
-func TestAHostLaunchNeverAsksTeamchat(t *testing.T) {
+// Task 5.1 step 6: a host launch (cc) takes a teamchat team's pool seat as a podman one does,
+// and the owner's Matrix consent is asked for it as for an agent-bus host seat.
+func TestAHostLaunchTakesATeamchatPoolSeat(t *testing.T) {
 	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2"}})
-	r.Host.IsTerminal = func(any) bool { return false }
-	exit(t, r.run("--type=host", "1@alpha"), term.ExitConfig, r.rig)
-	if r.asked != nil {
-		t.Fatalf("a host launch asked teamchat about %v", r.asked)
+	r.consentRig()
+	r.Script.Gum = []string{"YES"}
+	exit(t, r.run("--type=host", v2Team), term.ExitOK, r.rig)
+	if r.payload.String() != "2@"+v2Team+"\n" || !slices.Equal(r.asked, []string{v2Team}) {
+		t.Fatalf("payload %q, asked %v", r.payload.String(), r.asked)
 	}
+	if r.seatsAsked != nil {
+		t.Fatalf("agent-bus's seat chooser was asked: %v", r.seatsAsked)
+	}
+	if !strings.Contains(strings.Join(r.Script.Headings, "\n"), "Matrix consent") {
+		t.Fatalf("the host seat's Matrix consent was not asked: %q", r.Script.Headings)
+	}
+	contains(t, "stderr", r.stderr(), "proj.2+local.host joins its team")
+}
+
+// A host seat named in full on a teamchat team takes its handle from this checkout's pool; a
+// seat the pool does not have is refused (78) before anything is asked.
+func TestAHostTeamchatSeatNamedInFullTakesItsHandleFromThePool(t *testing.T) {
+	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2", "3"}})
+	r.consentRig()
+	r.Script.Gum = []string{"YES"}
+	exit(t, r.run("--type=host", "3@"+v2Team), term.ExitOK, r.rig)
+	contains(t, "stderr", r.stderr(), "proj.3+local.host joins its team")
+	if r.seatsAsked != nil {
+		t.Fatalf("agent-bus's seat chooser was asked: %v", r.seatsAsked)
+	}
+
+	r = newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2"}})
+	r.consentRig()
+	exit(t, r.run("--type=host", "9@"+v2Team), term.ExitConfig, r.rig)
+	contains(t, "stderr", r.stderr(), "9@"+v2Team+" is not one of this checkout's teamchat seats of "+v2Team)
+	r.lacksOutput(t)
 }
 
 func TestAnAgentBusTeamNamedAloneStillGoesToItsSeatChooser(t *testing.T) {
@@ -148,14 +184,11 @@ func TestTeamsOnBothSystemsInOneLaunchAreRefused(t *testing.T) {
 	r.lacksOutput(t)
 }
 
-func TestAHostListShowsNoTeamchatTeam(t *testing.T) {
+func TestAHostListShowsThisCheckoutsTeamchatTeams(t *testing.T) {
 	r := newTeamchatRig(t, alphaCovers+betaWiden, map[string][]string{v2Team: {"2"}})
 	r.Script.Fzf = []string{"|ABORT"}
 	exit(t, r.run("--type=host"), term.ExitOK, r.rig)
-	if slices.ContainsFunc(r.Script.Rows[0], func(row string) bool { return strings.Contains(row, v2Team) }) {
-		t.Fatalf("a host list offered %s: %q", v2Team, r.Script.Rows[0])
-	}
-	if r.asked != nil {
-		t.Fatalf("a host launch asked teamchat about %v", r.asked)
+	if !slices.ContainsFunc(r.Script.Rows[0], func(row string) bool { return strings.Contains(row, v2Team) }) {
+		t.Fatalf("a host list did not offer %s: %q", v2Team, r.Script.Rows[0])
 	}
 }

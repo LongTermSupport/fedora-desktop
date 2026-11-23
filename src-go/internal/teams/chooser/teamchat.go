@@ -12,15 +12,18 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
-// Teamchat is this checkout's side of teamchat (v2, Plan 00209) for a podman launch: a team
-// named alone that is live on teamchat gets one of this checkout's pool seats, and the list
-// shows the checkout's teamchat teams beside the agent-bus ones. A host launch (cc) is on
-// agent-bus only and never asks it.
+// Teamchat is this checkout's side of teamchat (v2, Plan 00209) for a podman or a host (cc)
+// launch: a team named alone that is live on teamchat gets one of this checkout's pool seats,
+// and the list shows the checkout's teamchat teams beside the agent-bus ones. A host seat on
+// teamchat is a pool seat too (Task 5.1, gate B), and its Matrix consent is asked as on agent-bus.
 type Teamchat struct {
 	// Live is whether team is live on teamchat for this checkout (system.Cmd.Lines).
 	Live func(ctx context.Context, team string) (bool, error)
 	// Seats are the seat parts of this checkout's pool seats of team, in pool order.
 	Seats func(team string) ([]string, error)
+	// Handles are the member handles of this checkout's pool seats of team, in pool order: what
+	// a host seat's Matrix consent names.
+	Handles func(team string) ([]string, error)
 	// Teams are the teams with a pool seat in this checkout, sorted.
 	Teams func() ([]string, error)
 }
@@ -28,9 +31,10 @@ type Teamchat struct {
 // teamchatAbout is a teamchat team's description in the list: its roster is not on this machine.
 const teamchatAbout = "a teamchat team: its description is on the team's roster"
 
-// teamchatFor is the teamchat side for memberType: nil for a host launch, or when not wired.
+// teamchatFor is the teamchat side for memberType: nil for any type but podman and host, or
+// when not wired.
 func (c *Chooser) teamchatFor(memberType string) *Teamchat {
-	if memberType != typePodman {
+	if memberType != typePodman && memberType != typeHost {
 		return nil
 	}
 	return c.Teamchat

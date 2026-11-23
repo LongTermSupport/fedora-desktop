@@ -127,6 +127,31 @@ func TestReachOverTLSUsesTheSeatsCA(t *testing.T) {
 	}
 }
 
+// stateRun records dir as the run's state root (the keeper's --state) and makes it 0700.
+func (w *world) stateRun(dir string) {
+	w.t.Helper()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		w.t.Fatal(err)
+	}
+	writeFile(w.t, w.run.StateRoot(), []byte(dir+"\n"))
+}
+
+// Task 5.1 step 7: inside a run started with --state (a host cc session's seat store
+// directory), reach reads the bundle below that root, not the home member's.
+func TestReachInsideAStateRunReadsItsStateRoot(t *testing.T) {
+	h := newHS(t)
+	w := newWorld(t)
+	store := filepath.Join(w.t.TempDir(), "sessions", "cc-1")
+	w.stateRun(store)
+	writeSeat(t, filepath.Join(store, hsTeam), bundleFor(t, h.srv.URL(), deadRoom), "")
+	if code := w.reach(hsTeam); code != term.ExitOK {
+		t.Fatalf("exit %d, stderr %q", code, w.stderr.String())
+	}
+	if _, err := os.Stat(w.seats() + "/" + hsTeam); err == nil {
+		t.Fatal("the home layout holds the seat; the test proves nothing")
+	}
+}
+
 func TestReachWithoutARuntimeIsTheHomeLayout(t *testing.T) {
 	h := newHS(t)
 	w := newWorld(t)
@@ -183,6 +208,24 @@ func TestReachRefusals(t *testing.T) {
 		{"not a seat.json", hsTeam, exits.CodeBundle, func(w *world) {
 			w.placeSeat(deadURL(w.t))
 			writeFile(w.t, filepath.Join(w.seats(), hsTeam, "seat.json"), []byte(`{"v":1}`))
+		}},
+		// Each recorded-root case has a home seat too: reading the home layout past the record
+		// would answer 20 (unreachable), not 78.
+		{"a recorded state root that is not absolute", hsTeam, exits.CodeBundle, func(w *world) {
+			w.placeSeat(deadURL(w.t))
+			writeFile(w.t, w.run.StateRoot(), []byte("sessions/cc-1\n"))
+		}},
+		{"a recorded state root that is not one line", hsTeam, exits.CodeBundle, func(w *world) {
+			w.placeSeat(deadURL(w.t))
+			writeFile(w.t, w.run.StateRoot(), []byte("/a\n/b\n"))
+		}},
+		{"a recorded state root that is shared", hsTeam, exits.CodeBundle, func(w *world) {
+			w.placeSeat(deadURL(w.t))
+			dir := filepath.Join(w.t.TempDir(), "shared")
+			w.stateRun(dir)
+			if err := os.Chmod(dir, 0o755); err != nil {
+				w.t.Fatal(err)
+			}
 		}},
 		{"a runtime that names no session", hsTeam, exits.CodeNoSession, func(w *world) {
 			w.env[paths.EnvRuntime] = "/nowhere/" + runID

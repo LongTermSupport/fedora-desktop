@@ -135,6 +135,12 @@ play's install path and tasks to the units.
   (play-claude-yolo.yml), so a bus server host without ccy has neither. Confirmed by the owner
   (desktop Q22, option 1), over C 3.7.5's rule.
 
+## A host launch (`cc --teams`)
+
+Host `cc` reuses this launch's take, `Desired` and end with no mounts: `ccy-teams internal cc-run`
+runs `teamchat run --claude --kind host --state <store>/sessions/<session> --desired <store>/control/<session>` as its child. Its design, decisions H1-H5 and acceptance:
+[DESIGN-host-cc-v2.md](DESIGN-host-cc-v2.md) (Task 5.1).
+
 ## Left
 
 Nothing of the launcher's side. A real ccy launch on a v2 team, and the sweep announcing one, need

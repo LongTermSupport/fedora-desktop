@@ -131,9 +131,10 @@ func newVerbs(t *testing.T) *verbsWorld {
 	return w
 }
 
-func (w *verbsWorld) pool(team, name string) {
+// pool places pool seat name in team alpha, the team every world's tests launch.
+func (w *verbsWorld) pool(name string) {
 	w.t.Helper()
-	id, err := paths.ParseTeamID(team)
+	id, err := paths.ParseTeamID("alpha")
 	if err != nil {
 		w.t.Fatal(err)
 	}
@@ -176,7 +177,7 @@ func TestLaunchArgsOnAgentBusIsTheMembershipMount(t *testing.T) {
 
 func TestLaunchArgsOnTeamchatTakesAndPrintsTheControlDirectory(t *testing.T) {
 	w := newVerbs(t)
-	w.pool("alpha", "repo.1+site.podman")
+	w.pool("repo.1+site.podman")
 	if code := w.run("launch-args", "s1", w.checkout, "1@alpha", "Z", "--", "-v", "/x:/y"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, w.err)
 	}
@@ -192,7 +193,7 @@ func TestLaunchArgsOnTeamchatTakesAndPrintsTheControlDirectory(t *testing.T) {
 
 func TestLaunchArgsRefusals(t *testing.T) {
 	w := newVerbs(t)
-	w.pool("alpha", "repo.1+site.podman")
+	w.pool("repo.1+site.podman")
 	w.systems["later"] = ""
 	for name, c := range map[string]struct {
 		args []string

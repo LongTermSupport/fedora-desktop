@@ -3,6 +3,7 @@ package client
 import (
 	"errors"
 	"io/fs"
+	"strings"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
@@ -60,17 +61,54 @@ func reach(e cli.Env, inv cli.Invocation, d hsDeps) term.ExitCode {
 	return term.ExitOK
 }
 
-// stateLayout is TEAMCHAT_RUNTIME's layout when it is set, else the home member's.
+// stateLayout is TEAMCHAT_RUNTIME's layout when it is set, with the state root its keeper
+// recorded (run --state) in place of the layout's own; else the home member's.
 func stateLayout(getenv func(string) string) (paths.Layout, error) {
 	if dir := getenv(paths.EnvRuntime); dir != "" {
-		_, l, err := sessionOf(dir, getenv)
-		return l, err
+		r, l, err := sessionOf(dir, getenv)
+		if err != nil {
+			return l, err
+		}
+		return recordedState(r, l)
 	}
 	l, err := paths.HomeLayout(getenv("HOME"), getenv("XDG_RUNTIME_DIR"))
 	if err != nil {
 		return paths.Layout{}, exits.New(exits.CodeRuntime, nil, msgNoHome)
 	}
 	return l, nil
+}
+
+// maxStateRoot bounds the run's state-root record: one path and a newline.
+const maxStateRoot = 4 << 10
+
+// recordedState is l with the state root r's keeper recorded, or l unchanged when it recorded
+// none. A record that is not one absolute, clean path is refused as the state root (78); the
+// root's owner and mode are checked where it is opened.
+func recordedState(r paths.Run, l paths.Layout) (paths.Layout, error) {
+	root, err := homefs.Open(r.Dir(), homefs.Private)
+	if err != nil {
+		return paths.Layout{}, exits.New(exits.CodeNoSession, nil, msgNoSession)
+	}
+	f, err := root.Read(r.StateRoot(), maxStateRoot)
+	if closeErr := root.Close(); closeErr != nil && err == nil {
+		return paths.Layout{}, closeErr
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return l, nil
+	}
+	bad := exits.New(exits.CodeBundle, nil, msgStateRoot, exits.Name(r.StateRoot()))
+	if err != nil {
+		return paths.Layout{}, bad
+	}
+	dir, ok := strings.CutSuffix(string(f.Data), "\n")
+	if !ok || strings.Contains(dir, "\n") {
+		return paths.Layout{}, bad
+	}
+	moved, err := l.WithState(dir)
+	if err != nil {
+		return paths.Layout{}, bad
+	}
+	return moved, nil
 }
 
 // seatBundle is team's seat.json, read alone below the state root; its team must be team.
