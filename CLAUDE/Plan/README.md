@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00262-split-tool-repos](00262-split-tool-repos/) - Proposed (awaiting owner decisions). The owner's question: split ccy, teamchat and the other tool projects into their own repositories with their own CI, fedora-desktop pinning their releases. The proposal measures where CI time goes (the Go gate is about half a full run; CI never restores a Go cache), recommends interim CI fixes first, then a Go base module, teamchat and ccy, only after Plan 00209's v2 cut-over and v1 removal.
+
 - [00261-dbf-declared-but-unenforced-configuration](00261-dbf-declared-but-unenforced-configuration/) - Not Started. A Defence Before Fix analyzer that fails when a team-record or member-config field is read only by its parser or validator.
 
 - [00260-ccy-per-session-github-app-token](00260-ccy-per-session-github-app-token/) - Not Started. A GitHub App installation token minted on the host per session for the project's one repository, checked and revoked if broader, in place of the full `GH_TOKEN`.
