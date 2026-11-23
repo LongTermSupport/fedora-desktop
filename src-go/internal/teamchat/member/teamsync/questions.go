@@ -499,12 +499,13 @@ func (s *sess) longPoll(ctx context.Context, since string) (polled, error) {
 
 // qfold is an answer's fold of the questions room: a copy of the index with the answer's events
 // folded, which replaces the live one only once the answer is persisted (QX4), and its last
-// folded event.
+// folded event; owed is the build record an admin redaction among them owes (QX7), else nil.
 type qfold struct {
 	room   string
 	idx    *proto.QuestionIndex
 	last   string
 	events bool
+	owed   *proto.BuildRecord
 }
 
 // qjudge is QS6: the questions room's events of an answer whose filter held it, judged as the
@@ -534,8 +535,23 @@ func (s *sess) qjudge(ctx context.Context, j *judged, since string, a answer) er
 	if last := s.qtake(j, jr, f.idx, q.floor, func(string) bool { return true }); last != "" {
 		f.last = last
 	}
+	if len(redactions(jr)) > 0 {
+		after, next := f.last, f.idx.Next()
+		f.owed = &proto.BuildRecord{After: &after, LateFrom: &next}
+	}
 	j.q = f
 	return nil
+}
+
+// redactions are the admin redactions among a room's judged events (QX7).
+func redactions(jr roomJudged) []string {
+	var ids []string
+	for i, e := range jr.evs {
+		if jr.vs[i].Outcome == proto.Redact && e.id != "" {
+			ids = append(ids, e.id)
+		}
+	}
+	return ids
 }
 
 // qtake is the questions room's judged events folded into idx and taken (QX2, QS6), the one
@@ -646,6 +662,10 @@ func qkey(j *judged, first bool) {
 	if f == nil || !f.events && !first && empty(j.batch) {
 		return
 	}
+	if f.owed != nil {
+		j.batch.Questions = &proto.QuestionsState{Build: f.owed}
+		return
+	}
 	st, tok, last := f.idx.State(), j.batch.NextBatch, f.last
 	j.batch.Questions = &proto.QuestionsState{Index: &st, Token: &tok, Last: &last}
 }
@@ -660,10 +680,30 @@ func (t *Team) qcommit(j judged) {
 	written := j.batch.Questions != nil
 	t.qset(f.room, func(q *qstate) {
 		q.idx, q.last, q.chain = f.idx, f.last, q.chain || written
+		if f.owed != nil {
+			q.head, q.chain = false, false
+		}
 		if fl, ok := j.batch.Floors[proto.PurposeQuestions]; ok {
 			q.floor = max(q.floor, fl)
 		}
 	})
+}
+
+// qrebuild is QX7's rebuild after a persisted answer that folded an admin redaction: the room
+// leaves the filter (QS4) and QX1's build is begun from the owed key the answer wrote.
+func (s *sess) qrebuild(ctx context.Context, j judged) {
+	f := j.q
+	if f == nil || f.owed == nil || j.batch.Questions == nil {
+		return
+	}
+	t := s.t
+	q := t.qget()
+	if q.room != f.room {
+		return
+	}
+	t.log.Printf("an admin redaction in the questions room %s: its index is built again", f.room)
+	t.poke()
+	t.qbegin(ctx, IndexJob{Key: j.batch.Questions, RoomID: f.room, Floor: q.floor, s: s})
 }
 
 func (s *sess) watchFilter(ctx context.Context, cancel context.CancelCauseFunc, sent json.RawMessage) {

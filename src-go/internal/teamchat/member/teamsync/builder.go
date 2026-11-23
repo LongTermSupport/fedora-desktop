@@ -85,6 +85,10 @@ type buildRun struct {
 	resume   bool
 	fresh    bool
 	done     bool
+	// past is whether the build's read has passed its start (QX7): a redaction after it is new.
+	// met are the redactions this job has already built again for, history to every build after.
+	past bool
+	met  map[string]bool
 }
 
 // newRun reads the job's key (QX5's load): none is a build from the room's start, owing the
@@ -101,7 +105,9 @@ func newRun(job IndexJob) *buildRun {
 		r.stored, r.token, r.last, r.phase, r.fresh = k.Index, *k.Token, *k.Last, phaseForward, true
 	case k.Build != nil && k.Build.Start != nil && k.Index != nil && k.Token != nil && k.Last != nil:
 		r.rec = &proto.BuildRecord{Start: k.Build.Start, After: k.Build.After, LateFrom: k.Build.LateFrom}
-		r.stored, r.token, r.last, r.resume = k.Index, *k.Token, *k.Last, true
+		// Whether the pages already written passed the start is not recorded, so a resumed build
+		// takes every redaction it meets as new: at worst one build more, never a redaction missed.
+		r.stored, r.token, r.last, r.resume, r.past = k.Index, *k.Token, *k.Last, true, true
 	case k.Build != nil:
 		r.rec = &proto.BuildRecord{After: k.Build.After, LateFrom: k.Build.LateFrom}
 	default:
@@ -312,7 +318,11 @@ func (s *sess) buildPage(ctx context.Context, r *buildRun, events []json.RawMess
 		}
 		owes, passed := r.owed(events)
 		s.qtake(&j, jr, idx, r.floor, owes)
+		fresh, past := r.redactions(events, jr)
 		key := r.key(idx, events, token, passed, head)
+		if len(fresh) > 0 {
+			key = r.owedKey(idx, events, passed)
+		}
 		if err := key.Check(s.a.Server); err != nil {
 			return err
 		}
@@ -322,9 +332,76 @@ func (s *sess) buildPage(ctx context.Context, r *buildRun, events []json.RawMess
 			return err
 		}
 		s.commitJudged(j)
+		if len(fresh) > 0 {
+			s.rebegin(r, b, fresh)
+			return nil
+		}
+		r.past = past
 		s.paged(r, b, idx, passed, head)
 		return nil
 	})
+}
+
+// redactions are the admin redactions of a page that are new to the run (QX7), and whether the
+// read has passed the build's start by the page's end: a catch-up's every one, a build's only
+// those after its start (any event, a state event too), never one this job has already built
+// again for.
+func (r *buildRun) redactions(events []json.RawMessage, jr roomJudged) ([]string, bool) {
+	past := r.rec == nil || r.past
+	newer := map[string]bool{}
+	for _, raw := range events {
+		id := eventID(raw)
+		if past {
+			newer[id] = true
+		}
+		if r.rec != nil && r.rec.Start != nil && id == *r.rec.Start {
+			past = true
+		}
+	}
+	ids := slices.DeleteFunc(redactions(jr), func(id string) bool { return !newer[id] || r.met[id] })
+	return ids, past
+}
+
+// owedKey is the key a page that met a new redaction writes (QX5): a build owed, its `after`
+// kept while the read has not passed it, else the page's newest event, and its `late_from`
+// kept; a catch-up's `late_from` is its index's next number.
+func (r *buildRun) owedKey(idx *proto.QuestionIndex, events []json.RawMessage, passed bool) proto.QuestionsState {
+	var rec proto.BuildRecord
+	if r.rec != nil {
+		rec.After, rec.LateFrom = r.rec.After, r.rec.LateFrom
+	} else {
+		next := idx.Next()
+		rec.LateFrom = &next
+	}
+	if rec.After == nil || passed {
+		for _, raw := range slices.Backward(events) {
+			if id := eventID(raw); id != "" {
+				rec.After = &id
+				break
+			}
+		}
+	}
+	return proto.QuestionsState{Build: &rec}
+}
+
+// rebegin is a written page that met new redactions: the run begun again as the build its key
+// owes, the questions floor raised, the redactions kept as met.
+func (s *sess) rebegin(r *buildRun, b team.Batch, fresh []string) {
+	floor := r.floor
+	if fl, ok := b.Floors[proto.PurposeQuestions]; ok && fl > floor {
+		floor = fl
+		s.t.qset(r.room, func(q *qstate) { q.floor = max(q.floor, fl) })
+	}
+	met := r.met
+	if met == nil {
+		met = map[string]bool{}
+	}
+	for _, id := range fresh {
+		met[id] = true
+	}
+	s.t.log.Printf("an admin redaction in the questions room %s: its index is built again", r.room)
+	*r = *newRun(IndexJob{Key: b.Questions, RoomID: r.room, Floor: floor})
+	r.met = met
 }
 
 // paged is a written page made the run's: its index, token and last event, `after` passed, the

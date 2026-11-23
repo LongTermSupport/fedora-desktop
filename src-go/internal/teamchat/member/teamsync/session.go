@@ -580,6 +580,7 @@ func (s *sess) settle(ctx context.Context, j judged, floor int64) error {
 	t := s.t
 	s.commit(j, floor)
 	t.qcommit(j)
+	s.qrebuild(ctx, j)
 	if err := s.qmarked(j); err != nil {
 		return err
 	}

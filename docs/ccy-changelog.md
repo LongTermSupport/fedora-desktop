@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.3 — container 2.84.54
+
+- **teamchat rebuilds the questions index after an admin redaction** (Plan 00209, backlog R0).
+  A redaction in the questions room (the admin's `teamchat-admin redact`) makes the coordinator's
+  link build the question index again from the room, so the redacted post is in no question and
+  its number is never given out twice; a link that stops mid-way builds it again when it starts.
+  The image carries the new `teamchat`.
+
 ## 3.124.2 — container 2.84.53
 
 - **teamchat serves the questions verbs for v2** (Plan 00209, backlog R0; 3.123.5 below is an
