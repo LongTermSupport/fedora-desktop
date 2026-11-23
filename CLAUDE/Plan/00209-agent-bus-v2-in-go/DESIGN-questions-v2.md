@@ -258,3 +258,244 @@ Each step: write the test, see it fail, then the code. Fakes only (fakehs, the f
   agents moving from v1 already know `ask-human`. The wire field stays `asked_by`.
 
 **Decided (2026-11-23):** the coordinator took all four recommendations as the defaults: (a) for OD-Q1, and yes to OD-Q2, OD-Q3 and OD-Q4. These are coordinator decisions, not owner rulings. The owner was told and may override them. The build waits for the owner's go-ahead in Q61.
+
+## 8. Amendments to the design (areas A and C)
+
+The protocol changes sections 2-4 need, in SPEC-n3f section 12's style: "Old" is the current
+text joined onto one line, "New" replaces it whole. Unlike SPEC-n3f's, these are applied to
+[DESIGN-v2-A-protocol.md](DESIGN-v2-A-protocol.md) and [DESIGN-v2-C-host.md](DESIGN-v2-C-host.md)
+in the same commit as this section (the owner's GO, Q61: one branch, one review at its end), so
+the build reads A and C as they will be. Five things are settled here that sections 2-4 left
+open:
+
+- **`wait`** on `teamchat.thread`. The fold needs to know which agent posts wait on a human
+  (`waiting_since_ms`, 2.6), and no receiver reads `msgtype` (A 7.1). So a thread post that
+  waits carries `"wait": true`, and its sender makes it `m.text` with the humans mentioned
+  exactly then. A question waits by being a question. `waiting_since_ms` is the
+  `origin_server_ts` of the newest waiting post (the question, a waiting thread post, a bump)
+  not yet followed by an attached human post or a close; so `bump --min-age` measures the time
+  since the owner was last notified, which is what stops a Stop handler bumping at every stop.
+- **`why`** is checked when present (one of the four words, else `schema`) and absent is
+  accepted: the admin's carried questions have none, and the sender's form is what makes it
+  required for a coordinator (2.1). A receiver that dropped a coordinator's question for a
+  missing `why` would break the numbering chain (A 6.5) on every seat, for a fault the sender
+  already refuses.
+- **The retitle edit** is the one agent edit a receiver reads: in questions, from the sender of
+  a counted question, `m.relates_to` exactly `{"rel_type":"m.replace","event_id":<question>}`
+  and `m.new_content` a `teamchat.question` content whose `n`, `asked_by`, `re` and `why` equal
+  the question's and whose `Question:` section hashes the same (G1.4). The index takes its
+  headline and nothing else. Any other agent edit is still dropped `edit`.
+- **The relay** is a `teamchat.text` from the coordinator, so it is addressed, rated and
+  delivered by the rules a `teamchat.text` already has; the worker's link turns it into a HUMAN
+  item only after fetching the post itself (section 4), and otherwise drops it `provenance`. It
+  is never delivered as a PEER item: a relay that fails its check is not shown at all.
+- **Questions membership.** Every non-parked member is invited to questions and accepts the
+  invite; posting stays the coordinator's and the humans' by power level (the coordinator listed
+  at 50, `m.room.message` at 50). A parked member is not in questions' desired membership (its
+  token is revoked; it can read nothing). A demotion is a power-levels write and no kick.
+
+### 8.1 A 4.1, the questions row
+
+Old:
+
+```text
+| questions | `<name> · questions` | `invite` | humans, the coordinator | humans, the coordinator; nobody when closed | the coordinator, for every human message |
+```
+
+New:
+
+```text
+| questions | `<name> · questions` | `invite` | humans, every non-parked member | humans, the coordinator; nobody when closed | the coordinator, for every human message |
+```
+
+### 8.2 A 4.2, the questions room's power levels
+
+Old:
+
+```text
+Questions room while closed (no coordinator in the roster): the main-room object with `"events": {"m.room.message": 100}`.
+```
+
+New:
+
+```text
+Questions room while open: the main-room object with the coordinator in `users` at 50 beside the humans and `"events": {"m.room.message": 50}`, so a worker, a member there to read answers (10.6), cannot post. Questions room while closed (no coordinator in the roster): the main-room object with `"events": {"m.room.message": 100}`.
+```
+
+In the table "What each level allows", the questions (open) column is split from main: the
+coordinator (50) posts messages and read receipts, an agent at 0 reads only.
+
+### 8.3 A 4.3, the questions row and the demotion sentence
+
+Old (the row):
+
+```text
+| questions | admin invite | admin invites the coordinator; the member accepts it per 6.3 | admin kick on removal or demotion |
+```
+
+New:
+
+```text
+| questions | admin invite | admin invites every non-parked member; the member accepts it per 6.3 | admin kick on removal or park |
+```
+
+Old:
+
+```text
+A demoted or parked coordinator is kicked from questions before any new coordinator is invited (00211 section 3; R10 demote before promote), and while the roster names no non-parked coordinator, questions is closed.
+```
+
+New:
+
+```text
+A demotion is a power-levels write of questions that drops the old coordinator from `users`, made before any new coordinator is raised (00211 section 3; R10 demote before promote); the demoted member stays joined, as a reader. A parked member, coordinator or not, is kicked from questions. While the roster names no non-parked coordinator, questions is closed.
+```
+
+### 8.4 A 6.3, the questions invite
+
+Old:
+
+```text
+| questions | main is verified; the roster names this room under `questions`; inviter and stripped create sender are the admin; the roster names this member coordinator |
+```
+
+New:
+
+```text
+| questions | main is verified; the roster names this room under `questions`; inviter and stripped create sender are the admin; the roster names this member, not parked |
+```
+
+### 8.5 A 7.1, the edits row, the msgtype table and the relation table
+
+Edits row. Old: `` `m.new_content` anywhere, or `rel_type` `m.replace`: drop `edit`. Agents never edit ``.
+New: `` `m.new_content` anywhere, or `rel_type` `m.replace`: drop `edit`. Agents never edit, but one: the coordinator's retitle of its own question (10.4) ``.
+
+msgtype table. Old rows:
+
+```text
+| `teamchat.question`; `teamchat.thread` that asks again | `m.text` | a question is what humans must be told about (00211 D14) |
+| `teamchat.thread` otherwise | `m.notice` | follow-ups are quiet |
+```
+
+New rows:
+
+```text
+| `teamchat.question`; `teamchat.thread` with `wait` or `link` | `m.text` | a post that waits on a human, or answers one who asked outside the thread, must reach them |
+| `teamchat.thread` otherwise; the retitle edit | `m.notice` | a note, a close and a retitle are quiet |
+```
+
+Relation table. Old row: `` | `teamchat.thread` with `n` | the thread form (10.3) | ``. New rows:
+
+```text
+| `teamchat.thread` with `n` and no `link` | the thread form (10.3) |
+| `teamchat.thread` with `n` and `link` | exactly a reply, to a human post (10.3's link-back) |
+```
+
+### 8.6 A 7.3, the relay
+
+After the secret check's bullet, a new bullet:
+
+```text
+- **The relay** (10.6). The coordinator's `teamchat.text` may carry `"relay": {"room": "questions", "id": <event ID>, "q": <n>}`: a human post in questions attached to Q<n> whose question names the addressee in `asked_by`. Only the coordinator sends one (a relay from anyone else: drop `role`), `to` is exactly one member, and it is `m.notice` with that member mentioned. The receiver delivers it only through the relay check of 10.6, never as PEER.
+```
+
+### 8.7 A 7.6, rules 03 and 08
+
+Rule 03. Old: `` or a `teamchat.question` from the admin (a carried open question, 7.7), feeds the question index ``.
+New: `` or a `teamchat.question` from the admin (a carried open question, 7.7), or a coordinator's retitle edit (10.4), feeds the question index ``.
+
+Rule 08. Old: `` `teamchat.text` kind PEER (the same `human_text` rule applies, as v1); ``.
+New: `` `teamchat.text` kind PEER (the same `human_text` rule applies, as v1), except one with `relay`, which takes the relay path (10.6) and, if it passes, kind HUMAN with the room lines of questions; ``.
+
+### 8.8 A 10.2, the form and `why`
+
+Old (the form bullet):
+
+```text
+- Form (P54): headline 1-120 code points (trimmed of Unicode white space; one that starts with a section name is `body`, as v1), then `Context:` and `Question:` sections (required) and `Options:` (optional, lines `1. ` to at most `9. ` in order); the whole at most 8000 bytes; `body` starts `Q<n> `. A form error is refused `body`, naming the section.
+```
+
+New:
+
+```text
+- Form (P54): headline 1-120 code points (trimmed of Unicode white space; one that starts with a section name is `body`, as v1), then `Context:`, `Question:` and `Why a human:` sections (required) and `Options:` (optional, lines `1. ` to at most `9. ` in order); the whole at most 8000 bytes; `body` starts `Q<n> `. `Why a human:`'s first word is one of `decision` (owner-only), `physical` (a physical act), `credential`, `preference`, and the object's `why` holds that word. A form error is refused `body`, naming the section, and the size and the limit when the size is the error. A receiver requires neither `Why a human:` nor `why` (the admin's carried questions have neither); a `why` that is not one of the four words is `schema`.
+```
+
+### 8.9 A 10.3, waiting posts and the link-back
+
+Old:
+
+```text
+- A post that asks the humans something again is `m.text` and mentions them; otherwise `m.notice` and no mentions (00211 `--ask`).
+```
+
+New:
+
+```text
+- A post that waits on a human (B's `thread` by default, `bump`) carries `"wait": true` and is `m.text` mentioning every human; otherwise (`thread --note`, a close) no `wait`, `m.notice` and no mentions.
+- **The link-back.** When the coordinator answers a human post attached to Q<n> that is not in Q<n>'s thread, it posts the answer in the thread (with `m.in_reply_to` the post, as above) and then one top-level reply to the post: a `teamchat.thread` `{"v": 1, "n": <n>, "link": <the thread answer's event ID>}`, `m.relates_to` exactly `{"m.in_reply_to": {"event_id": <the post>}}`, `m.text` mentioning that post's sender, body `Q<n>: answered in its thread: <permalink to the thread answer>`. It neither closes nor waits nor resets the unanswered posts; a reply to it attaches to Q<n> (10.4 rule 2).
+```
+
+### 8.10 A 10.4, attachment, the retitle edit and waiting
+
+Old (rules 1 and 2):
+
+```text
+1. it is in the thread of a question (`rel_type` `m.thread`, root a question);
+2. it replies to a question or to a post in a question's thread;
+```
+
+New:
+
+```text
+1. its thread root (`rel_type` `m.thread`) is any event attached to a question: the question, an agent's post of it (a thread post or a link-back), or a human post attached to it;
+2. its `m.in_reply_to` names any event attached to a question, as rule 1 counts them (a human post attached at the top level included);
+```
+
+After the state paragraph, new paragraphs:
+
+```text
+So a reply chain never loses its question at a top-level hop. The index remembers attachments for a bounded number of recent events (B's caps); an older event is not inherited from.
+
+**The retitle edit.** The coordinator that posted a counted question may edit it with `m.replace`, quiet (`m.notice`), whose `m.new_content` is a `teamchat.question` content with the same `n`, `asked_by`, `re` and `why` and a `Question:` section of the same hash; its new headline is the index's from then on. A closed question's retitle is `Q<n> ✅ CLOSED — <headline>`. Any other edit of a question is dropped `edit`.
+
+**Waiting on a human.** A question is waiting while it is not closed and its newest waiting agent post (the question, or a thread post with `wait`) has no attached human post or close after it; `waiting_since_ms` is that post's `origin_server_ts`.
+```
+
+### 8.11 A 10.6, the whole flow
+
+Old (steps 2 and 5 and the paragraph after them):
+
+```text
+2. The coordinator answers itself if it can; otherwise it runs `ask` (10.2) with `--asked-by` and `--re` naming the worker and the worker's message.
+5. The coordinator passes the answer to each asker in main (`reply '<their event>'`, B 2.2.1) and closes the question (`thread Q3 --close`). A later edit arrives with `revises:`; the coordinator corrects what it passed on.
+
+The asker gets the answer from the coordinator, not from the room, on purpose: the coordinator owns the work's direction and may combine answers, and workers stay out of the humans' notification stream (00211 D7).
+```
+
+New:
+
+```text
+2. The coordinator answers itself if it can; otherwise it runs `ask-human` (10.2) with `--for` and `--re` naming the worker and the worker's message (`asked_by` on the wire).
+5. The asker gets the human's post itself: the coordinator's link relays each human post attached to Q3 to each member `asked_by` names, as a `teamchat.text` with `relay` (7.3), once per post and member (its transaction ID derived from both), with no model turn. The worker's link fetches the post from questions (every non-parked member is in questions, 4.1, and reads by event ID only, never syncing it) and delivers it as HUMAN with the room lines of questions and `relayed by:` only if the post is in questions, from a team human, and its text is what was fetched; otherwise the relay is dropped `provenance`. The question number is the coordinator's claim and the entry says so. The coordinator closes the question (`teamchat close Q3`). A later edit is relayed the same way, with `revises:`.
+
+The asker reads the human's own words, never a peer's account of them, on purpose: a worker must not act on a ruling a peer relayed (#364). Workers still never post in questions and are not notified there; the coordinator still owns the work's direction and may add to the ruling in main.
+```
+
+### 8.12 A 13.2 and 13.3, the relayed line and the reminder sentence
+
+13.2, a new row in the first table after `revises:`: `` | `relayed by:` | relayed only | - | - | - | - | the coordinator's handle (10.6) | ``,
+and in the line grammars: `` | `relayed by:` | `relayed by: <handle> (the question number is its claim; the text was fetched from questions)` | ``.
+
+13.3, the reminder's authority sentence. Old: `remind the humans with teamchat thread Q<n> --ask, or go on.` New: `remind the humans with teamchat bump Q<n>, or go on.`
+
+### 8.13 C 3.6.2 and 3.6.4, park and demotion
+
+C 3.6.2. Old: `a parked coordinator is kicked from the questions room and the questions room takes its closed form (A §4.3)`.
+New: `a parked member is kicked from the questions room, and a parked coordinator's questions room takes its closed form (A §4.3)`.
+
+C 3.6.4 step 1. Old: `demote the old (A's team record and its room specs say what changes, for example removal from the questions room) and apply it fully.`
+New: `demote the old (A's team record and its room specs say what changes, for example the questions room's power levels, which drop it as a poster; it stays joined as a reader) and apply it fully.`
+
+C 3.6.4, "apply it fully". Old: `` the questions room's membership and its open or closed form (open while an `enrolled` coordinator is joined, closed otherwise, A §4.3) ``.
+New: `` the questions room's membership (every non-parked member) and its open or closed form (open, with the coordinator's power, while an `enrolled` coordinator is joined, closed otherwise, A §4.3) ``.
