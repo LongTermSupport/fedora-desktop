@@ -333,6 +333,15 @@ Usage:
                                    session, its record removed and its seats released; none
                                    (the launcher left on a signal) announces each seat and
                                    keeps it
+  ccy-teams internal cc-run <tmp> <checkout> <session or empty> <cc pid> <seats> <true|false> -- <claude args...>
+                                   host cc's session (cc --teams, cc --bus). On agent-bus: the
+                                   settings in <tmp>, then pingbus's seat keeper becomes the
+                                   session. On teamchat (a session name is needed, so ccy's
+                                   tmux): the seats taken from your seat store, then teamchat
+                                   run --kind host as a child; its exit status ends the
+                                   session (record removed, seats released), and SIGHUP or
+                                   SIGTERM keeps the seats. Exits 0, or the session's 64, 75,
+                                   77, 78 or 130, else 1; 78 when a kit file is missing
   ccy-teams session list
   ccy-teams session add <session> <team>[/<seat>] [--role=worker|coordinator] [--demote-current] [--yes]
   ccy-teams session remove <session> <team> [--coordinator=demote|hand-to=<seat>] [--park] [--yes]

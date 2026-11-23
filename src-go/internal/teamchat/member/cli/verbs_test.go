@@ -32,7 +32,7 @@ var bVerbs = []string{
 	"recv", "wait", "inbox", "reply", "say", "ping", "report", "ask", "thread", "questions",
 	"history", "verify", "status", "version", "help",
 	"run", "link", "hook", "status-line", "whoami", "reach", "tls", "seat disconnected", "seat set-aside", "seat place-issued",
-	"guest check", "guest place-bundle", "guest membership", "guest remove",
+	"kit assemble", "guest check", "guest place-bundle", "guest membership", "guest remove",
 }
 
 func TestTheTableIsBsVerbs(t *testing.T) {
@@ -146,7 +146,7 @@ func TestUsageSpellsBsForms(t *testing.T) {
 		"history":           "teamchat history [--room main|questions] [--limit N] [--team T]",
 		"version":           "teamchat version",
 		"help":              "teamchat help [<verb>|exit-codes]",
-		"run":               "teamchat run --claude|--plain --kind ccy|lxc|host|other [--key K] [--desired DIR] [--seat T/S...] [--state DIR] [--resume-recorded] [--kit DIR] -- CMD",
+		"run":               "teamchat run --claude|--plain --kind ccy|lxc|host|other [--key K] [--desired DIR] [--seat T/S...] [--state DIR] [--resume-recorded] [--kit DIR] [--extra-settings FILE] -- CMD",
 		"seat set-aside":    "teamchat seat set-aside --team T [--state DIR]",
 		"seat place-issued": "teamchat seat place-issued --checkout DIR",
 		"seat disconnected": "teamchat seat disconnected --bundle DIR --since MS --seed ID",

@@ -42,7 +42,7 @@ type Holder interface {
 }
 
 // Verbs is the launcher's `ccy-teams internal` commands over both systems (LAUNCH-ccy.md):
-// launch-args, seat-check, seat-take and bus-disconnected. For a launch on agent-bus each is what
+// launch-args, seat-check, seat-take and bus-disconnected, and host cc's cc-run. For a launch on agent-bus each is what
 // the bash did before; for teamchat each is the v2 launch's.
 type Verbs struct {
 	Stdout io.Writer
@@ -65,6 +65,10 @@ type Verbs struct {
 	Holder func(cfg seat.Config) (Holder, error)
 	// Forget removes a session's record (seam 54), before its seats are released.
 	Forget func(session string) error
+	// CC is what host cc's launch reads and starts (cc-run); Foreground runs its teamchat
+	// session as a child.
+	CC         CC
+	Foreground execx.Foregrounder
 }
 
 // errUsage is a call the launcher never makes: the reason is said, exit 64.
@@ -72,9 +76,9 @@ var errUsage = errors.New("usage")
 
 const verbsUsage = "internal launch-args <session> <checkout> <seats> <Z or empty> -- <mounts...>, " +
 	"internal seat-check <list> [--resolved], internal seat-take <list> [--no-prompt], " +
-	"or internal bus-disconnected <status> <pingbus> seat disconnected --root <dir> --session <name> --since <ms>"
+	"internal bus-disconnected <status> <pingbus> seat disconnected --root <dir> --session <name> --since <ms>, or " + ccRunUsage
 
-// Run dispatches one of the four verbs.
+// Run dispatches one of the five verbs.
 func (v *Verbs) Run(ctx context.Context, args []string) term.ExitCode {
 	if len(args) == 0 {
 		return v.fail("internal", fmt.Errorf("%w: takes %s", errUsage, verbsUsage))
@@ -91,6 +95,11 @@ func (v *Verbs) Run(ctx context.Context, args []string) term.ExitCode {
 		err = v.seat(ctx, verb, rest)
 	case "bus-disconnected":
 		err = v.busDisconnected(ctx, rest)
+	case "cc-run":
+		var code term.ExitCode
+		if code, err = v.ccRun(ctx, rest); err == nil {
+			return code
+		}
 	default:
 		err = fmt.Errorf("%w: %q is not one of %s", errUsage, verb, verbsUsage)
 	}
@@ -116,7 +125,7 @@ func codeOf(err error) term.ExitCode {
 		return term.ExitUsage
 	case errors.Is(err, seat.ErrHeld), errors.Is(err, seat.ErrBusy):
 		return term.ExitBusy
-	case errors.Is(err, system.ErrUndecided), errors.Is(err, ErrMount), errors.Is(err, seat.ErrReturn),
+	case errors.Is(err, system.ErrUndecided), errors.Is(err, ErrMount), errors.Is(err, ErrHostKit), errors.Is(err, ErrNoSession), errors.Is(err, seat.ErrReturn),
 		errors.Is(err, seat.ErrRetired), errors.Is(err, seat.ErrIncomplete), errors.Is(err, seat.ErrLeftover),
 		execx.IsNotInstalled(err):
 		return term.ExitConfig

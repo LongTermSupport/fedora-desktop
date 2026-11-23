@@ -456,7 +456,16 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
 
 - [ ] ⬜ **Task 5.1**: Host `cc` members on v2 (seam 56), refused until then (D 3.9). **Gate B**
   (Task 0.5): a host `cc` member's seat is a pool seat; none is added before the owner's
-  confirmation.
+  confirmation. Design and build order: [DESIGN-host-cc-v2.md](DESIGN-host-cc-v2.md) section 6.
+  - [x] ✅ Step 1: the conversation-record class (`project_conversation_record`, `conversation.Locate`).
+  - [x] ✅ Step 2: the host kit holds its plugin and settings (`teamchat kit assemble`).
+  - [x] ✅ Step 3: `teamchat run --extra-settings FILE` (H4).
+  - [x] ✅ Step 4: `cc-claude -- claude <args>` (H5).
+  - [x] ✅ Step 5: `ccy-teams internal cc-run`, both systems.
+  - [ ] ⬜ Step 6: the chooser offers teamchat teams to a host launch.
+  - [ ] ⬜ Step 7: `teamchat reach` inside a `--state` session.
+  - [ ] ⬜ Step 8: docs and plan text.
+  - [ ] ⬜ Step 9: version bumps, meta-deploy entries, the acceptance script.
 - [ ] ⬜ **Task 5.2**: Docker and VM guests, after LXC (B 2.13), when a team needs one.
 
 ### Phase 6: N6, migration

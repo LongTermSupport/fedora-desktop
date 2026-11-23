@@ -7,7 +7,9 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strings"
 
@@ -53,12 +55,14 @@ type Launch struct {
 
 // RunFacts are the run's facts and the keeper's functions a Preparer is given; no adapter is
 // given a root it can write. Home is the launch's HOME as read; ClaudeConfigDir is the
-// keeper's absolute, clean CLAUDE_CONFIG_DIR, or nil. WriteRunFile creates a file directly under
+// keeper's absolute, clean CLAUDE_CONFIG_DIR, or nil. ExtraSettings is run's --extra-settings
+// file, "" when none was given. WriteRunFile creates a file directly under
 // Run.Dir(), mode 0600, and on a failure has logged it and returns the error to hand on.
 // Conversation reads the conversation record, its error naming the state root or the record.
 type RunFacts struct {
 	Inbound         string
 	ResumeRecorded  bool
+	ExtraSettings   string
 	Kit             paths.Kit
 	Run             paths.Run
 	Cwd             string
@@ -79,6 +83,12 @@ const inboundKey = "crossSessionInbound"
 
 const msgSettings exits.Template = "the kit's settings {} are not a JSON object without the inbound key"
 
+const msgExtraSettings exits.Template = "the extra settings {} are not a regular file of this user holding a JSON object without crossSessionInbound, hooks or statusLine"
+
+// kitOwnedKeys are the settings keys only the kit and the run set: extra settings naming one
+// are refused, not overridden (decision H4).
+var kitOwnedKeys = []string{inboundKey, "hooks", "statusLine"}
+
 // For is a's adapter. cli's parse and the launch frame's check refuse any other value first.
 func For(a Agent) (Adapter, error) {
 	switch a {
@@ -95,20 +105,21 @@ type plain struct{}
 
 func (plain) Prepare(RunFacts) (Launch, error) { return Launch{}, nil }
 
-// claude is Claude Code (B 2.4.1 step 5): the kit's settings with the inbound key, written to
-// the run before the resume rule runs, then the resume, the plugin and those settings.
+// claude is Claude Code (B 2.4.1 step 5): the kit's settings, over any extra settings, with
+// the inbound key, written to the run before the resume rule runs, then the resume, the plugin
+// and those settings.
 type claude struct{}
 
 func (claude) Prepare(f RunFacts) (Launch, error) {
 	settings := f.Kit.Settings()
-	data, err := f.ReadTrusted(settings, MaxSettings)
-	var obj map[string]json.RawMessage
-	if err == nil {
-		err = json.Unmarshal(data, &obj)
-	}
-	if _, has := obj[inboundKey]; err != nil || obj == nil || has {
+	obj, err := readObject(f, settings)
+	if _, has := obj[inboundKey]; err != nil || has {
 		f.Logf("read %s: %v", settings, err)
 		return Launch{}, exits.New(exits.CodeRuntime, nil, msgSettings, exits.Name(settings))
+	}
+	obj, err = underExtra(f, obj)
+	if err != nil {
+		return Launch{}, err
 	}
 	obj[inboundKey], err = json.Marshal(f.Inbound)
 	if err != nil {
@@ -127,6 +138,44 @@ func (claude) Prepare(f RunFacts) (Launch, error) {
 	}
 	args = append(args, "--plugin-dir", f.Kit.PluginDir(), "--settings", f.Run.Settings())
 	return Launch{Args: args}, nil
+}
+
+// readObject reads path through the trusted read as one JSON object, never nil.
+func readObject(f RunFacts, path string) (map[string]json.RawMessage, error) {
+	data, err := f.ReadTrusted(path, MaxSettings)
+	if err != nil {
+		return nil, err
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return nil, err
+	}
+	if obj == nil {
+		return nil, errors.New("null, not an object")
+	}
+	return obj, nil
+}
+
+// underExtra is the kit's object merged over the extra settings' (H4): the kit's keys win,
+// and extra settings naming a key the kit owns are refused.
+func underExtra(f RunFacts, kit map[string]json.RawMessage) (map[string]json.RawMessage, error) {
+	if f.ExtraSettings == "" {
+		return kit, nil
+	}
+	extra, err := readObject(f, f.ExtraSettings)
+	if err == nil {
+		for _, k := range kitOwnedKeys {
+			if _, has := extra[k]; has {
+				err = fmt.Errorf("holds %s", k)
+			}
+		}
+	}
+	if err != nil {
+		f.Logf("read %s: %v", f.ExtraSettings, err)
+		return nil, exits.New(exits.CodeLaunch, nil, msgExtraSettings, exits.Name(f.ExtraSettings))
+	}
+	maps.Copy(extra, kit)
+	return extra, nil
 }
 
 // resume is --resume <id> when the conversation record names a session whose transcript is in

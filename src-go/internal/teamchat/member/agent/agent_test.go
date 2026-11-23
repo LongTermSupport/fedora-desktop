@@ -70,6 +70,9 @@ type facts struct {
 	t        *testing.T
 	settings string
 	readErr  error
+	extra    string
+	extraErr error
+	reads    []string
 	writeErr error
 	conv     state.Conversation
 	convErr  error
@@ -97,11 +100,16 @@ func newFacts(t *testing.T) *facts {
 	x.f = RunFacts{
 		Inbound: state.InboundAccept, Kit: kit, Run: layout.Run(id), Cwd: cwd, Home: home,
 		ReadTrusted: func(path string, limit int) ([]byte, error) {
-			if path != kit.Settings() {
-				t.Errorf("read %s, not the kit's settings", path)
-			}
+			x.reads = append(x.reads, path)
 			x.limit = limit
-			return []byte(x.settings), x.readErr
+			switch {
+			case path == kit.Settings():
+				return []byte(x.settings), x.readErr
+			case path == x.f.ExtraSettings && path != "":
+				return []byte(x.extra), x.extraErr
+			}
+			t.Errorf("read %s, not the kit's settings nor the extra settings", path)
+			return nil, errors.New("not a settings file")
 		},
 		WriteRunFile: func(path string, data []byte) error {
 			if x.writeErr != nil {
@@ -158,7 +166,7 @@ func TestKitSettingsThatAreNotAnObjectWithoutTheKeyAreRefused(t *testing.T) {
 	}{
 		"unreadable":  {err: errors.New("not regular"), log: "not regular"},
 		"not JSON":    {text: "{", log: "unexpected end of JSON input"},
-		"null":        {text: "null", log: "<nil>"},
+		"null":        {text: "null", log: "null, not an object"},
 		"has the key": {text: `{"crossSessionInbound":"accept"}`, log: "<nil>"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -284,5 +292,74 @@ func TestAResumeRefusedSaysWhyAndAppendsTheRest(t *testing.T) {
 func TestProjectDirIsEveryByteButLettersAndDigitsAsADash(t *testing.T) {
 	if got := projectDir("/a/B9.c_d-é"); got != "-a-B9-c-d---" {
 		t.Fatalf("projectDir %q", got)
+	}
+}
+
+const extraPath = "/run/user/1/cc/cc-deny.json"
+
+// H4: the extra settings' object is merged under the kit's, the kit's keys winning.
+func TestExtraSettingsAreMergedUnderTheKits(t *testing.T) {
+	x := newFacts(t)
+	x.f.ExtraSettings = extraPath
+	x.settings = `{"theme":"dark","model":"kit"}`
+	x.extra = `{"permissions":{"deny":["Bash(curl:*)"]},"model":"extra"}`
+	l, err := x.prepare()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(l.Args, x.tail()) {
+		t.Errorf("args %q", l.Args)
+	}
+	want := `{"crossSessionInbound":"accept","model":"kit","permissions":{"deny":["Bash(curl:*)"]},"theme":"dark"}`
+	if got := x.written[x.f.Run.Settings()]; got != want {
+		t.Errorf("written %s, want %s", got, want)
+	}
+	if !slices.Equal(x.reads, []string{x.f.Kit.Settings(), extraPath}) || x.limit != MaxSettings {
+		t.Errorf("reads %q, limit %d", x.reads, x.limit)
+	}
+}
+
+func TestNoExtraSettingsReadsOnlyTheKits(t *testing.T) {
+	x := newFacts(t)
+	if _, err := x.prepare(); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(x.reads, []string{x.f.Kit.Settings()}) {
+		t.Errorf("reads %q", x.reads)
+	}
+}
+
+// H4: extra settings that would set what the kit owns, or that a trusted read refuses (a link,
+// another user's file), or that are no object, are refused as configuration (78), and nothing
+// is written.
+func TestExtraSettingsRefused(t *testing.T) {
+	for name, tc := range map[string]struct {
+		text string
+		err  error
+	}{
+		"the inbound key":      {text: `{"crossSessionInbound":"accept"}`},
+		"hooks":                {text: `{"hooks":{}}`},
+		"a status line":        {text: `{"statusLine":{"type":"command","command":"x"}}`},
+		"a link or another's":  {err: errors.New("keeper: not a regular file of this user or root")},
+		"not JSON":             {text: "{"},
+		"null":                 {text: "null"},
+		"an array, not object": {text: "[]"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			x := newFacts(t)
+			x.f.ExtraSettings = extraPath
+			x.extra, x.extraErr = tc.text, tc.err
+			l, err := x.prepare()
+			var e *exits.Error
+			if !errors.As(err, &e) || e.Exit != exits.ExitConfig || len(l.Args) != 0 {
+				t.Fatalf("Prepare = %+v, %v", l, err)
+			}
+			if !strings.Contains(e.Message, extraPath) {
+				t.Errorf("message %q", e.Message)
+			}
+			if len(x.written) != 0 {
+				t.Errorf("written %q", x.written)
+			}
+		})
 	}
 }

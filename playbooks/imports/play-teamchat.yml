@@ -406,19 +406,22 @@
             quiet: true
           tags: [admin]
 
+        # The kit is assembled whole by its own program (binary, plugin, hooks, skill and
+        # settings), into an empty directory named for the build, so a host `run --claude`
+        # finds the plugin and the settings. The assembly refuses a directory that is not empty.
         - name: Make the Kit Directory
           ansible.builtin.file:
-            path: "{{ tc_kit_root }}/{{ tc_tree.stdout }}/bin"
+            path: "{{ tc_kit_root }}/{{ tc_tree.stdout }}"
             state: directory
             owner: root
             group: root
             mode: "0755"
           tags: [member]
 
-        - name: Copy the Member Program Into Its Kit
+        - name: Copy the Member Program Beside the Kits
           ansible.builtin.copy:
             src: "{{ tc_build_dir.path }}/{{ teamchat_arch[tc_arch].goarch }}/teamchat"
-            dest: "{{ tc_kit_root }}/{{ tc_tree.stdout }}/bin/teamchat"
+            dest: "{{ tc_lib_dir }}/teamchat-member-{{ tc_tree.stdout }}"
             owner: root
             group: root
             mode: "0755"
@@ -426,7 +429,7 @@
 
         - name: Read the Copied Member Program
           ansible.builtin.stat:
-            path: "{{ tc_kit_root }}/{{ tc_tree.stdout }}/bin/teamchat"
+            path: "{{ tc_lib_dir }}/teamchat-member-{{ tc_tree.stdout }}"
             checksum_algorithm: sha256
           register: tc_copied_member
           tags: [member]
@@ -435,7 +438,33 @@
           ansible.builtin.assert:
             that:
               - tc_copied_member.stat.checksum == tc_built.results[1].stat.checksum
-            fail_msg: The member program on the target is not the one the controller built; nothing is linked to it.
+            fail_msg: The member program on the target is not the one the controller built; no kit is assembled from it.
+            quiet: true
+          tags: [member]
+
+        - name: Assemble the Member Kit
+          ansible.builtin.command:
+            argv:
+              - "{{ tc_lib_dir }}/teamchat-member-{{ tc_tree.stdout }}"
+              - kit
+              - assemble
+              - --into
+              - "{{ tc_kit_root }}/{{ tc_tree.stdout }}"
+            creates: "{{ tc_kit_root }}/{{ tc_tree.stdout }}/settings.json"
+          tags: [member]
+
+        - name: Read the Kit's Member Program
+          ansible.builtin.stat:
+            path: "{{ tc_kit_root }}/{{ tc_tree.stdout }}/bin/teamchat"
+            checksum_algorithm: sha256
+          register: tc_kit_member
+          tags: [member]
+
+        - name: Check the Kit's Member Program Against the Controller's Hash
+          ansible.builtin.assert:
+            that:
+              - tc_kit_member.stat.checksum == tc_built.results[1].stat.checksum
+            fail_msg: The kit's member program is not the one the controller built; nothing is linked to it.
             quiet: true
           tags: [member]
       always:

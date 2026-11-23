@@ -129,6 +129,7 @@ var (
 	checkPerSource = &checker{validPerSource, "--{} takes a whole number, 1 to 256"}
 	checkListen    = &checker{validListen, "--{} takes one IP address in canonical form, not a wildcard and not the homeserver's own 127.0.0.1"}
 	checkDir       = &checker{absDir, msgDir}
+	checkFile      = &checker{absDir, msgFile}
 	checkList      = &checker{validList, "--{} takes a comma-separated list with no empty item"}
 	checkKind      = &checker{func(s string) bool { return slices.Contains(Kinds, Kind(s)) }, "--{} is one of ccy, lxc, host, other"}
 	checkRoom      = &checker{oneOf(historyRooms...), "--{} is main or questions"}
@@ -164,6 +165,7 @@ const (
 	verbGuestRemove = "guest remove"
 	verbSetAside    = "seat set-aside"
 	verbPlaceIssued = "seat place-issued"
+	verbKitAssemble = "kit assemble"
 )
 
 // The flags the code names.
@@ -280,6 +282,11 @@ var table = []Verb{
 		Name:  verbPlaceIssued,
 		Flags: []Flag{{Name: "checkout", Value: valueDir, Required: true, check: checkDir}},
 		Does:  "places the issued seat on stdin in this user's seat pool for the checkout",
+	},
+	{
+		Name:  verbKitAssemble,
+		Flags: []Flag{{Name: "into", Value: valueDir, Required: true, check: checkDir}},
+		Does:  "assembles this build's host kit (program, plugin, hooks, skill, settings) into its own empty digest directory; run by the install play",
 	},
 	{Name: verbGuestCheck, Flags: []Flag{userFlag, required(teamFlag)}, Does: "checks an LXC guest's user can run a member session; stdin the team's reach facts"},
 	{Name: verbPlaceBundle, Flags: []Flag{userFlag, keyFlag}, Does: "places the seat bundle on stdin as the keyed seat in the user's home"},

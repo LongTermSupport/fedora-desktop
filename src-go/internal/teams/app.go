@@ -33,6 +33,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/placeissued"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
@@ -347,7 +348,7 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 			return a.ContainerName.Run(ctx, rest[1:])
 		case "go-cache":
 			return a.GoCache.Run(ctx, rest[1:])
-		case verbLaunchArgs, verbSeatCheck, "seat-take", "bus-disconnected":
+		case verbLaunchArgs, verbSeatCheck, "seat-take", "bus-disconnected", "cc-run":
 			return a.Launch.Run(ctx, rest)
 		}
 	}
@@ -355,7 +356,8 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 		"internal restart-args <session>, internal claim-container-name <project> <suffix> <owner-pid>, " +
 		"internal go-cache <project> [z], internal launch-args <session> <checkout> <seats> <Z or empty> -- <mounts...>, " +
 		"internal seat-check <list> [--resolved], internal seat-take <list> [--no-prompt], " +
-		"or internal bus-disconnected <status> <pingbus> <pingbus arguments>.")
+		"internal bus-disconnected <status> <pingbus> <pingbus arguments>, " +
+		"or internal cc-run <tmp> <checkout> <session or empty> <cc pid> <seats> <true|false> -- <claude args...>.")
 }
 
 // inCheckout runs a flow that needs to be in a checkout, or fails (NeedCheckout has said why).
@@ -422,6 +424,7 @@ func newLaunch(h *host.Host, membershipInit *membership.Init, sys *system.Cmd) *
 			}
 			return store.Remove(session)
 		},
+		CC: teamchatlaunch.HostCC, Foreground: execx.OS{},
 	}
 }
 

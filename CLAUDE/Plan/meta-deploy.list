@@ -62,6 +62,10 @@
 # each v2 LXC seat's session unit with no [Install] and Restart=no, and where an earlier apply
 # made the seat's wants link it removes the link and STOPS that running session. From now on a
 # v2 LXC seat's session starts only on demand (teamchat-admin lxc restart --member).
+# Plan 00209 Task 5.1 step 2 (its member tag): the host kit is now assembled whole by its own
+# program (teamchat kit assemble) into a new digest directory, with the plugin, hooks, skill and
+# settings a host cc `run --claude` needs; the program is kept beside the kits as
+# /usr/local/lib/teamchat/teamchat-member-<digest>. Nothing running changes until a session starts.
 playbooks/imports/play-teamchat.yml
 # The ccy image is rebuilt once for the teamchat it carries; nothing a session does changes.
 # The same run installs issue #288's Go commands (ccy 3.122.26: ccy-sessions, ccy-teams and the
