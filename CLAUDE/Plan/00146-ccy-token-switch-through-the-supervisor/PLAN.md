@@ -192,9 +192,11 @@ Open (each can be answered in a line; my recommendation follows each):
   ccy on every machine that runs it, not only `ccy-teams`. ccy installs the timer itself, as
   an opt-in user unit (as `ccy-sessions` does for restore), so no play is needed on any
   machine. It covers host `cc` seats too, through the shared conversation record: a `cc`
-  seat stops its process where a ccy seat stops its container. LXC member sessions are in
-  scope from v2 Phase 5 (Plan 00209), when v2 deploys LXC members; v1 LXC members are
-  unchanged until then. A restart there is on demand, never an auto-start (Plan 00257 B.12).
+  seat stops its process where a ccy seat stops its container. Proven on cc and ccy first.
+  LXC member sessions are a near-future target (owner, Q65: LXC seats are heavily used), from
+  v2 Phase 5 (Plan 00209), when v2 deploys LXC members, and through the pinned binaries Plan
+  00262 would ship into an LXC guest; v1 LXC members are unchanged until then. A restart
+  there is on demand, never an auto-start (Plan 00257 B.12).
 - [ ] ⬜ **Task 2.5**: `CCY_VERSION` bump, `docs/ccy-changelog.md`, `docs/ccy.md` Tokens
   section ("switching account mid-session", the cold-cache cost, the `/login` hatch), help
   text.

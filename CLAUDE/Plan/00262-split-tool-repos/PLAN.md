@@ -19,11 +19,19 @@ Plan 00209, cheaper interim wins, and the owner decisions D1-D7.
 The recommendation is: fix CI wiring first and measure; then split a Go base module, teamchat
 and ccy, in that order, only after the v2 cut-over and v1 removal (Plan 00209 Task 6.5).
 
+**Owner direction (Q65), a second reason for the split:** LXC seats are heavily used, and the
+owner wants the cc, ccy and teamchat tooling in a standalone repository that ships pinned,
+released binaries, downloaded straight into an LXC guest, with no fedora-desktop checkout or
+play there. Nothing starts before v2 lands; Plan 00146's token restart is proven on cc and ccy
+first, and LXC members are a near-future target, not a distant one.
+
 ## Goals
 
 - Cut the wall time of the `ci/` diff gate and the full `F44` run.
 - A change to one tool does not run every other tool's tests.
 - fedora-desktop pins each split tool to one exact version, tracked by `vars/version-pins.yml`.
+- The agent tooling (cc, ccy, teamchat) ships released binaries with checksums that an LXC
+  guest installs directly, pinned, without fedora-desktop.
 
 ## Non-Goals
 
