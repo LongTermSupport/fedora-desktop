@@ -229,7 +229,15 @@ the link's serving of every verb (the engine, `engine/questionsverbs.go`), `repl
 and the thread form of a reply to an unattached post (2.3). Step 6 built: `verify --room`
 (2.8). Step 8 built on `v2-questions-docs`: the skill text and the reminder's `teamchat bump Q<n>`
 (A 13.3), and the owner's Lightning check (section 9), which waits for the owner. Step 7,
-delivery (section 4), is being built on `v2-questions`.
+delivery (section 4), in part on `v2-questions`: questions holds every non-parked member (A
+4.1; a park kicks, the rooms engine's membership diff shows a member missing, health's VW5 no
+longer names a worker in the room), its open power levels list the coordinator at 50 beside the
+humans with messages at 50, so a worker's post there is refused (A 4.2), and a worker accepts
+its invite (A 6.3) but joins only when a read by event ID is refused (`verify`, the relay),
+never syncing the room. In proto: the `relay` key (decoded, composed, rule 08), the relay check
+(`Judge.Relayed`, and `Judge.Fetched` for a restored item), the relay's transaction ID derived
+from the post and the seat, and the `relayed by:` line. Still to build: the coordinator's relay
+send and the worker's delivery.
 
 Known gaps of step 5, each a choice made in the build:
 

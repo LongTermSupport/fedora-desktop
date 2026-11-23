@@ -454,7 +454,8 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   - R0, the questions verbs ([DESIGN-questions-v2.md](DESIGN-questions-v2.md) section 5), on
     branch `v2-questions`: steps 1-6 built (sizes, attachment, the forms; QX3, QX4, QX7 and the
     `uncounted` hook line; the verbs end to end with the link-back; `verify --room`); step 7,
-    delivery to the asking seat, being built on `v2-questions`; step 8 built on
+    delivery to the asking seat, in part on `v2-questions` (questions membership and power
+    levels, the relay in proto); step 8 built on
     `v2-questions-docs` (the skill text, the owner's Lightning check HC-Q1 in the design's
     section 9, not yet run). [Build report](subagent-reports/r0-build-report.md).
 

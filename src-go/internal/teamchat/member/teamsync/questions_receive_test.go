@@ -2,10 +2,12 @@ package teamsync
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -95,18 +97,15 @@ func TestQS6AnUnmentionedHumanPostIsDeliveredAndAttached(t *testing.T) {
 	}
 }
 
-// QS6: another agent's post in questions is dropped `sender`: nothing is delivered.
-func TestQS6AWorkersPostInQuestionsIsDropped(t *testing.T) {
+// QS6 and A 4.2: a worker reads questions but cannot post there; the room refuses its post by
+// power level (the receiver's drop of an agent's post, `sender`, is proto's verdict test).
+func TestQS6AWorkersPostInQuestionsIsRefused(t *testing.T) {
 	w := newWorld(t)
-	w.inQuestions(peer, true)
-	w.readyCoordinator()
-	id := w.sayIn(w.qroom(), peer, map[string]any{"msgtype": "m.text", "body": "not mine to post"})
-	b := w.batchWith(lastIs(id))
-	if got := questionsItems(b); len(got) != 0 {
-		t.Errorf("a worker's post delivered: %v", got)
-	}
-	if b.Counts.Dropped == 0 {
-		t.Errorf("counts %+v: the post was not dropped", b.Counts)
+	w.inQuestions(peer, false)
+	data, err := json.Marshal(map[string]any{"msgtype": "m.text", "body": "not mine to post"})
+	check(t, err)
+	if _, err := w.client(peer).Send(t.Context(), w.qroom(), proto.MessageType, "", data); !errors.Is(err, matrix.ErrForbidden) {
+		t.Fatalf("a worker's post in questions: %v, want forbidden", err)
 	}
 }
 

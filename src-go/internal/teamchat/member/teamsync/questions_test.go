@@ -92,6 +92,14 @@ func (w *world) promote(local string) {
 	w.writeRoster(r)
 }
 
+// uninvited takes back the admin's invite of local to the questions room (every non-parked
+// member is invited when the roster is written, A 4.1): local then stands for a member whose
+// invite has not come yet.
+func (w *world) uninvited(local string) {
+	w.t.Helper()
+	check(w.t, w.admin().Kick(w.t.Context(), w.qroom(), user(local), "not yet"))
+}
+
 // invited is A 5.2: the admin invites the new coordinator to the questions room.
 func (w *world) invited(local string) {
 	w.t.Helper()
@@ -160,6 +168,7 @@ func TestQS2TheQuestionsRoomIsJoinedByTheRostersIDAtTheStart(t *testing.T) {
 // Tuwunel), so the invite as a signal is judged through handle in the QS1 test.
 func TestQS2ARefusedJoinAwaitsTheInviteAndTheInviteIsTheSignal(t *testing.T) {
 	w := newWorld(t)
+	w.uninvited(me)
 	w.promote(me)
 	tm := w.newTeam(withBuilder(&fakeBuilder{}))
 	r := w.startTeam(tm)
@@ -190,6 +199,7 @@ func TestQS2ARefusedJoinAwaitsTheInviteAndTheInviteIsTheSignal(t *testing.T) {
 // `invite`; the clock starts when this link first saw the roster name the member.
 func TestQS2NoInviteFor300sIsUntrusted(t *testing.T) {
 	w := newWorld(t)
+	w.uninvited(me)
 	w.promote(me)
 	tm := w.newTeam(withBuilder(&fakeBuilder{}))
 	r := w.startTeam(tm)
@@ -244,21 +254,21 @@ func TestQS1TheRosterAndTheInviteInOneAnswerJoinTheRoom(t *testing.T) {
 	}
 }
 
-// QS2: an invite to the questions room that proto.Invite rejects is left (a worker's), through
-// the team goroutine's answer, and the room is not joined.
-func TestQS2ARejectedInviteIsLeftThroughTheAnswer(t *testing.T) {
+// QS2 and A 6.3: a worker's invite to the questions room is accepted and kept, never left: the
+// worker joins the room only when it first fetches a post there (a relay, A 10.6), and never
+// syncs it.
+func TestQS2AWorkersInviteIsKeptNotLeft(t *testing.T) {
 	w := newWorld(t)
 	tm := w.newTeam()
 	s := w.directSess(tm, w.readRoster())
 	admin := proto.AdminID(server)
-	w.invited(me)
 	resp := matrix.SyncResponse{NextBatch: "n", Invite: map[string]matrix.InvitedRoom{w.qroom(): invite(admin, admin, user(me))}}
 	check(t, s.handle(t.Context(), "", answer{resp: resp}))
-	if n := w.leavesOf(w.qroom()); n != 1 {
-		t.Errorf("%d leaves of the room a worker was invited to, want 1", n)
+	if n := w.leavesOf(w.qroom()); n != 0 {
+		t.Errorf("%d leaves of the room a worker was invited to, want 0", n)
 	}
 	if n := w.joinsOf(w.qroom()); n != 0 {
-		t.Errorf("a worker joined the questions room %d times", n)
+		t.Errorf("a worker joined the questions room %d times at its invite", n)
 	}
 }
 

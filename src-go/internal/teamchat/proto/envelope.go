@@ -51,13 +51,15 @@ type Entry struct {
 	SentMs                                  int64
 	Re, Revises                             string
 	Question                                *EntryQuestion
-	Verb, Ref, Trust, Branch, Silent        string
-	Event, Subject, Reason                  string
-	Carried                                 *EntryCarried
-	Copy                                    []string
-	Body                                    string
-	Questions                               bool
-	Repeat, Restored                        bool
+	// RelayedBy is the coordinator's handle on a relayed HUMAN entry (A 10.6), "" for none.
+	RelayedBy                        string
+	Verb, Ref, Trust, Branch, Silent string
+	Event, Subject, Reason           string
+	Carried                          *EntryCarried
+	Copy                             []string
+	Body                             string
+	Questions                        bool
+	Repeat, Restored                 bool
 }
 
 // The fixed sentences of A 13.3.
@@ -136,6 +138,10 @@ func (e Entry) Lines() ([]string, error) {
 	e.questionLines(l)
 	if e.Revises != "" {
 		l.add("revises: " + e.Revises)
+	}
+	if e.RelayedBy != "" {
+		l.check("relayed", e.Kind == KindHuman && e.Questions && validHandle(e.RelayedBy))
+		l.add(relayedLine(e.RelayedBy))
 	}
 	l.check("handle", validHandle(e.Handle))
 	l.add("to: this session, as " + e.Handle)

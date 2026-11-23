@@ -107,7 +107,7 @@ func mainSpec(r Roster, id, description, hex string, full bool) RoomSpec {
 	}
 	s := RoomSpec{
 		Purpose: PurposeMain, RoomID: id, RoomVersion: RoomVersion,
-		State:   commonState(r.Name, topic, Obj(M("join_rule", Str("invite"))), openPowerLevels(r.Humans, agentMainLevel)),
+		State:   commonState(r.Name, topic, Obj(M("join_rule", Str("invite"))), mainPowerLevels(r.Humans)),
 		Members: sortedUnion(r.Humans, slices.Collect(maps.Keys(r.Members))),
 	}
 	if colour.Stored(hex) {
@@ -135,23 +135,31 @@ func reportsSpec(r Roster, id, mainID string, full bool) RoomSpec {
 	return s
 }
 
-// questionsSpec is open, with the coordinator invited, while the roster names a non-parked
-// coordinator, and closed otherwise (A 4.1, 4.3).
+// questionsSpec holds the humans and every non-parked member (A 4.1): the members read answers
+// by event ID, and only the humans and the coordinator post, by power level. It is open, the
+// coordinator at 50 beside the humans and messages at 50, while the roster names a non-parked
+// coordinator, and closed (messages at 100) otherwise (A 4.2, 4.3).
 func questionsSpec(server string, r Roster, id, mainID string, full bool) RoomSpec {
-	topic, level := closedTopic, int64(closedLevel)
-	var wanted []string
+	topic := closedTopic
+	power := powerLevels(r.Humans, humanMainLevel, agentMainLevel, mainRoomMentionLvl, closedLevel)
 	if coordinator, open := r.Coordinator(); open {
 		if handle, ok := Localpart(coordinator, server); ok {
 			topic = "Questions the coordinator " + handle +
 				" could not answer itself. Answer here; the coordinator reads every message in this room."
 		}
-		level, wanted = agentMainLevel, []string{coordinator}
+		power = powerLevels(sortedUnion(r.Humans, []string{coordinator}), humanMainLevel, agentMainLevel, mainRoomMentionLvl, humanMainLevel)
+	}
+	var readers []string
+	for member, m := range r.Members {
+		if !m.Parked {
+			readers = append(readers, member)
+		}
 	}
 	join := Obj(M("join_rule", Str("invite")))
 	s := RoomSpec{
 		Purpose: PurposeQuestions, RoomID: id, RoomVersion: RoomVersion,
-		State:   append(commonState(r.Name+" · questions", topic, join, openPowerLevels(r.Humans, level)), link(r.Team, PurposeQuestions, mainID)),
-		Members: sortedUnion(r.Humans, wanted),
+		State:   append(commonState(r.Name+" · questions", topic, join, power), link(r.Team, PurposeQuestions, mainID)),
+		Members: sortedUnion(r.Humans, readers),
 	}
 	if full {
 		s.Invite = s.Members
@@ -177,20 +185,20 @@ func commonState(name, topic string, join, power Value) []StateEvent {
 	}
 }
 
-// openPowerLevels is A 4.2's main-room form, humans at 50; messageLevel 0 is main and open
-// questions, 100 closed questions.
-func openPowerLevels(humans []string, messageLevel int64) Value {
-	return powerLevels(humans, humanMainLevel, agentMainLevel, mainRoomMentionLvl, messageLevel)
+// mainPowerLevels is A 4.2's main-room form, humans at 50, messages open to everyone.
+func mainPowerLevels(humans []string) Value {
+	return powerLevels(humans, humanMainLevel, agentMainLevel, mainRoomMentionLvl, agentMainLevel)
 }
 
 func reportsPowerLevels(humans []string) Value {
 	return powerLevels(humans, humanReportsLevel, agentReportsLevel, closedLevel, agentReportsLevel)
 }
 
-func powerLevels(humans []string, humanLevel, usersDefault, roomMention, messageLevel int64) Value {
-	users := make([]Member, 0, len(humans))
-	for _, h := range sortedUnion(humans, nil) {
-		users = append(users, M(h, Int(humanLevel)))
+// powerLevels lists each of posters at level in `users`.
+func powerLevels(posters []string, level, usersDefault, roomMention, messageLevel int64) Value {
+	users := make([]Member, 0, len(posters))
+	for _, h := range sortedUnion(posters, nil) {
+		users = append(users, M(h, Int(level)))
 	}
 	return Obj(
 		M("users", Obj(users...)), M("users_default", Int(usersDefault)),

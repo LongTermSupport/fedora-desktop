@@ -144,8 +144,11 @@ func (c Composer) Text(t Text, replyTo, display string) (Outgoing, error) {
 	if replyTo != "" {
 		rel = ReplyTo(replyTo)
 	}
-	obj := Obj(M("v", Int(WireMajor)), M("to", strArray(t.To)), M("text", Str(t.Text)))
-	content := formatted(agentContent(msgtype, display, t.To, rel, KeyText, obj))
+	members := []Member{M("v", Int(WireMajor)), M("to", strArray(t.To)), M("text", Str(t.Text))}
+	if r := t.Relay; r != nil {
+		members = append(members, M("relay", Obj(M("room", Str(r.Room)), M("id", Str(r.ID)), M("q", Int(r.Q)))))
+	}
+	content := formatted(agentContent(msgtype, display, t.To, rel, KeyText, Obj(members...)))
 	if _, err := c.checkMain(class, content); err != nil {
 		return Outgoing{}, err
 	}

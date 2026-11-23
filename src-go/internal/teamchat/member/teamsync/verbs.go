@@ -194,7 +194,7 @@ func (t *Team) verify(ctx context.Context, id string, room *string) (records.Ver
 		if err != nil {
 			return records.Verified{}, err
 		}
-		raw, err := c.GetEvent(ctx, roomID, id)
+		raw, err := t.getEvent(ctx, c, purpose, roomID, id, r, a.Self)
 		// A member outside questions is refused its events: to it they are not there.
 		if errors.Is(err, matrix.ErrNotFound) || purpose == proto.PurposeQuestions && errors.Is(err, matrix.ErrForbidden) {
 			continue
@@ -213,6 +213,25 @@ func (t *Team) verify(ctx context.Context, id string, room *string) (records.Ver
 		msg = notInRooms
 	}
 	return records.Verified{}, exits.New(exits.CodeNotFound, &t.cfg.Team, msg, exits.Name(id))
+}
+
+// getEvent is GetEvent of id in roomID, the room of purpose. A member that does not coordinate
+// reads questions by event ID only (A 4.1, 10.6): refused, it joins the room by the invite every
+// non-parked member holds and reads again. It never syncs the room; the coordinator's own join
+// is QS2's.
+func (t *Team) getEvent(ctx context.Context, c *matrix.Client, purpose, roomID, id string, r proto.Roster, self string) (json.RawMessage, error) {
+	raw, err := c.GetEvent(ctx, roomID, id)
+	if purpose != proto.PurposeQuestions || !errors.Is(err, matrix.ErrForbidden) {
+		return raw, err
+	}
+	if coordinator, ok := r.Coordinator(); ok && coordinator == self {
+		return raw, err
+	}
+	if _, joinErr := c.Join(ctx, roomID); joinErr != nil {
+		t.log.Printf("the questions room was not joined to read %s: %s", id, matrix.Cause(joinErr))
+		return raw, err
+	}
+	return c.GetEvent(ctx, roomID, id)
 }
 
 // verifiedRecord is m, read from room purpose, as verify's record.

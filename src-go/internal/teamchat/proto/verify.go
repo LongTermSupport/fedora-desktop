@@ -188,7 +188,7 @@ func Invite(roomID, inviter, createSender string, a Anchors, roster *Roster) Inv
 	case roster == nil:
 		return InvitePending
 	case roomID == roster.Rooms.Questions:
-		if coordinator, ok := roster.Coordinator(); ok && coordinator == a.Self {
+		if m, listed := roster.Members[a.Self]; listed && !m.Parked {
 			return InviteAccept
 		}
 		return InviteReject

@@ -169,6 +169,7 @@ func newTeamChanges(ids proto.RoomIDs) []string {
 		"room main invited " + alice, "room main invited " + bob, "room main invited " + coord, "room main invited " + worker,
 		"room reports invited " + alice, "room reports invited " + bob,
 		"room questions invited " + alice, "room questions invited " + bob, "room questions invited " + coord,
+		"room questions invited " + worker,
 	}
 }
 
@@ -189,7 +190,7 @@ func TestConvergeNewTeam(t *testing.T) {
 	if !slices.Equal(rec.log, wantLog) {
 		t.Errorf("recorder log %v", rec.log)
 	}
-	wantKinds := append([]string{"create", "create", "create", "state"}, slices.Repeat([]string{"invite"}, 9)...)
+	wantKinds := append([]string{"create", "create", "create", "state"}, slices.Repeat([]string{"invite"}, 10)...)
 	if got := w.kinds(0); !slices.Equal(got, wantKinds) {
 		t.Errorf("write order %v", got)
 	}
@@ -529,7 +530,8 @@ func TestConvergeRosterRev(t *testing.T) {
 	}
 	w.team.Roster.Members[worker] = proto.RosterMember{Role: proto.RoleWorker, HumanText: true, Parked: true}
 	res := w.converge(t, ids)
-	if res.RosterRev != 6 || !slices.Equal(res.Changed, []string{"room main state teamchat.roster"}) {
+	// A park kicks the member from questions (A 4.3): every non-parked member reads it.
+	if res.RosterRev != 6 || !slices.Equal(res.Changed, []string{"room questions kicked " + worker, "room main state teamchat.roster"}) {
 		t.Fatalf("file ahead: %+v, want rev 6", res)
 	}
 	// The event's rev ahead of the file's.

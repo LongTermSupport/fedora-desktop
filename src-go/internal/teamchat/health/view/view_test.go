@@ -143,7 +143,7 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	w.join(t, coord, w.rooms.Main, w.rooms.Reports, w.rooms.Questions)
-	w.join(t, worker, w.rooms.Main, w.rooms.Reports)
+	w.join(t, worker, w.rooms.Main, w.rooms.Reports, w.rooms.Questions)
 	return w
 }
 
@@ -251,7 +251,7 @@ func TestAConvergedTeamHasNoProblem(t *testing.T) {
 	coordDuty, workerDuty := duty.Coordinator, duty.Worker
 	want := []status.Member{
 		{Handle: coord, Kind: "podman", Role: proto.RoleCoordinator, Duty: &coordDuty, State: apply.MemberEnrolled, Rooms: map[string]string{"main": "join", "reports": "join", "questions": "join"}},
-		{Handle: worker, Kind: "podman", Role: proto.RoleWorker, Duty: &workerDuty, State: apply.MemberEnrolled, Rooms: map[string]string{"main": "join", "reports": "join"}},
+		{Handle: worker, Kind: "podman", Role: proto.RoleWorker, Duty: &workerDuty, State: apply.MemberEnrolled, Rooms: map[string]string{"main": "join", "reports": "join", "questions": "join"}},
 	}
 	wantMembers(t, v.Members, want)
 	if len(v.Humans) != 2 || v.Humans[0].Name != "alice" || v.Humans[1].Name != "bob" {
@@ -393,17 +393,21 @@ func TestRefusedDriftNamesItsRoomAndStep(t *testing.T) {
 	}
 }
 
-// VW5: a worker in the questions room.
-func TestAWorkerInTheQuestionsRoomIsAProblem(t *testing.T) {
+// VW5, amended (DESIGN-questions-v2 8.1): every non-parked member reads questions, so a worker
+// out of it is drift the rooms engine repairs, and a worker in it is no problem.
+func TestAWorkerOutOfTheQuestionsRoomIsAProblem(t *testing.T) {
 	w := newWorld(t)
-	if err := w.admin.Invite(t.Context(), w.rooms.Questions, user(worker)); err != nil {
+	if err := w.admin.Kick(t.Context(), w.rooms.Questions, user(worker), "test"); err != nil {
 		t.Fatal(err)
 	}
-	v := w.read(t)
-	got := whats(v.Problems)
-	if !slices.Contains(got, "the worker "+worker+" is in the questions room | ccy-teams apply alpha") ||
-		!slices.Contains(got, "room questions: would kick "+user(worker)+" | ccy-teams apply alpha") {
+	got := whats(w.read(t).Problems)
+	if !slices.Contains(got, "room questions: would invite "+user(worker)+" | ccy-teams apply alpha") {
 		t.Fatalf("problems %v", got)
+	}
+	for _, p := range got {
+		if strings.Contains(p, "the worker") {
+			t.Fatalf("a worker in questions is a problem again: %v", got)
+		}
 	}
 }
 
