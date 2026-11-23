@@ -3606,6 +3606,35 @@ difference is a numbered bug of that plan's `SPEC-qa-changed.md` section 10 pinn
 `testdata/deviations.json`), and `test-qa-changed.bash`, the black-box suite, which runs
 unmodified against the wrapper or, with `QA_CHANGED_BIN=<built binary>`, against the binary.
 
+**A local run is lean; CI runs everything.** When the `CI` environment variable is unset, `false`
+or `0` (a developer's machine), two things run less than the table above says. CI (GitHub sets
+`CI=true`) runs both in full, so CI's diff run and the full `qa-all.bash` on a protected branch
+judge exactly what they did before; `CI=1 ./scripts/qa-changed.bash` reproduces CI locally.
+
+- **The semgrep rule gates scan the changed files only.** The eight gates of the `ghscopes`
+  engine (`arch-pin`, `argv-leak`, `boot-hold`, `gh-poll`, `place-issued-token`, `secret-screen`,
+  `gh-scopes`, `find-race`) are given the changed files after `--` instead of scanning every
+  published file; the gate still proves its rule against its fixture first, still drops files the
+  trees table keeps out, and passes when none of the named files is one it reads. A change to the
+  gate itself (a file under `.semgrep/` or `src-go/qa/`, the gate's wrapper,
+  `scripts/lib/go-tool.bash`, `scripts/qa-trees.tsv`) runs it whole, because the rule must be
+  re-applied to every file.
+- **A command suite whose inputs passed before is skipped.** A suite picked only because its Go
+  command's build closure changed (`builds from …`; the `ccy-*` suites of
+  `scripts/go-binary-suites.tsv`) is not run again when a pass was recorded over the same inputs:
+  every file under the closure's package directories, `src-go/go.mod` and `go.sum`, the suite
+  script, its command lines from `qa-gates.tsv` and the Go toolchain, hashed by
+  `src-go/qa/suitepass`. The report says `skipped, unchanged since a recorded pass`. A suite
+  picked for any other reason (it names or reaches a changed file, or changed itself) always runs,
+  and a failed run records nothing. Passes are empty files named by the key under
+  `QA_SUITE_PASSES`, else `$XDG_CACHE_HOME` or `$HOME/.cache`, in `fedora-desktop-qa/suite-passes`;
+  delete that directory to forget them. CI never reads it.
+
+The Go gate itself is go-qa-ci's: its test step (`go test -race -shuffle=on -count=1` over the
+changed packages and every importer) is fixed in go-qa-ci, and making it cache-aware and narrowing
+`-race` and coverage to the changed packages is upstream work, as is a per-stage "CI only" option
+for the cross-builds and tagged vets of `src-go/qa/go-qa.toml`.
+
 ---
 
 ## QA runs one at a time: the QA lock and low priority
