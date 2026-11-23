@@ -208,6 +208,15 @@ it itself (#364: a worker must not act on a peer's relay of an owner ruling).
 
 Each step: write the test, see it fail, then the code. Fakes only (fakehs, the fake clock).
 
+**Status:** steps 1-3 built on `v2-questions`.
+
+Step 3 settled three points the sections above left open. The index keeps each question's
+sender (`from`, 128 bytes at most), so the fold itself checks that a retitle edit comes from the
+question's sender, and a rebuild gives the same answer as the live fold. A `reply` to an
+attached post mentions only that post's sender (`ThreadPost.To`) and does not wait. The new
+fields (`from`, `why`, `waiting_ms`) keep the worst-case state within QX6's 5 120 bytes per
+question, so `MaxQuestionsStateBytes` is unchanged.
+
 1. **#365 sizes** (exits helper). Red: `say` and `report` refusals over the cap say both sizes.
 2. **proto: section 3.** Red: #367's comment scenario: a question; a human top-level `Q3:` post;
    an agent's plain reply; a human reply to that; a human thread on it: all attach to Q3, live

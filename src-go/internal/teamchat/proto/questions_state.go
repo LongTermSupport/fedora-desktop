@@ -263,6 +263,9 @@ func (q IndexedQuestion) check(c *stateRules, server string) {
 	c.need(distinctList(q.AskedBy, 0, MaxAskedBy, func(id string) bool { return validIndexUserOf(id, server) }), "asked_by is not at most 16 distinct user ids of the server")
 	c.need(distinctList(q.Re, 0, MaxQuestionRe, ValidEventID), "re is not at most 16 distinct event ids")
 	c.need(q.AskedMs >= 0, "asked_ms is negative")
+	c.need(q.From == "" || validIndexUserOf(q.From, server), "a question's from is not a user id of the server")
+	c.need(q.Why == "" || slices.Contains(WhyWords, q.Why), "a question's why is not one of the four words")
+	c.need(q.WaitingMs >= 0, "waiting_ms is negative")
 	c.need(q.RemindAfterS == 0 || q.RemindAfterS >= MinRemindS && q.RemindAfterS <= MaxRemindS, "remind_after_s is not 0 or 600 to 604800")
 	c.need(q.Attached >= 0, "attached is negative")
 	c.need(distinctList(q.Unanswered, 0, MaxUnanswered, ValidEventID), "unanswered is not at most 16 distinct event ids")
@@ -273,9 +276,9 @@ func (q IndexedQuestion) check(c *stateRules, server string) {
 
 func (q IndexedQuestion) checkHeld(c *stateRules) {
 	c.need(q.Closed, "a held number is not closed")
-	c.need(q.Latest == "" && q.Headline == "" && q.Hash == "", "a held number has text")
+	c.need(q.Latest == "" && q.Headline == "" && q.Hash == "" && q.From == "" && q.Why == "", "a held number has text")
 	c.need(len(q.AskedBy) == 0 && len(q.Re) == 0 && len(q.Unanswered) == 0, "a held number has a list")
-	c.need(q.AskedMs == 0 && q.RemindAfterS == 0 && q.Attached == 0 && q.UnansweredMore == 0, "a held number has a count")
+	c.need(q.AskedMs == 0 && q.RemindAfterS == 0 && q.WaitingMs == 0 && q.Attached == 0 && q.UnansweredMore == 0, "a held number has a count")
 }
 
 func headlineRunes(s string) int { return utf8.RuneCountInString(s) }

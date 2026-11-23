@@ -21,7 +21,6 @@ const reportsVerifyWait = 30 * time.Second
 
 const (
 	msgNoReportText    exits.Template = "report reads its text on stdin, and none was given"
-	msgReportSize      exits.Template = "a report is at most 1500 bytes; it is never cut, so shorten it"
 	msgReportNoHead    exits.Template = "a report's first line, its headline, is empty; the first line is the headline, 1 to 120 characters"
 	msgReportLongHead  exits.Template = "a report's headline, its first line, is over 120 characters; the first line is 1 to 120 characters"
 	msgReportRate      exits.Template = "team {} allows {} reports an hour and they are made; the oldest leaves the window in {} seconds; a report that was not posted still counts"
@@ -33,7 +32,7 @@ const (
 // comes first (64), then the sender's role (11), the size and the headline (10 body), the secret
 // check (10 secret), the room (RP4), the window and the gate (14, 15), and the charge; the
 // first three are the composer's, in its order, and the rest are send's.
-func (e *Engine) report(ctx context.Context, a wire.ReportArgs, stdin *string, out RecordWriter) wire.Done {
+func (e *Engine) report(ctx context.Context, a wire.ReportArgs, stdin *string, whole int64, out RecordWriter) wire.Done {
 	st, err := e.reportingTeam(ctx, a.Team)
 	if err != nil {
 		return doneOf(err)
@@ -44,7 +43,7 @@ func (e *Engine) report(ctx context.Context, a wire.ReportArgs, stdin *string, o
 	text := *stdin
 	return e.send(ctx, st, state.SendReport, func(c proto.Composer) (proto.Outgoing, error) {
 		o, err := c.Report(text)
-		return o, reportBodyError(st.id, text, err)
+		return o, reportBodyError(st.id, text, whole, err)
 	}, out)
 }
 
@@ -76,15 +75,16 @@ func (e *Engine) reportingTeam(ctx context.Context, flag *paths.TeamID) (sendTea
 }
 
 // reportBodyError is a composer's refusal of a report's form as the exit it is, its message
-// naming which rule the text broke (RP3 step 3); any other error passes unchanged.
-func reportBodyError(t paths.TeamID, text string, err error) error {
+// naming which rule the text broke (RP3 step 3), a size its size and the limit: the whole
+// stdin's when the client cut the text (#365); any other error passes unchanged.
+func reportBodyError(t paths.TeamID, text string, whole int64, err error) error {
 	re, ok := errors.AsType[*proto.RefusalError](err)
 	if !ok || re.Reason != proto.ReasonBody {
 		return err
 	}
 	switch headline := strings.TrimSpace(strings.SplitN(text, "\n", 2)[0]); {
 	case len(text) > proto.MaxReportBody:
-		return exits.New(exits.CodeBody, &t, msgReportSize)
+		return exits.TooLarge(exits.CodeBody, &t, max(whole, int64(len(text))), proto.MaxReportBody)
 	case headline == "":
 		return exits.New(exits.CodeBody, &t, msgReportNoHead)
 	case utf8.RuneCountInString(headline) > proto.MaxHeadline:

@@ -33,7 +33,7 @@ func TestComposeQuestion(t *testing.T) {
 	if v.Outcome != Index || !c.Questions.Feed(v) || c.Questions.Next() != 2 {
 		t.Errorf("the index did not count the question: %v %q", v.Outcome, v.Reason)
 	}
-	_, err := c.Question(QuestionPost{Text: "Again\nContext: x\nQuestion: MIT  or\nCC-BY?"})
+	_, err := c.Question(QuestionPost{Text: "Again\nContext: x\nQuestion: MIT  or\nCC-BY?\nWhy a human: preference"})
 	refusedWith(t, "the same question again", err, ReasonDuplicate)
 }
 
@@ -47,7 +47,7 @@ func TestComposeQuestionRefuses(t *testing.T) {
 		"probe":      {probeID, QuestionPost{Text: goodQuestion}, ReasonRole},
 		"parked":     {parkedID, QuestionPost{Text: goodQuestion}, ReasonSender},
 		"form":       {coordID, QuestionPost{Text: "Head\nQuestion: x"}, ReasonBody},
-		"secret":     {coordID, QuestionPost{Text: "Head\nContext: " + ownSample + "\nQuestion: x"}, ReasonSecret},
+		"secret":     {coordID, QuestionPost{Text: "Head\nContext: " + ownSample + "\nQuestion: x\nWhy a human: decision"}, ReasonSecret},
 		"asked by":   {coordID, QuestionPost{Text: goodQuestion, AskedBy: []string{aliceID}}, ReasonTarget},
 		"numbered":   {coordID, QuestionPost{N: 4, Text: goodQuestion}, ReasonSchema},
 		"remind":     {coordID, QuestionPost{Text: goodQuestion, RemindAfterS: 60}, ReasonSchema},
@@ -74,7 +74,7 @@ func TestComposeAdminQuestion(t *testing.T) {
 
 func TestComposeThreadPost(t *testing.T) {
 	c := asked(t)
-	out := mustSend(t)(c.Thread(ThreadPost{N: 1, Text: "Relayed."}))
+	out := mustSend(t)(c.Thread(ThreadPost{N: 1, Text: "Relayed.", Note: true}))
 	if !at(t, out.Content, keyRelatesTo).Equal(InThread(qid('a'), qid('h'), true).Encode()) {
 		t.Errorf("the fallback names the thread's latest: %s", at(t, out.Content, keyRelatesTo).Compact())
 	}
@@ -84,15 +84,15 @@ func TestComposeThreadPost(t *testing.T) {
 	if v := receive(t, out, coordID, coordID); v.Outcome != Index || !c.Questions.Feed(v) {
 		t.Errorf("the index did not take the post: %v %q", v.Outcome, v.Reason)
 	}
-	out = mustSend(t)(c.Thread(ThreadPost{N: 1, Answers: qid('h'), Ask: true, Close: true}))
+	out = mustSend(t)(c.Thread(ThreadPost{N: 1, Answers: qid('h'), Close: true}))
 	if !at(t, out.Content, keyRelatesTo).Equal(InThread(qid('a'), qid('h'), false).Encode()) {
 		t.Errorf("an answer names the post: %s", at(t, out.Content, keyRelatesTo).Compact())
 	}
 	if at(t, out.Content, "body").Str() != "Q1 closed." || !at(t, out.Content, KeyThread, "close").Bool() {
 		t.Errorf("a closing post = %s", out.Content.Compact())
 	}
-	if at(t, out.Content, "msgtype").Str() != MsgText || !slices.Equal(userIDs(t, out.Content), []string{aliceID}) {
-		t.Errorf("a post that asks again notifies: %s", out.Content.Compact())
+	if at(t, out.Content, "msgtype").Str() != MsgNotice || len(userIDs(t, out.Content)) != 0 {
+		t.Errorf("a close is quiet: %s", out.Content.Compact())
 	}
 }
 

@@ -91,6 +91,44 @@ func TestQuestionIndexIsIdempotentByEventID(t *testing.T) {
 	}
 }
 
+// #367, A 10.4 rules 1-2 as amended (DESIGN-questions-v2 section 3): attachment is inherited
+// through any event attached to a question, never cut by a top-level hop. A top-level `Q1:`
+// post; a reply to it; a thread rooted on it; a reply to that reply; an agent's answer in Q1's
+// thread to the top-level post and a human reply to that: all attach to Q1, live and rebuilt
+// alike. A reply to an unattached post stays unattached.
+func TestIssue367AttachmentIsInheritedThroughAnyAttachedEvent(t *testing.T) {
+	r := newQuestionRoom(t, 0)
+	q1, top, reply, inThread, deeper, answer, onAnswer := qid('a'), qid('b'), qid('c'), qid('d'), qid('e'), qid('f'), qid('g')
+	r.post(q1, coordID, 9000, questionPost(1, goodQuestion, ""))
+	for _, step := range []struct{ id, content string }{
+		{top, humanPost("Q1: MIT, but see below", "")},
+		{reply, humanPost("and the logo too", replyRel(top))},
+		{inThread, humanPost("a thread on it", threadRel(top))},
+		{deeper, humanPost("one more", replyRel(reply))},
+	} {
+		if n := r.post(step.id, aliceID, 8000, step.content); n != 1 {
+			t.Fatalf("%s attached to Q%d, want Q1", step.id, n)
+		}
+	}
+	r.post(answer, coordID, 7000, threadPost(1, q1, top, false))
+	if n := r.post(onAnswer, aliceID, 6000, humanPost("thanks", replyRel(answer))); n != 1 {
+		t.Fatalf("a reply to the answer attached to Q%d, want Q1", n)
+	}
+	lone, loneReply := qid('h'), qid('i')
+	r.post(lone, aliceID, 5000, humanPost("unrelated", ""))
+	if n := r.post(loneReply, aliceID, 4000, humanPost("still unrelated", replyRel(lone))); n != 0 {
+		t.Fatalf("a reply to an unattached post attached to Q%d", n)
+	}
+	live := stateJSON(t, r.index)
+	r.index = NewQuestionIndex(testServer, 0)
+	for _, v := range r.seen {
+		r.fold(v)
+	}
+	if got := stateJSON(t, r.index); got != live {
+		t.Fatalf("rebuilt differs from live:\nlive    %s\nrebuilt %s", live, got)
+	}
+}
+
 func TestQuestionIndexAttachesWhateverTheVerdict(t *testing.T) {
 	r := newQuestionRoom(t, 0)
 	q1 := qid('a')

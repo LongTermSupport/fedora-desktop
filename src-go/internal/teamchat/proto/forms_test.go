@@ -13,7 +13,41 @@ func refusalOf(err error) string {
 	return ""
 }
 
-const goodQuestion = "Which licence for the docs site?\nContext: the site goes public.\nQuestion: MIT or CC-BY?\nOptions:\n1. MIT\n2. CC-BY-4.0"
+const goodQuestion = "Which licence for the docs site?\nContext: the site goes public.\nQuestion: MIT or CC-BY?\nWhy a human: decision on the licence\nOptions:\n1. MIT\n2. CC-BY-4.0"
+
+func TestWhyAHuman(t *testing.T) {
+	why, err := WhyOf(goodQuestion)
+	if err != nil || why != WhyDecision {
+		t.Errorf("WhyOf(goodQuestion) = %q, %v", why, err)
+	}
+	for name, text := range map[string]string{
+		"missing":    "Head\nContext: x\nQuestion: y",
+		"other word": "Head\nContext: x\nQuestion: y\nWhy a human: because",
+		"empty":      "Head\nContext: x\nQuestion: y\nWhy a human:",
+	} {
+		_, err := WhyOf(text)
+		refusedWith(t, name, err, ReasonBody)
+		if err == nil || !strings.Contains(err.Error(), "Why a human:") || !strings.Contains(err.Error(), "credential") {
+			t.Errorf("%s: the refusal names neither the section nor the words: %v", name, err)
+		}
+	}
+	_, section, err := QuestionForm(1, "Q1 "+goodQuestion)
+	if err != nil || section != "MIT or CC-BY?" {
+		t.Errorf("the Question: section runs into Why a human: %q %v", section, err)
+	}
+}
+
+func TestSizeRefusalsNameTheSize(t *testing.T) {
+	_, _, err := QuestionForm(1, "Q1 "+goodQuestion+strings.Repeat("x", MaxQuestionBody))
+	refusedWith(t, "a long question", err, ReasonBody)
+	if err == nil || !strings.Contains(err.Error(), "bytes, over the 8000-byte limit") {
+		t.Errorf("the question's refusal: %v", err)
+	}
+	_, err = ThreadBody(1, strings.Repeat("x", 4001), false)
+	if err == nil || !strings.Contains(err.Error(), "the text is 4001 bytes, over the 4000-byte limit") {
+		t.Errorf("the thread post's refusal: %v", err)
+	}
+}
 
 func TestRefusalNamesReasonAndDetail(t *testing.T) {
 	err := refused(ReasonBody, "the Context: section is missing")

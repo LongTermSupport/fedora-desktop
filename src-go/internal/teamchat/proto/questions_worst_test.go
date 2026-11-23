@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// worstQuestion is a stored question of the longest entry QX6 sizes: 16 `asked_by` of 128
-// bytes, 16 `re`, 16 unanswered with a count past them, a headline of 120 code points that
+// worstQuestion is a stored question of the longest entry QX6 sizes: a `from` and 16 `asked_by`
+// of 128 bytes, the longest `why`, 16 `re`, 16 unanswered with a count past them, a headline of 120 code points that
 // encoding/json escapes to 6 bytes each, and every integer at its widest.
 func worstQuestion(i int, closed bool, highest int64) IndexedQuestion {
 	asked := make([]string, MaxAskedBy)
@@ -19,6 +19,7 @@ func worstQuestion(i int, closed bool, highest int64) IndexedQuestion {
 	return IndexedQuestion{
 		N: highest - 191 + int64(i), EventID: eid(100000 + i), Latest: eid(200000 + i),
 		Headline: strings.Repeat("<", MaxHeadline), Hash: sectionHash(strings.Repeat("x", i+1)),
+		From: agentIDOfLen(128, 99), Why: WhyPreference, WaitingMs: maxSafeInt,
 		AskedBy: asked, Re: eids(300000+i*16, MaxQuestionRe), AskedMs: maxSafeInt, RemindAfterS: MaxRemindS,
 		Closed: closed, Attached: maxSafeInt, Unanswered: eids(400000+i*16, MaxUnanswered), UnansweredMore: maxSafeInt - MaxUnanswered,
 	}
@@ -88,7 +89,7 @@ func mustMarshal(t *testing.T, v any) []byte {
 func TestQuestionsStateWorstCaseIsTheWorstCase(t *testing.T) {
 	s := worstState()
 	q := s.Index.Questions[0]
-	if len(q.AskedBy) != 16 || len(q.AskedBy[0]) != 128 || len(q.Re) != 16 || len(q.Unanswered) != 16 || q.UnansweredMore == 0 {
+	if len(q.From) != 128 || len(q.Why) != len(WhyPreference) || len(q.AskedBy) != 16 || len(q.AskedBy[0]) != 128 || len(q.Re) != 16 || len(q.Unanswered) != 16 || q.UnansweredMore == 0 {
 		t.Errorf("a question is not the longest: %d asked_by of %d bytes, %d re, %d unanswered", len(q.AskedBy), len(q.AskedBy[0]), len(q.Re), len(q.Unanswered))
 	}
 	if string(mustMarshal(t, q.Headline)) != `"`+strings.Repeat(`\`+"u003c", 120)+`"` {

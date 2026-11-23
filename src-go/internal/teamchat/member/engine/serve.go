@@ -90,7 +90,7 @@ func (e *Engine) serveSend(ctx context.Context, req wire.Request, out RecordWrit
 		if err := wire.DecodeArgs(req.Args, &a); err != nil {
 			return doneOf(err)
 		}
-		return e.report(ctx, a, req.Stdin, out)
+		return e.report(ctx, a, req.Stdin, req.StdinBytes, out)
 	}
 	var a wire.ReplyArgs
 	if err := wire.DecodeArgs(req.Args, &a); err != nil {

@@ -65,14 +65,14 @@ func TestQuestionIndexCopyKeepsBothLists(t *testing.T) {
 }
 
 // A 10.4 rules 2 and 4 read each list for what it holds: a reply attaches through a human post
-// only when it is in a thread and through an agent post only while its question is kept, and an
-// edit takes its original's attachment from a human post only.
+// attached anywhere (#367, top level included) and through an agent post only while its
+// question is kept, and an edit takes its original's attachment from a human post only.
 func TestQuestionIndexRulesTwoAndFourReadEachList(t *testing.T) {
 	ix := NewQuestionIndex(testServer, 0)
 	askAgent(ix, 1)
 	ix.Attach(humanEvent(eid(10_000), aliceID, 1), Human{Body: "Q1 by name"})
-	if _, ok := ix.Attach(humanEvent(eid(10_001), aliceID, 1), Human{Body: "re", ReplyTo: eid(10_000)}); ok {
-		t.Error("a reply to a human post outside any thread attached by rule 2")
+	if q, ok := ix.Attach(humanEvent(eid(10_001), aliceID, 1), Human{Body: "re", ReplyTo: eid(10_000)}); !ok || q.N != 1 {
+		t.Error("a reply to a human post attached at the top level did not attach by rule 2")
 	}
 	ix.Feed(threadVerdict(eid(30_000), coordID, eid(1), 1, true))
 	if _, ok := ix.Attach(humanEvent(eid(10_002), aliceID, 1), Human{Body: "* fixed", Revises: eid(30_000)}); ok {

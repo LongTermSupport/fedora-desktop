@@ -330,10 +330,10 @@ func TestSendRefusalOrder(t *testing.T) {
 			return composer(t, coordID).Question(QuestionPost{Text: "Head\nQuestion: x", AskedBy: []string{aliceID}})
 		}, ReasonBody},
 		"question: target, then secret": {func() (Outgoing, error) {
-			return composer(t, coordID).Question(QuestionPost{Text: "Head\nContext: " + ownSample + "\nQuestion: x", AskedBy: []string{aliceID}})
+			return composer(t, coordID).Question(QuestionPost{Text: "Head\nContext: " + ownSample + "\nQuestion: x\nWhy a human: decision", AskedBy: []string{aliceID}})
 		}, ReasonTarget},
 		"question: secret, then duplicate": {func() (Outgoing, error) {
-			return asked(t).Question(QuestionPost{Text: "Again\nContext: " + ownSample + "\nQuestion: MIT  or\nCC-BY?"})
+			return asked(t).Question(QuestionPost{Text: "Again\nContext: " + ownSample + "\nQuestion: MIT  or\nCC-BY?\nWhy a human: decision"})
 		}, ReasonSecret},
 		"thread: target, then secret": {func() (Outgoing, error) { return asked(t).Thread(ThreadPost{N: 4, Text: ownSample}) }, ReasonTarget},
 		"thread: role, then target":   {func() (Outgoing, error) { return composer(t, workerID).Thread(ThreadPost{N: 4, Text: "x"}) }, ReasonRole},

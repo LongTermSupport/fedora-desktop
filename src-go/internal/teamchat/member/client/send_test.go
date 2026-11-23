@@ -153,6 +153,41 @@ func TestSDc2StdinRefused(t *testing.T) {
 	}
 }
 
+// #365, R9: say's size refusal names the text's size and the 4096-byte limit.
+func TestR9SayOverTheCapNamesItsSize(t *testing.T) {
+	w := newWorld(t)
+	w.stdin = strings.NewReader(strings.Repeat("x", 4628) + "\n")
+	if code := w.do("say", "--to", "bob"); code != exits.ExitRefused {
+		t.Fatalf("exit %d %q", code, w.stderr.String())
+	}
+	if e := w.errorObject(); e.Code != exits.CodeSize || !strings.Contains(e.Message, "4628 bytes, over the 4096-byte limit") {
+		t.Fatalf("error %+v", e)
+	}
+}
+
+// #365, R9: a report past its read cap is sent cut at the cap, with the size of the whole
+// stdin, so the link's refusal can name it; one within the cap carries no size.
+func TestR9ReportCarriesTheWholeSize(t *testing.T) {
+	for name, tc := range map[string]struct {
+		in   string
+		size int64
+	}{
+		"far over": {strings.Repeat("x", 9000), 9000},
+		"at 1502":  {strings.Repeat("x", 1502), 0},
+		"within":   {"H\nbody", 0},
+	} {
+		w := newWorld(t)
+		w.stdin = strings.NewReader(tc.in)
+		l := w.listen(doneOK)
+		if code := w.do("report"); code != term.ExitOK {
+			t.Fatalf("%s: exit %d %q", name, code, w.stderr.String())
+		}
+		if req := l.request(t); req.StdinBytes != tc.size {
+			t.Fatalf("%s: stdin_bytes %d, want %d", name, req.StdinBytes, tc.size)
+		}
+	}
+}
+
 // SD-c2: a terminal on stdin is 64 usage, found before anything is read.
 func TestSDc2TerminalIsUsage(t *testing.T) {
 	pty, err := os.OpenFile("/dev/ptmx", os.O_RDWR, 0)

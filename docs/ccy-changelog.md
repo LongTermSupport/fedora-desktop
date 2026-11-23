@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.123.2 — container 2.84.49
+
+- **teamchat's questions verbs for v2** (Plan 00209, backlog R0, DESIGN-questions-v2.md), built
+  in steps on one branch. A size refusal now names the text's size and the limit (#365). A
+  human's reply to anything attached to a question attaches to it, top level included (#367).
+  A coordinator's question needs a `Why a human:` section; a thread post waits on the humans
+  and notifies them unless it is a note; the link-back and the retitle edit have their forms.
+  (3.122.53 to 3.123.1 / containers 2.84.46 to 2.84.48 were this work's earlier, unreleased
+  steps.)
+
 ## 3.123.0 — container 2.84.45
 
 - **A teamchat session's conversation is found** (Plan 00209 Task 5.1). `ccy --stop`, the
