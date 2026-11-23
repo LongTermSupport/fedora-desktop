@@ -381,7 +381,7 @@ fi
 if [ "$CC_TEAMS_GIVEN" = true ]; then
     # ccy-teams internal cc-run: on agent-bus pingbus claims the seat and becomes cc-claude
     # (the hooks run the kit's pingbus); on teamchat teamchat run is its child.
-    PATH="$CC_TEAMS_KIT:$PATH" "${CC_TEAMS_CMD[@]}"
+    PATH="/usr/local/share/agent-bus/kit:$PATH" "${CC_TEAMS_CMD[@]}"
 else
     /var/local/claude-code/cc-claude "$@"
 fi

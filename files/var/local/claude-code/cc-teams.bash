@@ -40,7 +40,6 @@
 # (ccy_tmux_current_session). Status 64 is a usage mistake, 78 a state that stops the launch;
 # stdout carries nothing, every message goes to stderr.
 
-CC_TEAMS_KIT="/usr/local/share/agent-bus/kit"
 CC_TEAMS_CCY_TEAMS="ccy-teams"
 CC_TEAMS_MEMBER_TYPE="host"
 CC_TEAMS_CCY_DIR=".claude/ccy"
@@ -132,5 +131,6 @@ cc_teams_prepare() {
     cc_teams_ccy_dir "$checkout" || return
     [ "$CC_TEAMS_BUS" = true ] || cc_teams_take || return
     session=$(ccy_tmux_current_session) || return 78
-    CC_TEAMS_CMD=("$CC_TEAMS_CCY_TEAMS" internal cc-run "$tmp" "$checkout" "$session" "$$" "$CC_TEAMS_SEATS" "$CC_TEAMS_BUS" -- "$@")
+    CC_TEAMS_CMD=()
+    CC_TEAMS_CMD+=("$CC_TEAMS_CCY_TEAMS" internal cc-run "$tmp" "$checkout" "$session" "$$" "$CC_TEAMS_SEATS" "$CC_TEAMS_BUS" -- "$@")
 }

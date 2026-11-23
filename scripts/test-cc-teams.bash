@@ -275,7 +275,7 @@ hooks_json="$KIT_SRC/plugin/pingbus/hooks/hooks.json"
 check "the plugin cc passes runs pingbus's SessionStart hook, which writes the per-session teams file" "exec pingbus hook session-start" \
     "$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$hooks_json" | grep -oF 'exec pingbus hook session-start')"
 check "cc puts the kit first on PATH so the hook runs the kit's pingbus" "yes" \
-    "$(yes_no grep -qF "PATH=\"\$CC_TEAMS_KIT:\$PATH\"" "$REPO_ROOT/files/var/local/claude-code/cc")"
+    "$(yes_no grep -qF "PATH=\"/usr/local/share/agent-bus/kit:\$PATH\"" "$REPO_ROOT/files/var/local/claude-code/cc")"
 
 echo "=== prepare: chooser, take, settings, command, in order ==="
 
