@@ -256,3 +256,5 @@ Each step: write the test, see it fail, then the code. Fakes only (fakehs, the f
 - **OD-Q4. Names.** `ask-human` (B 2.2.1 says `ask`) and `--for` (AK1 says `--asked-by`).
   **Recommend `ask-human` and `--for`:** both are unbuilt, so renaming costs one table row, and
   agents moving from v1 already know `ask-human`. The wire field stays `asked_by`.
+
+**Decided (2026-11-23):** the coordinator took all four recommendations as the defaults: (a) for OD-Q1, and yes to OD-Q2, OD-Q3 and OD-Q4. These are coordinator decisions, not owner rulings. The owner was told and may override them. The build waits for the owner's go-ahead in Q61.
