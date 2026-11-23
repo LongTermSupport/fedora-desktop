@@ -1,6 +1,6 @@
 # Plan 00263: machine qa queue
 
-**Status**: In Progress (design done; blocked on the owner decisions D1-D4, a host window, and the heavy-work pause)
+**Status**: In Progress (design done; blocked on the owner decision D3 (D1, D2 and D4 answered), a host window, and the heavy-work pause)
 **Created**: 2026-11-23
 **Owner**: joseph
 **Priority**: High
@@ -114,7 +114,9 @@ its own focused CI (see Plan 00262).
   - D2 as floors (4 threads and 16 GB kept for the desktop, the rest shared equally by N);
   - no IOWeight, with `io.max` as an optional probe item;
   - runners on the laptop and the home server only.
-    D1 (N) and D3 (the lane guard) are still open.
+    D1 is answered (Q64): N is computed per machine at install time, one run per 12 agent
+    threads, rounded up (DESIGN.md section 6, D1; its memory term is provisional until the owner
+    confirms it). D3 (the lane guard) is still open.
 
 ### Phase A: stage 1a, kernel caps (fedora-desktop)
 
