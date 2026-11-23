@@ -188,10 +188,12 @@ type WaitArgs struct {
 	TimeoutS int64         `json:"timeout_s"`
 }
 
-// VerifyArgs are verify's: the --team, null for the one active team, and the event id.
+// VerifyArgs are verify's: the --team, null for the one active team, the event id, and the
+// --room (main or questions), null for main then questions (R10).
 type VerifyArgs struct {
 	Team *paths.TeamID `json:"team"`
 	ID   string        `json:"id"`
+	Room *string       `json:"room"`
 }
 
 // HistoryArgs are history's.

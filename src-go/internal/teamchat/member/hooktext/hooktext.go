@@ -51,6 +51,8 @@ const (
 	tmplDesiredRefused    template = "teamchat: this session's membership file could not be read ({}); the last good membership stays; tell a human"
 	tmplAddRefused        template = "teamchat: team {}'s seat is held by another session; tell a human"
 	tmplRecoveryUnknown   template = "teamchat's link does not answer and why could not be read; tell a human"
+	tmplUncounted         template = "teamchat: in team {} your {} sent as Q{} was not counted: Q{} is another question, so no answer attaches to yours; run teamchat questions --team {}, then ask it again."
+	tmplUncountedUnknown  template = "teamchat: in team {} {} of your questions posts were not counted: another question holds each number, so no answer attaches to them; run teamchat questions --team {}, then ask again."
 )
 
 // maxRecovery bounds a recovery message, which is the verbs' own exit 69 text.
@@ -269,6 +271,22 @@ func clean(s string) bool {
 	return strings.IndexFunc(s, unicode.IsControl) < 0
 }
 
+// Uncounted is SPEC-n3f QX3's line for one own questions post whose echo was not counted: a
+// question, or with thread a thread post, sent as Q<n>.
+func Uncounted(t paths.TeamID, n int64, thread bool) string {
+	kind := "question"
+	if thread {
+		kind = "thread post"
+	}
+	return fill(tmplUncounted, t.String(), kind, count(n), count(n), t.String())
+}
+
+// UncountedUnknown is the line for n uncounted own posts whose numbers this link does not know
+// (they were not counted before a restart), told once together.
+func UncountedUnknown(t paths.TeamID, n int64) string {
+	return fill(tmplUncountedUnknown, t.String(), count(n), t.String())
+}
+
 // All is every text filled from fixed samples, for the tests that check every agent-facing
 // text (PK2).
 func All() []string {
@@ -286,6 +304,7 @@ func All() []string {
 		Pending(c), Missing(1), Missing(3), Stalled(c), StopPending(c), StopNoWaker(),
 		TeamFailed(alpha, state.FailedUnauthorized), TeamDown(beta), DesiredRefused("schema"), AddRefused(gamma),
 		Membership([]string{"MEMBERSHIP sample"}), Recovery(""),
+		Uncounted(alpha, 4, false), Uncounted(alpha, 5, true), UncountedUnknown(beta, 2),
 	}
 }
 

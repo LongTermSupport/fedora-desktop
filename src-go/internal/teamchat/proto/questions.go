@@ -130,7 +130,7 @@ type QuestionIndex struct {
 	agents     ring[AgentPost]
 	unattached []UnattachedPost
 	prov       []provisional
-	dropped    []string
+	dropped    []Dropped
 }
 
 // NewQuestionIndex is an empty index counting from the roster's `question_floor`.

@@ -60,11 +60,14 @@ the error lists the choices.
 - `teamchat inbox`: what is pending as `pending`, without bodies.
 - `teamchat reply '<id>'`, `teamchat say --to <name>`, `teamchat ping <verb> <ref> --to <name>`
   and `teamchat report`: `sent`.
-- `teamchat ask` and `teamchat questions`: `question`; `teamchat questions` also prints `unattached` for a
-  human post in the questions room that no question holds and no agent has replied to.
-- `teamchat thread Q<n>`: `sent`.
+- `teamchat ask-human`, `teamchat thread Q<n>`, `teamchat close Q<n>` and `teamchat retitle Q<n>`:
+  `sent`, then `question`.
+- `teamchat questions`: `question`, and `unattached` for a human post in the questions room
+  that no question holds and no agent has replied to.
+- `teamchat bump Q<n>`: `sent` and `question` per question bumped, `bump` per question skipped.
 - `teamchat history`: what this member received and sent, newest first, as `history`.
-- `teamchat verify '<id>'`: `verified`.
+- `teamchat verify '<id>'`: `verified`; `teamchat verify '<id>' --room questions` reads the
+  questions room.
 - `teamchat status`: `team`, `member`, `room`, `outbox`, `queued` (a send the link holds until
   its homeserver answers) and `runtime`.
 - `teamchat version`: `version`.
@@ -86,10 +89,22 @@ message that names the next step. Act on the exit's class:
 Any member: `teamchat report` sends a quiet report to the team's reports room, the headline then
 the body on stdin.
 
-A coordinator: `teamchat ask` asks the team's humans a numbered question, the text on stdin;
-`teamchat thread Q<n>` posts in its thread, `teamchat thread Q<n> --ask` notifies the humans and
-`teamchat thread Q<n> --close` closes it; `teamchat questions` lists the open questions and the
-human replies not yet answered.
+A coordinator asks the humans only what an agent cannot settle. `teamchat ask-human` asks a
+numbered question, the text on stdin in the form `teamchat ask-human --skeleton` prints: a
+headline, then Context:, Question:, Why a human: (its first word decision, physical, credential
+or preference) and Options:. --for names the seats that wait on the answer, --re their messages;
+`teamchat ask-human --check` judges the text and sends nothing.
+
+`teamchat thread Q<n>` posts in the question's thread and notifies the humans; --note makes it a
+quiet note. `teamchat reply '<id>'` answers a human post where the human will see it.
+`teamchat close Q<n>` closes a question, `teamchat retitle Q<n>` gives it a new headline from
+stdin, and `teamchat bump --waiting` reminds the humans of every question waiting on them for
+longer than --min-age. `teamchat questions` lists the open questions and the human replies not
+yet answered; --waiting those waiting on a human, --for those a seat waits on, and
+`teamchat questions --digest` posts that list to the reports room.
+
+A hook line saying your question or thread post was not counted means another post took its
+number, so no answer will attach to it: run `teamchat questions`, then ask it again.
 
 ## 7. Delivery by wait
 

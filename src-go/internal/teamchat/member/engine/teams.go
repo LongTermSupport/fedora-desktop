@@ -56,6 +56,9 @@ type held struct {
 	// find (P9).
 	shownMissing map[string]bool
 	seenTwice    int64
+	// uncounted are this run's own questions posts not counted (QX3), oldest first, whose hook
+	// line may still be owed; the store's count and `said` say how many are.
+	uncounted []proto.Dropped
 	// answers are the answers to own pings this link read, by ping (n3d-D8).
 	answers map[string][]answerNote
 	// timeoutRetryMS is when a TIMEOUT write the store refused is tried again, 0 for none;

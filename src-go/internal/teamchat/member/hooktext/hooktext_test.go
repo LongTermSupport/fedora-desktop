@@ -149,6 +149,11 @@ func TestTeamLines(t *testing.T) {
 		{DesiredRefused("schema"), "teamchat: this session's membership file could not be read (schema); the last good membership stays; tell a human"},
 		{DesiredRefused("Not A Code"), "teamchat: this session's membership file could not be read (?); the last good membership stays; tell a human"},
 		{AddRefused(beta), "teamchat: team beta's seat is held by another session; tell a human"},
+		// SPEC-n3f QX3's line, word for word, and its thread post form.
+		{Uncounted(alpha, 4, false), "teamchat: in team alpha your question sent as Q4 was not counted: Q4 is another question, so no answer attaches to yours; run teamchat questions --team alpha, then ask it again."},
+		{Uncounted(alpha, 5, true), "teamchat: in team alpha your thread post sent as Q5 was not counted: Q5 is another question, so no answer attaches to yours; run teamchat questions --team alpha, then ask it again."},
+		// After a link restart the numbers are not known; the posts are told once, together.
+		{UncountedUnknown(beta, 2), "teamchat: in team beta 2 of your questions posts were not counted: another question holds each number, so no answer attaches to them; run teamchat questions --team beta, then ask again."},
 	} {
 		if tc.got != tc.want {
 			t.Fatalf("%q, want %q", tc.got, tc.want)
@@ -211,7 +216,7 @@ func TestAllCoversEveryTemplate(t *testing.T) {
 			}
 		}
 	}
-	if len(templates) != 21 || len(All()) != 16 {
+	if len(templates) != 23 || len(All()) != 19 {
 		t.Fatalf("%d templates, %d samples", len(templates), len(All()))
 	}
 }

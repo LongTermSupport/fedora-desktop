@@ -283,7 +283,7 @@ func (f *fakeTeam) Refetch(ctx context.Context, _, id string) (proto.Verdict, er
 	return v, err
 }
 
-func (f *fakeTeam) Verify(context.Context, string) (records.Verified, error) {
+func (f *fakeTeam) Verify(context.Context, string, *string) (records.Verified, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.verified, f.verifyErr

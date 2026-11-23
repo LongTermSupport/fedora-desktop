@@ -55,9 +55,10 @@ type Batch struct {
 	Page bool
 	// QuestionsFolded are the questions room's events this batch folded, and QuestionsUncounted
 	// the own posts among them whose echo was not counted (QX3): the write clears
-	// `outbox.questions_unechoed` when it names that event, and raises the uncounted count.
+	// `outbox.questions_unechoed` when it names that event, and raises the uncounted count by
+	// their number; the engine keeps them for the hook line that names each (QX3).
 	QuestionsFolded    []string
-	QuestionsUncounted int64
+	QuestionsUncounted []proto.Dropped
 	// Handover sets `outbox.questions_handover`, the ready line owed (QX1): the first page write of
 	// a build begun with no `questions` key.
 	Handover bool
@@ -234,8 +235,8 @@ type Team interface {
 	Run(ctx context.Context) error
 	// Refetch judges a restored item again (B 2.7.3); ErrItemGone when it never can be.
 	Refetch(ctx context.Context, room, id string) (proto.Verdict, error)
-	// Verify is LN6.
-	Verify(ctx context.Context, id string) (records.Verified, error)
+	// Verify is LN6 in the room named (main or questions), or main then questions for nil (R10).
+	Verify(ctx context.Context, id string, room *string) (records.Verified, error)
 	History(ctx context.Context, room string, limit int) ([]records.History, error)
 	// Notices is for the ends; it works before Run and after it returns.
 	Notices() Notices

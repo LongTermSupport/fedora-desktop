@@ -17,6 +17,39 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.6 — container 2.84.57
+
+- **The teamchat skill names the questions verbs** (Plan 00209, backlog R0). The skill in the
+  image now teaches `ask-human` (with its `Why a human:` section, `--for`, `--check` and
+  `--skeleton`), `thread` (notifying by default, quiet with `--note`), `close`, `retitle`,
+  `bump`, `questions --waiting/--for/--digest` and `verify --room questions`, and what a
+  not-counted question means. A question's reminder now says `teamchat bump Q<n>` in place of
+  the removed `thread Q<n> --ask`.
+
+## 3.124.5 — container 2.84.56
+
+- **`teamchat verify` reads the questions room** (Plan 00209, backlog R10, issue #369).
+  `verify <id> --room questions` checks a human's answer in the questions room; without
+  `--room` it looks in main and then in questions. Its record now says whether the sender is a
+  team human and which question (`Q<n>`, with its headline) the message belongs to. The image
+  carries the new `teamchat`.
+
+## 3.124.4 — container 2.84.55
+
+- **teamchat tells the coordinator a question that was not counted** (Plan 00209, backlog R0).
+  When a question or thread post the coordinator sent as `Q<n>` loses its number to another
+  question, the next prompt or session start says so once, naming `Q<n>` and pointing at
+  `teamchat questions`; after a restart the numbers are not known and the posts are told
+  together. The image carries the new `teamchat`.
+
+## 3.124.3 — container 2.84.54
+
+- **teamchat rebuilds the questions index after an admin redaction** (Plan 00209, backlog R0).
+  A redaction in the questions room (the admin's `teamchat-admin redact`) makes the coordinator's
+  link build the question index again from the room, so the redacted post is in no question and
+  its number is never given out twice; a link that stops mid-way builds it again when it starts.
+  The image carries the new `teamchat`.
+
 ## 3.124.2 — container 2.84.53
 
 - **teamchat serves the questions verbs for v2** (Plan 00209, backlog R0; 3.123.5 below is an

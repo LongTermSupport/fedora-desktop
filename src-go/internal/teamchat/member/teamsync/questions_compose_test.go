@@ -204,8 +204,8 @@ func TestQX3TheEchoReplacesThePlacementAndAnUncountedEchoIsCounted(t *testing.T)
 	w.batchWith(lastIs(admins))
 	echo := w.sayIn(w.qroom(), w.self, rawContent(t, w.ownQuestion(1)))
 	b := w.batchWith(lastIs(echo))
-	if b.QuestionsUncounted != 1 || !slices.Contains(b.QuestionsFolded, echo) {
-		t.Errorf("uncounted %d, folded %v: want the echo folded and counted uncounted once", b.QuestionsUncounted, b.QuestionsFolded)
+	if len(b.QuestionsUncounted) != 1 || b.QuestionsUncounted[0].N != 1 || b.QuestionsUncounted[0].Thread || !slices.Contains(b.QuestionsFolded, echo) {
+		t.Errorf("uncounted %v, folded %v: want the echo folded and counted uncounted once", b.QuestionsUncounted, b.QuestionsFolded)
 	}
 	if n := asks(t, rt.tm, "tcnext"); n != 2 {
 		t.Errorf("the next ask took Q%d, want Q2: the dropped placement still holds a number", n)

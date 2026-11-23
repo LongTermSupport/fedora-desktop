@@ -83,10 +83,18 @@ func (x *QuestionIndex) PlaceThread(txn, sender string, t PlacedThread) error {
 	return nil
 }
 
-// TakeDropped is the transactions of the provisional entries whose echo was folded and not
-// counted (an admin's question took the number first, QX3), which the link logs; it empties
-// the list.
-func (x *QuestionIndex) TakeDropped() []string {
+// Dropped is a provisional entry whose echo was folded and not counted: its transaction, the
+// number it was sent as, and whether it was a thread post rather than a question.
+type Dropped struct {
+	Txn    string
+	N      int64
+	Thread bool
+}
+
+// TakeDropped is the provisional entries whose echo was folded and not counted (an admin's
+// question took the number first, QX3), which the link logs and the hooks tell; it empties the
+// list.
+func (x *QuestionIndex) TakeDropped() []Dropped {
 	dropped := x.dropped
 	x.dropped = nil
 	return dropped
@@ -103,7 +111,12 @@ func (x *QuestionIndex) echoed(v Verdict, r foldResult) {
 		return
 	}
 	if r == notCounted {
-		x.dropped = append(x.dropped, x.prov[i].txn)
+		p := x.prov[i]
+		d := Dropped{Txn: p.txn, N: p.q.N, Thread: !p.isQuestion}
+		if d.Thread {
+			d.N = p.thread.N
+		}
+		x.dropped = append(x.dropped, d)
 	}
 	x.prov = slices.Delete(x.prov, i, i+1)
 }

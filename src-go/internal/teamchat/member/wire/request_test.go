@@ -309,13 +309,14 @@ func TestArgsDecodeStrictly(t *testing.T) {
 // P2 note 7: verify's args carry its --team; every refusal is 10 schema.
 func TestVerifyArgsDecodeStrictly(t *testing.T) {
 	var v VerifyArgs
-	check(t, DecodeArgs(json.RawMessage(`{"team":null,"id":"$abc"}`), &v))
-	if v.Team != nil || v.ID != "$abc" {
+	check(t, DecodeArgs(json.RawMessage(`{"team":null,"id":"$abc","room":"questions"}`), &v))
+	if v.Team != nil || v.ID != "$abc" || v.Room == nil || *v.Room != "questions" {
 		t.Fatalf("%+v", v)
 	}
 	for name, raw := range map[string]string{
-		"unknown key": `{"team":null,"id":"$abc","x":1}`,
-		"missing key": `{"id":"$abc"}`,
+		"unknown key": `{"team":null,"id":"$abc","room":null,"x":1}`,
+		"missing key": `{"id":"$abc","room":null}`,
+		"no room":     `{"team":null,"id":"$abc"}`,
 		"wrong type":  `{"team":null,"id":1}`,
 		"not json":    `{`,
 		"null":        `null`,

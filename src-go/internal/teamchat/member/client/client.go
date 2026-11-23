@@ -121,7 +121,7 @@ func request(e cli.Env, inv cli.Invocation, op string, clk clock.Clock) (wire.Re
 		}
 		timeout, args = time.Duration(s)*time.Second, wire.WaitArgs{Team: inv.Team, TimeoutS: s}
 	case wire.OpVerify:
-		args = wire.VerifyArgs{Team: inv.Team, ID: inv.Args[0]}
+		args = wire.VerifyArgs{Team: inv.Team, ID: inv.Args[0], Room: optionalFlag(inv, "room")}
 	case wire.OpHistory:
 		limit, ok := count(inv, "limit", historyDefault)
 		if !ok || limit > historyMax {

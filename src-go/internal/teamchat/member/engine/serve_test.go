@@ -50,7 +50,7 @@ func TestVerifyResolvesItsTeamAndAsksIt(t *testing.T) {
 	f.verifyErr = nil
 	f.mu.Unlock()
 	for name, out := range map[string]*recorder{"record": {err: errors.New("x")}, "flush": {flushErr: errors.New("x")}} {
-		raw := []byte(`{"team":"dev","id":"` + evID(5) + `"}`)
+		raw := []byte(`{"team":"dev","id":"` + evID(5) + `","room":null}`)
 		if d := w.e.Serve(t.Context(), wire.Request{Op: wire.OpVerify, Args: raw}, out); d.Exit != 1 {
 			t.Fatalf("%s: verify on a closed connection = %+v", name, d)
 		}
@@ -129,7 +129,7 @@ func endedRequests() []wire.Request {
 		{Op: wire.OpInbox, Args: []byte(`{"team":null}`)},
 		{Op: wire.OpRecv, Args: []byte(`{"team":null}`)},
 		{Op: wire.OpWait, Args: []byte(`{"team":null,"timeout_s":1}`)},
-		{Op: wire.OpVerify, Args: []byte(`{"team":null,"id":"x"}`)},
+		{Op: wire.OpVerify, Args: []byte(`{"team":null,"id":"x","room":null}`)},
 		{Op: wire.OpHistory, Args: []byte(`{"team":null,"room":"main","limit":5}`)},
 		{Op: wire.OpSay, Args: []byte(`{"team":null,"to":["alice"],"to_coordinator":false,"wait_contact":false}`), Stdin: &text},
 		{Op: wire.OpPing, Args: []byte(`{"team":null,"verb":"review","ref":null,"to":["alice"],"to_coordinator":false,"branch":null}`)},

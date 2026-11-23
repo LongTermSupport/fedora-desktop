@@ -91,7 +91,7 @@ func (f *fakeTeam) Refetch(_ context.Context, _, id string) (proto.Verdict, erro
 	return proto.Verdict{}, errors.New("no refetch")
 }
 
-func (*fakeTeam) Verify(context.Context, string) (records.Verified, error) {
+func (*fakeTeam) Verify(context.Context, string, *string) (records.Verified, error) {
 	return records.Verified{}, errors.New("no verify")
 }
 

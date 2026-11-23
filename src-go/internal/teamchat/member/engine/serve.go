@@ -224,7 +224,7 @@ func (e *Engine) verify(ctx context.Context, a wire.VerifyArgs, out RecordWriter
 	if err != nil {
 		return doneOf(err)
 	}
-	v, err := tm.Verify(ctx, a.ID)
+	v, err := tm.Verify(ctx, a.ID, a.Room)
 	if err != nil {
 		return teamDone(t, err)
 	}
