@@ -4,7 +4,11 @@
 # run when it is pending, remove it once it has run and is done, leave out what cannot
 # usefully run yet, then ask the owner to run meta-deploy.bash. Every step a run needs lives
 # in the plan's own scripts, so this is the only command the owner is handed. The order is by
-# dependency. A plan with none of triage.bash, deploy.bash and acceptance.bash has nothing
+# dependency. A FAILED ENTRY DOES NOT STOP THE RUN: every entry runs, each one's verdict is in
+# the summary, and the batch exits 1 if any failed (a plan's acceptance is skipped only when
+# its own deploy failed). Only changed-plays stops inside itself, at its first failing play.
+# After a run, the entries that passed are taken out and the failed ones stay for the next.
+# A plan with none of triage.bash, deploy.bash and acceptance.bash has nothing
 # for the script to do. A triage-only plan is run once, read-only. Words after the folder
 # name are passed to that plan's triage.bash, both runs.
 #

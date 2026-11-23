@@ -79,8 +79,11 @@ members() {
 {% endfor %}'
     # The module arguments as JSON, which ansible takes whole: no k=v splitting of the template.
     args="$(jq -cn --arg t "${tpl}" '{msg: $t}')"
-    ANSIBLE_STDOUT_CALLBACK=json ANSIBLE_LOAD_CALLBACK_PLUGINS=1 \
-        plan_ansible_adhoc localhost -m ansible.builtin.debug -a "${args}" |
+    # Not plan_ansible_adhoc: it passes -v, and at -v ansible prints its config file line on
+    # stdout before the json document, which jq cannot read (plan-ansible-adhoc-stdout-parsed).
+    # The config is named, so the working directory does not matter.
+    ANSIBLE_CONFIG="${PLAN_REPO_ROOT}/ansible.cfg" ANSIBLE_STDOUT_CALLBACK=json ANSIBLE_LOAD_CALLBACK_PLUGINS=1 \
+        ansible localhost -m ansible.builtin.debug -a "${args}" </dev/null |
         jq -r '.plays[0].tasks[0].hosts.localhost.msg'
 }
 

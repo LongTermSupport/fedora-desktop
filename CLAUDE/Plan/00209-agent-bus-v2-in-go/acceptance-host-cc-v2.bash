@@ -96,11 +96,16 @@ for f in bin/teamchat settings.json plugin/teamchat/.claude-plugin/plugin.json \
 done
 
 # 2. The deployed ccy is this checkout's (the version appears in what --version prints).
+# The launcher by its deployed path: ccy is an interactive shell alias, which no script sees.
 want="$(grep -m1 '^CCY_VERSION=' "${PLAN_REPO_ROOT}/files/var/local/claude-yolo/claude-yolo" | cut -d'"' -f2)"
-if got="$(ccy --version 2>&1)" && [[ -n "${want}" && "${got/"${want}"/}" != "${got}" ]]; then
-    pass "ccy --version names ${want}"
+launcher=/var/local/claude-yolo/claude-yolo
+got=""
+if [[ ! -x "${launcher}" ]]; then
+    bad "${launcher} is not an executable file (run play-claude-yolo.yml)"
+elif got="$("${launcher}" --version 2>&1)" && [[ -n "${want}" && "${got/"${want}"/}" != "${got}" ]]; then
+    pass "${launcher} --version names ${want}"
 else
-    bad "ccy --version said '${got}', want ${want} (run play-claude-yolo.yml)"
+    bad "${launcher} --version said '${got}', want ${want} (run play-claude-yolo.yml)"
 fi
 
 if ((!attended)); then
