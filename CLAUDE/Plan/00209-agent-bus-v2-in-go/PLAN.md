@@ -452,9 +452,9 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   Q67) is resumes that can never clash. Its first step, refusing `--continue` with teams, ships
   with the ccy caps; then a per-conversation lock for every resume; then `--continue` is banned.
   - R0, the questions verbs ([DESIGN-questions-v2.md](DESIGN-questions-v2.md) section 5), on
-    branch `v2-questions`: steps 1-3 built (sizes, attachment, the forms); step 4 in part (QX3, QX4);
-    step 5 in part (the verbs' command line, client, wire args and records; the link serves them
-    next); steps 6-8 to do.
+    branch `v2-questions`: steps 1-3 built (sizes, attachment, the forms); step 4 in part (QX3, QX4;
+    QX7's rebuild and the `uncounted` hook line open); step 5 built (the verbs end to end, the
+    link-back, a reply to an unattached post in its thread); steps 6-8 to do.
 
 ### Phase 5: N5, other member kinds
 

@@ -426,15 +426,21 @@ func fitEntry(st sendTeam, kind string, o proto.Outgoing) (state.Sending, wire.D
 
 // awaitSend is a charged send's answer: posted when the sender answers by ctx's end, else queued.
 func (e *Engine) awaitSend(ctx context.Context, out RecordWriter, t paths.TeamID, entry state.Sending, wait chan sendResult) wire.Done {
-	select {
-	case r := <-wait:
-		return e.answerResult(out, t, entry.Room, r)
-	case <-ctx.Done():
-	}
-	if r, ok := e.unwait(context.WithoutCancel(ctx), t, entry.Txn, wait); ok {
+	if r, ok := e.awaitResult(ctx, t, entry.Txn, wait); ok {
 		return e.answerResult(out, t, entry.Room, r)
 	}
 	return answerSent(out, t, entry.Room, nil)
+}
+
+// awaitResult is the sender's answer to a charged send by ctx's end; false for a send still
+// queued then.
+func (e *Engine) awaitResult(ctx context.Context, t paths.TeamID, txn string, wait chan sendResult) (sendResult, bool) {
+	select {
+	case r := <-wait:
+		return r, true
+	case <-ctx.Done():
+	}
+	return e.unwait(context.WithoutCancel(ctx), t, txn, wait)
 }
 
 func (e *Engine) answerResult(out RecordWriter, t paths.TeamID, room string, r sendResult) wire.Done {

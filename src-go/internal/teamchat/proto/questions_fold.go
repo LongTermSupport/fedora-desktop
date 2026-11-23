@@ -316,7 +316,7 @@ func (x *QuestionIndex) retitle(v Verdict) bool {
 // unattached, is not any more. A reply to a post that is attached, unknown or replied to
 // already counts for nothing.
 func (x *QuestionIndex) plainReply(r Relation) foldResult {
-	i := slices.IndexFunc(x.unattached, func(u UnattachedPost) bool { return r.Kind == RelReply && u.ID == r.InReplyTo })
+	i := slices.IndexFunc(x.unattached, func(u UnattachedPost) bool { return r.Kind == RelThread && u.ID == r.InReplyTo })
 	if i < 0 {
 		return notCounted
 	}

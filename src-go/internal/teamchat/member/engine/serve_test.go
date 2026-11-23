@@ -100,13 +100,16 @@ func TestHistoryReadsTheTeamsRoom(t *testing.T) {
 
 func TestServeRefusesBadArgumentsAndUnbuiltOps(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
-	for _, op := range []string{wire.OpRecv, wire.OpWait, wire.OpVerify, wire.OpHistory} {
+	for _, op := range []string{
+		wire.OpRecv, wire.OpWait, wire.OpVerify, wire.OpHistory, wire.OpAskHuman, wire.OpThread, wire.OpClose,
+		wire.OpRetitle, wire.OpBump, wire.OpQuestions,
+	} {
 		d := w.e.Serve(t.Context(), wire.Request{Op: op, Args: []byte(`{"nope":1}`)}, &recorder{})
 		if d.Error == nil || d.Error.Code != exits.CodeSchema {
 			t.Fatalf("%s with bad arguments = %+v", op, d)
 		}
 	}
-	if d := w.e.Serve(t.Context(), wire.Request{Op: wire.OpQuestions}, &recorder{}); d.Error == nil || d.Error.Code != exits.CodeInternal {
+	if d := w.e.Serve(t.Context(), wire.Request{Op: "no-such-op"}, &recorder{}); d.Error == nil || d.Error.Code != exits.CodeInternal {
 		t.Fatalf("an unbuilt op = %+v", d)
 	}
 	ctx, cancel := context.WithCancel(t.Context())

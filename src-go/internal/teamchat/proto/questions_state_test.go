@@ -501,7 +501,7 @@ func TestLoadQuestionIndexRebuildsWhatTheFoldLooksUp(t *testing.T) {
 	}
 	reply := Verdict{
 		Outcome: Index, Event: Event{ID: eid(50), Type: MessageType, Sender: coordID, OriginTs: 1},
-		Content: Content{Key: KeyThread, Relation: ReplyTo(eid(12))},
+		Content: Content{Key: KeyThread, Relation: InThread(eid(12), eid(12), true)},
 	}
 	if !ix.Feed(reply) || len(ix.Unattached()) != 2 {
 		t.Errorf("a plain reply to a listed post did not count: the unattached list was not loaded (%+v)", ix.Unattached())
