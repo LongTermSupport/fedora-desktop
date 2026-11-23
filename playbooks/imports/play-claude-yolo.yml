@@ -56,11 +56,15 @@
     # ccy_restore_compact_floor_tokens in host_vars to change it.
     ccy_restore_compact_floor: "{{ ccy_restore_compact_floor_tokens | default(150000) | int }}"
     # agents.slice, the user slice every ccy and ccc container runs in, caps all of them
-    # together: the RAM less the 16 GiB kept for the desktop (lib/container-limits.bash
-    # CCY_MEMORY_DESKTOP_MIB, so a lone container's default cap fills it), throttled 1 GiB
-    # below. Set ccy_agents_slice_memory_max_mb in host_vars to change it (docs/ccy.md).
-    ccy_agents_slice_max_mb: "{{ (ccy_agents_slice_memory_max_mb | default((ansible_facts['memtotal_mb'] | int) - 16384)) | int }}"
-    ccy_agents_slice_high_mb: "{{ (ccy_agents_slice_max_mb | int) - 1024 }}"
+    # together, and its MemoryMax is also each container's default cap (the launcher reads it,
+    # lib/container-limits.bash), so this one setting is both. Default: the RAM less the 16 GiB
+    # kept for the desktop; where that leaves under 4 GiB (a server under 20 GiB), 4 GiB, or
+    # three quarters of the RAM where that is less, so the cap only ever grows with the RAM.
+    # Throttled 1 GiB below, or a quarter below on a slice under 4 GiB. Set
+    # ccy_agents_slice_memory_max_mb in host_vars to change it (docs/ccy.md).
+    ccy_agents_slice_ram_mb: "{{ ansible_facts['memtotal_mb'] | int }}"
+    ccy_agents_slice_max_mb: "{{ (ccy_agents_slice_memory_max_mb | default([(ccy_agents_slice_ram_mb | int) - 16384, [(ccy_agents_slice_ram_mb | int) * 3 // 4, 4096] | min] | max)) | int }}"
+    ccy_agents_slice_high_mb: "{{ (ccy_agents_slice_max_mb | int) - ([1024, (ccy_agents_slice_max_mb | int) // 4] | min) }}"
   pre_tasks:
     - name: Audience guard — end play on a consumer install
       ansible.builtin.meta: end_play
@@ -70,6 +74,21 @@
       ansible.builtin.include_vars:
         file: "{{ root_dir }}/vars/container-defaults.yml"
   tasks:
+    # First, before anything is installed, so a refused machine is left as it was: the launcher
+    # reads the slice's MemoryMax as each container's default cap, and refuses one outside the
+    # library's floor (CCY_MEMORY_FLOOR_MIB) and the RAM.
+    - name: Assert The Agents Slice Leaves Room For A Container
+      ansible.builtin.assert:
+        that:
+          - ccy_agents_slice_max_mb | int >= 2048
+          - ccy_agents_slice_max_mb | int <= ccy_agents_slice_ram_mb | int
+        fail_msg: >-
+          agents.slice would be capped at {{ ccy_agents_slice_max_mb }} MiB on this machine with
+          {{ ccy_agents_slice_ram_mb }} MiB of RAM: it must be from the 2048 MiB floor of one
+          ccy container to the RAM. Set ccy_agents_slice_memory_max_mb in host_vars to the MiB
+          all ccy containers together may use (docs/ccy.md, "Container limits").
+        quiet: true
+
     - name: Check if Container Engine is Installed
       ansible.builtin.command: which {{ container_engine }}
       register: container_engine_check
@@ -721,21 +740,6 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0644"
-
-    # The library's floor of a container's memory cap (CCY_MEMORY_FLOOR_MIB): a slice smaller
-    # than one container could hold would only throttle every session.
-    - name: Assert The Agents Slice Leaves Room For A Container
-      ansible.builtin.assert:
-        that:
-          - ccy_agents_slice_max_mb | int >= 4096
-        fail_msg: >-
-          agents.slice would be capped at {{ ccy_agents_slice_max_mb }} MiB (this machine's
-          {{ ansible_facts['memtotal_mb'] }} MiB of RAM less the 16384 MiB kept for the
-          desktop), under the 4096 MiB floor of one ccy container. Set
-          ccy_agents_slice_memory_max_mb in host_vars to the MiB all ccy containers together
-          may use, and CCY_MEMORY_MAX on this host to each container's cap (docs/ccy.md,
-          "Container limits").
-        quiet: true
 
     # Read by the launcher (lib/container-limits.bash), which refuses to start a container
     # without it. A running container keeps the cgroup it started in: it moves into the slice

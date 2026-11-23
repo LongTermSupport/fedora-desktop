@@ -1157,26 +1157,30 @@ session, the in-place Claude Code update's `npm install`, `--create-token`'s `se
 token check, and the `claude --help` / `--version` and network probes, whether the bash or the
 Go front runs them. `ccc` runs its containers with the same set.
 
-| Flag                           | Value                                     | Why                                                     |
-| ------------------------------ | ----------------------------------------- | ------------------------------------------------------- |
-| `--cgroup-parent agents.slice` | the user slice the play installs          | caps every ccy container together                       |
-| `--pids-limit`                 | `CCY_PIDS_LIMIT`, default `16384`         | a fork bomb stops at the container                      |
-| `--memory`                     | `CCY_MEMORY_MAX`, default RAM less 16 GiB | one runaway session cannot take the desktop's memory    |
-| `--memory-reservation`         | 2 GiB below `--memory`                    | on cgroup v2 it is `memory.low` (below), not a throttle |
+| Flag                           | Value                                             | Why                                                     |
+| ------------------------------ | ------------------------------------------------- | ------------------------------------------------------- |
+| `--cgroup-parent agents.slice` | the user slice the play installs                  | caps every ccy container together                       |
+| `--pids-limit`                 | `CCY_PIDS_LIMIT`, default `16384`                 | a fork bomb stops at the container                      |
+| `--memory`                     | `CCY_MEMORY_MAX`, default the slice's `MemoryMax` | one runaway session cannot take the desktop's memory    |
+| `--memory-reservation`         | 2 GiB below `--memory`, or half where less        | on cgroup v2 it is `memory.low` (below), not a throttle |
 
-| Variable         | CCY default     | Takes                                                                      |
-| ---------------- | --------------- | -------------------------------------------------------------------------- |
-| `CCY_PIDS_LIMIT` | `16384`         | a whole number from 256 to 32768                                           |
-| `CCY_MEMORY_MAX` | RAM less 16 GiB | bytes, or a number with `k`, `m` or `g`, from `4096m` to the machine's RAM |
+| Variable         | CCY default             | Takes                                                                      |
+| ---------------- | ----------------------- | -------------------------------------------------------------------------- |
+| `CCY_PIDS_LIMIT` | `16384`                 | a whole number from 256 to 32768                                           |
+| `CCY_MEMORY_MAX` | the slice's `MemoryMax` | bytes, or a number with `k`, `m` or `g`, from `2048m` to the machine's RAM |
 
-**The slice.** `play-claude-yolo.yml` installs `~/.config/systemd/user/agents.slice` with
-`MemoryMax` = RAM less 16 GiB (one container's default cap) and `MemoryHigh` 1 GiB below, from
-the host's facts at deploy time (`ccy_agents_slice_memory_max_mb` in host_vars overrides the
-max). Past `MemoryHigh` the kernel throttles the slice; at `MemoryMax` it kills inside the slice
-only, so the desktop keeps its 16 GiB. The slice sets nothing for systemd-oomd. A launch is
-refused on a host without the unit, naming the play, and where RAM less 16 GiB is under 4 GiB
-(set `CCY_MEMORY_MAX` there). Docker (rootless) gets the same flags; the slice is the user
-manager's.
+**The slice.** `play-claude-yolo.yml` installs `~/.config/systemd/user/agents.slice`. Its
+`MemoryMax` caps all containers together and is also each container's default cap: the
+launcher reads it from the unit, so one setting serves every launch path, the restore unit
+included. Set it with `ccy_agents_slice_memory_max_mb` in host_vars; the default, from the
+host's facts at deploy time, is the RAM less 16 GiB, and where that leaves under 4 GiB (a server
+under 20 GiB) 4 GiB, or three quarters of the RAM where that is less. `MemoryHigh` is 1 GiB
+below, or a quarter below on a slice under 4 GiB. Past `MemoryHigh` the kernel throttles the
+slice; at `MemoryMax` it kills inside the slice only, so the desktop keeps its share. The slice
+sets nothing for systemd-oomd. The play refuses a max under 2048 MiB or over the RAM as its
+first task, before it installs anything. A launch is refused on a host without the unit or with
+no `MemoryMax=<n>M` line in it, naming the play, and with one out of bounds, naming the
+setting. Docker (rootless) gets the same flags; the slice is the user manager's.
 
 **systemd-oomd.** Fedora's default has systemd-oomd kill on memory pressure anywhere in
 `user@UID.service` (50% for 20 s), choosing the leaf cgroup with the highest reclaim rate: a
@@ -1232,6 +1236,7 @@ example 500 tasks within 5 seconds), on `pids.current` past about 80% of `pids.m
 refused fork counted in `pids.events`, naming the deepest chain of processes running the same
 command; and an advisory when `pids.peak` passed 80%. It belongs in the Go port of
 `container-watch`.
+
 ### Claude Code environment CCY sets
 
 CCY forwards a few Claude Code environment defaults into the container. Each uses the

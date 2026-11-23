@@ -27,28 +27,43 @@ func TestPids(t *testing.T) {
 	}
 }
 
-// The default is RAM less the desktop's 16 GiB, in MiB; a machine where that is under the
-// floor is refused, naming CCY_MEMORY_MAX, and never given a value picked for it.
-func TestMemoryFromMeminfo(t *testing.T) {
-	for meminfo, want := range map[string]int{
-		meminfo64:                                49152,
-		"MemFree: 1 kB\nMemTotal: 33554432 kB\n": 16384,
-		"MemTotal: 25165824 kB\n":                8192,
-		"MemTotal: 20971520 kB\n":                4096,
+// slice64 is the unit the play writes on that machine with no override: RAM less 16 GiB.
+const slice64 = "# comment\n[Unit]\nDescription=x\n\n[Slice]\nMemoryMax=49152M\nMemoryHigh=48128M\n"
+
+// The default is the slice's MemoryMax, which the play sets (host_vars, else from the RAM): a
+// lone container may fill the slice. The last MemoryMax line wins, as systemd reads it. A unit
+// with none in the play's form is refused naming the play; one under the floor or over the RAM
+// is refused naming the host_vars setting, and never given a value picked for it.
+func TestMemoryFromSlice(t *testing.T) {
+	for slice, want := range map[string]int{
+		slice64: 49152,
+		"[Slice]\nMemoryMax=2048M\nMemoryHigh=1024M\n":   2048,
+		"[Slice]\nMemoryMax=8192M\nMemoryMax=6144M\n":    6144,
+		"[Slice]\nMemoryMax=65536M\n":                    65536,
+		"[Slice]\r\nMemoryMax=4096M\nMemoryHigh=3072M\n": 4096,
 	} {
-		got, err := MemoryMiB("", []byte(meminfo))
+		got, err := MemoryMiB("", []byte(meminfo64), []byte(slice))
 		if err != nil || got != want {
-			t.Errorf("MemoryMiB(%q) = %d, %v; want %d", meminfo, got, err, want)
+			t.Errorf("MemoryMiB(slice %q) = %d, %v; want %d", slice, got, err, want)
 		}
 	}
-	for _, meminfo := range []string{"MemTotal: 20971519 kB\n", "MemTotal: 16777216 kB\n", "MemTotal: 8388608 kB\n"} {
-		_, err := MemoryMiB("", []byte(meminfo))
-		if err == nil || !strings.Contains(err.Error(), MemoryEnv) || !strings.Contains(err.Error(), "floor") {
-			t.Errorf("MemoryMiB(%q): %v; want a refusal naming %s and the floor", meminfo, err, MemoryEnv)
+	for _, slice := range []string{
+		"", "[Slice]\n", "[Slice]\nMemoryMax=infinity\n", "[Slice]\nMemoryMax=8G\n", "[Slice]\nMemoryMax=0M\n",
+		"[Slice]\nMemoryMax= 4096M\n", "[Slice]\nMemoryMax=04096M\n", "[Slice]\n#MemoryMax=4096M\n",
+	} {
+		_, err := MemoryMiB("", []byte(meminfo64), []byte(slice))
+		if err == nil || !strings.Contains(err.Error(), "MemoryMax") || !strings.Contains(err.Error(), Play) {
+			t.Errorf("MemoryMiB(slice %q): %v; want a refusal naming MemoryMax and %s", slice, err, Play)
+		}
+	}
+	for _, slice := range []string{"[Slice]\nMemoryMax=2047M\n", "[Slice]\nMemoryMax=65537M\n", "[Slice]\nMemoryMax=1M\n"} {
+		_, err := MemoryMiB("", []byte(meminfo64), []byte(slice))
+		if err == nil || !strings.Contains(err.Error(), SliceSetting) || !strings.Contains(err.Error(), "2048") {
+			t.Errorf("MemoryMiB(slice %q): %v; want a refusal naming %s and the floor", slice, err, SliceSetting)
 		}
 	}
 	for _, meminfo := range []string{"", "MemFree: 1 kB\n", "MemTotal: lots kB\n", "MemTotal: 0 kB\n"} {
-		if _, err := MemoryMiB("", []byte(meminfo)); err == nil || !strings.Contains(err.Error(), "MemTotal") {
+		if _, err := MemoryMiB("", []byte(meminfo), []byte(slice64)); err == nil || !strings.Contains(err.Error(), "MemTotal") {
 			t.Errorf("MemoryMiB(%q): %v; want a refusal naming MemTotal", meminfo, err)
 		}
 	}
@@ -58,19 +73,20 @@ func TestMemoryFromMeminfo(t *testing.T) {
 // turn the cap off.
 func TestMemoryOverride(t *testing.T) {
 	for value, want := range map[string]int{
-		"8g": 8192, "8G": 8192, "8192m": 8192, "8192M": 8192, "4g": 4096, "64g": 65536,
+		"8g": 8192, "8G": 8192, "8192m": 8192, "8192M": 8192, "4g": 4096, "2g": 2048, "3g": 3072, "64g": 65536,
 		"8388608k": 8192, "8589934592": 8192, "8589934592b": 8192, "8589935000": 8192, "40000m": 40000,
 	} {
-		got, err := MemoryMiB(value, []byte(meminfo64))
+		// The override needs no MemoryMax in the slice: it is the cap.
+		got, err := MemoryMiB(value, []byte(meminfo64), []byte("[Slice]\n"))
 		if err != nil || got != want {
 			t.Errorf("MemoryMiB(%q) = %d, %v; want %d", value, got, err, want)
 		}
 	}
 	for _, value := range []string{
-		"0", "-1", "max", "00", "3g", "4095m", "65g", "65537m", "1t", "8 g", " 8g", "8g ", "8gb", "8.5g",
+		"0", "-1", "max", "00", "1g", "2047m", "65g", "65537m", "1t", "8 g", " 8g", "8g ", "8gb", "8.5g",
 		"08g", "+8g", "1e10", "9999999999999g", "8gi",
 	} {
-		_, err := MemoryMiB(value, []byte(meminfo64))
+		_, err := MemoryMiB(value, []byte(meminfo64), []byte(slice64))
 		if err == nil || !strings.Contains(err.Error(), MemoryEnv+"="+value+" ") {
 			t.Errorf("MemoryMiB(%q): %v; want a refusal naming the value", value, err)
 		}
@@ -78,7 +94,7 @@ func TestMemoryOverride(t *testing.T) {
 }
 
 // One argument set for every run: the slice, the pids limit and both memory limits, the soft
-// one 2 GiB below the hard one.
+// one 2 GiB below the hard one, or half the hard one where that is less.
 func TestRun(t *testing.T) {
 	l := Limits{Pids: "16384", MemoryMiB: 49152}
 	want := []string{
@@ -87,6 +103,12 @@ func TestRun(t *testing.T) {
 	}
 	if got := l.Run("--entrypoint", "claude"); !slices.Equal(got, want) {
 		t.Fatalf("Run = %q, want %q", got, want)
+	}
+	for cap, soft := range map[int]string{4096: "2048m", 3000: "1500m", 2048: "1024m", 4097: "2049m"} {
+		got := Limits{Pids: "16384", MemoryMiB: cap}.Run()
+		if got[len(got)-1] != soft {
+			t.Errorf("Run with a %d MiB cap = %q; want --memory-reservation %s", cap, got, soft)
+		}
 	}
 }
 
@@ -104,6 +126,12 @@ func TestSettle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(unit, []byte("[Slice]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Settle(env(base), []byte(meminfo64)); err == nil || !strings.Contains(err.Error(), "MemoryMax") {
+		t.Fatalf("a slice unit with no MemoryMax: %v; want a refusal naming MemoryMax", err)
+	}
+	if err := os.WriteFile(unit, []byte(slice64), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Settle(env(base), []byte(meminfo64))
@@ -136,16 +164,16 @@ func TestTheLibrarysValues(t *testing.T) {
 	text := checkoutFile(t, "files/var/local/claude-yolo/lib/container-limits.bash")
 	for name, want := range map[string]string{
 		"CCY_PIDS_LIMIT_DEFAULT": strconv.Itoa(PidsDefault), "CCY_PIDS_LIMIT_MIN": strconv.Itoa(PidsMin),
-		"CCY_PIDS_LIMIT_MAX": strconv.Itoa(PidsMax), "CCY_MEMORY_DESKTOP_MIB": strconv.Itoa(DesktopMiB),
-		"CCY_MEMORY_FLOOR_MIB": strconv.Itoa(FloorMiB), "CCY_MEMORY_SOFT_GAP_MIB": strconv.Itoa(SoftGapMiB),
-		"CCY_AGENTS_SLICE": Slice,
+		"CCY_PIDS_LIMIT_MAX": strconv.Itoa(PidsMax), "CCY_MEMORY_FLOOR_MIB": strconv.Itoa(FloorMiB),
+		"CCY_MEMORY_SOFT_GAP_MIB": strconv.Itoa(SoftGapMiB), "CCY_AGENTS_SLICE": Slice,
+		"CCY_AGENTS_SLICE_SETTING": SliceSetting,
 	} {
 		m := regexp.MustCompile(`(?m)^` + name + `=(\S+)$`).FindStringSubmatch(text)
 		if m == nil || m[1] != want {
 			t.Errorf("the library's %s is %v; Go has %s", name, m, want)
 		}
 	}
-	for _, form := range []string{pidsForm.String(), memoryForm.String()} {
+	for _, form := range []string{pidsForm.String(), memoryForm.String(), sliceMaxForm.String()} {
 		if !strings.Contains(text, `=~ `+form+` ]]`) {
 			t.Errorf("the library does not hold the form %s", form)
 		}

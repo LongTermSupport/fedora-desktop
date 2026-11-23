@@ -4,12 +4,15 @@
 // docs/ccy.md, "Container limits".
 //
 //   - L1. The pids limit: CCY_PIDS_LIMIT, a whole number from 256 to 32768, else 16384.
-//   - L2. The memory limit: CCY_MEMORY_MAX (bytes, or a number with k, m or g), from 4 GiB to
-//     the machine's RAM; else the RAM less the 16 GiB kept for the desktop. A machine where
-//     that is under 4 GiB is refused, naming CCY_MEMORY_MAX: no value is picked for it. It
-//     cannot be turned off. --memory-reservation is 2 GiB below: on cgroup v2 crun writes it
-//     to memory.low, a reclaim protection and not a throttle, which inside agents.slice (no
-//     MemoryLow of its own) protects nothing; the throttle is the slice's MemoryHigh.
+//   - L2. The memory limit: CCY_MEMORY_MAX (bytes, or a number with k, m or g), from 2 GiB to
+//     the machine's RAM; else the slice's MemoryMax, so a lone container may fill the slice and
+//     the one host_vars setting the play writes it from (SliceSetting) sets both, for every
+//     launch path, the restore unit's included. A slice unit with no MemoryMax=<n>M is refused
+//     naming the play, and one under the floor or over the RAM naming the setting: no value
+//     is picked. It cannot be turned off. --memory-reservation is 2 GiB below, or half the cap
+//     where that is less: on cgroup v2 crun writes it to memory.low, a reclaim protection and
+//     not a throttle, which inside agents.slice (no MemoryLow of its own) protects nothing; the
+//     throttle is the slice's MemoryHigh.
 //   - L3. The slice: every container runs in the user unit agents.slice, which caps all of them
 //     together; a host without its unit file is refused, naming the play that installs it.
 package ccylimits
@@ -32,17 +35,17 @@ const (
 	PidsMax     = 32768
 
 	MemoryEnv = "CCY_MEMORY_MAX"
-	// DesktopMiB is the memory kept for the desktop: a container's default cap is the rest.
-	DesktopMiB = 16384
-	// FloorMiB is the smallest cap a container may have.
-	FloorMiB = 4096
-	// SoftGapMiB is how far below the cap --memory-reservation (memory.low) is.
+	// FloorMiB is the smallest cap a container may have: room for a session on a 4 GiB host.
+	FloorMiB = 2048
+	// SoftGapMiB is how far below the cap --memory-reservation (memory.low) is, at most.
 	SoftGapMiB = 2048
 
 	// Slice is the user slice every ccy container runs in.
 	Slice = "agents.slice"
 	// Play installs the slice's unit.
 	Play = "playbooks/imports/play-claude-yolo.yml"
+	// SliceSetting is the host_vars setting the play writes the slice's MemoryMax from.
+	SliceSetting = "ccy_agents_slice_memory_max_mb"
 )
 
 const (
@@ -54,6 +57,8 @@ const (
 var (
 	pidsForm   = regexp.MustCompile(`^[1-9][0-9]{0,4}$`)
 	memoryForm = regexp.MustCompile(`^([1-9][0-9]{0,11})([bkmgBKMG]?)$`)
+	// sliceMaxForm is the MemoryMax line the play's agents.slice template writes.
+	sliceMaxForm = regexp.MustCompile(`^MemoryMax=([1-9][0-9]{0,8})M$`)
 )
 
 // Limits is one settled limit set.
@@ -72,7 +77,7 @@ func (l Limits) Run(flags ...string) []string {
 	return append([]string{
 		"run", "--rm", "--cgroup-parent", Slice, "--pids-limit", l.Pids,
 		"--memory", strconv.Itoa(l.MemoryMiB) + "m",
-		"--memory-reservation", strconv.Itoa(l.MemoryMiB-SoftGapMiB) + "m",
+		"--memory-reservation", strconv.Itoa(l.MemoryMiB-min(SoftGapMiB, l.MemoryMiB/2)) + "m",
 	}, flags...)
 }
 
@@ -92,19 +97,14 @@ func Pids(value string) (string, bool) {
 }
 
 // MemoryMiB is L2: the cap in MiB for the override (empty for none) on a machine whose
-// /proc/meminfo is meminfo.
-func MemoryMiB(override string, meminfo []byte) (int, error) {
+// /proc/meminfo is meminfo and whose agents.slice unit is slice.
+func MemoryMiB(override string, meminfo, slice []byte) (int, error) {
 	total, ok := memTotalKiB(meminfo)
 	if !ok {
 		return 0, &Refused{Why: "could not read MemTotal from /proc/meminfo, so no memory cap can be set for a ccy container"}
 	}
 	if override == "" {
-		kib := total - DesktopMiB*kibPerMiB
-		if kib < FloorMiB*kibPerMiB {
-			return 0, &Refused{Why: fmt.Sprintf("this machine has %d MiB of RAM: less the %d MiB kept for the desktop, that is under the %d MiB floor of a ccy container's memory cap. Set %s on this host to the cap each container should have (bytes, or a number with k, m or g; docs/ccy.md, \"Container limits\")",
-				total/kibPerMiB, DesktopMiB, FloorMiB, MemoryEnv)}
-		}
-		return kib / kibPerMiB, nil
+		return sliceMaxMiB(slice, total)
 	}
 	refused := &Refused{Why: fmt.Sprintf("%s=%s is not a memory cap: bytes, or a number with k, m or g, from %dm to this machine's %d MiB of RAM; it cannot be turned off (docs/ccy.md, \"Container limits\")",
 		MemoryEnv, override, FloorMiB, total/kibPerMiB)}
@@ -131,6 +131,30 @@ func MemoryMiB(override string, meminfo []byte) (int, error) {
 		return 0, refused
 	}
 	return kib / kibPerMiB, nil
+}
+
+// sliceMaxMiB is the slice unit's MemoryMax in MiB, the last line in the play's form (systemd
+// reads the last), held between the floor and the machine's totalKiB of RAM.
+func sliceMaxMiB(slice []byte, totalKiB int) (int, error) {
+	mib := 0
+	s := bufio.NewScanner(bytes.NewReader(slice))
+	for s.Scan() {
+		if m := sliceMaxForm.FindStringSubmatch(s.Text()); m != nil {
+			n, err := strconv.Atoi(m[1])
+			if err != nil {
+				return 0, &Refused{Why: fmt.Sprintf("%s's MemoryMax=%sM is not a number: %v", Slice, m[1], err)}
+			}
+			mib = n
+		}
+	}
+	if mib == 0 {
+		return 0, &Refused{Why: fmt.Sprintf("%s has no MemoryMax=<MiB>M line, which a container's default memory cap is read from. Deploy it with %s, then launch again (or set %s on this host)", Slice, Play, MemoryEnv)}
+	}
+	if mib < FloorMiB || mib*kibPerMiB > totalKiB {
+		return 0, &Refused{Why: fmt.Sprintf("%s's MemoryMax is %d MiB, a container's default memory cap, which must be from the %d MiB floor to this machine's %d MiB of RAM. Set %s in this host's host_vars to the MiB all ccy containers together may use and run %s (docs/ccy.md, \"Container limits\")",
+			Slice, mib, FloorMiB, totalKiB/kibPerMiB, SliceSetting, Play)}
+	}
+	return mib, nil
 }
 
 // memTotalKiB is MemTotal from /proc/meminfo, in KiB.
@@ -162,13 +186,26 @@ func Settle(getenv func(string) string, meminfo []byte) (Limits, error) {
 	if !ok {
 		return Limits{}, &Refused{Why: fmt.Sprintf("%s=%s is not a pids limit: a whole number from %d to %d", PidsEnv, getenv(PidsEnv), PidsMin, PidsMax)}
 	}
-	memory, err := MemoryMiB(getenv(MemoryEnv), meminfo)
+	unit := SliceUnit(getenv)
+	slice, err := readRegular(unit)
+	if err != nil {
+		return Limits{}, &Refused{Why: fmt.Sprintf("%s is not installed (%s is missing): every ccy container runs in it, so that all of them together cannot take the host's memory. Deploy it with %s, then launch again", Slice, unit, Play)}
+	}
+	memory, err := MemoryMiB(getenv(MemoryEnv), meminfo, slice)
 	if err != nil {
 		return Limits{}, err
 	}
-	unit := SliceUnit(getenv)
-	if info, statErr := os.Stat(unit); statErr != nil || !info.Mode().IsRegular() {
-		return Limits{}, &Refused{Why: fmt.Sprintf("%s is not installed (%s is missing): every ccy container runs in it, so that all of them together cannot take the host's memory. Deploy it with %s, then launch again", Slice, unit, Play)}
-	}
 	return Limits{Pids: pids, MemoryMiB: memory}, nil
+}
+
+// readRegular is the content of path, which must be a regular file.
+func readRegular(path string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	return os.ReadFile(path)
 }

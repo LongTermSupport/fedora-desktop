@@ -37,7 +37,7 @@ func limitsOf(pids, memory, reservation string) []string {
 // refusedLimits are environments whose limits the library refuses.
 var refusedLimits = []string{
 	"CCY_PIDS_LIMIT=0", "CCY_PIDS_LIMIT=-1", "CCY_PIDS_LIMIT=max", "CCY_PIDS_LIMIT=00", "CCY_PIDS_LIMIT=255", "CCY_PIDS_LIMIT=32769",
-	"CCY_MEMORY_MAX=0", "CCY_MEMORY_MAX=-1", "CCY_MEMORY_MAX=max", "CCY_MEMORY_MAX=3g", "CCY_MEMORY_MAX=65g",
+	"CCY_MEMORY_MAX=0", "CCY_MEMORY_MAX=-1", "CCY_MEMORY_MAX=max", "CCY_MEMORY_MAX=1g", "CCY_MEMORY_MAX=65g",
 }
 
 // F4 and F8: limits the library refuses hand every answered flag over (the bash refuses them,
@@ -71,11 +71,15 @@ func TestTheLimits(t *testing.T) {
 	}
 }
 
-// F4: a machine the library refuses (no slice unit, too little RAM, no meminfo) hands over.
+// F4: a machine the library refuses (no slice unit, a slice with no MemoryMax or one over the
+// RAM, no meminfo) hands over.
 func TestTheMachineTheLimitsNeed(t *testing.T) {
 	for name, spoil := range map[string]func(dir string) error{
 		"no slice": func(dir string) error { return os.Remove(filepath.Join(dir, machineSlice)) },
-		"16 GiB": func(dir string) error {
+		"no MemoryMax": func(dir string) error {
+			return os.WriteFile(filepath.Join(dir, machineSlice), []byte("[Slice]\n"), 0o600)
+		},
+		"16 GiB under a 48 GiB slice": func(dir string) error {
 			return os.WriteFile(filepath.Join(dir, machineMeminfo), []byte("MemTotal: 16777216 kB\n"), 0o600)
 		},
 		"no memory": func(dir string) error { return os.Remove(filepath.Join(dir, machineMeminfo)) },
