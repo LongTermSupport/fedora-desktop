@@ -896,7 +896,7 @@ class TestMainOrder(unittest.TestCase):
                              ["playbooks/imports/play-b.yml", "playbooks/imports/play-a.yml"])
 
     def test_an_import_line_it_cannot_read_raises_rather_than_reorder(self) -> None:
-        """A play dropped from the order would run after play-ZZ-repo-cleanup, silently."""
+        """A play dropped from the order would run after the main playbook's last play, silently."""
         with tempfile.TemporaryDirectory() as root:
             _write(root, changed_plays.MAIN_PLAYBOOK,
                    "- import_playbook: imports/play-b.yml\n"
@@ -910,13 +910,18 @@ class TestMainOrder(unittest.TestCase):
             changed_plays.main_order(root)
 
     def test_the_real_main_playbook_is_read_whole(self) -> None:
-        """Every import line in this checkout's playbook-main.yml, each naming a real play."""
+        """Every import line in this checkout's playbook-main.yml, in order, each naming a real play.
+
+        The order's ends are the file's own first and last import lines, read here, not play names
+        written into the test: which play runs last is the playbook's to decide.
+        """
         repo_root = os.path.join(os.path.dirname(__file__), "..", "..", "..")
         with open(os.path.join(repo_root, changed_plays.MAIN_PLAYBOOK), encoding="utf-8") as handle:
-            imports = [line for line in handle if "import_playbook" in line.split("#", 1)[0]]
+            imports = [line.split("#", 1)[0] for line in handle if "import_playbook" in line.split("#", 1)[0]]
         order = changed_plays.main_order(repo_root)
         self.assertEqual(len(order), len(imports))
-        self.assertEqual(order[-1], "playbooks/imports/play-ZZ-repo-cleanup.yml")
+        self.assertIn(os.path.basename(order[0]), imports[0])
+        self.assertIn(os.path.basename(order[-1]), imports[-1])
         for play in order:
             self.assertTrue(os.path.isfile(os.path.join(repo_root, play)), play)
 
