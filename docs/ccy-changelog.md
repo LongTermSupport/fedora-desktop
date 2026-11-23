@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.0 — container unchanged
+
+- **Host `cc --teams` on teamchat** (Plan 00209 Task 5.1). `ccy-teams internal cc-run` is host
+  `cc`'s session as one command word on both systems: on agent-bus it runs what `cc-teams.bash`
+  ran (the same program, arguments and settings bytes); on teamchat it takes the seats as a ccy
+  launch does, runs `teamchat run --claude --kind host` with the seat store's session roots, and
+  ends the session as ccy does (any status: record removed, seats released; SIGHUP or SIGTERM:
+  seats kept). A host launch with no tmux session name, or a list on both systems, is refused.
+  `cc-teams.bash` checks and takes seats through `ccy-teams internal seat-check`/`seat-take`.
+- **The host chooser offers teamchat teams.** `choose-teams --type=host` lists this checkout's
+  teamchat teams and takes a pool seat as a ccy launch does; the Matrix consent names a teamchat
+  seat by its pool handle.
+
 ## 3.123.2 — container 2.84.48
 
 - **`teamchat run --extra-settings FILE`** (Plan 00209 Task 5.1). A `--claude` launch may name

@@ -460,7 +460,7 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   - [x] ✅ Step 3: `teamchat run --extra-settings FILE` (H4).
   - [x] ✅ Step 4: `cc-claude -- claude <args>` (H5).
   - [x] ✅ Step 5: `ccy-teams internal cc-run`, both systems.
-  - [ ] ⬜ Step 6: the chooser offers teamchat teams to a host launch.
+  - [x] ✅ Step 6: the chooser offers teamchat teams to a host launch; the consent names pool handles.
   - [ ] ⬜ Step 7: `teamchat reach` inside a `--state` session.
   - [ ] ⬜ Step 8: docs and plan text.
   - [ ] ⬜ Step 9: version bumps, meta-deploy entries, the acceptance script.

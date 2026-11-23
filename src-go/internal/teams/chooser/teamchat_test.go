@@ -35,6 +35,13 @@ func newTeamchatRig(t *testing.T, entries string, seats map[string][]string) *te
 			return ok, r.liveErr
 		},
 		Seats: func(team string) ([]string, error) { return r.seats[team], nil },
+		Handles: func(team string) ([]string, error) {
+			var handles []string
+			for _, s := range r.seats[team] {
+				handles = append(handles, "proj."+s+"+local.host")
+			}
+			return handles, nil
+		},
 		Teams: func() ([]string, error) {
 			var teams []string
 			for team, s := range r.seats {
@@ -110,6 +117,26 @@ func TestAHostLaunchTakesATeamchatPoolSeat(t *testing.T) {
 	if !strings.Contains(strings.Join(r.Script.Headings, "\n"), "Matrix consent") {
 		t.Fatalf("the host seat's Matrix consent was not asked: %q", r.Script.Headings)
 	}
+	contains(t, "stderr", r.stderr(), "proj.2+local.host joins its team")
+}
+
+// A host seat named in full on a teamchat team takes its handle from this checkout's pool; a
+// seat the pool does not have is refused (78) before anything is asked.
+func TestAHostTeamchatSeatNamedInFullTakesItsHandleFromThePool(t *testing.T) {
+	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2", "3"}})
+	r.consentRig()
+	r.Script.Gum = []string{"YES"}
+	exit(t, r.run("--type=host", "3@"+v2Team), term.ExitOK, r.rig)
+	contains(t, "stderr", r.stderr(), "proj.3+local.host joins its team")
+	if r.seatsAsked != nil {
+		t.Fatalf("agent-bus's seat chooser was asked: %v", r.seatsAsked)
+	}
+
+	r = newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2"}})
+	r.consentRig()
+	exit(t, r.run("--type=host", "9@"+v2Team), term.ExitConfig, r.rig)
+	contains(t, "stderr", r.stderr(), "9@"+v2Team+" is not one of this checkout's teamchat seats of "+v2Team)
+	r.lacksOutput(t)
 }
 
 func TestAnAgentBusTeamNamedAloneStillGoesToItsSeatChooser(t *testing.T) {

@@ -21,6 +21,9 @@ type Teamchat struct {
 	Live func(ctx context.Context, team string) (bool, error)
 	// Seats are the seat parts of this checkout's pool seats of team, in pool order.
 	Seats func(team string) ([]string, error)
+	// Handles are the member handles of this checkout's pool seats of team, in pool order: what
+	// a host seat's Matrix consent names.
+	Handles func(team string) ([]string, error)
 	// Teams are the teams with a pool seat in this checkout, sorted.
 	Teams func() ([]string, error)
 }

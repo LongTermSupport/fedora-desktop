@@ -175,7 +175,7 @@ func Wire(h *host.Host) *App {
 	chosen.Probe = pick.Probe
 	membershipInit := membership.New(h)
 	sys := newSystem(h)
-	chosen.Teamchat = &chooser.Teamchat{Live: sys.Live, Seats: sys.SeatParts, Teams: sys.PoolTeams}
+	chosen.Teamchat = &chooser.Teamchat{Live: sys.Live, Seats: sys.SeatParts, Handles: sys.Handles, Teams: sys.PoolTeams}
 	pick.Teamchat = sys.Live
 	return &App{
 		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: pick,

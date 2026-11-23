@@ -15,6 +15,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/matrixclients"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -250,8 +251,10 @@ func ownedBy(info fs.FileInfo, uid int) bool {
 	return ok && int(st.Uid) == uid
 }
 
-// handles are the member handles the refs will have, as agent-bus offers them for a seat of
-// memberType (the launch's own: host, as only a host launch is asked) in this checkout. A seat it does not offer cannot be named, and the run stops there.
+// handles are the member handles the refs will have: a teamchat team's from this checkout's
+// pool (a team with a pool seat here is on teamchat, as system.Resolve decides), any other as
+// agent-bus offers them for a seat of memberType (the launch's own: host, as only a host launch
+// is asked) in this checkout. A seat neither offers cannot be named, and the run stops there.
 func (c *Chooser) handles(ctx context.Context, memberType string, refs []string) ([]string, term.ExitCode) {
 	var handles []string
 	for _, ref := range refs {
@@ -259,6 +262,14 @@ func (c *Chooser) handles(ctx context.Context, memberType string, refs []string)
 		if !ok {
 			c.say("ccy-teams: '" + ref + "' is not SEAT@TEAM.")
 			return nil, term.ExitUsage
+		}
+		handle, onTeamchat, code := c.poolHandle(memberType, ref, seat, team)
+		if code != term.ExitOK {
+			return nil, code
+		}
+		if onTeamchat {
+			handles = append(handles, handle)
+			continue
 		}
 		choices, err := c.Host.Bus.SeatChooseAs(ctx, team, memberType)
 		if err != nil {
@@ -274,6 +285,33 @@ func (c *Chooser) handles(ctx context.Context, memberType string, refs []string)
 		handles = append(handles, choices.Rows[at].Handle)
 	}
 	return handles, term.ExitOK
+}
+
+// poolHandle is the handle of seat@team from this checkout's pool, and whether the team has
+// a pool seat here at all (false: ask agent-bus). A pool with no seat whose seat part is seat is
+// refused (78).
+func (c *Chooser) poolHandle(memberType, ref, seat, team string) (string, bool, term.ExitCode) {
+	tc := c.teamchatFor(memberType)
+	if tc == nil {
+		return "", false, term.ExitOK
+	}
+	pool, err := tc.Handles(team)
+	if err != nil {
+		return "", false, c.failed(err)
+	}
+	if len(pool) == 0 {
+		return "", false, term.ExitOK
+	}
+	at := slices.IndexFunc(pool, func(h string) bool {
+		parsed, ok := proto.ParseHandle(h)
+		return ok && parsed.Seat == seat
+	})
+	if at < 0 {
+		c.say("ccy-teams: " + ref + " is not one of this checkout's teamchat seats of " + team + " (it has: " +
+			strings.Join(pool, ", ") + "); choose one of them, or leave the seat out to be asked.")
+		return "", true, exitConfig
+	}
+	return pool[at], true, term.ExitOK
 }
 
 // record writes the acceptance of ids: the folder the owner's alone (0700), the record
