@@ -36,7 +36,7 @@ func TestEverySingleTeamVerbWithTwoTeamsAndNoTeamIsAmbiguous(t *testing.T) {
 			t.Errorf("%s: %q", v.Name, e.Message)
 		}
 	}
-	if n != 7 {
+	if n != 10 {
 		t.Errorf("%d single-team verbs", n)
 	}
 }
@@ -51,7 +51,7 @@ func singleTeamLine(verb string) []string {
 		return []string{verb, "--to", "repo.2"}
 	case "ping":
 		return []string{verb, "review", "pr:o/r#1@abc", "--to", "repo.2"}
-	case "thread":
+	case "thread", "close", "retitle":
 		return []string{verb, "Q1"}
 	}
 	return []string{verb}

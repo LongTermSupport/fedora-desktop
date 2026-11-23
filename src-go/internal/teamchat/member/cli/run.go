@@ -49,16 +49,14 @@ var runs = map[string]RunFunc{
 var outside = []string{
 	verbHook, verbStatusLine, verbWhoami,
 	verbRun, "link", "recv", "wait", "inbox", "status", "verify", "history", "seat disconnected", "reach",
-	"tls", "reply", "say", "ping", verbReport,
+	"tls", "reply", "say", "ping", verbReport, verbAsk, "thread", "close", "retitle", "bump", verbQuestions,
 }
 
 // Outside is the verbs a binary must pass in Env.Verbs; a copy the caller may change.
 func Outside() []string { return slices.Clone(outside) }
 
-// unbuilt are the verbs a later slice builds, each with its slice (CL2).
-var unbuilt = bySlice(map[string][]string{
-	"n3f": {verbAsk, "thread", verbQuestions},
-})
+// unbuilt are the verbs a later slice builds, each with its slice (CL2); none is left.
+var unbuilt = bySlice(map[string][]string{})
 
 func bySlice(verbs map[string][]string) map[string]string {
 	out := map[string]string{}

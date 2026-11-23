@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -456,5 +457,30 @@ func TestWorstQuestionsKeyIsFull(t *testing.T) {
 	}
 	if err := k.Check(server); err != nil {
 		t.Fatalf("the worst key breaks its own rules: %v", err)
+	}
+}
+
+// QX3: the write that folds the own post's echo clears questions_unechoed, a write that folds
+// other events leaves it, and each uncounted echo raises the count.
+func TestOutboxFoldedClearsTheEchoAndCountsTheUncounted(t *testing.T) {
+	var o Outbox
+	id := eventID(3)
+	o.QuestionsUnechoed = &id
+	o.Folded([]string{eventID(4)}, 0)
+	if o.QuestionsUnechoed == nil {
+		t.Fatal("cleared by another event's fold")
+	}
+	o.Folded([]string{eventID(5), id}, 2)
+	if o.QuestionsUnechoed != nil || o.QuestionsUncounted != (Uncounted{Count: 2}) {
+		t.Errorf("unechoed %v, uncounted %+v: want null and a count of 2", o.QuestionsUnechoed, o.QuestionsUncounted)
+	}
+}
+
+// The questions sends are kinds of their own.
+func TestTheQuestionsSendKindsAreSendKinds(t *testing.T) {
+	for _, k := range []string{SendQuestion, SendThread, SendRetitle} {
+		if !slices.Contains(sendKinds, k) {
+			t.Errorf("%s is not a send kind", k)
+		}
 	}
 }

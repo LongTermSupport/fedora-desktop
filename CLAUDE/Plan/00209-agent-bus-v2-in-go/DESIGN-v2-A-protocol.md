@@ -886,7 +886,7 @@ is `edit`, 7.5).
 | `teamchat.notice`, `teamchat.report`, `teamchat.question`, carried (7.7) | none                                                                                                    |
 | `teamchat.thread` with `n` and no `link`                                 | the thread form (10.3)                                                                                  |
 | `teamchat.thread` with `n` and `link`                                    | exactly a reply, to a human post (10.3's link-back)                                                     |
-| `teamchat.thread` without `n`                                            | exactly a reply, and no `close`                                                                         |
+| `teamchat.thread` without `n`                                            | the thread form, `m.in_reply_to` the human post answered (10.3), and no `close`                         |
 | `teamchat.ping`                                                          | by its verb (8.1); an optional relation is none or the answer form (7.2), and a plain reply is `schema` |
 
 **Why `body` is not checked.** v1 dropped an event whose `body` differed from a render of its typed
@@ -1491,10 +1491,13 @@ The coordinator's follow-ups inside a question's thread:
 - With an answer to a specific human post, `m.in_reply_to` names that post and `is_falling_back` is
   `false` (the Matrix thread form). This is what `teamchat reply '<id>'` sends for a human post
   attached to a question (10.4 rules 1-4).
-- **A reply to an unattached human post** (10.4 rule 5) is a `teamchat.thread` with no `n`, whose
-  `m.relates_to` is exactly `{"m.in_reply_to": {"event_id": <the post>}}` naming a human post in
-  this room: Element shows it as a reply to the post. It cannot close anything, and the question
-  index ignores it. This is what `reply '<id>'` sends for an entry with `question: none`, so the
+- **A reply to an unattached human post** (10.4 rule 5) is a `teamchat.thread` with no `n`, in
+  the thread form, `m.in_reply_to` naming the post: in the post's own thread when it is in one
+  (`rel_type` `m.thread`, `event_id` that thread's root, `is_falling_back` `false`), else in a
+  new thread rooted at the post (`event_id` and `m.in_reply_to` the post, `is_falling_back`
+  `true`). It is never a plain reply at the top level, where a human who started a thread does
+  not look. It cannot close anything, and the question index only takes the post off its
+  unattached list. This is what `reply '<id>'` sends for an entry with `question: none`, so the
   coordinator can ask the human which question they meant.
 - Why there is no `thread --re`: 00211 had it to name the human post a thread post answers.
   `reply '<id>'` takes the post's id and finds its question (or none) itself, so a second way to

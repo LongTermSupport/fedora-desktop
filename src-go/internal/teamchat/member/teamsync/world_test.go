@@ -480,6 +480,7 @@ func (e *fakeEngine) Persist(_ context.Context, b team.Batch) (int64, error) {
 	// batch that holds them, dropped only by a demotion's.
 	if b.Questions != nil {
 		s.Questions = b.Questions
+		s.Outbox.Folded(b.QuestionsFolded, b.QuestionsUncounted)
 	}
 	if b.DropQuestions {
 		s.Pending = slices.DeleteFunc(s.Pending, func(p state.Pending) bool { return p.Room == proto.PurposeQuestions })

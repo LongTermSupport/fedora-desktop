@@ -201,7 +201,8 @@ func checkPresence(verb string, flags []Flag, p parsed) error {
 }
 
 func checkArgs(v Verb, args []string) ([]string, error) {
-	if len(args) > len(v.Args) {
+	repeats := len(v.Args) > 0 && v.Args[len(v.Args)-1].Repeat
+	if len(args) > len(v.Args) && !repeats {
 		return nil, usage(msgArgsTooMany, exits.Words(v.Name), exits.Count(int64(len(v.Args))), exits.Words(v.Name))
 	}
 	for i, a := range v.Args {
@@ -218,5 +219,18 @@ func checkArgs(v Verb, args []string) ([]string, error) {
 			return nil, usage(a.check.msg, exits.Words(a.Name))
 		}
 	}
+	if repeats {
+		return args, checkRepeats(v.Args[len(v.Args)-1], args[min(len(v.Args), len(args)):])
+	}
 	return args, nil
+}
+
+// checkRepeats checks the values a repeated last argument took past its first.
+func checkRepeats(a Arg, values []string) error {
+	for _, v := range values {
+		if a.check != nil && !a.check.ok(v) {
+			return usage(a.check.msg, exits.Words(a.Name))
+		}
+	}
+	return nil
 }

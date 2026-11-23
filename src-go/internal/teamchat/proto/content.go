@@ -383,7 +383,7 @@ func relationAllowed(c Content) bool {
 		case t.N > 0:
 			return c.Relation.Kind == RelThread && (!t.Close || !t.Wait)
 		}
-		return c.Relation.Kind == RelReply && !t.Close && !t.Wait && t.Link == ""
+		return c.Relation.Kind == RelThread && !t.Close && !t.Wait && t.Link == ""
 	}
 	return c.Relation.Kind == RelNone
 }

@@ -165,7 +165,7 @@ func TestQuestionIndexThreadPosts(t *testing.T) {
 	r.post(qid('c'), coordID, 7000, threadPost(1, q1, q1, false))
 	r.post(qid('d'), coordID, 6000, threadPost(1, q2, q2, true))
 	r.post(qid('e'), coordID, 5000, threadPost(9, q1, q1, true))
-	r.post(qid('f'), coordID, 4000, `{"msgtype":"m.notice","body":"which?","m.relates_to":`+replyRel(q1)+`,"teamchat.thread":{"v":1}}`)
+	r.post(qid('f'), coordID, 4000, plainReply(q1))
 	if q := r.question(1); q.Latest != qid('c') || q.State() != QuestionOpen {
 		t.Errorf("Q1 = %+v", q)
 	}

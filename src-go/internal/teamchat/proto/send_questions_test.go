@@ -99,7 +99,8 @@ func TestComposeThreadPost(t *testing.T) {
 func TestComposeUnattachedReply(t *testing.T) {
 	c := asked(t)
 	out := mustSend(t)(c.Thread(ThreadPost{Answers: qid('u'), Text: "Which question do you mean?"}))
-	if !at(t, out.Content, keyRelatesTo).Equal(ReplyTo(qid('u')).Encode()) {
+	// A top-level post becomes a new thread's root (v1's defect was a plain reply in the room).
+	if !at(t, out.Content, keyRelatesTo).Equal(InThread(qid('u'), qid('u'), true).Encode()) {
 		t.Errorf("the reply = %s", out.Content.Compact())
 	}
 	if _, has := at(t, out.Content, KeyThread).Get("n"); has {
@@ -116,6 +117,35 @@ func TestComposeUnattachedReply(t *testing.T) {
 		t.Errorf("the replied-to post is no longer known unattached: %d %v", n, known)
 	}
 }
+
+// The coordinator's input to OD-Q3: a reply to an unattached post in a thread a human started
+// stays in that thread (the root is the thread's, m.in_reply_to the post), and a receiver does
+// not take a plain reply without n.
+func TestComposeUnattachedReplyStaysInTheHumansThread(t *testing.T) {
+	r := newQuestionRoom(t, 0)
+	r.post(qid('o'), aliceID, 9000, humanPost("shall we talk about the docs?", ""))
+	r.post(qid('p'), aliceID, 8000, humanPost("the licence part", threadRel(qid('o'))))
+	c := composer(t, coordID)
+	c.Questions = r.index
+	out := mustSend(t)(c.Thread(ThreadPost{Answers: qid('p'), Root: qid('o'), Text: "Which question do you mean?"}))
+	if !at(t, out.Content, keyRelatesTo).Equal(InThread(qid('o'), qid('p'), false).Encode()) {
+		t.Errorf("the reply in a human's thread = %s", out.Content.Compact())
+	}
+	v := receive(t, out, coordID, coordID)
+	if v.Outcome != Index || !c.Questions.Feed(v) {
+		t.Fatalf("the index did not take the reply: %v %q", v.Outcome, v.Reason)
+	}
+	if got := c.Questions.Unattached(); len(got) != 1 || got[0].ID != qid('o') {
+		t.Errorf("unattached after the reply = %+v, want only the thread's root", got)
+	}
+	refusedWith(t, "a root that is the post", firstErr(c.Thread(ThreadPost{Answers: qid('o'), Root: qid('o'), Text: "x"})), ReasonTarget)
+	plain := agentContent(MsgNotice, "x", nil, ReplyTo(qid('o')), KeyThread, Obj(M("v", Int(WireMajor))))
+	if v := receive(t, Outgoing{Purpose: PurposeQuestions, Content: plain}, coordID, coordID); v.Outcome == Index {
+		t.Errorf("a plain reply without n was indexed: %v %q", v.Outcome, v.Reason)
+	}
+}
+
+func firstErr(_ Outgoing, err error) error { return err }
 
 func TestComposeThreadPostRefuses(t *testing.T) {
 	cases := map[string]struct {

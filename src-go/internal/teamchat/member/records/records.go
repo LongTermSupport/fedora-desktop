@@ -33,6 +33,7 @@ const (
 	KindQueued     = "queued"
 	KindPending    = "pending"
 	KindQuestion   = "question"
+	KindBump       = "bump"
 	KindUnattached = "unattached"
 	KindHistory    = "history"
 	KindVerified   = "verified"
@@ -48,7 +49,7 @@ const (
 // Kinds is every record kind.
 var Kinds = []string{
 	KindHuman, KindPeer, KindPing, KindTimeout, KindNotice, KindFact, KindOutbox, KindSent,
-	KindQueued, KindPending, KindQuestion, KindUnattached, KindHistory, KindVerified, KindMore, KindTeam,
+	KindQueued, KindPending, KindQuestion, KindBump, KindUnattached, KindHistory, KindVerified, KindMore, KindTeam,
 	KindMember, KindRoom, KindRuntime, KindTeamFailed, KindVersion,
 }
 
@@ -258,13 +259,16 @@ type Pending struct {
 	SentMS int64        `json:"sent_ms"`
 }
 
-// Question is one question in the questions room (A 10.4). ID and AskedMS are null while its send
-// is queued; Redacted marks a number kept by a redacted question (QX7), which is closed and holds
-// nothing else; RemindAfterS is null when there is no reminder; Unanswered is at most 16 ids and
-// UnansweredMore the count past them.
+// Question is one question in the questions room (A 10.4). N is null only for `ask-human
+// --check`, which numbers nothing; ID and AskedMS are null while its send is queued; Redacted
+// marks a number kept by a redacted question (QX7), which is closed and holds nothing else;
+// RemindAfterS is null when there is no reminder; Unanswered is at most 16 ids and
+// UnansweredMore the count past them. Why is the question's `why` word, For the short names of
+// the seats it was asked for, WaitingSinceMS when it began to wait on a human (null when it does
+// not), and Retitled, for `close` alone, whether the closed question's root was retitled.
 type Question struct {
 	Team           paths.TeamID `json:"team"`
-	N              int64        `json:"n"`
+	N              *int64       `json:"n"`
 	State          string       `json:"state"`
 	ID             *string      `json:"id"`
 	Headline       string       `json:"headline"`
@@ -275,6 +279,10 @@ type Question struct {
 	Unanswered     List[string] `json:"unanswered"`
 	UnansweredMore int64        `json:"unanswered_more"`
 	Redacted       bool         `json:"redacted"`
+	Why            *string      `json:"why"`
+	For            List[string] `json:"for"`
+	WaitingSinceMS *int64       `json:"waiting_since_ms"`
+	Retitled       *bool        `json:"retitled"`
 }
 
 // MarshalJSON writes the question record. A redacted question's text was redacted, so one that
@@ -289,9 +297,37 @@ func (q Question) MarshalJSON() ([]byte, error) {
 }
 
 func holdsOnlyItsNumber(q Question) bool {
-	return q.State == proto.QuestionClosed && q.ID == nil && q.Headline == "" &&
+	return q.N != nil && q.State == proto.QuestionClosed && q.ID == nil && q.Headline == "" &&
 		len(q.AskedBy) == 0 && len(q.Re) == 0 && q.AskedMS == nil && q.RemindAfterS == nil &&
-		len(q.Unanswered) == 0 && q.UnansweredMore == 0
+		len(q.Unanswered) == 0 && q.UnansweredMore == 0 && q.Why == nil && len(q.For) == 0 &&
+		q.WaitingSinceMS == nil
+}
+
+// Why a bump skipped a question (DESIGN-questions-v2 2.7): it waits on no human, or it began to
+// wait more recently than --min-age.
+const (
+	BumpAnswered = "answered"
+	BumpYoung    = "young"
+)
+
+// Bump is `bump`'s word on one question: Bumped when its post was sent (a sent record precedes
+// it), else Why it was skipped.
+type Bump struct {
+	Team   paths.TeamID `json:"team"`
+	Q      string       `json:"q"`
+	Bumped bool         `json:"bumped"`
+	Why    *string      `json:"why"`
+}
+
+// MarshalJSON writes the bump record, refused unless it names a question and says why exactly
+// when it was skipped.
+func (b Bump) MarshalJSON() ([]byte, error) {
+	skipped := b.Why != nil && (*b.Why == BumpAnswered || *b.Why == BumpYoung)
+	if !proto.ValidQuestion(b.Q) || b.Bumped == (b.Why != nil) || !b.Bumped && !skipped {
+		return nil, errors.New("a bump record that names no question, or whose why is not given exactly when it was skipped")
+	}
+	type plain Bump
+	return marshal(plain(b))
 }
 
 // Unattached is one human post in the questions room that no question holds and no agent has
@@ -489,6 +525,9 @@ func (Pending) Kind() string { return KindPending }
 func (Question) Kind() string { return KindQuestion }
 
 // Kind is the record kind.
+func (Bump) Kind() string { return KindBump }
+
+// Kind is the record kind.
 func (Unattached) Kind() string { return KindUnattached }
 
 // Kind is the record kind.
@@ -529,6 +568,7 @@ func (Sent) record()       {}
 func (Queued) record()     {}
 func (Pending) record()    {}
 func (Question) record()   {}
+func (Bump) record()       {}
 func (Unattached) record() {}
 func (History) record()    {}
 func (Verified) record()   {}

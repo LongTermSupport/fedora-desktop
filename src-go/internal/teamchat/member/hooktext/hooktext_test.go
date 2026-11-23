@@ -64,7 +64,7 @@ func TestFrame(t *testing.T) {
 	}, state.DeliverySocket)
 	want := proto.FrameText + "\n\n" +
 		"team alpha: you are myrepo.2+desk.podman, the coordinator (coordinator: myrepo.2+desk.podman). Builds the thing.\n" +
-		"In team alpha you direct the team's agents; ask the humans with teamchat ask --team alpha, and follow up with teamchat questions --team alpha.\n" +
+		"In team alpha you direct the team's agents; ask the humans with teamchat ask-human --team alpha, and follow up with teamchat questions --team alpha.\n" +
 		"team beta: you are myrepo.3+desk.podman, the worker; the team has no coordinator now.\n" +
 		"In team beta take direction from the team's humans and its coordinator; report with teamchat report --team beta.\n" +
 		"team gamma: you are ?, the member (coordinator: ?).\n" +
@@ -181,7 +181,7 @@ func TestMembershipAndRecovery(t *testing.T) {
 // Every output is lines with no control character, and every teamchat command a text names
 // is one the CLI parses (B 2.8: hook texts name commands in B's form).
 func TestAllIsClean(t *testing.T) {
-	commandRE := regexp.MustCompile(`teamchat (recv|wait|status|ask|questions|report)( --team [a-z0-9-]+)?`)
+	commandRE := regexp.MustCompile(`teamchat (recv|wait|status|ask-human|questions|report)( --team [a-z0-9-]+)?`)
 	for _, text := range All() {
 		if text == "" {
 			t.Fatal("an empty sample")

@@ -60,7 +60,8 @@ func askAgent(ix *QuestionIndex, n int64) bool {
 }
 
 func plainReply(to string) string {
-	return `{"msgtype":"m.notice","body":"which?","m.relates_to":` + replyRel(to) + `,"teamchat.thread":{"v":1}}`
+	rel := `{"rel_type":"m.thread","event_id":"` + to + `","is_falling_back":true,"m.in_reply_to":{"event_id":"` + to + `"}}`
+	return `{"msgtype":"m.notice","body":"which?","m.relates_to":` + rel + `,"teamchat.thread":{"v":1}}`
 }
 
 func TestQuestionIndexIsIdempotentByEventID(t *testing.T) {

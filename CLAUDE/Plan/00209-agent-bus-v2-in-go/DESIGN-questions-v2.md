@@ -109,7 +109,12 @@ close), and a human reply to it attaches to Q<n> by section 3. **Protocol change
 `link` form. One send each, both under one `Admit`; the second is sent only after the first has
 an event id (the permalink needs it; a queued first send queues both, in order).
 
-An unattached post: QR1's plain reply, kept (it asks the human which question they meant).
+An unattached post: QR1's reply (it asks the human which question they meant), in the thread
+form, never a plain top-level reply (the coordinator's input to OD-Q3, from v1's `cmd_thread`,
+which set a thread root only from `Q<n>` and so posted `--re` alone as a plain `m.in_reply_to`):
+the root is the post's own thread's when the post is in one, else the post itself as a new
+thread's root (`is_falling_back` true, `m.in_reply_to` the post). A 10.3 and the relation table
+of A 7.1 say so. A target attached to Q<n> is in Q<n>'s thread, as above.
 
 ### 2.4 `close Q<n> [Q<m>..] [--team T]`
 
@@ -208,7 +213,32 @@ it itself (#364: a worker must not act on a peer's relay of an owner ruling).
 
 Each step: write the test, see it fail, then the code. Fakes only (fakehs, the fake clock).
 
-**Status:** steps 1-3 built on `v2-questions`.
+**Status:** steps 1-3 built on `v2-questions`; step 4's QX3 and QX4 built (own posts placed and
+sent to the questions room, `questions_unechoed` and the `uncounted` count written, one compose
+at a time under the team's judging hold); QX7's redaction rebuild and the `uncounted` hook line
+not yet. Step 5 in part: the verbs' command line (`ask-human`, `thread --note`, `close`,
+`retitle`, `bump`, `questions --waiting/--for/--digest`; `run.go`'s `unbuilt` empty), the client
+(`--skeleton` printed with no session, close's not-retitled stderr line), the wire args, and the
+`question` record's `why`, `for`, `waiting_since_ms` and `retitled` with the `bump` record; and
+the link's serving of every verb (the engine, `engine/questionsverbs.go`), `reply`'s link-back
+and the thread form of a reply to an unattached post (2.3). Still open in step 4: QX7's
+redaction rebuild and the `uncounted` hook line.
+
+Known gaps of step 5, each a choice made in the build:
+
+- **No duty `hint` records** from `--check`: the roster on the wire carries no seat duty, so
+  there is nothing to read the duty from. This follows backlog R5 (seat capabilities); duty is
+  not added to the roster here.
+- **`--check` prints the `question` record** (n null, the headline, `why`, `for`), not the body:
+  a JSON Lines answer has no record for a body, and the body is the caller's stdin after
+  `Q<n> `, whose number is not taken by a check.
+- **The link-back waits for the thread answer's event ID**: it is sent only when the answer is
+  posted within the request's deadline. A queued answer (a team down) is posted later without a
+  link-back, since the link-back names the answer's ID; the coordinator can repeat the reply.
+  Each of the two posts is its own `Admit`.
+- **A provisional post sets no waiting time in the index** (QX3's overlay): the verb's record
+  carries the charge time, but a `bump` or `questions --waiting` before the echo reads the
+  index's earlier value.
 
 Step 3 settled three points the sections above left open. The index keeps each question's
 sender (`from`, 128 bytes at most), so the fold itself checks that a retitle edit comes from the

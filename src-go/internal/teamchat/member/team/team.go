@@ -53,6 +53,11 @@ type Batch struct {
 	// written, and the store's position (next_batch, restore epoch, fresh) stays as the sync left
 	// it, whatever NextBatch holds.
 	Page bool
+	// QuestionsFolded are the questions room's events this batch folded, and QuestionsUncounted
+	// the own posts among them whose echo was not counted (QX3): the write clears
+	// `outbox.questions_unechoed` when it names that event, and raises the uncounted count.
+	QuestionsFolded    []string
+	QuestionsUncounted int64
 	// Handover sets `outbox.questions_handover`, the ready line owed (QX1): the first page write of
 	// a build begun with no `questions` key.
 	Handover bool
@@ -252,6 +257,65 @@ type Team interface {
 	VerifyReports(ctx context.Context) error
 	// ReportsRoom is the reports room's state as the team last found it, from memory, for status.
 	ReportsRoom() ReportsRoom
+	// Questions runs compose with the questions index, one compose at a time per team, on the
+	// hold the team's judging and commits take (QX4): once the room is ready and no own post of
+	// an earlier run waits for its echo (QX3), else at ctx's end 20 not-ready; a room that is
+	// not this member's is 11 role, one that fails its check 22 untrusted. compose gets a copy
+	// of the index; the placements it returns (after its SD3 write) are placed on the live
+	// index before the hold is let go, and the view returned is the index after them.
+	Questions(ctx context.Context, compose func(QuestionsView) ([]Placement, error)) (QuestionsView, error)
+	// QuestionPosted is the sender's word that the own questions post txn was posted as id, so
+	// a compose does not wait for that echo (QX3). It must not block.
+	QuestionPosted(txn, id string)
+	// QuestionsPostable is the sender's check before a queued questions post is put (QX3):
+	// ErrQuestionsNotReady while the index is not ready (the send waits), a refusal when a
+	// question's number is counted by a folded event, nil otherwise.
+	QuestionsPostable(content proto.Value) error
+	// FetchEvent fetches one event of the questions room by id (a retitle's root, A 10.4).
+	FetchEvent(ctx context.Context, id string) (json.RawMessage, error)
+}
+
+// ErrQuestionsNotReady is a questions post the sender holds: the index is not at the head.
+var ErrQuestionsNotReady = errors.New("team: the question index is not ready")
+
+// QuestionsView is the questions room as a compose reads it: its id, and the index at the head
+// (a copy, which the compose may read but whose changes are not kept).
+type QuestionsView struct {
+	Room  string
+	Index *proto.QuestionIndex
+}
+
+// Placement is an own questions post placed provisionally once its SD3 write answered (QX3):
+// a question with its body, or a thread post.
+type Placement struct {
+	Txn      string
+	Question *proto.Question
+	Body     string
+	Thread   *proto.PlacedThread
+}
+
+// PlacementOf is the placement of an own questions content sent as txn (QX3), false for one
+// that places nothing (a link-back, a retitle, or content that does not decode).
+func PlacementOf(txn string, content json.RawMessage) (Placement, bool) {
+	v, err := proto.Parse(content)
+	if err != nil {
+		return Placement{}, false
+	}
+	dc, reason := proto.DecodeContent(v, proto.QuestionKeys)
+	switch {
+	case reason != "":
+		return Placement{}, false
+	case dc.Key == proto.KeyQuestion:
+		q := dc.Question
+		return Placement{Txn: txn, Question: &q, Body: dc.Body}, true
+	case dc.Key == proto.KeyThread && dc.Thread.Link == "":
+		th := proto.PlacedThread{N: dc.Thread.N, Close: dc.Thread.Close}
+		if th.N == 0 {
+			th.ReplyTo = dc.Relation.InReplyTo
+		}
+		return Placement{Txn: txn, Thread: &th}, true
+	}
+	return Placement{}, false
 }
 
 // The states of a reports room (SPEC-n3f RP1, RP4): its join is not answered yet, it is joined

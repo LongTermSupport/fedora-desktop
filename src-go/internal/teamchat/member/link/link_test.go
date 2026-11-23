@@ -106,6 +106,15 @@ func (*fakeTeam) FloorRaised(int64)                   {}
 func (*fakeTeam) VerifyReports(context.Context) error { return nil }
 func (*fakeTeam) ReportsRoom() team.ReportsRoom       { return team.ReportsRoom{State: team.ReportsJoined} }
 
+func (*fakeTeam) Questions(context.Context, func(team.QuestionsView) ([]team.Placement, error)) (team.QuestionsView, error) {
+	return team.QuestionsView{}, errors.New("no questions")
+}
+func (*fakeTeam) QuestionPosted(string, string)       {}
+func (*fakeTeam) QuestionsPostable(proto.Value) error { return nil }
+func (*fakeTeam) FetchEvent(context.Context, string) (json.RawMessage, error) {
+	return nil, errors.New("no fetch")
+}
+
 func (f *fakeTeam) didRun() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()

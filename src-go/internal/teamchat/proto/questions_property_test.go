@@ -93,7 +93,7 @@ func (g *roomGen) reply() {
 	g.add(id, func(x *QuestionIndex) {
 		x.Feed(Verdict{
 			Outcome: Index, Event: Event{ID: id, Type: MessageType, Sender: coordID, OriginTs: 1},
-			Content: Content{Key: KeyThread, Relation: ReplyTo(to)},
+			Content: Content{Key: KeyThread, Relation: InThread(to, to, true)},
 		})
 	})
 }

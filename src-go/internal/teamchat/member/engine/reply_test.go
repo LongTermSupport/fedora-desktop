@@ -116,7 +116,8 @@ func TestSD1_1AReplyToAHumanItem(t *testing.T) {
 	refusedCode(t, "no text", firstOf(w.reply(wire.ReplyArgs{ID: evID(humanEv)}, nil)), exits.CodeUsage)
 	refusedCode(t, "an empty text", firstOf(w.reply(wire.ReplyArgs{ID: evID(humanEv)}, new(""))), exits.CodeEmpty)
 	refusedCode(t, "--ref without --verb", firstOf(w.reply(wire.ReplyArgs{ID: evID(humanEv), Ref: new(reviewRef)}, new("x"))), exits.CodeUsage)
-	refusedCode(t, "a question", firstOf(w.reply(wire.ReplyArgs{ID: evID(questionEv)}, new("x"))), exits.CodeInternal)
+	refusedCode(t, "a questions post refetched as no human's", firstOf(w.reply(wire.ReplyArgs{ID: evID(questionEv)}, new("x"))), exits.CodeNotFound)
+	refusedCode(t, "a questions post with --to-coordinator", firstOf(w.reply(wire.ReplyArgs{ID: evID(questionEv), ToCoordinator: true}, new("x"))), exits.CodeUsage)
 	if d := w.done(wire.OpReply, map[string]any{"nope": 1}); d.Error == nil || d.Error.Code != exits.CodeSchema {
 		t.Fatalf("reply with bad arguments = %+v", d)
 	}

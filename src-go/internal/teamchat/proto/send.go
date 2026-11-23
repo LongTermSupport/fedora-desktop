@@ -41,12 +41,14 @@ type QuestionPost struct {
 // answering the attached human post Answers when one is named; without N it is the reply to
 // the unattached human post Answers. A post in the thread that answers nothing waits on the
 // humans, `m.text` mentioning them all, unless it is a Note or a Close (quiet); a reply
-// mentions only To, the human it answers ("" for none, quiet). Close closes Q<N>.
+// mentions only To, the human it answers ("" for none, quiet). Close closes Q<N>. Root is the
+// thread an unattached post is in ("" for a top-level post, which becomes a new thread's root):
+// a reply without N stays in the human's thread, never a plain reply in the room.
 type ThreadPost struct {
-	N           int64
-	Text        string
-	Close, Note bool
-	Answers, To string
+	N                 int64
+	Text              string
+	Close, Note       bool
+	Answers, To, Root string
 }
 
 // LinkPost is the link-back (A 10.3): the top-level reply to Post, a human post attached to Q<N>
@@ -496,14 +498,19 @@ func (c Composer) questionNumber(n int64) (int64, error) {
 }
 
 // threadRelation is a thread post's relation from the index: Q<N>'s thread, or the reply to an
-// unattached human post; else `target`.
+// unattached human post in its thread (Root's, or a new one rooted at the post); else `target`.
 func (c Composer) threadRelation(t ThreadPost) (Relation, error) {
 	attached, known := c.Questions.Attachment(t.Answers)
 	if t.N == 0 {
-		if t.Answers == "" || !known || attached != 0 || t.Close {
+		switch {
+		case t.Answers == "" || !known || attached != 0 || t.Close:
 			return Relation{}, refused(ReasonTarget, "a reply without a question answers an unattached human post and closes nothing")
+		case t.Root == "":
+			return InThread(t.Answers, t.Answers, true), nil
+		case t.Root == t.Answers || !ValidEventID(t.Root):
+			return Relation{}, refused(ReasonTarget, "the thread root is another event than the post answered")
 		}
-		return ReplyTo(t.Answers), nil
+		return InThread(t.Root, t.Answers, false), nil
 	}
 	q, ok := c.Questions.Question(t.N)
 	switch {

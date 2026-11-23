@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.2 — container 2.84.53
+
+- **teamchat serves the questions verbs for v2** (Plan 00209, backlog R0; 3.123.5 below is an
+  earlier, unreleased step of it). The link now answers `ask-human` (`--check` sends nothing),
+  `thread` (notifying by default, quiet with `--note`), `close` (a quiet closing post, then the
+  retitle of the coordinator's own question), `retitle`, `bump` (answered and recently notified
+  questions are skipped) and `questions --waiting/--for/--digest` (the digest is one quiet report
+  in the reports room). `reply` to a human post in the questions room answers it in its
+  question's thread and, when the post was outside that thread, links back to it at the top
+  level; a reply to a post attached to no question goes in that post's thread, or starts one at
+  it, never as a plain reply in the room. The image carries the new `teamchat`.
+
 ## 3.124.1 — container 2.84.51
 
 (3.124.0 was this work's unreleased step on its own branch.)
@@ -37,6 +49,18 @@ Two version numbers move independently — see
 - **The host chooser offers teamchat teams.** `choose-teams --type=host` lists this checkout's
   teamchat teams and takes a pool seat as a ccy launch does; the Matrix consent names a teamchat
   seat by its pool handle.
+
+## 3.123.5 — container 2.84.52
+
+- **teamchat's questions verbs for v2, continued** (Plan 00209, backlog R0; 3.123.2 below was its
+  first release on the integration branch, and 3.123.4 an earlier, unreleased step of it). The
+  coordinator's questions posts are composed one at a time per team and placed in the question
+  index as soon as they are charged, so the next question numbers above a queued one; the sender
+  posts them to the questions room once the index is ready, and an own post whose echo another
+  question beat to its number is counted (`uncounted`). The command line gains the v2 verbs
+  `ask-human` (with `--for`, `--check` and `--skeleton`), `thread --note`, `close`, `retitle`,
+  `bump` and `questions --waiting/--for/--digest`, and the `question` record gains `why`, `for`,
+  `waiting_since_ms` and `retitled`. The image carries the new `teamchat`.
 
 ## 3.123.3 — container 2.84.50
 

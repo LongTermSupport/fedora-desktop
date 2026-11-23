@@ -245,6 +245,10 @@ func stringMember(v Value, key string) string {
 	return ""
 }
 
+// DecodeEvent is an event fetched by id read by rule 02, as decodeEvent reads it: a retitle's
+// root (A 10.4) is composed from it.
+func DecodeEvent(raw Value) (Event, bool) { return decodeEvent(raw) }
+
 // decodeEvent is rule 02: the event ID's grammar, no state key, not redacted, an object
 // content, a non-negative origin_server_ts, and a sender.
 func decodeEvent(raw Value) (Event, bool) {

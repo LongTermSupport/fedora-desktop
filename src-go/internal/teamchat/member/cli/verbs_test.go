@@ -29,7 +29,7 @@ func mustSeat(t *testing.T, s string) paths.SeatName {
 
 // B 2.2.1's verbs, every one, and no other.
 var bVerbs = []string{
-	"recv", "wait", "inbox", "reply", "say", "ping", "report", "ask", "thread", "questions",
+	"recv", "wait", "inbox", "reply", "say", "ping", "report", "ask-human", "thread", "close", "retitle", "bump", "questions",
 	"history", "verify", "status", "version", "help",
 	"run", "link", "hook", "status-line", "whoami", "reach", "tls", "seat disconnected", "seat set-aside", "seat place-issued",
 	"kit assemble", "guest check", "guest place-bundle", "guest membership", "guest remove",
@@ -76,7 +76,7 @@ func TestOutsideAreTheHooksN3csVerbsAndTheSends(t *testing.T) {
 	want := []string{
 		"hook", "status-line", "whoami",
 		"run", "link", "recv", "wait", "inbox", "status", "verify", "history", "seat disconnected", "reach",
-		"tls", "reply", "say", "ping", "report",
+		"tls", "reply", "say", "ping", "report", "ask-human", "thread", "close", "retitle", "bump", "questions",
 	}
 	if got := Outside(); !slices.Equal(got, want) {
 		t.Fatalf("Outside() = %q", got)
@@ -87,12 +87,10 @@ func TestOutsideAreTheHooksN3csVerbsAndTheSends(t *testing.T) {
 	}
 }
 
-// The unbuilt list as n3f-b leaves it, `report` built (wired outside cli); n3f-d removes the
-// rest.
+// The unbuilt list as R0 step 5 leaves it: the questions verbs are built (wired outside cli),
+// so no verb waits for a later slice.
 func TestUnbuiltAreTheLaterSlices(t *testing.T) {
-	want := map[string]string{
-		"ask": "n3f", "thread": "n3f", "questions": "n3f",
-	}
+	want := map[string]string{}
 	for name, slice := range want {
 		if unbuilt[name] != slice {
 			t.Errorf("%s: %q, want %q", name, unbuilt[name], slice)
@@ -128,7 +126,7 @@ func TestTeamUses(t *testing.T) {
 		case TeamNone:
 		}
 	}
-	if !slices.Equal(one, []string{"reply", "say", "ping", "report", "ask", "thread", "verify"}) {
+	if !slices.Equal(one, []string{"reply", "say", "ping", "report", "ask-human", "thread", "close", "retitle", "bump", "verify"}) {
 		t.Errorf("single-team verbs %q", one)
 	}
 	if !slices.Equal(multi, []string{"recv", "wait", "inbox", "questions", "history", "status"}) {
@@ -141,8 +139,12 @@ func TestUsageSpellsBsForms(t *testing.T) {
 		"reply":             "teamchat reply <event-id> [--verb V] [--ref R] [--to-coordinator] [--team T]",
 		"say":               "teamchat say --to N[,N...]|--to-coordinator [--wait-contact] [--team T]",
 		"ping":              "teamchat ping <verb> [<ref>] --to N[,N...]|--to-coordinator [--branch B] [--team T]",
-		"ask":               "teamchat ask [--asked-by N,...] [--re ID,...] [--remind-after S] [--team T]",
-		"thread":            "teamchat thread Q<n> [--ask] [--close] [--team T]",
+		"ask-human":         "teamchat ask-human [--for N,...] [--re ID,...] [--remind-after S] [--check] [--skeleton] [--team T]",
+		"thread":            "teamchat thread Q<n> [--note] [--team T]",
+		"close":             "teamchat close Q<n>... [--team T]",
+		"retitle":           "teamchat retitle Q<n> [--team T]",
+		"bump":              "teamchat bump [Q<n>...] [--waiting] [--note TEXT] [--min-age S] [--team T]",
+		"questions":         "teamchat questions [--all] [--waiting] [--for SEAT] [--digest] [--team T]",
 		"history":           "teamchat history [--room main|questions] [--limit N] [--team T]",
 		"version":           "teamchat version",
 		"help":              "teamchat help [<verb>|exit-codes]",

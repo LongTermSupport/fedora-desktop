@@ -62,8 +62,51 @@ func (e *Engine) Serve(ctx context.Context, req wire.Request, out RecordWriter) 
 		return e.history(ctx, a, out)
 	case wire.OpSay, wire.OpPing, wire.OpReply, wire.OpReport:
 		return e.serveSend(ctx, req, out)
+	case wire.OpAskHuman, wire.OpThread, wire.OpClose, wire.OpRetitle, wire.OpBump, wire.OpQuestions:
+		return e.serveQuestions(ctx, req, out)
 	}
 	return doneOf(exits.New(exits.CodeInternal, nil, msgUnbuilt, exits.Name(req.Op)))
+}
+
+// serveQuestions answers the questions verbs (DESIGN-questions-v2 section 2).
+func (e *Engine) serveQuestions(ctx context.Context, req wire.Request, out RecordWriter) wire.Done {
+	switch req.Op {
+	case wire.OpAskHuman:
+		var a wire.AskArgs
+		if err := wire.DecodeArgs(req.Args, &a); err != nil {
+			return doneOf(err)
+		}
+		return e.askHuman(ctx, a, req.Stdin, req.StdinBytes, out)
+	case wire.OpThread:
+		var a wire.ThreadArgs
+		if err := wire.DecodeArgs(req.Args, &a); err != nil {
+			return doneOf(err)
+		}
+		return e.thread(ctx, a, req.Stdin, req.StdinBytes, out)
+	case wire.OpClose:
+		var a wire.CloseArgs
+		if err := wire.DecodeArgs(req.Args, &a); err != nil {
+			return doneOf(err)
+		}
+		return e.closeQuestions(ctx, a, req.Stdin, out)
+	case wire.OpRetitle:
+		var a wire.RetitleArgs
+		if err := wire.DecodeArgs(req.Args, &a); err != nil {
+			return doneOf(err)
+		}
+		return e.retitle(ctx, a, req.Stdin, out)
+	case wire.OpBump:
+		var a wire.BumpArgs
+		if err := wire.DecodeArgs(req.Args, &a); err != nil {
+			return doneOf(err)
+		}
+		return e.bump(ctx, a, out)
+	}
+	var a wire.QuestionsArgs
+	if err := wire.DecodeArgs(req.Args, &a); err != nil {
+		return doneOf(err)
+	}
+	return e.questions(ctx, a, out)
 }
 
 // serveSend answers the three send ops, each with its stdin.

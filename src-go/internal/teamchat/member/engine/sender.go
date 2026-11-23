@@ -250,6 +250,11 @@ func (e *Engine) recheck(p nextPost, token string, r proto.Roster) error {
 		return e.recheckMain(p, token, r, v)
 	case proto.PurposeReports:
 		return e.recheckReport(p, token, r, v)
+	case proto.PurposeQuestions:
+		if c, ok := r.Coordinator(); !ok || c != p.self {
+			return &proto.RefusalError{Reason: proto.ReasonRole, Detail: "only the coordinator posts in questions"}
+		}
+		return nil
 	}
 	return unknownRoom(p.id, p.entry.Room)
 }
@@ -340,8 +345,9 @@ func (e *Engine) sendFailed(ctx context.Context, h *held, entry state.Sending, u
 		switch entry.Room {
 		case proto.PurposeMain:
 			code, msg = exits.CodeForbidden, msgForbidden
-		case proto.PurposeReports:
-			// A report the homeserver forbids is that report's end alone (RP4); the team's main sends go on.
+		case proto.PurposeReports, proto.PurposeQuestions:
+			// A side room's post the homeserver forbids is that post's end alone (RP4, QS8); the
+			// team's main sends go on.
 			return e.droppedForbidden(ctx, h, entry)
 		default:
 			return e.unposted(ctx, h, entry, unknownRoom(h.id, entry.Room))
@@ -422,9 +428,13 @@ func (e *Engine) recordPosted(t paths.TeamID, entry state.Sending, id string, se
 			return false, nil
 		}
 		s.Outbox.Sending = slices.Delete(s.Outbox.Sending, i, i+1)
-		if entry.Room == proto.PurposeMain {
+		switch entry.Room {
+		case proto.PurposeMain:
 			// Only main's events bound a recovery's search (n3d-D4).
 			s.Outbox.LastSent = &id
+		case proto.PurposeQuestions:
+			// Posted and not yet echoed until the write that folds it (QX3).
+			s.Outbox.QuestionsUnechoed = &id
 		}
 		if p := entry.Ping; p != nil {
 			if err := s.AddPing(state.Ping{
@@ -441,6 +451,9 @@ func (e *Engine) recordPosted(t paths.TeamID, entry state.Sending, id string, se
 	}
 	h := e.teams[t]
 	h.forget(pruned)
+	if entry.Room == proto.PurposeQuestions && h.team != nil {
+		h.team.QuestionPosted(entry.Txn, id)
+	}
 	e.arm()
 	e.answer(h, entry.Txn, sendResult{id: id})
 	return nil
@@ -539,13 +552,15 @@ func (e *Engine) recoverTried(ctx context.Context, t paths.TeamID, n team.Notice
 	if !ok && rc.cached != nil {
 		r, ok = *rc.cached, true
 	}
-	var mains, reports []state.Sending
+	var mains, reports, questions []state.Sending
 	for _, s := range rc.tried {
 		switch s.Room {
 		case proto.PurposeMain:
 			mains = append(mains, s)
 		case proto.PurposeReports:
 			reports = append(reports, s)
+		case proto.PurposeQuestions:
+			questions = append(questions, s)
 		default:
 			return fmt.Errorf("engine: team %s: tried send %s is to room %q, which no recovery reads", t, s.Txn, s.Room)
 		}
@@ -560,17 +575,25 @@ func (e *Engine) recoverTried(ctx context.Context, t paths.TeamID, n team.Notice
 			return err
 		}
 	}
-	if len(reports) == 0 {
-		return nil
+	for _, side := range []struct {
+		purpose string
+		tried   []state.Sending
+	}{{proto.PurposeReports, reports}, {proto.PurposeQuestions, questions}} {
+		if len(side.tried) == 0 {
+			continue
+		}
+		if !ok {
+			return fmt.Errorf("engine: team %s: no roster names the %s room to find the tried sends in", t, side.purpose)
+		}
+		found, err := recoverReports(ctx, n, roomID(rc.main, r, side.purpose), side.tried, rc.self)
+		if err != nil {
+			return fmt.Errorf("engine: team %s: read the %s room for the tried sends: %w", t, side.purpose, err)
+		}
+		if err := e.recordFound(ctx, n, nextPost{id: t, main: rc.main, self: rc.self}, r, found); err != nil {
+			return err
+		}
 	}
-	if !ok {
-		return fmt.Errorf("engine: team %s: no roster names the reports room to find the tried reports in", t)
-	}
-	found, err := recoverReports(ctx, n, r.Rooms.Reports, reports, rc.self)
-	if err != nil {
-		return fmt.Errorf("engine: team %s: read the reports room for the tried reports: %w", t, err)
-	}
-	return e.recordFound(ctx, n, nextPost{id: t, main: rc.main, self: rc.self}, r, found)
+	return nil
 }
 
 // recoverReports are the tried reports found in the reports room: its newest events read back

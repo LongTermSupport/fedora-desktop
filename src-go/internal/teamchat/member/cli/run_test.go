@@ -67,7 +67,7 @@ func TestAnUnbuiltVerbNamesItsSlice(t *testing.T) {
 		args []string
 		msg  string
 	}{
-		{[]string{"questions"}, "teamchat questions is not built in this binary; it lands with slice n3f"},
+		{[]string{"questions"}, "teamchat questions is not wired into this binary; tell a human"},
 		{[]string{"hook", "stop"}, "teamchat hook is not wired into this binary; tell a human"},
 		{[]string{"status-line"}, "teamchat status-line is not wired into this binary; tell a human"},
 		{[]string{"recv"}, "teamchat recv is not wired into this binary; tell a human"},
@@ -116,7 +116,7 @@ func TestEnvVerbsRunsTheVerbsTheBinaryPasses(t *testing.T) {
 		t.Fatalf("version: exit %d, not cli's own", code)
 	}
 	e.Args = []string{"questions"}
-	if code := Run(e); code != term.ExitFailure || !strings.Contains(errOut.String(), "teamchat questions is not built") {
+	if code := Run(e); code != term.ExitFailure || !strings.Contains(errOut.String(), "teamchat questions is not wired") {
 		t.Fatalf("questions: exit %d, stderr %q", code, errOut.String())
 	}
 	errOut.Reset()

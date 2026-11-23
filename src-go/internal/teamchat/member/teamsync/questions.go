@@ -53,6 +53,8 @@ type IndexJob struct {
 type qroom struct {
 	mu sync.Mutex
 	s  qstate
+	// changed is closed at each change of s (qsignal), which a waiting compose watches.
+	changed chan struct{}
 }
 
 // qstate is the questions room's state. room is the roster's questions room while it names this
@@ -76,6 +78,8 @@ type qstate struct {
 	tried    bool
 	begun    bool
 	noneSaid bool
+	// own is this run's own questions posts (QX3).
+	own qown
 }
 
 func (q qstate) ready() bool {
@@ -115,6 +119,7 @@ func (t *Team) qset(room string, change func(*qstate)) bool {
 		return false
 	}
 	change(&t.q.s)
+	t.q.qsignal()
 	return true
 }
 
@@ -132,7 +137,10 @@ func (t *Team) poke() {
 func (t *Team) IndexAtHead(idx *proto.QuestionIndex, last string) {
 	t.q.mu.Lock()
 	if t.q.s.room != "" {
-		t.q.s.idx, t.q.s.last, t.q.s.head, t.q.s.chain = idx, last, true, false
+		// A built index holds no placement: the queued sends are placed again at the next
+		// compose, and a posted one is waited for until its echo is folded (QX3).
+		t.q.s.idx, t.q.s.last, t.q.s.head, t.q.s.chain, t.q.s.own = idx, last, true, false, qown{}
+		t.q.qsignal()
 	}
 	t.q.mu.Unlock()
 	t.poke()
@@ -168,6 +176,7 @@ func (t *Team) setQRole(r proto.Roster, self string) roleChange {
 	if want != t.q.s.room {
 		c = roleChange{promoted: want != "", demoted: t.q.s.room != ""}
 		t.q.s = qstate{room: want, since: t.cfg.Clock.Boot()}
+		t.q.qsignal()
 	}
 	t.q.mu.Unlock()
 	if c.promoted || c.demoted {
@@ -186,6 +195,8 @@ func (t *Team) qsession() {
 	defer t.q.mu.Unlock()
 	q := &t.q.s
 	q.joined, q.verified, q.head, q.chain, q.idx, q.last, q.tried, q.begun = false, false, false, false, nil, "", false, false
+	q.own = qown{}
+	t.q.qsignal()
 }
 
 // qstart is the questions room at a session's start, after main is verified and before the
@@ -543,11 +554,16 @@ func (s *sess) qtake(j *judged, jr roomJudged, idx *proto.QuestionIndex, floor i
 		}
 		if e.id != "" {
 			last = e.id
+			j.batch.QuestionsFolded = append(j.batch.QuestionsFolded, e.id)
 		}
 		if !owes(e.id) || v.Outcome == proto.Deliver && v.Event.OriginTs <= floor {
 			continue
 		}
 		s.take(j, v, e.id, nil, jr.lk, counted, proto.PurposeQuestions)
+	}
+	for _, txn := range idx.TakeDropped() {
+		s.t.log.Printf("the questions post sent as %s was not counted: another question holds its number", txn)
+		j.batch.QuestionsUncounted++
 	}
 	if jr.floor > floor {
 		if j.batch.Floors == nil {

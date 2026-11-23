@@ -98,6 +98,11 @@ const (
 	SendPing   = "ping"
 	SendNotice = "notice"
 	SendReport = "report"
+	// The coordinator's questions posts (A 10.2-10.4): a question, a thread post (a link-back
+	// too) and the retitle edit of its own question.
+	SendQuestion = "question"
+	SendThread   = "thread"
+	SendRetitle  = "retitle"
 
 	NoticeLeft         = "left"
 	NoticeDisconnected = "disconnected"
@@ -114,7 +119,7 @@ const (
 var (
 	storeRooms  = []string{proto.PurposeMain, proto.PurposeReports, proto.PurposeQuestions}
 	storeItems  = []string{records.KindHuman, records.KindPeer, records.KindPing, records.KindNotice, records.KindTimeout}
-	sendKinds   = []string{SendText, SendPing, SendNotice, SendReport}
+	sendKinds   = []string{SendText, SendPing, SendNotice, SendReport, SendQuestion, SendThread, SendRetitle}
 	endReasons  = []string{"exit", "logout", "other"}
 	noneReasons = []string{ReasonRestart, ReasonLaunchFailed}
 	nonceRe     = regexp.MustCompile(`^[0-9a-f]{8}$`)
@@ -229,6 +234,15 @@ type Outbox struct {
 	// QuestionsHandover is true while the line that a promotion's questions index is ready is
 	// owed (QX1).
 	QuestionsHandover bool `json:"questions_handover"`
+}
+
+// Folded is a write that folds the questions room's events ids (QX3): the own post awaiting
+// its echo is echoed when ids holds it, and uncounted own echoes raise the count.
+func (o *Outbox) Folded(ids []string, uncounted int64) {
+	if o.QuestionsUnechoed != nil && slices.Contains(ids, *o.QuestionsUnechoed) {
+		o.QuestionsUnechoed = nil
+	}
+	o.QuestionsUncounted.Count += uncounted
 }
 
 // Uncounted is the own questions posts whose echo was not counted, and how many of them have

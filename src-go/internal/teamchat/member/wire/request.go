@@ -48,6 +48,11 @@ const (
 	OpPing      = "ping"
 	OpReport    = "report"
 	OpQuestions = "questions"
+	OpAskHuman  = "ask-human"
+	OpThread    = "thread"
+	OpClose     = "close"
+	OpRetitle   = "retitle"
+	OpBump      = "bump"
 
 	OpHookSessionStart = "hook.session-start"
 	OpHookPrompt       = "hook.prompt"
@@ -61,7 +66,9 @@ var deadlines = map[string]time.Duration{
 	OpHookStop: 300 * time.Millisecond, OpHookSessionEnd: 300 * time.Millisecond,
 	OpRecv: 2 * time.Second, OpInbox: 2 * time.Second, OpStatus: 2 * time.Second,
 	OpReply: 30 * time.Second, OpSay: 30 * time.Second, OpPing: 30 * time.Second, OpVerify: 30 * time.Second,
-	OpReport:  30 * time.Second,
+	OpReport:   30 * time.Second,
+	OpAskHuman: 30 * time.Second, OpThread: 30 * time.Second, OpClose: 30 * time.Second,
+	OpRetitle: 30 * time.Second, OpBump: 30 * time.Second,
 	OpHistory: time.Minute, OpQuestions: time.Minute,
 	OpWait: 0,
 }
@@ -230,6 +237,56 @@ type PingArgs struct {
 // request's stdin, whole, with one trailing newline removed (n3f-D1).
 type ReportArgs struct {
 	Team *paths.TeamID `json:"team"`
+}
+
+// The questions verbs' args (DESIGN-questions-v2 section 2). A question is named `Q<n>`, as the
+// command line gives it; the verb checks it.
+
+// AskArgs are ask-human's: --for's and --re's lists (empty when not given), --remind-after
+// (null when not given) and --check. The question is the request's stdin.
+type AskArgs struct {
+	Team         *paths.TeamID `json:"team"`
+	For          []string      `json:"for"`
+	Re           []string      `json:"re"`
+	RemindAfterS *int64        `json:"remind_after_s"`
+	Check        bool          `json:"check"`
+}
+
+// ThreadArgs are thread's: the question and --note. The post is the request's stdin.
+type ThreadArgs struct {
+	Team *paths.TeamID `json:"team"`
+	Q    string        `json:"q"`
+	Note bool          `json:"note"`
+}
+
+// CloseArgs are close's: the questions, in the order given. The note, when given, is stdin.
+type CloseArgs struct {
+	Team *paths.TeamID `json:"team"`
+	Qs   []string      `json:"qs"`
+}
+
+// RetitleArgs are retitle's: the question. The new headline is stdin.
+type RetitleArgs struct {
+	Team *paths.TeamID `json:"team"`
+	Q    string        `json:"q"`
+}
+
+// BumpArgs are bump's: the questions named or --waiting (exactly one), --note and --min-age.
+type BumpArgs struct {
+	Team    *paths.TeamID `json:"team"`
+	Qs      []string      `json:"qs"`
+	Waiting bool          `json:"waiting"`
+	Note    *string       `json:"note"`
+	MinAgeS int64         `json:"min_age_s"`
+}
+
+// QuestionsArgs are questions': --all, --waiting, --for (null when not given) and --digest.
+type QuestionsArgs struct {
+	Team    *paths.TeamID `json:"team"`
+	All     bool          `json:"all"`
+	Waiting bool          `json:"waiting"`
+	For     *string       `json:"for"`
+	Digest  bool          `json:"digest"`
 }
 
 // TeamsArgs are recv's, inbox's and status's: the --team, null for every active team.
