@@ -17,125 +17,63 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.6 — container 2.84.57
+## 3.124.7 — container 2.84.58
 
-- **The teamchat skill names the questions verbs** (Plan 00209, backlog R0). The skill in the
-  image now teaches `ask-human` (with its `Why a human:` section, `--for`, `--check` and
-  `--skeleton`), `thread` (notifying by default, quiet with `--note`), `close`, `retitle`,
-  `bump`, `questions --waiting/--for/--digest` and `verify --room questions`, and what a
-  not-counted question means. A question's reminder now says `teamchat bump Q<n>` in place of
-  the removed `thread Q<n> --ask`.
+The agent team bus v2 batch (Plan 00209). It was built in steps on two parallel branches, the
+questions verbs and host `cc` on teamchat, and merged on the v2 integration branch. Their
+intermediate numbers, 3.122.51 to 3.124.6 and containers 2.84.44 to 2.84.57, were never
+released, and some were used by both branches; this entry is the one release of all of it. The
+image carries the new `teamchat`.
 
-## 3.124.5 — container 2.84.56
-
-- **`teamchat verify` reads the questions room** (Plan 00209, backlog R10, issue #369).
-  `verify <id> --room questions` checks a human's answer in the questions room; without
-  `--room` it looks in main and then in questions. Its record now says whether the sender is a
-  team human and which question (`Q<n>`, with its headline) the message belongs to. The image
-  carries the new `teamchat`.
-
-## 3.124.4 — container 2.84.55
-
-- **teamchat tells the coordinator a question that was not counted** (Plan 00209, backlog R0).
-  When a question or thread post the coordinator sent as `Q<n>` loses its number to another
-  question, the next prompt or session start says so once, naming `Q<n>` and pointing at
-  `teamchat questions`; after a restart the numbers are not known and the posts are told
-  together. The image carries the new `teamchat`.
-
-## 3.124.3 — container 2.84.54
-
-- **teamchat rebuilds the questions index after an admin redaction** (Plan 00209, backlog R0).
-  A redaction in the questions room (the admin's `teamchat-admin redact`) makes the coordinator's
-  link build the question index again from the room, so the redacted post is in no question and
-  its number is never given out twice; a link that stops mid-way builds it again when it starts.
-  The image carries the new `teamchat`.
-
-## 3.124.2 — container 2.84.53
-
-- **teamchat serves the questions verbs for v2** (Plan 00209, backlog R0; 3.123.5 below is an
-  earlier, unreleased step of it). The link now answers `ask-human` (`--check` sends nothing),
-  `thread` (notifying by default, quiet with `--note`), `close` (a quiet closing post, then the
-  retitle of the coordinator's own question), `retitle`, `bump` (answered and recently notified
-  questions are skipped) and `questions --waiting/--for/--digest` (the digest is one quiet report
-  in the reports room). `reply` to a human post in the questions room answers it in its
-  question's thread and, when the post was outside that thread, links back to it at the top
-  level; a reply to a post attached to no question goes in that post's thread, or starts one at
-  it, never as a plain reply in the room. The image carries the new `teamchat`.
-
-## 3.124.1 — container 2.84.51
-
-(3.124.0 was this work's unreleased step on its own branch.)
-
-- **`teamchat reach` inside a `run --state` session** (Plan 00209 Task 5.1). The keeper records a
-  run's `--state` root in the run directory (`state-root`), and `reach` reads the team's bundle
-  below it, so a host `cc` session's Bash tool can prove its route to the team. A record that is
-  not one absolute path is refused (78). The image carries the new `teamchat`.
-
-- **Host `cc --teams` on teamchat** (Plan 00209 Task 5.1). `ccy-teams internal cc-run` is host
-  `cc`'s session as one command word on both systems: on agent-bus it runs what `cc-teams.bash`
-  ran (the same program, arguments and settings bytes); on teamchat it takes the seats as a ccy
-  launch does, runs `teamchat run --claude --kind host` with the seat store's session roots, and
-  ends the session as ccy does (any status: record removed, seats released; SIGHUP or SIGTERM:
-  seats kept). A host launch with no tmux session name, or a list on both systems, is refused.
-  `cc-teams.bash` checks and takes seats through `ccy-teams internal seat-check`/`seat-take`.
-
-- **The host chooser offers teamchat teams.** `choose-teams --type=host` lists this checkout's
-  teamchat teams and takes a pool seat as a ccy launch does; the Matrix consent names a teamchat
-  seat by its pool handle.
-
-## 3.123.5 — container 2.84.52
-
-- **teamchat's questions verbs for v2, continued** (Plan 00209, backlog R0; 3.123.2 below was its
-  first release on the integration branch, and 3.123.4 an earlier, unreleased step of it). The
-  coordinator's questions posts are composed one at a time per team and placed in the question
-  index as soon as they are charged, so the next question numbers above a queued one; the sender
-  posts them to the questions room once the index is ready, and an own post whose echo another
-  question beat to its number is counted (`uncounted`). The command line gains the v2 verbs
-  `ask-human` (with `--for`, `--check` and `--skeleton`), `thread --note`, `close`, `retitle`,
-  `bump` and `questions --waiting/--for/--digest`, and the `question` record gains `why`, `for`,
-  `waiting_since_ms` and `retitled`. The image carries the new `teamchat`.
-
-## 3.123.3 — container 2.84.50
-
-The v2 integration branch carries both v2 tracks from here: the questions verbs (3.123.2 below)
-and host `cc` on teamchat. Host `cc`'s step was built as an unreleased 3.123.2 / container
-2.84.48 on its own branch and is renumbered here, so the image carries both tracks' `teamchat`.
-
-- **`teamchat run --extra-settings FILE`** (Plan 00209 Task 5.1). A `--claude` launch may name
-  one settings file of its own user, merged under the kit's settings (the kit's keys win). A file
-  that sets `crossSessionInbound`, `hooks` or `statusLine`, is a link or another user's, or is no
-  JSON object is refused (78). Host `cc` passes its deny rules this way. The image carries the
-  new `teamchat`.
-
-## 3.123.2 — container 2.84.49
-
-- **teamchat's questions verbs for v2** (Plan 00209, backlog R0, DESIGN-questions-v2.md), built
-  in steps on one branch. A size refusal now names the text's size and the limit (#365). A
-  human's reply to anything attached to a question attaches to it, top level included (#367).
-  A coordinator's question needs a `Why a human:` section; a thread post waits on the humans
-  and notifies them unless it is a note; the link-back and the retitle edit have their forms.
-  (3.122.53 to 3.123.1 / containers 2.84.46 to 2.84.48 were this work's earlier, unreleased
-  steps on its own branch.)
-
-## 3.123.1 — container 2.84.46
-
-- **`teamchat kit assemble`** (Plan 00209 Task 5.1). The install play's member tag has the
-  member program assemble its host kit whole (program, plugin, hooks, skill and settings), so a
-  host `cc` session can run on teamchat. The image carries the new `teamchat`.
-- **A teamchat session's conversation is found** (3.123.0, unreleased). `ccy --stop`, the
-  boot restore and its check, a team restart and a wind-down read a session's conversation from
-  the record of the system its teams are on: a teamchat (v2) session's in the seat store, an
-  agent-bus (v1) session's in its checkout as before. Before, every v2 session was read as v1
-  and so resumed stale or started fresh.
-
-## 3.122.52 — container 2.84.45
-
-- **teamchat knows a seat's duty** (Plan 00209, PROPOSAL-seat-kinds.md). A v2 seat is a
-  coordinator, a worker or a host in each team it holds. The duty comes from the host in the
-  session's desired membership, is shown in `status.json` beside the seat's full handle, and
-  `teamchat whoami --json` prints each held seat's team, handle, role and duty, for the
-  hooks-daemon's role probe. (3.122.51 / container 2.84.44 was this work's first, unreleased
-  step.)
+- **A seat's duty, and `teamchat whoami`** (PROPOSAL-seat-kinds.md). A v2 seat is a
+  coordinator, a worker or a host in each team it holds; a team can set a member's duty in
+  `duties`. The duty comes from the host in the session's desired membership and is shown in
+  `status.json` beside the seat's full handle. `teamchat whoami --json` prints each held seat's
+  team, handle, role and duty, for the hooks daemon's role probe.
+- **Host `cc --teams` on teamchat** (Task 5.1, DESIGN-host-cc-v2.md).
+  - `ccy-teams internal cc-run` is host `cc`'s session as one command word on both systems. On
+    agent-bus it runs what `cc-teams.bash` ran (the same program, arguments and settings bytes).
+    On teamchat it takes the seats as a ccy launch does, runs
+    `teamchat run --claude --kind host` with the seat store's session roots, and ends the
+    session as ccy does (any status: record removed, seats released; SIGHUP or SIGTERM: seats
+    kept). A host launch with no tmux session name, or a list on both systems, is refused.
+  - The host chooser offers teamchat teams, and the Matrix consent names a teamchat seat by its
+    pool handle.
+  - `teamchat kit assemble`: the install play has the member program place its host kit whole
+    (program, plugin, hooks, skill and settings). The kit is assembled beside its directory and
+    renamed into place. A whole kit is left alone and anything else is replaced, so a failed run
+    is repaired by the next one. The play fails unless every part is there before the kit's
+    `current` link moves.
+  - `teamchat run --extra-settings FILE`: a `--claude` launch may name one settings file of its
+    own user, merged under the kit's settings (the kit's keys win). A file that sets
+    `crossSessionInbound`, `hooks` or `statusLine`, is a link or another user's, or is no JSON
+    object is refused (78). Host `cc` passes its deny rules this way.
+  - `cc-claude -- claude <args>` is the wrapper form `teamchat run` uses. Any other first `--`
+    goes to claude unchanged, so `cc -- <prompt>` works as before.
+  - `teamchat reach` inside a `run --state` session: the keeper records the run's state root,
+    and `reach` reads the team's bundle below it.
+  - A teamchat session's conversation is found: `ccy --stop`, the boot restore and its check, a
+    team restart and a wind-down read it from the seat store, not as a v1 session's.
+- **The host seat's lane: deny rules on every `cc --teams` session** (Plan 00263 owner decision
+  D3). This applies to agent-bus (v1) sessions as well as teamchat ones, and to every seat
+  whatever its duty. cc's deny file stops a host seat running `go test`, `go build`, `go vet`,
+  `golangci-lint`, `make`, `pytest`, `npm test`, `semgrep`, `podman build`, `ansible-playbook`
+  and the QA scripts that run tests or builds (`qa-all`, `qa-changed`, `qa-go-qa`, `qa-go-deps`,
+  `qa-go-vuln`, `qa-helper-tests`, `qa-plan-tests`, `qa-hook-handlers`). That work belongs in a
+  container. The light `qa-deployed-drift.bash` stays allowed. Plain `cc` without `--teams` is
+  unchanged.
+- **The questions verbs** (backlog R0, DESIGN-questions-v2.md).
+  - The link and the command line serve `ask-human` (a `Why a human:` section, `--for`,
+    `--check` sends nothing, `--skeleton`), `thread` (notifying by default, quiet with
+    `--note`), `close`, `retitle`, `bump` (answered and recently notified questions are
+    skipped) and `questions --waiting/--for/--digest`.
+  - The coordinator's questions posts are numbered in order and counted, and the coordinator
+    is told once of a post that was not counted. The question index is rebuilt after an admin
+    redaction.
+  - A human's reply attaches to its question, top level included. A size refusal names the
+    size and the limit.
+  - `teamchat verify <id> --room questions` checks an answer in the questions room.
+  - The teamchat skill teaches these verbs. A question's reminder says `teamchat bump Q<n>`.
 
 ## 3.122.50 — container 2.84.43
 

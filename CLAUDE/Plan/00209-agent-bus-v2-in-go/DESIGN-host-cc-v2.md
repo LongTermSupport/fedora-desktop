@@ -165,7 +165,7 @@ v2 teams only. If Task 4.5 is built for ccy later, the host follows only if the 
 The bash files may not grow, so every new decision is Go behind command words the bash already
 calls. Each step: the failing test first, then the code.
 
-**Build status (branch `v2-host-cc`):** steps 1 to 10 built (CCY 3.124.1, container 2.84.51; step 9's merge of `origin/v2` found it already in the branch); the acceptance (section 8) is the host's. Step 10 as built: the host-lane deny rules listed under step 10. Step 7 as built: the keeper writes `<run>/state-root` (one absolute path) for a run with `--state`, and `reach` reads the bundle below it. Step 6 as built: a host launch lists and takes teamchat pool seats as podman does, and the Matrix consent names a teamchat seat by its pool handle (`Teamchat.Handles`, `system.Cmd.Handles`), not by `agent-bus seat choose`. Step 5 as built: `internal cc-run <tmp> <checkout> <session or empty> <cc pid> <seats> <bus> -- <claude args>`; cc-teams.bash calls `internal seat-check` and `seat-take` (system-aware) in place of agent-bus, and on teamchat the seats are taken by cc-run as the session starts, after the token chooser.
+**Build status (branch `v2-host-cc`):** steps 1 to 10 built (CCY 3.124.1, container 2.84.51 on its branch; released with the whole v2 batch as CCY 3.124.7, container 2.84.58, after the v2 review; step 9's merge of `origin/v2` found it already in the branch); the acceptance (section 8) is the host's. Step 10 as built: the host-lane deny rules listed under step 10. Step 7 as built: the keeper writes `<run>/state-root` (one absolute path) for a run with `--state`, and `reach` reads the bundle below it. Step 6 as built: a host launch lists and takes teamchat pool seats as podman does, and the Matrix consent names a teamchat seat by its pool handle (`Teamchat.Handles`, `system.Cmd.Handles`), not by `agent-bus seat choose`. Step 5 as built: `internal cc-run <tmp> <checkout> <session or empty> <cc pid> <seats> <bus> -- <claude args>`; cc-teams.bash calls `internal seat-check` and `seat-take` (system-aware) in place of agent-bus, and on teamchat the seats are taken by cc-run as the session starts, after the token chooser.
 
 01. **The conversation class (section 4).** Test: the analyzer's fixture red on a reader that joins
     `SessionDir`+`File`, green through `Locate`; `conversation_test.go` table: {ccy, cc} × {agent-bus,
@@ -177,8 +177,14 @@ calls. Each step: the failing test first, then the code.
     assembles `<kit root>/<digest>/` with `kit.Assemble` (FACT: no production caller today,
     `member/kit/kit.go:75-78`), and a kit test that the assembled hooks name
     `/usr/local/lib/teamchat/kit/<digest>/bin/teamchat`. Code: a `teamchat kit assemble --into DIR`
-    verb (root, run by the play into the new digest directory before the `current` link moves),
-    `playbooks/imports/play-teamchat.yml`. INFERENCE: LXC guests copy this tree
+    verb (root, run by the play before the `current` link moves),
+    `playbooks/imports/play-teamchat.yml`. As built after the v2 review: the verb places the kit
+    atomically (`kit.Place`: assembled in the sibling `<digest>.assembling`, cleared first if a
+    killed run left one, then renamed into place; a whole kit is left alone, a kit that is not
+    whole is replaced), so the digest directory holds no kit or a whole one. The play runs it on
+    every run (no `creates` guard; stdout `assembled` or `whole` is its change), then stats every
+    part (`kit.Parts`, held equal by an installplay test) and fails unless each is there as its
+    kind, before the link moves. INFERENCE: LXC guests copy this tree
     (`host/lxc/kit.go:52-60`), so an LXC `--claude` member lacks the plugin today too; the coordinator
     is told, and the LXC acceptance (Task 3.4) checks it.
 03. **`run --extra-settings FILE` (decision H4).** Test: `member/cli/launch_test.go` (only with
@@ -188,7 +194,10 @@ calls. Each step: the failing test first, then the code.
     `member/keeper/prepare.go`. This changes the image's `teamchat`, so it is a container bump.
 04. **`cc-claude -- claude <args>` (decision H5).** Test: `internal/ccclaude/app_test.go` C6: a
     first argument `--` must be followed by `claude`, and the rest is exec'd from there; anything
-    else after `--` is 64; C1 unchanged otherwise. Code: `internal/ccclaude/app.go`.
+    else after `--` is 64; C1 unchanged otherwise. Code: `internal/ccclaude/app.go`. As built
+    after the v2 review: the 64 broke plain `cc -- <prompt>` (cc hands its arguments to cc-claude
+    unchanged), so only `-- claude` opens the wrapper form and any other first `--` goes to claude
+    unchanged (C1, C7).
 05. **`ccy-teams internal cc-run` (both systems, one command word).** Test first in
     `teamchatlaunch` (or a new `teams/cclaunch`): (a) agent-bus: the argv and environment are
     byte for byte today's `cc_teams_settings` + `cc_teams_command` (a parity test against
@@ -229,13 +238,21 @@ calls. Each step: the failing test first, then the code.
     [DESIGN.md](../00263-machine-qa-queue/DESIGN.md) section 3). cc's deny file,
     `files/var/local/claude-code/cc-teams-settings.json`, which cc-run hands to both systems (the
     teamchat extra settings, the agent-bus merged settings), denies a host seat the tests,
-    builds, lint and QA that belong in a container: `go test`, `go build`, `go vet`,
-    `golangci-lint`, `*scripts/qa-*.bash*`, `*run.bash qa*`, `npm test`, `npm run test`,
-    `pytest` (and `python -m pytest`, `python3 -m pytest`), `make`, `podman build`,
-    `ansible-playbook` (a host seat deploys through `meta-deploy.bash`) and `semgrep`; each
-    plain command as `Bash(<cmd>)` and `Bash(<cmd> *)`. Held by `hostlane_test.go` in
-    `teams/teamchatlaunch` (each rule in the file, and in what cc-run assembles on each system).
-    Deny rules match the command text only (not `sh -c`, an env prefix or another path); the
+    builds, lint and heavy QA that belong in a container: `go test`, `go build`, `go vet`,
+    `golangci-lint`, `npm test`, `npm run test`, `pytest` (and `python -m pytest`,
+    `python3 -m pytest`), `make`, `podman build`, `ansible-playbook` (a host seat deploys through
+    `meta-deploy.bash`) and `semgrep`, each plain command as `Bash(<cmd>)` and `Bash(<cmd> *)`;
+    and, named one by one as `Bash(*scripts/<name>*)`, the QA scripts that run tests or builds:
+    `qa-all.bash`, `qa-changed.bash`, `qa-go-qa.bash`, `qa-go-deps.bash`, `qa-go-vuln.bash`,
+    `qa-helper-tests.bash`, `qa-plan-tests.bash`, `qa-hook-handlers.bash`. The light, host-only
+    `qa-deployed-drift.bash` stays allowed (it has an effect only on the host). So a host seat
+    cannot run the QA CLAUDE.md asks for before a commit: a container seat of its team, or CI on
+    the `ci/<topic>` push, runs it (`CLAUDE/QA.md`, Primary Rule). Held by `hostlane_test.go` in
+    `teams/teamchatlaunch` (each rule in the file, in what cc-run assembles on each system, and
+    matched against sample commands: the heavy QA denied, `qa-deployed-drift.bash`,
+    `meta-deploy.bash` and `run.bash` not). Deny rules match the command text only (not `sh -c`,
+    an env prefix or another path). The deny file applies to every `cc --teams` session
+    whatever the seat's duty (a host member given `worker` duty is denied the same); the
     duty-aware check is the hooks daemon's handler (D3's option A), not this step. Plain `cc`
     without `--teams` gets no deny file, as before.
 
