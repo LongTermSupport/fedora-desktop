@@ -543,11 +543,15 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   live state, not the last apply's record. Not done in v1 because Task 7.1's acceptance compares
   `ccy-teams --list` bytes with the build before stage 1; v2's board follows the owner's rule.
 - [ ] ⬜ **Task 7.5** (follow-up from the landing review, not blocking v2): Defence Before Fix
-  rules for the two classes fixed at landing without one: "a value the store's check bounds,
+  rules for the three classes fixed at landing without one: "a value the store's check bounds,
   produced by code that does not apply that bound" (the floor ids; a second instance is issue
-  #380, next_batch) and "an artefact judged current by its presence, not its content" (the
-  host kit). Each a project rule in `src-go/qa/rules`, red first, swept, blocking; or a stated
-  reason it cannot be expressed.
+  #380, next_batch), "an artefact judged current by its presence, not its content" (the
+  host kit), and "a teamsync test that reads the team's live state on a batch alone" (the fake
+  engine hands a batch over from inside Persist, before settle makes its fold live;
+  `TestQX3APostWhoseNumberIsTakenIsNotPostable` lost that race on CI, fixed by
+  `running.settled`). Each a project rule in `src-go/qa/rules`, or a test-world change that
+  removes the race for every test (a batch handed over only after settle), red first, swept,
+  blocking; or a stated reason it cannot be expressed.
 
 ### Phase 8: landing v2 on F44
 

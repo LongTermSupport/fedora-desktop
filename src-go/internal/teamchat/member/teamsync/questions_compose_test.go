@@ -207,6 +207,7 @@ func TestQX3TheEchoReplacesThePlacementAndAnUncountedEchoIsCounted(t *testing.T)
 	if len(b.QuestionsUncounted) != 1 || b.QuestionsUncounted[0].N != 1 || b.QuestionsUncounted[0].Thread || !slices.Contains(b.QuestionsFolded, echo) {
 		t.Errorf("uncounted %v, folded %v: want the echo folded and counted uncounted once", b.QuestionsUncounted, b.QuestionsFolded)
 	}
+	rt.r.settled(t, b)
 	if n := asks(t, rt.tm, "tcnext"); n != 2 {
 		t.Errorf("the next ask took Q%d, want Q2: the dropped placement still holds a number", n)
 	}
@@ -219,7 +220,7 @@ func TestQX3APostWhoseNumberIsTakenIsNotPostable(t *testing.T) {
 	rt := w.readyWith(w.main, nil)
 	content := w.ownQuestion(1)
 	check(t, rt.tm.QuestionsPostable(content))
-	w.batchWith(lastIs(w.adminQuestion(1)))
+	rt.r.settled(t, w.batchWith(lastIs(w.adminQuestion(1))))
 	if err := rt.tm.QuestionsPostable(content); err == nil || errors.Is(err, team.ErrQuestionsNotReady) {
 		t.Errorf("err %v, want a refusal: Q1 is counted", err)
 	}

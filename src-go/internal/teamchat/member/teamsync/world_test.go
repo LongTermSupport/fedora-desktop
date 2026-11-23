@@ -317,6 +317,17 @@ func (r *running) poll(t *testing.T) string {
 	return ""
 }
 
+// settled waits until b's answer is settled: the engine hands a batch over from inside Persist,
+// before the team makes that answer's fold live (settle), so live state read on the batch alone
+// races. The next long-poll from b's position starts only once settle has returned.
+func (r *running) settled(t *testing.T, b team.Batch) {
+	t.Helper()
+	since := r.poll(t)
+	for since != b.NextBatch {
+		since = r.poll(t)
+	}
+}
+
 // wait waits for the team's next backoff wait and gives its length.
 func (r *running) wait(t *testing.T) time.Duration {
 	t.Helper()
