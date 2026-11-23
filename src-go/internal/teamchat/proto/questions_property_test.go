@@ -120,6 +120,10 @@ func (g *roomGen) human() {
 		h = Human{Body: "Q" + strconv.FormatInt(g.recent().n+int64(g.pick(3)), 10) + " by name"}
 	case kind < 14 && len(g.humans) > 0:
 		h = Human{Body: "* fixed", Revises: g.humans[len(g.humans)-1-g.pick(min(len(g.humans), 30))]}
+	case kind < 15 && len(g.humans) > 0:
+		h = Human{Body: "to a human", ReplyTo: g.humans[len(g.humans)-1-g.pick(min(len(g.humans), 30))]}
+	case kind < 16 && len(g.humans) > 0:
+		h = Human{Body: "in a human's thread", ThreadRoot: g.humans[len(g.humans)-1-g.pick(min(len(g.humans), 30))]}
 	default:
 		h = Human{Body: "unrelated"}
 	}

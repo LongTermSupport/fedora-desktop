@@ -321,19 +321,29 @@ func (x *QuestionIndex) attachment(h Human) int64 {
 		}
 		return x.live(questionNumber(h.Body))
 	}
-	if n, ok := x.roots[h.ThreadRoot]; ok {
+	if n := x.attachedTo(h.ThreadRoot); n != 0 {
 		return n
 	}
-	if n, ok := x.roots[h.ReplyTo]; ok {
+	if n := x.attachedTo(h.ReplyTo); n != 0 {
 		return n
-	}
-	if e, ok := x.posts.get(h.ReplyTo); ok && e.T == postHumanThread && x.live(e.Q) != 0 {
-		return e.Q
-	}
-	if e, ok := x.agents.get(h.ReplyTo); ok && x.live(e.Q) != 0 {
-		return e.Q
 	}
 	return x.live(questionNumber(h.Body))
+}
+
+// attachedTo is the question an event is attached to (DESIGN-questions-v2 section 3, #367): a
+// question root, an agent's post of it, or a human post attached to it, top level or not; 0
+// for an event the index does not hold attached, or whose question is no longer kept.
+func (x *QuestionIndex) attachedTo(id string) int64 {
+	if id == "" {
+		return 0
+	}
+	if n, ok := x.roots[id]; ok {
+		return n
+	}
+	if n, ok := x.folded(id); ok {
+		return x.live(n)
+	}
+	return 0
 }
 
 // folded is whether the event is in either list of folded events (an event is in at most one),

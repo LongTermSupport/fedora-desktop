@@ -17,10 +17,12 @@ Two version numbers move independently — see
 
 ---
 
-## 3.122.53 — container 2.84.46
+## 3.122.54 — container 2.84.47
 
 - **teamchat's questions verbs for v2** (Plan 00209, backlog R0, DESIGN-questions-v2.md), built
-  in steps on one branch. A size refusal now names the text's size and the limit (#365).
+  in steps on one branch. A size refusal now names the text's size and the limit (#365). A
+  human's reply to anything attached to a question attaches to it, top level included (#367).
+  (3.122.53 / container 2.84.46 was this work's first, unreleased step.)
 
 ## 3.122.52 — container 2.84.45
 

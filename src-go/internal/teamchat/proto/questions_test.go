@@ -48,6 +48,8 @@ type questionRoom struct {
 	judge  Judge
 	index  *QuestionIndex
 	lookup fakeLookup
+	// seen is every verdict post judged, in order, for a rebuild from the same room.
+	seen []Verdict
 }
 
 func newQuestionRoom(t *testing.T, floor int64) *questionRoom {
@@ -88,7 +90,9 @@ func (r *questionRoom) fold(v Verdict) int64 {
 // post judges one event at testNow-ageMs and folds it.
 func (r *questionRoom) post(id, sender string, ageMs int64, content string) int64 {
 	r.t.Helper()
-	return r.fold(r.judged(id, sender, ageMs, content))
+	v := r.judged(id, sender, ageMs, content)
+	r.seen = append(r.seen, v)
+	return r.fold(v)
 }
 
 func (r *questionRoom) question(n int64) IndexedQuestion {
