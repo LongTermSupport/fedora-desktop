@@ -5,7 +5,8 @@
 **Owner**: joseph
 **Priority**: High
 
-**Target repository**: `LongTermSupport/qa-queue`, a standalone repository (owner, Q62). It is not built inside fedora-desktop. This plan stays here only to track it
+**Target repository**: `LongTermSupport/agentic-qa-queue`, a standalone repository (owner, Q62;
+renamed by the owner's `agentic-` convention for AI and workflow tooling). It is not built inside fedora-desktop. This plan stays here only to track it
 until the repository exists; fedora-desktop then only pins and installs it.
 
 ## Overview
@@ -99,8 +100,21 @@ its own focused CI (see Plan 00262).
 - [x] ✅ **Task 1.3**: The design: [DESIGN.md](DESIGN.md). It covers the kernel caps, the slot
   lock, the host seat's lane and the queue, with four owner decisions (D1-D4, DESIGN.md section 6)
   and the build in four phases (DESIGN.md section 5).
-- [ ] ⬜ **Task 1.4**: The owner decides D1-D4 (N; the CPU and memory budget; the lane guard;
-  stage 2 built or adopted).
+- [ ] 🔄 **Task 1.4**: The owner decides D1-D4 (N; the CPU and memory budget; the lane guard;
+  stage 2 built or adopted). Owner, on the design (verbatim): "lets start a naming convention -
+  "agentic-" prefix for all of our AI / workflow tooling under LongTermSupport - so make it
+  "agentic-qa-queue". 50% is a dumb threshold - my laptop is not RAM constrained at all - a
+  50% cap regardless of RAM will just mean under utilisation. I'd suggest desktop gets a floor of
+  16GB and then the remainder is up for grabs. I wonder if we should do the same for CPU -
+  maintain a hard floor of 4 threads and then we do percentage on the rest? ... OK so i think you
+  are saying that IO weights are meaningless - we hope that limited CPU will naturally limit IO
+  usage. I dont envisage building this ad hoc QA on the DC server - it is already acting as a
+  github runner? The home server can act as QA runner and so can the laptop." DESIGN.md now has:
+  - the repository `LongTermSupport/agentic-qa-queue`;
+  - D2 as floors (4 threads and 16 GB kept for the desktop, the rest shared equally by N);
+  - no IOWeight, with `io.max` as an optional probe item;
+  - runners on the laptop and the home server only.
+    D1 (N) and D3 (the lane guard) are still open.
 
 ### Phase A: stage 1a, kernel caps (fedora-desktop)
 
@@ -121,7 +135,7 @@ its own focused CI (see Plan 00262).
 
 ### Phase B: stage 1b, slots (`qa-queue`, then fedora-desktop)
 
-- [ ] ⬜ **Task B.1**: Create the `LongTermSupport/qa-queue` repository and its CI.
+- [ ] ⬜ **Task B.1**: Create the `LongTermSupport/agentic-qa-queue` repository and its CI.
 - [ ] ⬜ **Task B.2**: `qa-slot run -- <cmd>`, test first, plus a test across two containers,
   then a release.
 - [ ] ⬜ **Task B.3**: The slot directory and its mount, and the pinned install in the image

@@ -6,11 +6,17 @@ chose (option 3): kernel caps first (1a), then slots (1b), then the host seat's 
 the queue (stage 2).
 
 Marks: **FACT** (a source or `file:line`), **INFERENCE**, **UNKNOWN**. Line numbers are at the
-plan branch's tip. Each piece says where it lives: **qa-queue** (`LongTermSupport/qa-queue`) or
-**fedora-desktop** (fd).
+plan branch's tip. Each piece says where it lives: **qa-queue**, the repository
+`LongTermSupport/agentic-qa-queue` (called qa-queue below for short; its commands are `qa-slot` and
+`qa-queue`), or **fedora-desktop** (fd).
 
-Terms used throughout: **C** is the machine's logical CPU count, **RAM** its memory, **N** the
-number of slots (owner decision D1).
+**Naming convention (owner):** every AI and workflow tool under LongTermSupport takes the
+`agentic-` prefix in its repository name.
+
+Terms used throughout: **C** is the machine's logical CPU count (threads), **RAM** its memory,
+**N** the number of slots (owner decision D1). The desktop keeps hard floors, **F_cpu = 4
+threads** and **F_mem = 16 GB** (owner, on D2); the rest is shared by the agents. Every value is
+computed from the host's own facts at deploy time, never hard-coded.
 
 ---
 
@@ -26,14 +32,15 @@ INFERENCE (survey §8d): a delegatee cannot raise its parent's limits.
   sessions stay out (owner, third answer).
 - Limits (values are owner decision D2; the formula follows the owner's 100/(N+1)):
 
-| Property                   | Value                                | Why                                                                                                                                                                                                                     |
-| -------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CPUQuota`                 | `C × N/(N+1) × 100%`                 | N busy containers at 1/(N+1) each; the desktop always keeps 1/(N+1). systemd counts 100% as one CPU (FACT: systemd.resource-control).                                                                                   |
-| `AllowedCPUs`              | all CPUs but the first `C/(N+1)`     | Keeps whole cores free, so the compositor never waits for a CFS period (survey §8d, INFERENCE). Needs `cpuset` delegated (§1.4). On a hybrid CPU, which cores to reserve is UNKNOWN until the probe reads the topology. |
-| `CPUWeight`                | `10`                                 | Yields to `app.slice` and `session.slice` (both 100) when they want CPU; work-conserving when they don't (FACT, survey §8d).                                                                                            |
-| `MemoryHigh` / `MemoryMax` | 50% / 60% of RAM (recommended)       | High throttles and reclaims first; Max is the last line (FACT, survey §6).                                                                                                                                              |
-| `TasksMax`                 | `N+2` × the per-container pids limit | A fork bomb across containers stops in the slice, not at the user's limit. INFERENCE.                                                                                                                                   |
-| `IOWeight`                 | **not set**                          | Does nothing on NVMe with the `none` scheduler, and crun refuses `io.weight` rootless ("No such device") (FACT, survey §6). The probe reads the scheduler; revisit only if it is BFQ.                                   |
+| Property                                     | Value                                | Why                                                                                                                                                                                                                                         |
+| -------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CPUQuota`                                   | `(C − F_cpu) × 100%`                 | The agents share everything above the desktop's floor. systemd counts 100% as one CPU (FACT: systemd.resource-control).                                                                                                                     |
+| `AllowedCPUs`                                | all threads but `F_cpu` (4) kept     | Keeps whole threads free, so the compositor never waits for a CFS period (survey §8d, INFERENCE). Needs `cpuset` delegated (§1.4). On a hybrid CPU, which threads to reserve is UNKNOWN until the probe reads the topology.                 |
+| `CPUWeight`                                  | `10`                                 | Yields to `app.slice` and `session.slice` (both 100) when they want CPU; work-conserving when they don't (FACT, survey §8d).                                                                                                                |
+| `MemoryHigh` / `MemoryMax`                   | a little below / `RAM − F_mem`       | Max keeps the desktop's 16 GB; High (for example Max − 1 GB) throttles and reclaims first (FACT, survey §6). A fixed percentage was rejected: on a machine with plenty of RAM it only wastes it (owner).                                    |
+| `TasksMax`                                   | `N+2` × the per-container pids limit | A fork bomb across containers stops in the slice, not at the user's limit. INFERENCE.                                                                                                                                                       |
+| `IOWeight`                                   | **not set**                          | Does nothing on NVMe with the `none` scheduler, and crun refuses `io.weight` rootless ("No such device") (FACT, survey §6). The bet is that the CPU cap limits IO enough (owner). The probe reads the scheduler; revisit only if it is BFQ. |
+| `io.max` (`IOReadBandwidthMax` and the like) | **not set; an optional probe item**  | A hard bandwidth or IOPS cap works without a scheduler. The probe checks whether the `io` controller is delegated rootless; use it only if the CPU caps prove not to be enough. INFERENCE.                                                  |
 
 - systemd-oomd is **not** turned on for the slice, against survey §8d. This repo deliberately
   set `ManagedOOMMemoryPressure=auto` on `user.slice` because PSI-based killing took out
@@ -45,13 +52,15 @@ INFERENCE (survey §8d): a delegatee cannot raise its parent's limits.
 
 ### 1.2 Per-container flags
 
-Every ccy container, by the owner's formula, is capped at 100/(N+1)% of the machine:
+Every ccy container gets an equal share of what is above the desktop's floors (owner, on D2;
+this replaces the first formula of 100/(N+1)%):
 
-- `--cpus=C/(N+1)`: writes the container's own `cpu.max`, which Go 1.25+ reads for GOMAXPROCS.
-  Our modules are on go 1.26, so Go builds and tests size themselves (FACT, survey §8c).
-- `--memory=RAM/(N+1)`: the slice still bounds the sum.
+- `--cpus=(C − F_cpu)/N`: writes the container's own `cpu.max`, which Go 1.25+ reads for
+  GOMAXPROCS. Our modules are on go 1.26, so Go builds and tests size themselves (FACT, survey
+  §8c).
+- `--memory=(RAM − F_mem)/N`: the slice still bounds the sum.
 - `--pids-limit`: unchanged, as today (`files/var/local/claude-yolo/lib/container-limits.bash:9-24`).
-- `--cpuset-cpus`: **not per container.** Pinning each container to C/(N+1) named cores puts
+- `--cpuset-cpus`: **not per container.** Pinning each container to (C − F_cpu)/N named threads puts
   two busy containers on the same cores while others sit idle. The slice's `AllowedCPUs` does
   the core reserve instead. INFERENCE. The cost: `nproc` and pytest `-n auto` inside the
   container still see the slice's CPUs, so the slot wrapper exports the worker count (§2.3).
@@ -350,15 +359,16 @@ The agent names **what** to run; the host decides **how**. A job (JSON, versione
 
 **Recommendation: build small.** The value is in what neither tool has: a job tied to a
 repository and a commit, run in a clean cached checkout, from an allow-list, with a reusable
-result. Keep Woodpecker as the option for the data centre if a forge and CI server are wanted
-there anyway.
+result. Woodpecker is not needed: the data centre server already acts as a GitHub runner, and
+no ad hoc QA runs there (owner).
 
-### 4.7 The home machine and the data centre
+### 4.7 The runners: the laptop and the home server
 
-- One binary, one design. Config differs: N, the budget, the allow-list.
-- Home (the laptop): N small, the desktop reserve matters, pause is used.
-- Data centre: no desktop to protect, so N is larger and the reserve can be one core. A
+- One binary, one design. Config differs: N, the floors, the allow-list.
+- The laptop: N small, the desktop's floors matter, pause is used.
+- The home server: no desktop to protect, so N is larger and the floors can be small. A
   headless machine has no login session, so the runner's user needs lingering (`loginctl enable-linger`, by a play) for its user manager to run. INFERENCE.
+- Not the data centre (owner): it already acts as a GitHub runner, so it gets no queue.
 - Not distributed (PLAN.md non-goal): each machine has its own spool for its own containers.
   Submitting from one machine to another is a later question.
 
@@ -415,9 +425,9 @@ Test first throughout. "qq" is qa-queue, "fd" is fedora-desktop.
 
 ## 6. Owner decisions
 
-| #   | Decision                    | Recommended                                                                                                                                                                          |
-| --- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| D1  | N                           | 2 on the laptop (the coordinator's proposal): each container gets a third of the machine, the desktop keeps a third.                                                                 |
-| D2  | Total CPU and memory budget | CPU: the slice gets `C × N/(N+1)` with `AllowedCPUs` keeping `C/(N+1)` cores for the desktop. Memory: slice `MemoryHigh` 50% and `MemoryMax` 60% of RAM; each container `RAM/(N+1)`. |
-| D3  | The host lane guard         | A hooks-daemon library handler (A), with cc deny rules (B) as a cheap second layer.                                                                                                  |
-| D4  | Stage 2: build or adopt     | Build small in qa-queue, jobs run as a dedicated runner user; Woodpecker kept for the data centre only if a forge is wanted there.                                                   |
+| #   | Decision                    | Recommended                                                                                                                                                                                                                                                                                                                              |
+| --- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | N                           | 2 on the laptop (the coordinator's proposal): each container gets half of what is above the desktop's floors.                                                                                                                                                                                                                            |
+| D2  | Total CPU and memory budget | **Owner's answer (floors):** the desktop keeps 4 threads and 16 GB. The slice gets `CPUQuota (C − 4) × 100%`, `AllowedCPUs` all threads but 4, `MemoryMax RAM − 16 GB`, `MemoryHigh` a little below; each container `--cpus (C − 4)/N` and `--memory (RAM − 16 GB)/N`, from host facts. No IOWeight; `io.max` is an optional probe item. |
+| D3  | The host lane guard         | A hooks-daemon library handler (A), with cc deny rules (B) as a cheap second layer.                                                                                                                                                                                                                                                      |
+| D4  | Stage 2: build or adopt     | Build small in agentic-qa-queue, jobs run as a dedicated runner user. **Owner:** the runners are the laptop and the home server, not the data centre (already a GitHub runner).                                                                                                                                                          |
