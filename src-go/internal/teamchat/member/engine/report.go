@@ -121,6 +121,8 @@ func (e *Engine) postRoom(ctx context.Context, h *held, p nextPost, token string
 		return p.main, nil, false
 	case proto.PurposeReports:
 		return e.reportsTarget(ctx, h, p, r)
+	case proto.PurposeQuestions:
+		return e.questionsTarget(ctx, h, p, r)
 	}
 	// recheck refuses every other room, so none reaches here; a room added there and not here
 	// is refused all the same.
@@ -163,13 +165,18 @@ func (e *Engine) reportsTarget(ctx context.Context, h *held, p nextPost, r proto
 	return "", held, true
 }
 
-// droppedForbidden is a report whose PUT the homeserver answered 403 (RP4): removed alone and
-// answered 22 forbidden if its verb still waits, otherwise logged by its transaction id.
+// droppedForbidden is a report or a questions post whose PUT the homeserver answered 403 (RP4,
+// QS8): removed alone and answered 22 forbidden if its verb still waits, otherwise logged by
+// its transaction id.
 func (e *Engine) droppedForbidden(ctx context.Context, h *held, entry state.Sending) *sendHold {
 	var held *sendHold
 	if err := e.do(ctx, func() {
-		xe := exits.New(exits.CodeForbidden, &h.id, msgReportsRefused, exits.Team(h.id))
-		held = e.dropSend(h, entry, sendResult{err: xe}, "queued report "+entry.Txn+" was not posted: forbidden")
+		msg := msgReportsRefused
+		if entry.Room == proto.PurposeQuestions {
+			msg = msgQuestionsRefused
+		}
+		xe := exits.New(exits.CodeForbidden, &h.id, msg, exits.Team(h.id))
+		held = e.dropSend(h, entry, sendResult{err: xe}, "queued "+entry.Kind+" "+entry.Txn+" was not posted: forbidden")
 	}); err != nil {
 		return nil
 	}

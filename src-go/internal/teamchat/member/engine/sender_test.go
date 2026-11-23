@@ -332,8 +332,8 @@ func TestTheRecoveryReturnsAFailedReportsRead(t *testing.T) {
 	}
 }
 
-// A tried report with no roster to name the reports room, or a tried send to a room no recovery
-// reads, fails the recovery rather than leave a send that may be held to be put again.
+// A tried report or questions post with no roster to name its room fails the recovery rather
+// than leave a send that may be held to be put again.
 func TestTheRecoveryRefusesATriedSendItCannotLookFor(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	for _, c := range []struct {
@@ -342,7 +342,7 @@ func TestTheRecoveryRefusesATriedSendItCannotLookFor(t *testing.T) {
 		roster bool
 	}{
 		{"ops", proto.PurposeReports, false},
-		{"dev", proto.PurposeQuestions, true},
+		{"dev", proto.PurposeQuestions, false},
 	} {
 		id := tid(t, c.team)
 		r := sendRoster(id)

@@ -211,6 +211,8 @@ type fakeTeam struct {
 	// reportsHold, when set, is called for each verification before its answer, off the lock:
 	// it may wait for the caller's context.
 	reportsHold func(context.Context) error
+	// q is the questions room as the verbs and the sender see it (questions_test.go).
+	q fakeQuestions
 
 	ran   bool
 	block bool

@@ -208,7 +208,10 @@ it itself (#364: a worker must not act on a peer's relay of an owner ruling).
 
 Each step: write the test, see it fail, then the code. Fakes only (fakehs, the fake clock).
 
-**Status:** steps 1-3 built on `v2-questions`.
+**Status:** steps 1-3 built on `v2-questions`; step 4's QX3 and QX4 built (own posts placed and
+sent to the questions room, `questions_unechoed` and the `uncounted` count written, one compose
+at a time under the team's judging hold); QX7's redaction rebuild and the `uncounted` hook line
+not yet.
 
 Step 3 settled three points the sections above left open. The index keeps each question's
 sender (`from`, 128 bytes at most), so the fold itself checks that a retitle edit comes from the

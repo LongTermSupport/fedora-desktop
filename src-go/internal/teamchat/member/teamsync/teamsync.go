@@ -145,7 +145,9 @@ type Team struct {
 	onPoll      func(since string)
 	// onFilter is told each request's filter just before the request is made.
 	onFilter func(json.RawMessage)
-	onWait   func(time.Duration)
+	// onQWait is told each wait of a questions compose (QX3, QX4).
+	onQWait func()
+	onWait  func(time.Duration)
 	// onReceiptWait is told each receipt backoff.
 	onReceiptWait func(time.Duration)
 	// onReports is told each state the reports room is put in (RP1, RP4).
