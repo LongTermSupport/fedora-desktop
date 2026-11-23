@@ -94,12 +94,21 @@ func TestATeamchatTeamThatCannotBeDecidedIsAFailure(t *testing.T) {
 	r.lacksOutput(t)
 }
 
-func TestAHostLaunchNeverAsksTeamchat(t *testing.T) {
+// Task 5.1 step 6: a host launch (cc) takes a teamchat team's pool seat as a podman one does,
+// and the owner's Matrix consent is asked for it as for an agent-bus host seat.
+func TestAHostLaunchTakesATeamchatPoolSeat(t *testing.T) {
 	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2"}})
-	r.Host.IsTerminal = func(any) bool { return false }
-	exit(t, r.run("--type=host", "1@alpha"), term.ExitConfig, r.rig)
-	if r.asked != nil {
-		t.Fatalf("a host launch asked teamchat about %v", r.asked)
+	r.consentRig()
+	r.Script.Gum = []string{"YES"}
+	exit(t, r.run("--type=host", v2Team), term.ExitOK, r.rig)
+	if r.payload.String() != "2@"+v2Team+"\n" || !slices.Equal(r.asked, []string{v2Team}) {
+		t.Fatalf("payload %q, asked %v", r.payload.String(), r.asked)
+	}
+	if r.seatsAsked != nil {
+		t.Fatalf("agent-bus's seat chooser was asked: %v", r.seatsAsked)
+	}
+	if !strings.Contains(strings.Join(r.Script.Headings, "\n"), "Matrix consent") {
+		t.Fatalf("the host seat's Matrix consent was not asked: %q", r.Script.Headings)
 	}
 }
 
@@ -148,14 +157,11 @@ func TestTeamsOnBothSystemsInOneLaunchAreRefused(t *testing.T) {
 	r.lacksOutput(t)
 }
 
-func TestAHostListShowsNoTeamchatTeam(t *testing.T) {
+func TestAHostListShowsThisCheckoutsTeamchatTeams(t *testing.T) {
 	r := newTeamchatRig(t, alphaCovers+betaWiden, map[string][]string{v2Team: {"2"}})
 	r.Script.Fzf = []string{"|ABORT"}
 	exit(t, r.run("--type=host"), term.ExitOK, r.rig)
-	if slices.ContainsFunc(r.Script.Rows[0], func(row string) bool { return strings.Contains(row, v2Team) }) {
-		t.Fatalf("a host list offered %s: %q", v2Team, r.Script.Rows[0])
-	}
-	if r.asked != nil {
-		t.Fatalf("a host launch asked teamchat about %v", r.asked)
+	if !slices.ContainsFunc(r.Script.Rows[0], func(row string) bool { return strings.Contains(row, v2Team) }) {
+		t.Fatalf("a host list did not offer %s: %q", v2Team, r.Script.Rows[0])
 	}
 }
