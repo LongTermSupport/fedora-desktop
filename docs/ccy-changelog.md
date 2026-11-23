@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.8 — container 2.84.59
+
+- **A human's answer reaches the seat that asked** (Plan 00209, backlog R0 step 7, issue #364).
+  When a human answers a question the coordinator asked for a worker (`ask-human --for`), the
+  coordinator's link relays the answer to that worker at once, with no model turn and once across
+  restarts. The worker's link fetches the human's own post from the questions room and delivers
+  it as HUMAN, with `room: questions`, the question and a `relayed by:` line; a relay that does
+  not name a team human's post is dropped. The skill says what a relayed answer is and how to
+  answer it.
+
 ## 3.124.7 — container 2.84.58
 
 - **Every team member reads the questions room** (Plan 00209, backlog R0 step 7). Each

@@ -235,6 +235,9 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
 			if dropped, err = applyQuestions(s, b); err != nil {
 				return false, err
 			}
+			if dropped.relayed, err = queueRelays(s, b, now); err != nil {
+				return false, err
+			}
 			floor = s.Sync.FloorMS[proto.PurposeMain]
 			notes, unknown = applyOutbox(s, b)
 			lines = answeredLines(s, b)
@@ -253,13 +256,7 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
 				delete(h.content, id)
 			}
 		}
-		for _, id := range dropped.items {
-			delete(h.content, id)
-			e.logf("team %s: the questions item %s is dropped with the questions room", b.Team, id)
-		}
-		for _, txn := range dropped.sends {
-			e.logf("team %s: the questions post sent as %s is dropped with the questions room; it may have landed", b.Team, txn)
-		}
+		e.afterQuestions(h, b.Team, dropped)
 		h.keepUncounted(b)
 		h.counts = addCounts(h.counts, b.Counts)
 		h.delivery.hold(b, lines)

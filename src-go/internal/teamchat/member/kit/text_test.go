@@ -476,3 +476,15 @@ func TestTheSkillTeachesTheFourClasses(t *testing.T) {
 		t.Errorf("classes %v, want %v", got, exits.Classes)
 	}
 }
+
+// A 10.6, 13.2: the skill tells a worker what a relayed answer is: the human's own post, fetched
+// from the questions room by its link, with a `relayed by:` line whose question number is the
+// coordinator's claim, and how to check it against the room.
+func TestTheSkillTeachesARelayedAnswer(t *testing.T) {
+	skill := shippedSkill(t)
+	for _, want := range []string{"relayed by:", "the coordinator's claim", "`teamchat verify '<id>' --room questions`"} {
+		if !strings.Contains(skill, want) {
+			t.Errorf("SKILL.md does not say %q", want)
+		}
+	}
+}

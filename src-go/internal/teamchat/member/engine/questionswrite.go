@@ -7,13 +7,31 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
-// questionsDrop is what a demotion's write took out of the store, for the log: the ids of the
-// questions items and the transaction ids of the questions posts in `sending`, never a body.
+// questionsDrop is what a write did of the questions room beside its key: what a demotion took
+// out of the store, for the log (the ids of the questions items and the transaction ids of the
+// questions posts in `sending`, never a body), and whether it queued a relay (A 10.6).
 type questionsDrop struct {
 	items, sends []string
+	relayed      bool
+}
+
+// afterQuestions is a written batch's questions effects in memory: the dropped items forgotten
+// and logged, and the sender woken for a queued relay.
+func (e *Engine) afterQuestions(h *held, t paths.TeamID, d questionsDrop) {
+	for _, id := range d.items {
+		delete(h.content, id)
+		e.logf("team %s: the questions item %s is dropped with the questions room", t, id)
+	}
+	for _, txn := range d.sends {
+		e.logf("team %s: the questions post sent as %s is dropped with the questions room; it may have landed", t, txn)
+	}
+	if d.relayed {
+		h.pokeSender()
+	}
 }
 
 // applyQuestions is the batch's writes of the questions room's keys in s (QX5, QS9, n3f-D19).

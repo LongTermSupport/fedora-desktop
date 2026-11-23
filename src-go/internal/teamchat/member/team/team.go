@@ -62,6 +62,17 @@ type Batch struct {
 	// Handover sets `outbox.questions_handover`, the ready line owed (QX1): the first page write of
 	// a build begun with no `questions` key.
 	Handover bool
+	// Relays are the coordinator's relays this batch owes (A 10.6): one per human post the sync
+	// folded onto a question with `asked_by` and per asking seat. The write queues each in
+	// `sending`, under its derived transaction ID, unless that ID is there already.
+	Relays []Relay
+}
+
+// Relay is one relay to send: its transaction ID (proto.RelayTxn) and its composed main-room
+// content.
+type Relay struct {
+	Txn     string
+	Content json.RawMessage
 }
 
 // Answer is an answer-form event to an own ping: From answered Ping with Verb in event ID, at

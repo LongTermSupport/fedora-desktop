@@ -535,6 +535,7 @@ func (s *sess) qjudge(ctx context.Context, j *judged, since string, a answer) er
 	if last := s.qtake(j, jr, f.idx, q.floor, func(string) bool { return true }); last != "" {
 		f.last = last
 	}
+	j.batch.Relays = append(j.batch.Relays, s.relays(jr, f.idx, q.floor)...)
 	if len(redactions(jr)) > 0 {
 		after, next := f.last, f.idx.Next()
 		f.owed = &proto.BuildRecord{After: &after, LateFrom: &next}

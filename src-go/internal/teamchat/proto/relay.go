@@ -37,15 +37,18 @@ func checkRelay(class SenderClass, to []string, r Roster) string {
 func (j Judge) Relayed(relay Verdict, post Value) Verdict {
 	r := relay.Content.Text.Relay
 	if r == nil {
-		return drop(relay, ReasonProvenance)
+		return RelayDropped(relay)
 	}
 	v := j.Fetched(post)
 	if v.Outcome != Deliver || v.Event.ID != r.ID {
-		return drop(relay, ReasonProvenance)
+		return RelayDropped(relay)
 	}
 	v.Relayed = &Relayed{By: relay.Event.Sender, Q: r.Q}
 	return v
 }
+
+// RelayDropped is a relay whose post could not be read: dropped `provenance` (A 10.6).
+func RelayDropped(relay Verdict) Verdict { return drop(relay, ReasonProvenance) }
 
 // Fetched judges a questions-room event a member that does not coordinate fetched by ID (a
 // relayed post, or one restored after a restart): a team human's message, its edit only of the

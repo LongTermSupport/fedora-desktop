@@ -753,7 +753,14 @@ func (s *sess) judgeAll(ctx context.Context, events []json.RawMessage, restored 
 	}
 	counted := map[string]bool{}
 	for i, e := range jr.evs {
-		s.take(&j, jr.vs[i], e.id, restored, jr.lk, counted, proto.PurposeMain)
+		v, room := jr.vs[i], proto.PurposeMain
+		if isRelay(v) {
+			if v, err = s.relayed(ctx, &j, v); err != nil {
+				return judged{}, err
+			}
+			room = proto.PurposeQuestions
+		}
+		s.take(&j, v, e.id, restored, jr.lk, counted, room)
 	}
 	if jr.floor > s.floor {
 		j.batch.Floors = map[string]int64{proto.PurposeMain: jr.floor}
