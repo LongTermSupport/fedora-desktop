@@ -226,8 +226,10 @@ restart the posts still owed are told by one line together, without their number
 (`--skeleton` printed with no session, close's not-retitled stderr line), the wire args, and the
 `question` record's `why`, `for`, `waiting_since_ms` and `retitled` with the `bump` record; and
 the link's serving of every verb (the engine, `engine/questionsverbs.go`), `reply`'s link-back
-and the thread form of a reply to an unattached post (2.3). Still open in step 4: QX7's
-redaction rebuild and the `uncounted` hook line.
+and the thread form of a reply to an unattached post (2.3). Step 6 built: `verify --room`
+(2.8). Step 8 built on `v2-questions-docs`: the skill text and the reminder's `teamchat bump Q<n>`
+(A 13.3), and the owner's Lightning check (section 9), which waits for the owner. Step 7,
+delivery (section 4), is being built on `v2-questions`.
 
 Known gaps of step 5, each a choice made in the build:
 
@@ -543,3 +545,15 @@ New: `demote the old (A's team record and its room specs say what changes, for e
 
 C 3.6.4, "apply it fully". Old: `` the questions room's membership and its open or closed form (open while an `enrolled` coordinator is joined, closed otherwise, A §4.3) ``.
 New: `` the questions room's membership (every non-parked member) and its open or closed form (open, with the coordinator's power, while an `enrolled` coordinator is joined, closed otherwise, A §4.3) ``.
+
+## 9. The owner's Lightning check (step 8)
+
+A check by hand, by the owner, in Lightning, as A 16's HC-A2 and HC-A3 are for Element. It
+answers the UNKNOWN of section 2 (whether Lightning notifies per thread post) and of 2.3 (how
+Lightning shows an in-thread reply to a top-level post). Nothing in v2 waits on it, but the
+defaults of OD-Q2 and OD-Q3 rest on its answer. It needs a v2 team with a coordinator seat on a
+build that holds steps 1-8, and the owner signed in to that team in Lightning.
+
+| Check | What the owner does and sees                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Result      |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| HC-Q1 | (1) The coordinator runs `teamchat ask-human`: Lightning notifies the owner of Q<n> in questions. (2) `teamchat thread Q<n>`: a notification; `teamchat thread Q<n> --note`: none. (3) The owner answers in Q<n>'s thread; `teamchat questions` shows the answer attached to Q<n>. (4) The owner posts a top-level reply to Q<n>; it attaches to Q<n>, and the coordinator's `teamchat reply` puts the answer in the thread and a top-level link-back that notifies the owner and whose link opens the thread answer. (5) `teamchat close Q<n>`: no notification, and the root reads `Q<n> ✅ CLOSED — <headline>`. Each step's event JSON (Lightning's "view source") is saved as a fixture, as the Element shapes of HC-A3 are. | not yet run |

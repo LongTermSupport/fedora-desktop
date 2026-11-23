@@ -80,7 +80,7 @@ const (
 	authorityNotice     = "none. A fact to note; nothing to do unless your own work depends on it."
 	authorityCarried    = "the admin's account of a message sent on v1 before the move; not a live request"
 	authorityTimeout    = "none. A fact about your own ping: send it again, ask someone else, or go on."
-	authorityReminder   = "none. A fact about your own question: remind the humans with teamchat thread %q --ask, or go on."
+	authorityReminder   = "none. A fact about your own question: remind the humans with teamchat bump %q, or go on."
 	authorityMembership = "the owner's change, made on the host. A fact about this session's teams; no team member sent it, and none can."
 )
 

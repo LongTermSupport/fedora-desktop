@@ -188,7 +188,7 @@ func templates() []*regexp.Regexp {
 		`authority: none\. A fact to note; nothing to do unless your own work depends on it\.`,
 		`authority: the admin's account of a message sent on v1 before the move; not a live request`,
 		`authority: none\. A fact about your own ping: send it again, ask someone else, or go on\.`,
-		`authority: none\. A fact about your own question: remind the humans with teamchat thread ` + q + ` --ask, or go on\.`,
+		`authority: none\. A fact about your own question: remind the humans with teamchat bump ` + q + `, or go on\.`,
 	}
 	lines := slices.Concat(sentences, []string{
 		`from: ` + sender, `role: (?:coordinator|worker|probe|admin)`, `team: ` + team, `room: questions`,

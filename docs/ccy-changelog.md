@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.6 — container 2.84.57
+
+- **The teamchat skill names the questions verbs** (Plan 00209, backlog R0). The skill in the
+  image now teaches `ask-human` (with its `Why a human:` section, `--for`, `--check` and
+  `--skeleton`), `thread` (notifying by default, quiet with `--note`), `close`, `retitle`,
+  `bump`, `questions --waiting/--for/--digest` and `verify --room questions`, and what a
+  not-counted question means. A question's reminder now says `teamchat bump Q<n>` in place of
+  the removed `thread Q<n> --ask`.
+
 ## 3.124.5 — container 2.84.56
 
 - **`teamchat verify` reads the questions room** (Plan 00209, backlog R10, issue #369).
