@@ -26,7 +26,7 @@ func tokenRun(t *testing.T, dir string, files []string, args ...string) *run {
 			r.token(t, f)
 		}
 	}
-	r.front.Environ = []string{"HOME=" + r.home, "PATH=/usr/bin", "LANG=C.UTF-8", "TZ=UTC"}
+	r.front.Environ = []string{"HOME=" + r.home, "PATH=/usr/bin", "LANG=C.UTF-8", "TZ=UTC", machineConfig(dir)}
 	r.front.Clock = fixedClock{now: pinnedNow}
 	return r
 }
@@ -95,7 +95,7 @@ func TestListTokensColourOnlyOnATerminal(t *testing.T) {
 func TestListTokensAnswersATypicalDesktop(t *testing.T) {
 	dir := install(t)
 	r := tokenRun(t, dir, []string{"work-2.2030-06-01.token", "Work.2030-07-01.token", "play_3.2030-12-31.token"}, "--list-tokens")
-	r.front.Environ = []string{"HOME=" + r.home, "PATH=/usr/bin", "LANG=en_GB.UTF-8", "LC_COLLATE=en_GB.UTF-8", "TZ=Europe/London"}
+	r.front.Environ = []string{"HOME=" + r.home, "PATH=/usr/bin", "LANG=en_GB.UTF-8", "LC_COLLATE=en_GB.UTF-8", "TZ=Europe/London", machineConfig(dir)}
 	if code := r.start(t); code != term.ExitOK || len(r.execer.Execs()) != 0 {
 		t.Fatalf("exit %d, handed over %d, stderr %q", code, len(r.execer.Execs()), r.stderr)
 	}

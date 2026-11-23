@@ -47,6 +47,12 @@ const (
 	machineSlice   = "machine/config/systemd/user/agents.slice"
 )
 
+// machineConfig is the environment entry that finds the install in dir's slice unit. A test
+// that sets the whole environment keeps it, or the library refuses and the front hands over.
+func machineConfig(dir string) string {
+	return "XDG_CONFIG_HOME=" + filepath.Join(dir, "machine", "config")
+}
+
 // defaultLimits is the limit set of a container run on that machine with no override.
 var defaultLimits = []string{
 	"--cgroup-parent", "agents.slice", "--pids-limit", "16384",
@@ -69,7 +75,7 @@ func newRun(dir string, args ...string) *run {
 		Version:  fixtureVersion,
 		Self:     filepath.Join(dir, "claude-yolo"),
 		Args:     args,
-		Environ:  []string{"HOME=/nonexistent", "PATH=/usr/bin", "XDG_CONFIG_HOME=" + filepath.Join(dir, "machine", "config")},
+		Environ:  []string{"HOME=/nonexistent", "PATH=/usr/bin", machineConfig(dir)},
 		ProcRoot: filepath.Join(dir, "machine", "proc"),
 		LookPath: func(name string) (string, error) { return "/usr/bin/" + name, nil },
 		Runner:   r.runner,
@@ -310,7 +316,7 @@ func TestAMissingBashLauncherIsReported(t *testing.T) {
 func TestHelp(t *testing.T) {
 	dir := install(t)
 	inspect := []string{"podman", "image", "inspect", "claude-yolo:latest"}
-	claudeHelp := []string{"podman", "run", "--rm", "--pids-limit", "4096", "--entrypoint", "claude", "claude-yolo:latest", "--help"}
+	claudeHelp := append([]string{"podman"}, withLimits(defaultLimits, "--entrypoint", "claude", "claude-yolo:latest", "--help")...)
 	cases := []struct {
 		name  string
 		setup func(f *execx.Fake)
