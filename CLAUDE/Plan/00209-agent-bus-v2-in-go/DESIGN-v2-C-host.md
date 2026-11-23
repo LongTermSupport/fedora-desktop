@@ -1063,8 +1063,8 @@ any time (C23).
   refusal as a problem with its fix (change the declaration or the member's `human_text`).
 - `retire` refuses the declared coordinator: the declaration has to change first (C30).
 - **Park keeps the account joined to its rooms** (its history stays attributed), except where A's
-  specs remove a parked member: a parked coordinator is kicked from the questions room and the
-  questions room takes its closed form (A §4.3), by the rooms step the verb ends with, so members
+  specs remove a parked member: a parked member is kicked from the questions room, and a parked
+  coordinator's questions room takes its closed form (A §4.3), by the rooms step the verb ends with, so members
   see the change at once. Park keeps the member's role in the roster; parking the coordinator is
   allowed and the board says the coordinator is parked.
 
@@ -1088,13 +1088,14 @@ writes host_vars under the play lock, approves that one change (`team approve --
 3.5.1), then runs `team apply` for the team, which writes `team.json` and runs it:
 
 1. If the old coordinator is not the new one: demote the old (A's team record and its room specs
-   say what changes, for example removal from the questions room) and apply it fully.
+   say what changes, for example the questions room's power levels, which drop it as a poster;
+   it stays joined as a reader) and apply it fully.
 2. Only then promote the new one and apply it.
 
 The demotion completes before the promotion starts, across every member kind (C17). "Apply it
 fully" is the rooms step of 3.6.2 run for the team from the changed roster: the roster event,
-the questions room's membership and its open or closed form (open while an `enrolled` coordinator is
-joined, closed otherwise, A §4.3), and the re-invite of a coordinator that left the questions
+the questions room's membership (every non-parked member) and its open or closed form (open,
+with the coordinator's power, while an `enrolled` coordinator is joined, closed otherwise, A §4.3), and the re-invite of a coordinator that left the questions
 room. Each demotion and each promotion then posts the admin's `role` notice (A §7.4). A
 coordinator whose roster entry says `human_text: false` is refused where A's rules say so, at the
 place the role is assigned (S11 4.5).
