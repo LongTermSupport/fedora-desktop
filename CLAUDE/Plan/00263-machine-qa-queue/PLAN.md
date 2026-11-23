@@ -63,6 +63,18 @@ its own focused CI (see Plan 00262).
     - the wrapper exports the slot's share (`GOMAXPROCS`, `go test -p`, `pytest -n`);
     - host seats get the same caps through a systemd slice, and the same lock;
     - N=2 on the laptop to start.
+  - **Owner, second answer on Q62 (verbatim):** "3 - this relies on codebases/agents being honest
+    and aware of the slots. Is there a way to cap this at container level?" So the cap must hold
+    whatever an agent does. The coordinator proposed an answer, not yet confirmed by the owner:
+    **kernel enforcement first.**
+    - One parent `agents.slice` holds every ccy container (`podman --cgroup-parent`) and every
+      host session (`systemd-run --slice`). It has a total `CPUQuota`, a low `CPUWeight`, an
+      `IOWeight` and a `MemoryMax`.
+    - Each container gets `--cpus` and `--cpuset-cpus`, so nproc, affinity and GOMAXPROCS size
+      themselves, plus `--memory` and `--pids-limit`.
+    - The slot lock becomes an optimisation for fairness and throughput, not the safety.
+    - The order is: the slice and caps, then the lock, then the queue. Task 1.2 checks rootless
+      podman's cgroup v2 delegation on F44, and Go's cgroup-aware GOMAXPROCS.
 - [ ] ⬜ **Task 1.2**: A survey of existing tools that already do this: job queues and locks
   such as `flock`, `ts` (task-spooler), `nq`, systemd transient units with slices,
   `pueue`, and self-hosted CI runners. For each: fit, gaps and licence. Build only what no
