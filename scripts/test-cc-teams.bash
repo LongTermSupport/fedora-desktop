@@ -11,10 +11,11 @@
 # only to post through pingbus, as itself, and never mentions Element or anyone else's
 # sign-in; cc's own settings file denies Claude's file tools Element's folders. Each of these
 # is a property a later edit could quietly lose, so each is checked here: the argument split,
-# the chooser called with the host type (attended only) and the list it prints checked by
-# agent-bus, the seats taken as `host`, the launch block, the merged settings, the session's
-# text, and the command line that claims the seats. A fake ccy-teams and agent-bus stand in
-# for the two programs.
+# the chooser called with the host type (attended only) and the list it prints checked by the
+# seat check, the seats taken as `host`, the launch block, cc's deny rules, the session's
+# text, and the command line, `ccy-teams internal cc-run` (Plan 00209 Task 5.1), whose
+# settings and session line are Go's, tested there against this library's earlier bash
+# (teamchatlaunch's parity test). A fake ccy-teams and agent-bus stand in for the two programs.
 #
 # `set -e` is deliberately NOT used: every case must run so the summary reports the full
 # picture, and each result is checked explicitly.
@@ -74,21 +75,20 @@ case "$1 $2" in
 esac
 EOF
 # A fake ccy-teams: choose-teams prints $FAKE_WORK/chosen (exit FAKE_CHOOSE_RC) and notes its
-# argv; describe-seats prints a block for the list it is given; internal membership-init prints
-# the session's membership directory under $FAKE_WORK (exit FAKE_INIT_RC).
+# argv; describe-seats prints a block for the list it is given; internal seat-check and
+# seat-take are agent-bus's seat check and take, as the real verbs are for an agent-bus list.
 cat >"$bin/ccy-teams" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$FAKE_WORK/ccy-teams.calls"
 case "$1 $2" in
     "choose-teams "*) cat "$FAKE_WORK/chosen"; exit "${FAKE_CHOOSE_RC:-0}" ;;
     "describe-seats --block") printf 'This session is on teams: %s\n' "$3" ;;
-    "internal membership-init") [ -z "${FAKE_INIT_RC:-}" ] || exit "$FAKE_INIT_RC"; printf '%s\n' "$FAKE_WORK/membership/$4" ;;
+    "internal seat-check" | "internal seat-take") verb=${2#seat-}; shift 2; exec agent-bus seat "$verb" "$@" ;;
     *) exit 64 ;;
 esac
 EOF
 chmod 755 "$bin/agent-bus" "$bin/ccy-teams"
 export PATH="$bin:$PATH" FAKE_WORK="$work"
-CC_TEAMS_AGENT_BUS="$bin/agent-bus"
 CC_TEAMS_CCY_TEAMS="$bin/ccy-teams"
 # tmux-session.bash names the session cc runs as in ccy's tmux; here, FAKE_SESSION ("" unnamed).
 ccy_tmux_current_session() { printf '%s\n' "${FAKE_SESSION-cc-proj}"; }
@@ -119,7 +119,7 @@ cc_teams_split_args --bus --teams 1@a 2>"$work/err" || rc=$?
 check "--bus then --teams is refused 64" "64" "$rc"
 CC_TEAMS_BUS=false
 
-echo "=== the chooser: attended only, host type, then agent-bus checks the list ==="
+echo "=== the chooser: attended only, host type, then the seat check checks the list ==="
 
 printf '1@dev-team,2@other\n' >"$work/chosen"
 : >"$work/ccy-teams.calls"
@@ -128,14 +128,15 @@ CC_TEAMS_LIST=dev-team
 rc=0
 cc_teams_choose >"$work/out" 2>"$work/err" || rc=$?
 check "attended: the chooser's list is the seats" "0|1@dev-team,2@other" "$rc|$CC_TEAMS_SEATS"
-check "attended: the chooser is asked as host with the list as given" "choose-teams --type=host dev-team" "$(cat "$work/ccy-teams.calls")"
+check "attended: the chooser is asked as host with the list as given, then the seat check" \
+    "choose-teams --type=host dev-team|internal seat-check 1@dev-team,2@other" "$(paste -sd'|' "$work/ccy-teams.calls")"
 check "attended: agent-bus checks what the chooser printed" "seat check 1@dev-team,2@other" "$(cat "$work/agent-bus.calls")"
 check "nothing on stdout" "" "$(cat "$work/out")"
 
 CC_TEAMS_LIST=""
 : >"$work/ccy-teams.calls"
 cc_teams_choose 2>"$work/err"
-check "bare --teams passes an empty list" "choose-teams --type=host " "$(cat "$work/ccy-teams.calls")"
+check "bare --teams passes an empty list" "choose-teams --type=host " "$(head -n1 "$work/ccy-teams.calls")"
 
 : >"$work/chosen"
 rc=0
@@ -153,7 +154,7 @@ printf '1@dev-team\n' >"$work/chosen"
 CC_TEAMS_LIST=1@dev-team
 rc=0
 (cd "$work" && cc_teams_choose 2>"$work/err" </dev/null) || rc=$?
-check "the chooser is always asked, a full list and no terminal included (Go decides)" "choose-teams --type=host 1@dev-team" "$(cat "$work/ccy-teams.calls")"
+check "the chooser is always asked, a full list and no terminal included (Go decides)" "choose-teams --type=host 1@dev-team" "$(head -n1 "$work/ccy-teams.calls")"
 check "no --resolved branch: agent-bus checks what the chooser printed" "seat check 1@dev-team" "$(cat "$work/agent-bus.calls")"
 : >"$work/agent-bus.calls"
 rc=0
@@ -192,17 +193,8 @@ check "the block and take's report go to stderr, none to stdout" "" "$(cat "$wor
 check "the block is on stderr" "yes" "$(yes_no grep -q 'This session is on teams: 2@dev-team,1@other' "$work/err")"
 check "no sentence naming the handles is made: the teams may change (H32)" "0" "$(grep -c -- '--sentence' "$work/ccy-teams.calls")"
 
-echo "=== the settings: the kit's, plus cc's deny rules ==="
+echo "=== cc's deny rules (cc-run merges them into the session's settings) ==="
 
-CC_TEAMS_KIT="$KIT_SRC"
-CC_TEAMS_DENY_SETTINGS="$DENY"
-CC_TEAMS_BUS=true
-cc_teams_settings "$work/settings-bus.json" 2>"$work/err"
-check "cc --bus, on no team, refuses team messages until it is started with a team (Decision 7)" "refuse|true" \
-    "$(jq -r '.crossSessionInbound' "$work/settings-bus.json")|$(jq '.permissions.deny | length > 0' "$work/settings-bus.json")"
-CC_TEAMS_BUS=false
-cc_teams_settings "$work/settings.json" 2>"$work/err"
-check "a session started with seats lets the bus wake it" "accept" "$(jq -r .crossSessionInbound "$work/settings.json")"
 # Claude Code's home-relative rule form, a literal tilde.
 home_rel=\~
 # Every client on the one Matrix client list (issue #251): its Flatpak data, and each native
@@ -216,7 +208,7 @@ for path in "${matrix_paths[@]}"; do
     for tool in Read Edit; do
         rule="$tool($home_rel/$path)"
         check "deny $rule" "true" \
-            "$(jq --arg r "$rule" '.permissions.deny | index($r) != null' "$work/settings.json")"
+            "$(jq --arg r "$rule" '.permissions.deny | index($r) != null' "$DENY")"
     done
 done
 # Security audit H2: Bash can reach the human's sign-in too. A deny rule matches the command
@@ -225,7 +217,7 @@ done
 for tool in Read Edit; do
     rule="$tool($home_rel/.local/share/keyrings/**)"
     check "deny $rule" "true" \
-        "$(jq --arg r "$rule" '.permissions.deny | index($r) != null' "$work/settings.json")"
+        "$(jq --arg r "$rule" '.permissions.deny | index($r) != null' "$DENY")"
 done
 # The Secret Service's bus name is lower case and its interface capitalised; rules are case
 # sensitive, so both are denied (review L-C). The dot is a variable only so this file's text is
@@ -235,20 +227,24 @@ bus_name_rule="Bash(*freedesktop${dot}secrets*)"
 for rule in 'Bash(*secret-tool*)' 'Bash(*keyring*)' 'Bash(*freedesktop.Secret*)' "$bus_name_rule" \
     "${matrix_bash_rules[@]}" 'Bash(*IndexedDB*)' 'Bash(*Local Storage*)'; do
     check "deny $rule" "true" \
-        "$(jq --arg r "$rule" '.permissions.deny | index($r) != null' "$work/settings.json")"
+        "$(jq --arg r "$rule" '.permissions.deny | index($r) != null' "$DENY")"
 done
 check "deny Edit of the acceptance record's folder" "true" \
-    "$(jq --arg r "Edit($home_rel/.config/pingbus/**)" '.permissions.deny | index($r) != null' "$work/settings.json")"
-check "the settings file is the owner's alone" "600" "$(stat -c %a "$work/settings.json")"
+    "$(jq --arg r "Edit($home_rel/.config/pingbus/**)" '.permissions.deny | index($r) != null' "$DENY")"
 
 echo "=== what the session reads ==="
 
-prompt=$CC_TEAMS_PROMPT
-check "it names no team: they are in the session context and may change (H32)" "yes" \
-    "$(yes_no grep -qF 'Your agent-bus teams and seats are given in the session context and may change while you run; the latest agent-bus membership notice is current.' <<<"$prompt")"
-check "it says to post through pingbus" "yes" "$(yes_no grep -q pingbus <<<"$prompt")"
-check "it never mentions Element, sign-ins or other people's accounts" "no" \
-    "$(yes_no grep -qiE 'element|riot|matrix session|sign|login|log in|owner|human|as anyone|impersonat' <<<"$prompt")"
+# Both systems' prompt lines are constants in cc-run's Go source.
+CCRUN_GO="$REPO_ROOT/src-go/internal/teams/teamchatlaunch/ccrun.go"
+for sys_prog in "V1Prompt pingbus agent-bus" "TeamchatPrompt teamchat teamchat"; do
+    read -r const prog sys <<<"$sys_prog"
+    prompt=$(grep -E "^\s*$const\s*=" "$CCRUN_GO" | cut -d'"' -f2)
+    check "$const names no team: they are in the session context and may change (H32)" "yes" \
+        "$(yes_no grep -qF "Your $sys teams and seats are given in the session context and may change while you run; the latest $sys membership notice is current." <<<"$prompt")"
+    check "$const says to post through $prog" "yes" "$(yes_no grep -q "only with $prog" <<<"$prompt")"
+    check "$const never mentions Element, sign-ins or other people's accounts" "no" \
+        "$(yes_no grep -qiE 'element|riot|matrix session|sign|login|log in|owner|human|as anyone|impersonat' <<<"$prompt")"
+done
 check "the plugin's text never mentions the owner's Element session either" "no" \
     "$(yes_no grep -rqiE "owner'?s element|your element|element session|im\.riot" "$KIT_SRC/plugin")"
 
@@ -275,28 +271,10 @@ check ".claude/ccy as a symlink is refused 78" "78" "$rc"
 
 echo "=== the command line ==="
 
-: >"$work/ccy-teams.calls"
-CC_TEAMS_SEATS="2@dev-team,1@other"
-cc_teams_command "$work/tmp" "$checkout" --resume abc 2>"$work/err"
-got=$(printf '%s\n' "${CC_TEAMS_CMD[@]}")
-want=$(printf '%s\n' env "PINGBUS_MEMBERSHIP=$work/membership/cc-proj" "$KIT_SRC/pingbus" seat exec \
-    --root "$checkout/.claude/ccy/pingbus/seats" --home "$work/tmp/pingbus-home" -- /var/local/claude-code/cc-claude --plugin-dir "$KIT_SRC/plugin/pingbus" \
-    --settings "$work/tmp/settings.json" --append-system-prompt "$CC_TEAMS_PROMPT" --resume abc)
-check "the keeper follows the membership; cc-claude (claude with ccy's auto-compact window) gets the plugin, the settings and the prompt (H31)" "$want" "$got"
 check "plain cc starts the same cc-claude, so both paths get the window" "yes" \
     "$(yes_no grep -qxF '    /var/local/claude-code/cc-claude "$@"' <(grep -xF -A1 'else' "$REPO_ROOT/files/var/local/claude-code/cc"))"
 check "the play installs cc-claude where cc runs it" "yes" \
     "$(yes_no grep -qF 'go_command_dest: /var/local/claude-code/cc-claude' "$PLAY")"
-check "the membership is written first, kind cc, under the session's name, with its seats" \
-    "internal membership-init --kind=cc cc-proj $checkout 2@dev-team,1@other" "$(cat "$work/ccy-teams.calls")"
-: >"$work/ccy-teams.calls"
-CC_TEAMS_SEATS=""
-FAKE_SESSION="" cc_teams_command "$work/tmp" "$checkout" 2>"$work/err"
-check "a cc outside ccy's tmux names its membership cc.<pid>, on no team for --bus" \
-    "internal membership-init --kind=cc cc.$$ $checkout " "$(cat "$work/ccy-teams.calls")"
-rc=0
-FAKE_INIT_RC=78 cc_teams_command "$work/tmp" "$checkout" 2>"$work/err" || rc=$?
-check "a membership that cannot be written stops the launch with its code" "78" "$rc"
 
 echo "=== the session records its teams for the status line ==="
 
@@ -304,26 +282,12 @@ hooks_json="$KIT_SRC/plugin/pingbus/hooks/hooks.json"
 # The command's inert guard (Plan 00203 H33) passes a session with no PINGBUS_MEMBERSHIP, as cc's is.
 check "the plugin cc passes runs pingbus's SessionStart hook, which writes the per-session teams file" "exec pingbus hook session-start" \
     "$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$hooks_json" | grep -oF 'exec pingbus hook session-start')"
-check "cc passes that plugin directory" "yes" "$(yes_no grep -qF -- "--plugin-dir" <<<"$got")"
+check "cc-run passes that plugin directory" "yes" "$(yes_no grep -qF -- '"--plugin-dir", kit + "/plugin/pingbus"' "$CCRUN_GO")"
 check "cc puts the kit first on PATH so the hook runs the kit's pingbus" "yes" \
     "$(yes_no grep -qF "PATH=\"\$CC_TEAMS_KIT:\$PATH\"" "$REPO_ROOT/files/var/local/claude-code/cc")"
 
 echo "=== prepare: chooser, take, settings, command, in order ==="
 
-prep_kit="$work/prep-kit"
-mkdir -p "$prep_kit/plugin"
-cp -r "$KIT_SRC/plugin/pingbus" "$prep_kit/plugin/pingbus"
-cp "$KIT_SRC/settings.json" "$prep_kit/settings.json"
-: >"$prep_kit/pingbus"
-CC_TEAMS_KIT="$prep_kit"
-# Plan 00213: the kit's settings run the Go status line by name from the kit on PATH, so a kit
-# without it is refused before anything is asked or taken.
-: >"$work/ccy-teams.calls"
-rc=0
-(cd "$work" && cc_teams_prepare "$work/prep-tmp") >"$work/out" 2>"$work/err" || rc=$?
-check "a kit without pingbus-status-line is refused (78) before the chooser" "78|0|yes" \
-    "$rc|$(grep -c . "$work/ccy-teams.calls")|$(yes_no grep -qF "$prep_kit/pingbus-status-line, and it is missing" "$work/err")"
-: >"$prep_kit/pingbus-status-line"
 prep_repo="$work/prep-repo"
 mkdir -p "$prep_repo" "$work/prep-tmp"
 git -C "$prep_repo" init -q
@@ -332,14 +296,15 @@ CC_TEAMS_LIST=""
 : >"$work/agent-bus.calls"
 : >"$work/ccy-teams.calls"
 rc=0
-(cd "$prep_repo" && cc_teams_prepare "$work/prep-tmp" --resume x && printf '%s\n' "${CC_TEAMS_CMD[1]}" >"$work/cmd1") >"$work/out" 2>"$work/err" || rc=$?
+(cd "$prep_repo" && cc_teams_prepare "$work/prep-tmp" --resume x && printf '%s\n' "${CC_TEAMS_CMD[@]}" >"$work/cmd1") >"$work/out" 2>"$work/err" || rc=$?
 check "prepare succeeds" "0" "$rc"
-check "chooser first, then agent-bus check, then take, then the membership" \
-    "choose-teams --type=host |describe-seats --block 1@dev-team|internal membership-init --kind=cc cc-proj $prep_repo 1@dev-team" \
+check "chooser first, then the seat check, then take, then the block" \
+    "choose-teams --type=host |internal seat-check 1@dev-team|internal seat-take 1@dev-team --type=host|describe-seats --block 1@dev-team" \
     "$(paste -sd'|' "$work/ccy-teams.calls")"
 check "agent-bus saw check then take" "seat check 1@dev-team|seat take 1@dev-team --type=host" "$(paste -sd'|' "$work/agent-bus.calls")"
 check "the seat exists" "yes" "$(yes_no test -d "$prep_repo/.claude/ccy/pingbus/seats/dev-team/1")"
-check "the command follows the membership" "PINGBUS_MEMBERSHIP=$work/membership/cc-proj" "$(cat "$work/cmd1")"
+check "the command is cc-run with the session, cc's pid, the seats and the claude arguments" \
+    "$bin/ccy-teams|internal|cc-run|$work/prep-tmp|$prep_repo|cc-proj|$$|1@dev-team|false|--|--resume|x" "$(paste -sd'|' "$work/cmd1")"
 rm -rf "$prep_repo/.claude/ccy/pingbus"
 : >"$work/agent-bus.calls"
 rc=0
@@ -368,12 +333,10 @@ git -C "$bus_repo" init -q
 : >"$work/ccy-teams.calls"
 rc=0
 (cd "$bus_repo" && CC_TEAMS_BUS=true cc_teams_prepare "$work/prep-tmp") >"$work/out" 2>"$work/err" || rc=$?
-check "--bus: the consent, no seat, then a membership on no team (H32)" \
-    "0|choose-teams --type=host --bus |internal membership-init --kind=cc cc-proj $bus_repo |0" \
+check "--bus: the consent, no seat (cc-run writes the membership on no team, H32)" \
+    "0|choose-teams --type=host --bus |0" \
     "$rc|$(paste -sd'|' "$work/ccy-teams.calls")|$(grep -c . "$work/agent-bus.calls")"
 check "--bus still makes the checkout's .claude/ccy/, where the keeper reports" "yes" "$(yes_no test -d "$bus_repo/.claude/ccy")"
-CC_TEAMS_KIT="$KIT_SRC"
-
 echo "=== cc and pingbus name the same acceptance record ==="
 
 pb_config="$REPO_ROOT/helpers/pingbus/config.py"

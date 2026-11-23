@@ -459,7 +459,7 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   - [x] ✅ Step 2: the host kit holds its plugin and settings (`teamchat kit assemble`).
   - [x] ✅ Step 3: `teamchat run --extra-settings FILE` (H4).
   - [x] ✅ Step 4: `cc-claude -- claude <args>` (H5).
-  - [ ] ⬜ Step 5: `ccy-teams internal cc-run`, both systems.
+  - [x] ✅ Step 5: `ccy-teams internal cc-run`, both systems.
   - [ ] ⬜ Step 6: the chooser offers teamchat teams to a host launch.
   - [ ] ⬜ Step 7: `teamchat reach` inside a `--state` session.
   - [ ] ⬜ Step 8: docs and plan text.

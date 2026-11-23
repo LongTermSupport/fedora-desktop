@@ -187,9 +187,10 @@ trap cc_cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# The teams' seats are taken before the token chooser, so a launch that cannot be seated
-# stops before anything else is asked. The private directory holds the session's settings
-# file and its pingbus home, and goes when cc exits.
+# Agent-bus seats are taken before the token chooser, so a launch that cannot be seated
+# stops before anything else is asked; teamchat seats are taken by cc-run as the session
+# starts. The private directory holds the session's settings (or teamchat's extra settings)
+# and its pingbus home, and goes when cc exits.
 if [ "$CC_TEAMS_GIVEN" = true ]; then
     CC_TEAMS_TMP=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/cc-teams.XXXXXX")
     cc_teams_prepare "$CC_TEAMS_TMP" "$@" || exit $?
@@ -378,7 +379,8 @@ fi
 # exit status (the trap's mv does not overwrite it). cc-claude (Go) becomes claude with
 # ccy's auto-compact window on both paths.
 if [ "$CC_TEAMS_GIVEN" = true ]; then
-    # pingbus claims the seat and becomes cc-claude; the hooks run the kit's pingbus.
+    # ccy-teams internal cc-run: on agent-bus pingbus claims the seat and becomes cc-claude
+    # (the hooks run the kit's pingbus); on teamchat teamchat run is its child.
     PATH="$CC_TEAMS_KIT:$PATH" "${CC_TEAMS_CMD[@]}"
 else
     /var/local/claude-code/cc-claude "$@"
