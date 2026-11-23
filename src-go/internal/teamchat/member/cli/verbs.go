@@ -129,6 +129,7 @@ var (
 	checkPerSource = &checker{validPerSource, "--{} takes a whole number, 1 to 256"}
 	checkListen    = &checker{validListen, "--{} takes one IP address in canonical form, not a wildcard and not the homeserver's own 127.0.0.1"}
 	checkDir       = &checker{absDir, msgDir}
+	checkFile      = &checker{absDir, msgFile}
 	checkList      = &checker{validList, "--{} takes a comma-separated list with no empty item"}
 	checkKind      = &checker{func(s string) bool { return slices.Contains(Kinds, Kind(s)) }, "--{} is one of ccy, lxc, host, other"}
 	checkRoom      = &checker{oneOf(historyRooms...), "--{} is main or questions"}

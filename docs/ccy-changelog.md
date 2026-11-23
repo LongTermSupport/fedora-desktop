@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.123.2 — container 2.84.48
+
+- **`teamchat run --extra-settings FILE`** (Plan 00209 Task 5.1). A `--claude` launch may name
+  one settings file of its own user, merged under the kit's settings (the kit's keys win). A file
+  that sets `crossSessionInbound`, `hooks` or `statusLine`, is a link or another user's, or is no
+  JSON object is refused (78). Host `cc` passes its deny rules this way. The image carries the
+  new `teamchat`.
+
 ## 3.123.1 — container 2.84.46
 
 - **`teamchat kit assemble`** (Plan 00209 Task 5.1). The install play's member tag has the
