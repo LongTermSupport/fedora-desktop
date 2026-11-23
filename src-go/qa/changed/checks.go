@@ -155,13 +155,29 @@ func runToolchain(ctx context.Context, s *session, _ *checkPlan) (checkResult, e
 // runGoGate runs go-qa over the change qa-changed collected: its diff mode against the same base
 // (the changed packages, their importers, and everything when a module or rule file changed).
 // Diff mode sees only src-go/, so a file outside it that routes here (a parity reference, a table
-// the Go tests read) gets the full run, as does an explicit file list, which is no diff.
+// the Go tests read) adds the packages its routing row names (--also-packages), which go-qa runs
+// with their importers. The full run is kept for a file whose row says @full (one that can change
+// every Go result), for an outside file no row named packages for, and for an explicit file list,
+// which is no diff: go-qa's diff mode reads git, not the list.
 func runGoGate(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
-	outside := slices.ContainsFunc(cp.items, func(rel string) bool { return !strings.HasPrefix(rel, "src-go/") })
-	if s.opts.explicit || outside {
+	if s.goFullRun(cp.items) {
 		return s.script(ctx, nil, goGateScript)
 	}
-	return s.exec(ctx, nil, toolBash, filepath.Join(s.scripts, goGateScript), "--changed", "--base", s.opts.base)
+	argv := []string{toolBash, filepath.Join(s.scripts, goGateScript), "--changed", "--base", s.opts.base}
+	if len(s.plan.goPackages) > 0 {
+		argv = append(argv, "--also-packages", strings.Join(slices.Sorted(slices.Values(s.plan.goPackages)), ","))
+	}
+	return s.exec(ctx, nil, argv...)
+}
+
+// goFullRun is whether the go check runs the whole gate rather than go-qa's diff mode.
+func (s *session) goFullRun(items []string) bool {
+	if s.opts.explicit || len(s.plan.goFull) > 0 {
+		return true
+	}
+	return slices.ContainsFunc(items, func(rel string) bool {
+		return !strings.HasPrefix(rel, "src-go/") && !s.plan.goNamed[rel]
+	})
 }
 
 // goGateScript runs go-qa-ci's go-qa over both modules of src-go.

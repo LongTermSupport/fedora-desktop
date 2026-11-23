@@ -2,7 +2,7 @@
 # classification as data. Loaded strictly; a short row, an unknown phase, check, predicate or
 # flag is exit 2 naming the line. The directory trees a rule honours are scripts/qa-trees.tsv.
 #
-# phase <TAB> match <TAB> checks <TAB> flags          (columns are tab-separated)
+# phase <TAB> match <TAB> checks <TAB> flags [<TAB> go packages]   (columns are tab-separated)
 #
 # phase
 #   also    every matching row applies, in order, and none stops the others
@@ -26,24 +26,41 @@
 #     closure       the file joins the src-go list whose Go build closure picks suites
 #     tree:shell|python   skip (a first row reports "skipped") a file in that excluded tree
 #     rel:<dir>     the tool is given the path with this prefix stripped
+# go packages
+#   required on, and allowed only on, a row that routes a file outside src-go/ to the go check
+#   (a predicate or @listed row counts as outside). go-qa's diff mode sees only src-go/, so the
+#   row names the src-go packages whose tests read the file, comma-separated, relative to src-go
+#   (internal/x, or internal/x/... for every package below it); go-qa runs them and their
+#   importers (--also-packages). @full instead runs the whole Go gate: only for a file that can
+#   change every Go result. A reader left off a row is caught by a real-tree test in
+#   src-go/qa/changed when its Go source names the path; a path built from pieces is named in
+#   the row's comment.
 # Order is the contract. The src-go row precedes the YAML row so src-go/.golangci.yml runs the
 # Go gate; a Python script with a shell word in its shebang is Python because @py precedes @sh.
 #
 # The Go tests execute these files as parity references, so a change to one must run the Go gate:
 # lib/common-pure.bash and lib/session-registry.bash are sourced by Go tests, and the launcher's
-# differential harness (src-go/internal/ccylaunch/difftest) runs the launcher, every library
-# and the Dockerfile whose label and hash it reports, against its goldens.
-also	files/var/local/claude-yolo/claude-yolo,files/var/local/claude-yolo/lib/*.bash,files/var/local/claude-yolo/Dockerfile	go	-
-also	helpers/agent_bus/declare.py	go	-
-# The status line's writer test runs these writers of the files it reads (SPEC-status-line.md 8).
-also	helpers/pingbus/*.py,helpers/agent_bus/admin.py,helpers/agent_bus/checkout.py	go	-
+# differential harness (src-go/internal/ccylaunch/difftest, which builds the path from pieces)
+# runs the launcher, every library and the Dockerfile whose label and hash it reports, against
+# its goldens.
+also	files/var/local/claude-yolo/claude-yolo,files/var/local/claude-yolo/lib/*.bash,files/var/local/claude-yolo/Dockerfile	go	-	internal/ccylaunch/...,internal/ccclaude,internal/registry,internal/restore,internal/screen,internal/sessions,internal/transcript
+# The Go tests run the Python bus as their oracle, and it imports across these trees: declare.py's
+# parity (internal/bus/declare, internal/declare, internal/teams/lxcadd), the seat parity over
+# cli.py (internal/bus/seat), the status line's writer test and golden bundle
+# (SPEC-status-line.md 8), the membership grammar read from protocol.py and membership.py, and the
+# VM-test manifest gate's real validator, which imports stdin_text.
+# The paths are built from pieces, so the readers are named here.
+also	helpers/pingbus/*.py,helpers/agent_bus/*.py,helpers/agent_bus_lxc/*.py,helpers/stdin_text/*.py	go	-	internal/bus/declare,internal/bus/seat,internal/declare,internal/teams/lxcadd,internal/pingbus/statusline/...,internal/teams/membership,qa/cmd/qa-vmtest-manifest
+# The fake homeserver replays the recorded real-Tuwunel captures.
+also	tests/helpers/pingbus/fixtures/tuwunel/*	go	covered	internal/teamchat/matrix/fakehs
 # The Matrix client rules (internal/matrixclients, CLAUDE/QA.md matrix-client-*) read the list,
 # the Matrix clients play and what it imports, and the guards that cannot read the list.
-also	helpers/pingbus/matrix_clients.json,playbooks/imports/optional/common/play-matrix-clients.yml,tasks/element-desktop.yml,tasks/flatpak-install.yml,files/var/local/claude-code/cc-teams-settings.json,files/opt/claude-yolo/optional/agent-bus/agent-bus-claude	go	-
+also	helpers/pingbus/matrix_clients.json,playbooks/imports/optional/common/play-matrix-clients.yml,tasks/element-desktop.yml,tasks/flatpak-install.yml,files/var/local/claude-code/cc-teams-settings.json,files/opt/claude-yolo/optional/agent-bus/agent-bus-claude	go	-	internal/matrixclients
 # rclonecache's caller test reads how this script calls rclone-cache-status.
-also	files/home/.local/bin/rclone-cache-warm	go	-
-# tmpfs-file-bind's sweep (internal/unitsandbox) reads every shipped unit and the files they bind.
-also	files/*.service,files/*.service.d/*,files/usr/local/share/agent-bus/resolve/*	go	-
+also	files/home/.local/bin/rclone-cache-warm	go	-	internal/rclonecache
+# tmpfs-file-bind's sweep (internal/unitsandbox) reads every shipped unit and the files they bind;
+# internal/teamchat/v1names holds that no tracked file is a static teamchat unit.
+also	files/*.service,files/*.service.d/*,files/usr/local/share/agent-bus/resolve/*	go	-	internal/unitsandbox,internal/teamchat/v1names
 # The bash-limits gate reads every bash file, template and the allowlist (whole: it is fast).
 also	*.bash,*.sh,*.j2	bash-limits	-
 also	src-go/qa/bashlimits/*,src-go/qa/cmd/qa-bash-limits/*,src-go/qa/internal/proc/*,src-go/qa/internal/cmdmain/*	bash-limits	-
@@ -132,11 +149,14 @@ also	scripts/qa-ansible-syntax.bash,scripts/lib/go-tool.bash,scripts/qa-trees.ts
 also	src-go/qa/deployeddrift/*,src-go/qa/cmd/qa-deployed-drift/*,scripts/qa-deployed-drift.bash,src-go/qa/internal/cmdmain/*	deployed-drift	-
 # The suppression ratchet is judged whole by the shell gate when it changes.
 also	scripts/shellcheck-disable.allowlist	bash	covered
-# The tables that route files and list the gates are read by the Go tests (which run the real ones).
-also	scripts/qa-routing.tsv,scripts/qa-trees.tsv,scripts/qa-gates.tsv	go	covered
-# The Go gate's wrapper, and .qa-versions, whose golangci-lint pin a Go test holds equal to go-qa-ci's.
-also	scripts/qa-go-qa.bash,.qa-versions	go	-
-also	CLAUDE/Watchlist.tsv,CLAUDE/WatchlistRuns/*/manifest.tsv	go	covered
+# The tables that route files and list the gates are read by the Go tests (which run the real ones),
+# and decide what every check, the go check's own scope included, runs: the whole Go gate.
+also	scripts/qa-routing.tsv,scripts/qa-trees.tsv,scripts/qa-gates.tsv	go	covered	@full
+# The Go gate's wrapper, and .qa-versions, whose pins (golangci-lint's held equal to go-qa-ci's by a
+# Go test) decide every Go result: the whole Go gate.
+also	scripts/qa-go-qa.bash,.qa-versions	go	-	@full
+# The watchlist command's tests parse the real list and run manifests.
+also	CLAUDE/Watchlist.tsv,CLAUDE/WatchlistRuns/*/manifest.tsv	go	covered	internal/watchlist
 also	@listed:bash-limits.allowlist	bash-limits	-
 # The no-kill gate judges the container-watch watchdog and the two panel files that show it, and
 # runs whole when its own script or Go package changes (so it is not also picked as a suite).
@@ -152,15 +172,15 @@ also	extensions/*.js,extensions/*.mjs	eslint	tree:shell,rel:extensions
 # the rule, so they run the go check.
 also	playbooks/*.yml,playbooks/*.yaml,tasks/*.yml,tasks/*.yaml	ansible-pause	-
 also	scripts/qa-ansible-pause.bash,src-go/qa/ansiblepause/*,src-go/qa/cmd/qa-ansible-pause/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,src-go/qa/internal/emit/*,src-go/qa/internal/cmdmain/*	ansible-pause	-
-also	tests/fixtures/ansible-pause/*	go	covered
+also	tests/fixtures/ansible-pause/*	go	covered	qa/ansiblepause,qa/cmd/qa-ansible-pause
 # A Go test in src-go/qa/toolchain holds each workflow's setup-go to the Go floor, and its
-# release workflow test reads every composite action, so a workflow or action edit runs the go
-# check (whole, since the file is outside src-go/).
-also	.github/workflows/*.yml,.github/workflows/*.yaml,.github/actions/*/action.yml	go	covered
+# release workflow test reads every composite action, and the push gate's filter test reads the QA
+# workflow's paths filter, so a workflow or action edit runs the go check over those packages.
+also	.github/workflows/*.yml,.github/workflows/*.yaml,.github/actions/*/action.yml	go	covered	qa/toolchain,qa/pushgate
 # go-minimum-above-provisioned-go (src-go/qa/toolchain) judges every go directive and playbook
 # *_go_min against golang_min_version, so a change to that floor or to a play holding a minimum
 # runs the go check.
-also	vars/golang.yml,playbooks/imports/optional/common/play-md-viewer.yml	go	-
+also	vars/golang.yml,playbooks/imports/optional/common/play-md-viewer.yml	go	-	qa/toolchain
 # The toolchain gate judges the installed tools against .qa-versions (which it covers) and the Go
 # floor of src-go/go.mod and src-go/qa/go.mod; it runs whole when one, its wrapper, its Go package or command, or the
 # wrapper library change. It also runs after any changed shell or Python file (the post row below).
@@ -208,7 +228,7 @@ also	vars/fzf-pin.yml	version-pins	covered
 also	playbooks/*.yml,playbooks/*.yaml	version-pins	-
 # The Python validator of the same manifest is pinned to the gate's shape by a Go test, so a change
 # to it runs the go check.
-also	helpers/version_pins/manifest.py	go	-
+also	helpers/version_pins/manifest.py	go	-	qa/cmd/qa-version-pins
 also	scripts/qa-version-pins.bash,src-go/qa/versionpins/*,src-go/qa/cmd/qa-version-pins/*,scripts/lib/go-tool.bash,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	version-pins	-
 # The dependency gates (Plan 00204) judge src-go's go.mod, go.sum, the allowlist and the vendor
 # tree, and run whole when one changes or is deleted, or their wrappers, Go package or commands
@@ -271,13 +291,13 @@ also	helpers/pingbus/*,helpers/agent_bus*	plan-tests	-
 also	scripts/qa-plan-tests.bash,src-go/qa/plantests/*,src-go/qa/cmd/qa-plan-tests/*,src-go/qa/discovery/*,helpers/qa_environment/unittest_counts.py,helpers/qa_environment/session_env.py,scripts/lib/go-tool.bash,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	plan-tests	-
 also	src-go/qa/ansible/*,src-go/qa/cmd/qa-ansible/*,src-go/qa/internal/cmdmain/*,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*	ansible-patterns	-
 # The regex-backref-escape fixtures of qa-ansible are read only by the Go tests of the rule.
-also	tests/fixtures/ansible-regex-backref/*	go	covered
+also	tests/fixtures/ansible-regex-backref/*	go	covered	qa/ansible
 # The regex-class-escape fixtures of qa-ansible are read only by the Go tests of the rule.
-also	tests/fixtures/ansible-regex-class-escape/*	go	covered
+also	tests/fixtures/ansible-regex-class-escape/*	go	covered	qa/ansible
 # The root-umask fixtures of qa-ansible are read only by the Go tests of the rule.
-also	tests/fixtures/ansible-root-umask/*	go	covered
+also	tests/fixtures/ansible-root-umask/*	go	covered	qa/ansible
 # The sudoers-rule fixtures of qa-ansible are read only by the Go tests of the rule.
-also	tests/fixtures/ansible-sudoers/*	go	covered
+also	tests/fixtures/ansible-sudoers/*	go	covered	qa/ansible
 # The sudoers-rule check of qa-ansible reads the sudoers sources the plays install and the root
 # installers' put_file lines, so a change to one runs the gate.
 also	files/etc/sudoers.d/*,files/usr/local/sbin/*	ansible-patterns	-
