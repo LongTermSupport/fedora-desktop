@@ -1,6 +1,6 @@
 # Plan 00263: machine qa queue
 
-**Status**: In Progress (design done; all owner decisions D1-D4 answered; stage 1a's caps are built and land with the v2 batch (Plan 00209); their host proof and Phases B-E wait on a host window)
+**Status**: In Progress (design done; all owner decisions D1-D4 answered; stage 1a's caps are built and land with the v2 batch (Plan 00209). Blocked: A.1, A.2, A.7b's first run and A.8 on the owner's host window (Q61's go); A.9 on the owner's answer to Q61 (b), who applies the LXC caps; B.1 held by the coordinator until v2 has landed and settled, and needs the owner's approval to create the repository; C-E follow B)
 **Created**: 2026-11-23
 **Owner**: joseph
 **Priority**: High
