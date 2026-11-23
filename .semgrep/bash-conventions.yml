@@ -534,3 +534,27 @@ rules:
     metadata:
       category: correctness
       confidence: HIGH
+
+  # bash-ansible-stdout-as-data (Plan 00257): the stdout of an `ansible` or `ansible-playbook`
+  # run, or of the planlib wrappers `plan_ansible_adhoc` (which runs `ansible -v`) and
+  # `plan_ansible_playbook`, piped onward or captured by `$(...)` / `<(...)`. That stdout is
+  # Ansible's report to a human, not a payload: `-v` writes "Using <path> as config file" ahead
+  # of a json callback's document, so jq read "Using" and the acceptance run died.
+  # What, why, what it does not see and how to fix: CLAUDE/QA.md, "bash-ansible-stdout-as-data".
+  - id: bash-ansible-stdout-as-data
+    patterns:
+      - pattern-either:
+          # A pipe (not `||`) after the command, on its line or a `\` continuation of it.
+          - pattern-regex: '(?m)^[^\n#]*(?<![\w.$/-])(?:plan_ansible_adhoc|plan_ansible_playbook|ansible-playbook|ansible)[ \t](?:\\\n|[^\n|#])*\|(?!\|)'
+          # The command inside a command or process substitution, past anything before it.
+          - pattern-regex: '(?m)^[^\n#]*(?:\$\(|<\()[^\n)#]*?(?<![\w.$/-])(?:plan_ansible_adhoc|plan_ansible_playbook|ansible-playbook|ansible)[ \t]'
+    message: >
+      bash-ansible-stdout-as-data: Ansible's stdout is its report, not data: '-v' (which
+      plan_ansible_adhoc passes) prints "Using <path> as config file" first, and warnings land
+      there too. Have Ansible write the value to a file and read the file (ansible.builtin.copy
+      with content and dest in the run directory), or check the run's exit status.
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: HIGH
