@@ -195,6 +195,20 @@ jobs:
             src-go/go.sum
             src-go/qa/go.sum
 
+      # golangci-lint keeps its analysis cache in its own directory (the user cache directory,
+      # ~/.cache/golangci-lint on the runner), which setup-go's cache does not hold. The go part
+      # restores and saves it, keyed on the two go.sum files and the two golangci configurations;
+      # a changed key restores the newest earlier cache by the prefix, and golangci-lint keys its
+      # own entries on file content, so a restored cache never answers for changed code.
+      - name: Cache golangci-lint analysis
+        if: matrix.part == 'go'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/golangci-lint
+          key: golangci-lint-${{ runner.os }}-${{ hashFiles('src-go/go.sum', 'src-go/qa/go.sum', 'src-go/.golangci.yml', 'src-go/qa/.golangci.yml') }}
+          restore-keys: |
+            golangci-lint-${{ runner.os }}-
+
       # Every QA tool is pinned from the single source of truth (.qa-versions),
       # the same file the host playbook and the CCY image read. A gate's verdict
       # is a property of the binary that produced it, so an unpinned tool means
