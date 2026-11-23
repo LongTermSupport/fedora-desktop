@@ -134,6 +134,7 @@ func (s *session) run(ctx context.Context) ExitCode {
 		s.errf("ERROR: %v\n", err)
 		return ExitCannotRun
 	}
+	s.applySubset()
 	s.printPlan()
 	if s.opts.planOnly {
 		return ExitOK
@@ -142,6 +143,29 @@ func (s *session) run(ctx context.Context) ExitCode {
 		return ExitCannotRun
 	}
 	return s.locked(ctx)
+}
+
+// applySubset narrows the plan to --only or --except: --only keeps the named checks and no
+// suite, --except drops the named checks and keeps the suites, so one list given to both plans
+// each check and suite once. A note says what this run left to the other half.
+func (s *session) applySubset() {
+	if !s.opts.subset() {
+		return
+	}
+	var left []string
+	for _, d := range checkDefs {
+		if s.plan.checks[d.id] != nil && slices.Contains(s.opts.picked, d.id) == s.opts.except {
+			delete(s.plan.checks, d.id)
+			left = append(left, d.id)
+		}
+	}
+	suites := 0
+	if !s.opts.except {
+		suites = len(s.plan.suites)
+		s.plan.suites = nil
+	}
+	s.plan.notes = append(s.plan.notes, fmt.Sprintf("%s %s: %d planned check(s) and %d suite(s) left to the run that takes the rest: %s",
+		s.opts.subsetFlag(), strings.Join(s.opts.picked, ","), len(left), suites, strings.Join(left, " ")))
 }
 
 // locked runs the checks under the QA lock, so no other QA run overlaps them.
