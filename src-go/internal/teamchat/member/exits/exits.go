@@ -231,6 +231,22 @@ func Team(t paths.TeamID) Fill { return Fill{t.String()} }
 // Count is a number.
 func Count(n int64) Fill { return Fill{strconv.FormatInt(n, 10)} }
 
+// MaxMeasured is the most bytes of stdin a client reads to say how large a text is; a size past
+// it is said as more than it.
+const MaxMeasured = 1 << 20
+
+const msgTooLarge Template = "the text is {} bytes, over the {}-byte limit; it is never cut, so shorten or split it"
+
+// TooLarge is every size refusal of a text (#365, R9): it names the text's size and the limit,
+// so splitting a long text is not guesswork.
+func TooLarge(code string, team *paths.TeamID, size, limit int64) *Error {
+	shown := Count(size)
+	if size > MaxMeasured {
+		shown = Fill{"more than " + strconv.FormatInt(MaxMeasured, 10)}
+	}
+	return New(code, team, msgTooLarge, shown, Count(limit))
+}
+
 const slot = "{}"
 
 // New is the error for code, whose exit is its set's; it panics on an unknown code or a fill

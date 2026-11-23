@@ -158,6 +158,30 @@ func TestEncodeRefusesWhatDecodeRefuses(t *testing.T) {
 	}
 }
 
+// #365: stdin_bytes is the whole stdin's size of a cut text, so larger than the text sent and
+// within the client's measure; any other value is refused.
+func TestStdinBytesIsTheSizeOfACutStdin(t *testing.T) {
+	cut := strings.Repeat("x", 1502)
+	good := Request{V: 1, Op: OpReport, Kit: kit, DeadlineMS: 5, Args: json.RawMessage(`{"team":null}`), Stdin: &cut, StdinBytes: 9000}
+	line, err := good.Encode()
+	check(t, err)
+	if got, err := DecodeRequest(line); err != nil || got.StdinBytes != 9000 {
+		t.Fatalf("decoded %+v, %v", got, err)
+	}
+	for name, n := range map[string]int64{"no larger": 1502, "negative": -1, "past the measure": exits.MaxMeasured + 2} {
+		bad := good
+		bad.StdinBytes = n
+		if _, err := bad.Encode(); err == nil {
+			t.Errorf("%s: encoded", name)
+		}
+	}
+	bad := good
+	bad.Stdin = nil
+	if _, err := bad.Encode(); err == nil {
+		t.Error("stdin_bytes with no stdin: encoded")
+	}
+}
+
 func TestDoneRoundTrips(t *testing.T) {
 	team := teamID(t, "alpha")
 	e := exits.New(exits.CodeNotFound, &team, "no event {} in the team", exits.Name("$x"))

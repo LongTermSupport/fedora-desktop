@@ -17,6 +17,11 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.53 — container 2.84.46
+
+- **teamchat's questions verbs for v2** (Plan 00209, backlog R0, DESIGN-questions-v2.md), built
+  in steps on one branch. A size refusal now names the text's size and the limit (#365).
+
 ## 3.122.52 — container 2.84.45
 
 - **teamchat knows a seat's duty** (Plan 00209, PROPOSAL-seat-kinds.md). A v2 seat is a

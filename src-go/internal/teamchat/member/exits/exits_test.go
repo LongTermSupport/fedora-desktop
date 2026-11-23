@@ -346,3 +346,19 @@ func TestTheUnreachableRowSaysAForgeDownSendIsSentAgain(t *testing.T) {
 	}
 	t.Fatal("no row for 20")
 }
+
+// #365, R9: a size refusal names the text's size and the limit, both in bytes, and a size the
+// reader stopped measuring at is said as more than that bound.
+func TestTooLargeNamesTheSizeAndTheLimit(t *testing.T) {
+	e := TooLarge(CodeBody, team(t), 4628, 4000)
+	if e.Exit != ExitRefused || e.Code != CodeBody || *e.Team != *team(t) {
+		t.Fatalf("error %+v", e)
+	}
+	if want := "the text is 4628 bytes, over the 4000-byte limit; it is never cut, so shorten or split it"; e.Message != want {
+		t.Fatalf("message %q, want %q", e.Message, want)
+	}
+	far := TooLarge(CodeSize, nil, MaxMeasured+1, 4096)
+	if !strings.Contains(far.Message, "the text is more than 1048576 bytes, over the 4096-byte limit") {
+		t.Fatalf("message %q", far.Message)
+	}
+}

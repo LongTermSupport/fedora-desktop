@@ -102,7 +102,7 @@ func run(e cli.Env, inv cli.Invocation, op string, d deps) term.ExitCode {
 func request(e cli.Env, inv cli.Invocation, op string, clk clock.Clock) (wire.Request, time.Duration, error) {
 	var (
 		args    any = wire.TeamsArgs{Team: inv.Team}
-		stdin   *string
+		stdin   readStdinText
 		timeout time.Duration
 	)
 	switch op {
@@ -135,7 +135,7 @@ func request(e cli.Env, inv cli.Invocation, op string, clk clock.Clock) (wire.Re
 		return wire.Request{}, 0, exits.New(exits.CodeInternal, inv.Team, msgInternal, exits.Words("frame its request"))
 	}
 	deadline := clk.Boot() + wire.Deadline(op, timeout)
-	req := wire.Request{V: wire.Version, Op: op, Kit: e.Digest, DeadlineMS: deadline.Milliseconds(), Args: raw, Stdin: stdin}
+	req := wire.Request{V: wire.Version, Op: op, Kit: e.Digest, DeadlineMS: deadline.Milliseconds(), Args: raw, Stdin: stdin.text, StdinBytes: stdin.whole}
 	if _, err := req.Encode(); err != nil {
 		return wire.Request{}, 0, exits.New(exits.CodeInternal, inv.Team, msgInternal, exits.Words("frame its request"))
 	}

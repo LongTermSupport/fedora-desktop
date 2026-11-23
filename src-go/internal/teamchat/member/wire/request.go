@@ -88,6 +88,9 @@ type Request struct {
 	Args json.RawMessage `json:"args"`
 	// Stdin is a send's text (say, a plain reply, report), null for every other op.
 	Stdin *string `json:"stdin"`
+	// StdinBytes is the whole stdin's size when the client cut Stdin at its read cap, so a size
+	// refusal names it (#365); absent when Stdin is all of it.
+	StdinBytes int64 `json:"stdin_bytes,omitempty"`
 }
 
 // maxDeadlineMS is the latest deadline_ms a request may name: the most whole milliseconds a
@@ -131,6 +134,9 @@ func DecodeRequest(line []byte) (Request, error) {
 	}
 	if r.DeadlineMS <= 0 || r.DeadlineMS > maxDeadlineMS {
 		return Request{}, refuseRequest("deadline is not a time")
+	}
+	if r.StdinBytes != 0 && (r.Stdin == nil || r.StdinBytes <= int64(len(*r.Stdin)) || r.StdinBytes > exits.MaxMeasured+1) {
+		return Request{}, refuseRequest("stdin_bytes is not the size of a cut stdin")
 	}
 	if args, ok := v.Get("args"); !ok || args.Kind() != proto.KindObject {
 		return Request{}, refuseRequest("args is not an object")

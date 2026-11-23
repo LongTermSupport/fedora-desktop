@@ -30,7 +30,6 @@ const (
 	msgNoText          exits.Template = "say reads its text on stdin, and none was given"
 	msgEmptyText       exits.Template = "the text is empty"
 	msgTextUTF8        exits.Template = "the text is not UTF-8"
-	msgTextSize        exits.Template = "the text is over 4096 bytes"
 	msgPingStdin       exits.Template = "ping reads no text; send text with say"
 	msgPingAnswer      exits.Template = "{} answers a ping: use teamchat reply <ping id> --verb {}"
 	msgAddressees      exits.Template = "name the addressees with exactly one of --to, --to-coordinator"
@@ -108,7 +107,7 @@ func stdinText(t *paths.TeamID, stdin *string, noText exits.Template) (string, e
 	case !utf8.ValidString(*stdin):
 		return "", exits.New(exits.CodeSchema, t, msgTextUTF8)
 	case len(*stdin) > maxText:
-		return "", exits.New(exits.CodeSize, t, msgTextSize)
+		return "", exits.TooLarge(exits.CodeSize, t, int64(len(*stdin)), maxText)
 	}
 	return *stdin, nil
 }
