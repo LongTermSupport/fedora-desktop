@@ -454,7 +454,7 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 func TestTheGoGateRunsGoQaOverTheSameChange(t *testing.T) {
 	diff := []string{"--changed", "--base", "origin/F44"}
 	also := func(pkgs string) []string { return append(slices.Clone(diff), "--also-packages", pkgs) }
-	launcher := "internal/ccclaude,internal/ccylaunch/...,internal/registry,internal/restore,internal/screen,internal/sessions,internal/transcript"
+	launcher := "internal/ccclaude,internal/ccylaunch/...,internal/ccylimits,internal/registry,internal/restore,internal/screen,internal/sessions,internal/transcript"
 	for _, c := range []struct {
 		name     string
 		explicit bool

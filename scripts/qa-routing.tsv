@@ -43,7 +43,7 @@
 # differential harness (src-go/internal/ccylaunch/difftest, which builds the path from pieces)
 # runs the launcher, every library and the Dockerfile whose label and hash it reports, against
 # its goldens.
-also	files/var/local/claude-yolo/claude-yolo,files/var/local/claude-yolo/lib/*.bash,files/var/local/claude-yolo/Dockerfile	go	-	internal/ccylaunch/...,internal/ccclaude,internal/registry,internal/restore,internal/screen,internal/sessions,internal/transcript
+also	files/var/local/claude-yolo/claude-yolo,files/var/local/claude-yolo/lib/*.bash,files/var/local/claude-yolo/Dockerfile	go	-	internal/ccylaunch/...,internal/ccclaude,internal/ccylimits,internal/registry,internal/restore,internal/screen,internal/sessions,internal/transcript
 # The Go tests run the Python bus as their oracle, and it imports across these trees: declare.py's
 # parity (internal/bus/declare, internal/declare, internal/teams/lxcadd), the seat parity over
 # cli.py (internal/bus/seat), the status line's writer test and golden bundle
