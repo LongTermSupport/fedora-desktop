@@ -243,10 +243,26 @@ queues each in `sending` in the batch's own write, under the derived ID and neve
 batch fetched again or a restart sends it once. The worker's link takes a delivered relay to the
 relay check (fetch, join if refused, judge as fetched) and gives a HUMAN item in `room: questions` with the relay's account (`question: Q<n>` and `relayed by:`), or drops it
 `provenance`. An edit is relayed as its own post, and its HUMAN item carries `revises:` from
-the human's edit; the relay key itself has no `revises`. Restart: a relayed item restored is
-fetched again and judged as fetched by ID (`Refetch`), losing its `relayed by:` line and its
-question number (`question: none`). A worker cannot answer a relayed post with `reply` (it
-does not post in questions); the skill says to answer with `say --to-coordinator`.
+the human's edit; the relay key itself has no `revises`. The item keeps the relay's account in
+the store (`relayed_by`, the coordinator's localpart, and `q`), so it is not the questions
+room's own: a drop of that room (QS9, owed at every session start of a member that does not
+coordinate it, and at a demotion) keeps it (`Pending.OfQuestionsSync`, held by the project rule
+`project_questions_item_by_room`). Restart: a relayed item restored is fetched again and judged
+as fetched by ID (`Refetch`), and the store's account gives it back its `relayed by:` line and
+`question: Q<n>`. The account makes the largest pending entry a relayed one (`sizePending` 464
+bytes, from 448); with a floor's event ids bounded at 128 (`maxFloorIDs`) the store's caps sum
+to 4 185 860 bytes, still under the 4 MiB file cap. A relay
+is not held to the receiver's window (`recv_per_sender_minute`) or its age: dropped there it
+would be lost, since nothing sends it again, and what it delivers is a team human's post the
+relay check fetched and verified, which a worker takes once (a relay check is the bound, not
+the coordinator's send limiter, whose roster maximum of 60 a minute can exceed a receiver's
+minimum of 10). A worker cannot answer a relayed post with `reply` (it does not post in
+questions): the entry's `reply:` line is `teamchat say --to-coordinator`, and the skill says so.
+
+Known gap of step 7: **a seat parked when the answer arrives never gets the relay.** `relays()`
+logs "not relayed" for a seat the roster no longer reaches and moves on; the seat is not sent
+the answer once it is unparked. Nothing leaks (a parked seat reads nothing), but the answer is
+not delivered: the coordinator, or `questions --for <seat>`, has to tell it again.
 
 Known gaps of step 5, each a choice made in the build:
 

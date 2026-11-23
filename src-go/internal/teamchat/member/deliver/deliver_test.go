@@ -57,7 +57,8 @@ func names(userID string) (string, string) {
 		return "alice", ""
 	case bob:
 		return "bob", ""
-	case coord:
+	case coord, proto.UserID("myrepo.1+desk.podman", paths.ServerName(team)):
+		// The coordinator, also as a restored relayed item names it: on the team's server.
 		return "myrepo.1+desk.podman", proto.RoleCoordinator
 	case worker:
 		return "myrepo.2+desk.podman", proto.RoleWorker
@@ -194,6 +195,11 @@ func TestMappingGoldens(t *testing.T) {
 	relayed := human('h', sentMS, "Use port 8080.")
 	relayed.Pending.Room = proto.PurposeQuestions
 	relayed.Verdict.Relayed = &proto.Relayed{By: coord, Q: 4}
+	// Restored, its verdict is the post fetched again by ID, with no relay account: the store's
+	// item gives back its question and its relayed-by line.
+	relayedRestored := human('h', sentMS, "Use port 8080.")
+	relayedRestored.Pending.Room, relayedRestored.Pending.Restored = proto.PurposeQuestions, true
+	relayedRestored.Pending.RelayedBy, relayedRestored.Pending.Q = "myrepo.1+desk.podman", 4
 	peerBody := peer('e', sentMS, "")
 	peerBody.Verdict.Content.Body = "the body, when the text is empty"
 	for name, item := range map[string]deliver.Item{
@@ -202,6 +208,7 @@ func TestMappingGoldens(t *testing.T) {
 		"ping-check": check, "notice-left": notice('n', sentMS), "notice-added": added, "notice-moved": moved,
 		"carried-ping": carriedPing, "carried-text": carriedText, "timeout": timeout('t'), "timeout-ref": withRef,
 		"timeout-reminder": reminder, "restored": restored, "human-relayed": relayed,
+		"human-relayed-restored": relayedRestored,
 	} {
 		t.Run(name, func(t *testing.T) {
 			b := build(t, []deliver.Item{item}, deliver.Facts{})

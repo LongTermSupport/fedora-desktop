@@ -15,16 +15,17 @@ import (
 
 // MaxStore is the seat store's file cap (B 2.3.2): the list caps' sum, rounded up to the next
 // 256 KiB (n3d-D1), so a list cap always fires first. The sum is n3d's lists, about 3.0 MB, and
-// the questions room's, about 1.1 MB (SPEC-n3f 12.6, QX6): 4 134 997 bytes counted as written, so
+// the questions room's, about 1.1 MB (SPEC-n3f 12.6, QX6): 4 185 860 bytes counted as written, so
 // 4 MiB.
 const MaxStore = 16 * 256 << 10
 
 // B 2.3.2's caps: entries per list, and bytes per entry as the store writes it (writtenSize).
 const (
 	capPending = 2048
-	// sizePending and sizeLedger hold a TIMEOUT item keyed on the longest localpart (432 bytes)
-	// and a ping item with its verb (n3d-D30); B's 320 holds neither.
-	sizePending    = 448
+	// sizeLedger holds a TIMEOUT item keyed on the longest localpart (432 bytes) and a ping
+	// item with its verb (n3d-D30); B's 320 holds neither. sizePending holds those and a relayed
+	// HUMAN item with its account (A 10.6), its largest entry.
+	sizePending    = 464
 	pendingReserve = 256 // the last entries of pending, which only HUMAN and TIMEOUT items use
 	capLedger      = 1024
 	sizeLedger     = 448
@@ -49,8 +50,9 @@ const (
 	capRemindLate = proto.MaxOpenQuestions
 
 	maxNextBatch = 1024
-	// maxFloorIDs bounds the events of one millisecond a floor names.
-	maxFloorIDs       = 256
+	// maxFloorIDs bounds the events of one millisecond a floor names; 128 keeps the caps'
+	// sum, with a relayed pending item's account and question, under the 4 MiB file cap.
+	maxFloorIDs       = 128
 	maxTranscriptPath = 1024
 	// maxUserID is A4's bound on a user id, which the entry sizes assume.
 	maxUserID = 128
@@ -176,6 +178,39 @@ type Pending struct {
 	Handed   *string `json:"handed"`
 	// Verb is the ping's verb for an item "ping", null otherwise (n3d-D30).
 	Verb *string `json:"verb"`
+	// RelayedBy and Q are a relayed HUMAN item's account (A 10.6): the localpart of the
+	// coordinator that relayed the post, on the team's server, and the question it attached
+	// the post to; absent on every other item. The localpart, not the user id, keeps the entry
+	// within sizePending.
+	RelayedBy string `json:"relayed_by,omitempty"`
+	Q         int64  `json:"q,omitempty"`
+}
+
+// OfQuestionsSync is whether p is an item of the questions room's own sync, which a member that
+// no longer coordinates the room drops with it (QS9). A relayed item is not: it is a delivery
+// of the main room's relay, owed to this member whatever its role, and dropping it would lose
+// the human's answer, since main's floor is past the relay.
+func (p Pending) OfQuestionsSync() bool {
+	return p.Room == proto.PurposeQuestions && p.RelayedBy == ""
+}
+
+// Relay is a relayed item's account as the relay check gave it, nil for an item not relayed.
+func (p Pending) Relay(server string) *proto.Relayed {
+	if p.RelayedBy == "" {
+		return nil
+	}
+	return &proto.Relayed{By: proto.UserID(p.RelayedBy, server), Q: p.Q}
+}
+
+// validRelay is a relay account on a HUMAN item of the questions room alone, by an agent of the
+// team's server, on a question number A 7.3 allows; both keys or neither.
+func validRelay(p Pending, server string) bool {
+	if p.RelayedBy == "" {
+		return p.Q == 0
+	}
+	id := proto.UserID(p.RelayedBy, server)
+	return p.Room == proto.PurposeQuestions && p.Item == records.KindHuman && p.Q >= 1 && p.Q <= proto.MaxQuestionN &&
+		validUser(id, server) && proto.ClassifyUserID(id, server) == proto.IDAgent
 }
 
 // Awaiting is a delivery whose proof is not settled.
@@ -674,6 +709,7 @@ func (s *Store) checkPending(c *rules, server string) {
 	for _, p := range s.Pending {
 		c.need(validPendingID(p.ID, p.Item) && slices.Contains(storeRooms, p.Room) && slices.Contains(storeItems, p.Item) &&
 			validMS(p.SentMS) && validUser(p.From, server) && (p.Handed == nil || nonceRe.MatchString(*p.Handed)) && validVerb(p.Item, p.Verb), "a pending entry is not well formed")
+		c.need(validRelay(p, server), "a pending entry's relay account is not a coordinator's on a HUMAN item of questions")
 		c.need(reminderPlaced(p.ID, p.Room, p.Item), reminderRule)
 		c.need(!seen[p.ID], "pending holds an id twice")
 		seen[p.ID] = true

@@ -66,6 +66,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_test_conn_read`          | a test's read of a connection, or accept on a listener, that nothing bounds, so code under test that never answers blocks the test to the package's timeout                                                   | `tlsterm` `closed(c)`: CI hung for 30 minutes (fedora-desktop#300, #307)                                                                                                                                                |
 | `project_poll_pure`               | a condition handed to `leakcheck.Poll` or `Drive` that moves a fake clock, sends or closes, so the read after the idle reading moves the world it judged still                                                | `engine` `TestWaitRetriesARestoredItemThatCouldNotBeFetched`: the clock advanced inside the condition, a false failure when the engine was idle at the sample (issue 140)                                               |
 | `project_room_default`            | a teamchat send's room tested against one side room, so every other room (a later one too) takes main's path: posted, re-checked or refused as main's                                                         | teamchat `engine`: `postRoom`, `recheck`, `sendFailed` after the reports room (Plan 00209, n3f-b3)                                                                                                                      |
+| `project_questions_item_by_room`  | a pending item's room tested against the questions room in the engine or teamsync, which cannot tell a relayed answer in flight from the room's stale items, so a drop of the room loses the answer           | teamchat `holdsQuestions` and `applyQuestions`: a session restart deleted a worker's undelivered relayed answer (Plan 00209, R0 step 7 review)                                                                          |
 | `project_fake_restart`            | a test that stops or restarts a fake server in a function literal or a go statement, off the goroutine that then uses it                                                                                      | `teamsync` `TestARestartedServerBetweenPolls`: the persist hook restarted fakehs while the test posted, `no answer` in CI (fedora-desktop#149)                                                                          |
 | `project_shared_due`              | a test that names a fake-clock due (`AwaitDue`, `Armed`) two Duration limits of the package under test share, so the other limit's timer can answer (in teamsync, `reportsJoinLimit` before `reportsSettled`) | `teamsync` `TestARestoreUnderALongPoll`: hung to the 30-minute timeout in CI (the failpoints test stage), passing locally; `tlsterm` `TestT10ASilentClientIsClosedAtRequestLimit` under `qa-changed`'s loaded go-qa run |
 | `project_walk_open`               | an entry a directory walk found opened with no regular-file check guarding the open, so a named pipe among the entries blocks the open for ever                                                               | `stt`, `vmtest`, `registry` and 17 more of fedora-desktop#195: the Go side of #191, where `run.bash --changed` hung on a pipe under `untracked/`                                                                        |
@@ -1753,6 +1754,43 @@ refused until its own case is written.
 - Not caught: a room held in a variable compared to another variable, a helper that answers
   whether a room is a side room, or a default written as a map lookup. A test fake that records
   no room is a related class with no rule: see below.
+
+### project_questions_item_by_room
+
+**What it is about.** A cleanup owed for stale state that cannot tell a delivery in flight from
+that state. A pending item in room `questions` is either the questions room's own sync, which a
+member that no longer coordinates the room drops (QS9), or a human's answer relayed to this
+worker through main (A 10.6), owed whatever the member's role. Tested by its room alone, the
+relayed answer is dropped with the stale room.
+
+**Why it exists.** The R0 step 7 review of Plan 00209: `qstart` set the drop owed whenever
+`holdsQuestions` found a questions-room item, and `applyQuestions` deleted every one, so any
+sync-session restart (a network blip) deleted a worker's undelivered relayed answer, whose
+relay main's floor had already passed.
+
+**What it flags**, in `internal/teamchat/member/engine` and `internal/teamchat/member/teamsync`
+(not their tests): an `==` or `!=` comparison of a `state.Pending`'s `Room` field, by value or
+through a pointer, with `proto.PurposeQuestions`, either way round.
+
+**Not flagged**: package `state`, where `Pending.OfQuestionsSync` is the one test; another
+type's room (a send in flight's); a test against main's room; packages that show an item's room
+rather than drop it (delivery).
+
+**How to fix a violation.** Call `state.Pending.OfQuestionsSync`, which keeps a relayed item
+(one with `relayed_by`).
+
+- Red, fixture: `testdata/src/qitem/internal/teamchat/member/{engine,teamsync}` (the drop and
+  the start's check, a pointer, the reversed and negated forms; the predicate, a send's room and
+  main's room clean), `member/state` and `member/deliver` (not judged).
+- Red, real tree (`a115fba1b`): three findings, `teamsync/questions.go` (`qdemote`'s log,
+  `holdsQuestions`) and `engine/questionswrite.go` (`applyQuestions`); the test fake's copy of
+  the drop in `teamsync/world_test.go` is not judged and was moved to the predicate by hand.
+- Green: each calls `OfQuestionsSync`; `TestARelayedAnswerOutlivesASessionRestart` and
+  `TestAWorkersRefetchOfARelayedPost` were red with `holdsQuestions` testing the room and are
+  green.
+- Not caught: the room compared through a variable or a helper of another package, and a drop
+  of other stale state that a delivery in flight shares (none found in engine or teamsync: the
+  demotion's `sending` drop takes only questions posts, and relays are queued as main's).
 
 ### project_fake_restart
 

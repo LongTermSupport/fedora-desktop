@@ -112,3 +112,30 @@ func TestRelayTxn(t *testing.T) {
 		t.Errorf("txn %s is not a store txn", a)
 	}
 }
+
+// A 10.6 and 11.1: a relay is judged by its relay check, never by the receiver's window or its
+// age: a burst of relays past recv_per_sender_minute, or one sent late, still reaches the check,
+// so no human answer is lost to the coordinator's rate. Its other texts keep both limits.
+func TestARelayIsNotRateLimitedOrStale(t *testing.T) {
+	j := judge(t, workerID, PurposeMain)
+	relay := mustSend(t)(relayOf(t, workerID))
+	for i := range j.Roster.Limits.RecvPerSenderMinute + 5 {
+		if v := j.Judge(mustParse(t, event(coordID, 0, string(relay.Content.Compact())))); v.Outcome != Deliver || v.Content.Text.Relay == nil {
+			t.Fatalf("relay %d of a burst: %v %q", i+1, v.Outcome, v.Reason)
+		}
+	}
+	text := mustSend(t)(composer(t, coordID).Text(Text{To: []string{workerID}, Text: "hello"}, "", "hello"))
+	for range j.Roster.Limits.RecvPerSenderMinute {
+		j.Judge(mustParse(t, event(coordID, 0, string(text.Content.Compact()))))
+	}
+	if v := j.Judge(mustParse(t, event(coordID, 0, string(text.Content.Compact())))); v.Outcome != Drop || v.Reason != ReasonRate {
+		t.Errorf("the coordinator's text past the window: %v %q, want rate", v.Outcome, v.Reason)
+	}
+	late := (j.Roster.Limits.HumanMaxAgeS + 1) * 1000
+	if v := judge(t, workerID, PurposeMain).Judge(mustParse(t, event(coordID, late, string(relay.Content.Compact())))); v.Outcome != Deliver {
+		t.Errorf("a late relay: %v %q", v.Outcome, v.Reason)
+	}
+	if v := judge(t, workerID, PurposeMain).Judge(mustParse(t, event(coordID, late, string(text.Content.Compact())))); v.Outcome != Drop || v.Reason != ReasonStale {
+		t.Errorf("a late text: %v %q, want stale", v.Outcome, v.Reason)
+	}
+}

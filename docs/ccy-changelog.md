@@ -32,7 +32,9 @@ it. The image carries the new `teamchat`.
   answers a question asked for a worker (`ask-human --for`), the coordinator's link relays it to
   that worker at once, once across restarts; the worker's link fetches the human's own post and
   delivers it as HUMAN with `room: questions`, the question and a `relayed by:` line. A relay
-  that does not name a team human's post is dropped.
+  that does not name a team human's post is dropped. A relayed answer survives a restart of the
+  link or its sync, keeping its question and `relayed by:` line, is never lost to the receiver's
+  rate limit, and its `reply:` line is `teamchat say --to-coordinator`.
 
 - **No answer is lost to a shared millisecond.** Two posts can carry the same server time; a
   room's floor was that time alone, so a post sent in the same millisecond as the one before it

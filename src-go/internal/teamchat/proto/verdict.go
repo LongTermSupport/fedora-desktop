@@ -463,6 +463,10 @@ func (j Judge) agent(v Verdict) Verdict {
 		return v
 	}
 	switch {
+	case c.Key == KeyText && c.Text.Relay != nil:
+		// A relay (A 10.6) is judged by its relay check, not by the window or its age: what it
+		// delivers is a team human's post, fetched and verified, which a member takes once.
+		// Dropped here, a relay is lost, as nothing sends it again.
 	case j.stale(v):
 		return drop(v, ReasonStale)
 	case !j.admit(v.Event.Sender):

@@ -81,6 +81,9 @@ func (j Judge) Fetched(post Value) Verdict {
 	return deliver(v, KindHuman)
 }
 
+// relayedReply is a relayed entry's `reply:` line: the command a worker answers it with.
+const relayedReply = "reply: teamchat say --to-coordinator"
+
 // relayedLine is A 13.2's `relayed by:` line.
 func relayedLine(handle string) string {
 	return "relayed by: " + handle + " (the question number is its claim; the text was fetched from questions)"

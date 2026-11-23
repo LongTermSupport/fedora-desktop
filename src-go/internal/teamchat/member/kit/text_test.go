@@ -482,7 +482,11 @@ func TestTheSkillTeachesTheFourClasses(t *testing.T) {
 // coordinator's claim, and how to check it against the room.
 func TestTheSkillTeachesARelayedAnswer(t *testing.T) {
 	skill := shippedSkill(t)
-	for _, want := range []string{"relayed by:", "the coordinator's claim", "`teamchat verify '<id>' --room questions`"} {
+	for _, want := range []string{
+		"relayed by:", "the coordinator's claim", "`teamchat verify '<id>' --room questions`",
+		// The reply: line of a relayed entry is the command that answers it.
+		"its reply: line is `teamchat say --to-coordinator`",
+	} {
 		if !strings.Contains(skill, want) {
 			t.Errorf("SKILL.md does not say %q", want)
 		}

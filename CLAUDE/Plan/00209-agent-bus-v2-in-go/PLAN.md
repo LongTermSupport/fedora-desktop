@@ -460,6 +460,10 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
     coordinator's relay, the worker's fetch; step 8's skill text). The owner's Lightning check
     HC-Q1 (the design's section 9) is not yet run. DESIGN-v2-B-member.md section 2.2.1's verb
     table matches the built verbs. [Build report](subagent-reports/r0-build-report.md).
+    Step 7's [review](subagent-reports/r0-step7-review.md) is fixed on `v2-relay-fix`: a relayed
+    item keeps its account in the store and outlives a sync restart, a relay is not
+    rate-limited or stale, its `reply:` line is `say --to-coordinator`; the parked seat is a
+    known gap (design section 5).
 
 ### Phase 5: N5, other member kinds
 

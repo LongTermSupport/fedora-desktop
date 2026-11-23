@@ -49,7 +49,7 @@ const (
 	MaxQuestionRe   = 16
 	MinRemindS      = 600
 	MaxRemindS      = 604800
-	maxQuestionN    = 999999999
+	MaxQuestionN    = 999999999
 )
 
 // The message types of A 7.1's display table.
@@ -503,7 +503,7 @@ func decodeQuestionObject(c *Content, obj Value) string {
 	switch {
 	case f.has("why") && !slices.Contains(WhyWords, q.Why):
 		return ReasonSchema
-	case f.rule != "" || q.N < 1 || q.N > maxQuestionN || !strings.HasPrefix(c.Body, QuestionName(int(q.N))+" "):
+	case f.rule != "" || q.N < 1 || q.N > MaxQuestionN || !strings.HasPrefix(c.Body, QuestionName(int(q.N))+" "):
 		return ReasonSchema
 	case !distinctList(q.AskedBy, 0, MaxAskedBy, func(string) bool { return true }) || !distinctList(q.Re, 0, MaxQuestionRe, ValidEventID):
 		return ReasonSchema
@@ -523,7 +523,7 @@ func decodeThreadObject(c *Content, obj Value) string {
 		Wait: f.boolean("wait", false, ReasonSchema), Link: f.str("link", false, ReasonSchema),
 	}
 	switch {
-	case f.rule != "" || f.has("n") && (c.Thread.N < 1 || c.Thread.N > maxQuestionN):
+	case f.rule != "" || f.has("n") && (c.Thread.N < 1 || c.Thread.N > MaxQuestionN):
 		return ReasonSchema
 	case f.has("link") && !ValidEventID(c.Thread.Link):
 		return ReasonSchema
