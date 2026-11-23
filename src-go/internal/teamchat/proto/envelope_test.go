@@ -1,6 +1,7 @@
 package proto
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -118,6 +119,12 @@ func TestEntryHumanInQuestions(t *testing.T) {
 		"relayed by: "+envWorker+" (the question number is its claim; the text was fetched from questions)",
 		"to: this session, as "+envHandle,
 	)
+	// A worker does not post in questions, so `reply` would be refused: a relayed entry's reply
+	// line is the way it answers, to its coordinator.
+	if lines := mustLines(t, e); !slices.Contains(lines, "reply: teamchat say --to-coordinator") ||
+		slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, "reply: teamchat reply") }) {
+		t.Errorf("a relayed entry's reply line: %q", lines)
+	}
 	for name, bad := range map[string]Entry{
 		"a bad handle":  func() Entry { b := e; b.RelayedBy = "not a handle"; return b }(),
 		"not questions": func() Entry { b := e; b.Questions = false; return b }(),

@@ -1,11 +1,15 @@
 package teamsync
 
 import (
+	"net/http"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
@@ -83,7 +87,7 @@ func TestAWorkerGetsTheRelayedPostAsHuman(t *testing.T) {
 		t.Fatalf("items %+v", b.Items)
 	}
 	it := b.Items[0]
-	if p := it.Pending; p.ID != answer || p.Room != proto.PurposeQuestions || p.Item != records.KindHuman || p.From != user(alice) {
+	if p := it.Pending; p.ID != answer || p.Room != proto.PurposeQuestions || p.Item != records.KindHuman || p.From != user(alice) || p.RelayedBy != coord || p.Q != 4 {
 		t.Errorf("pending %+v", p)
 	}
 	if v := it.Verdict; v.Human.Body != "port 8080" || v.Relayed == nil || *v.Relayed != (proto.Relayed{By: user(coord), Q: 4}) {
@@ -106,21 +110,98 @@ func TestAForgedRelayIsDropped(t *testing.T) {
 	}
 }
 
-// B 2.7.3 and A 10.6: a relayed post restored after a restart is fetched again by the worker
-// (which joins questions to read it) and judged a human's post fetched by ID: delivered, with no
-// relay account, which the restart loses. A coordinator's post fetched so is gone.
+// relayedPending is the item a worker took from the coordinator's relay of post, on Q4.
+func relayedPending(post string, sentMS int64) state.Pending {
+	return state.Pending{ID: post, Room: proto.PurposeQuestions, Item: records.KindHuman, SentMS: sentMS, From: user(alice), RelayedBy: coord, Q: 4}
+}
+
+// keepsRelayed fails the test unless the store still owes post once, with its relay account.
+func (w *world) keepsRelayed(post string) {
+	w.t.Helper()
+	for _, p := range w.eng.pending() {
+		if p.ID == post {
+			if p.RelayedBy != coord || p.Q != 4 || p.Relay(server) == nil || *p.Relay(server) != (proto.Relayed{By: user(coord), Q: 4}) {
+				w.t.Errorf("the relayed item lost its account: %+v", p)
+			}
+			return
+		}
+	}
+	w.t.Errorf("the relayed answer %s was dropped; pending %+v", post, w.eng.pending())
+}
+
+// A 10.6 and QS9: a session that ends (here a 502 on the long-poll) and starts again keeps a
+// relayed answer not yet delivered: it is the main room's delivery, never the questions room's
+// sync, so the start's check for a questions room to drop does not see it and no write drops
+// it. Main's floor is past the relay, so a drop would lose the answer for good.
+func TestARelayedAnswerOutlivesASessionRestart(t *testing.T) {
+	w := newWorld(t)
+	w.inQuestions(alice, false)
+	first := w.start()
+	w.batch()
+	first.end()
+	q4 := w.askedFor(4, user(me))
+	answer := w.sayIn(w.qroom(), alice, inThread("port 8080", q4))
+	w.relayTo(user(me), answer, 4)
+	r := w.start()
+	w.batch()
+	w.keepsRelayed(answer)
+	r.poll(t)
+	w.srv.Inject(fakehs.Fault{Method: http.MethodGet, Path: "/sync", Status: http.StatusBadGateway, Body: []byte(`{}`)})
+	w.say(alice, human("across the blip", user(me)))
+	across, waited := w.batchCountingWaits(r)
+	w.say(alice, human("after the blip", user(me)))
+	after, more := w.batchCountingWaits(r)
+	if waited+more != 1 {
+		t.Fatalf("%d backoff waits, want the one of the blip", waited+more)
+	}
+	if across.DropQuestions || after.DropQuestions {
+		t.Error("the restarted session's write drops the questions room")
+	}
+	w.keepsRelayed(answer)
+}
+
+// batchCountingWaits is the next batch and how many backoff waits the team took first, each
+// advanced through (the long-poll's 502 may meet the poll in flight or the next one).
+func (w *world) batchCountingWaits(r *running) (team.Batch, int) {
+	w.t.Helper()
+	waits := 0
+	for {
+		select {
+		case b := <-w.eng.batches:
+			return b, waits
+		case d := <-r.waits:
+			waits++
+			w.clk.Advance(d)
+		case <-w.t.Context().Done():
+			w.t.Fatal("no batch")
+			return team.Batch{}, waits
+		}
+	}
+}
+
+// B 2.7.3 and A 10.6: a relayed item a store holds when the link starts (a restart) is kept,
+// fetched again by the worker (which joins questions to read it) and judged a human's post
+// fetched by ID; the store's account gives it back its question and its relayed-by line. A
+// coordinator's post fetched so is gone.
 func TestAWorkersRefetchOfARelayedPost(t *testing.T) {
 	w := newWorld(t)
 	w.inQuestions(alice, false)
 	q4 := w.askedFor(4, user(me))
 	answer := w.sayIn(w.qroom(), alice, inThread("port 8080", q4))
-	tm := w.newTeam()
-	v, err := tm.Refetch(t.Context(), proto.PurposeQuestions, answer)
-	check(t, err)
-	if v.Outcome != proto.Deliver || v.Kind != proto.KindHuman || v.Event.ID != answer || v.Relayed != nil {
-		t.Errorf("verdict %v %q %+v, want the human's post delivered", v.Outcome, v.Reason, v.Relayed)
+	w.preStore(func(s *state.Store) { s.Pending = append(s.Pending, relayedPending(answer, startMS)) })
+	r := w.start()
+	r.poll(t)
+	w.say(alice, human("next", user(me)))
+	if b := w.batchOrWait(r); b.DropQuestions {
+		t.Errorf("the start drops the questions room over a relayed item: %+v", b)
 	}
-	if v, err := tm.Refetch(t.Context(), proto.PurposeQuestions, q4); err != nil || v.Outcome != proto.Drop {
+	w.keepsRelayed(answer)
+	v, err := r.tm.Refetch(t.Context(), proto.PurposeQuestions, answer)
+	check(t, err)
+	if v.Outcome != proto.Deliver || v.Kind != proto.KindHuman || v.Event.ID != answer || v.Human.Body != "port 8080" {
+		t.Errorf("verdict %v %q, want the human's post delivered", v.Outcome, v.Reason)
+	}
+	if v, err := r.tm.Refetch(t.Context(), proto.PurposeQuestions, q4); err != nil || v.Outcome != proto.Drop {
 		t.Errorf("the admin's question refetched by a worker: %v %v", v.Outcome, err)
 	}
 }

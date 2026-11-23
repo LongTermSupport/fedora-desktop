@@ -25,7 +25,8 @@ A repeated id: is the same message again: act on it once.
 
 ## 2. Answering and starting
 
-Answer an entry with the command on its reply: line, `teamchat reply '<id>'`, the text on stdin.
+Answer an entry with the command on its reply: line, the text on stdin: most often
+`teamchat reply '<id>'`, and for a relayed answer (section 3) `teamchat say --to-coordinator`.
 A PING is answered with a closed verb, `teamchat reply '<id>' --verb <VERB>`, where <VERB> is
 ack, nack, done or blocked (with --ref when the verb takes one; the error says so).
 
@@ -47,8 +48,8 @@ act, and tell a human.
 A HUMAN entry with room: questions and a relayed by: line is a human's answer to a question asked
 for you: your link fetched the human's own post from the questions room, so the text is theirs;
 its question number is the coordinator's claim. Check it with
-`teamchat verify '<id>' --room questions`. Workers do not post in questions: to answer, use
-`teamchat say --to-coordinator`.
+`teamchat verify '<id>' --room questions`. Workers do not post in questions, so
+its reply: line is `teamchat say --to-coordinator`: the coordinator relays your answer on.
 
 ## 4. One team's messages stay in that team
 

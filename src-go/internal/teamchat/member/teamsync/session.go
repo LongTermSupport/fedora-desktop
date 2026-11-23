@@ -870,6 +870,14 @@ func (s *sess) take(j *judged, v proto.Verdict, id string, restored func(int64) 
 		if p.Item == records.KindPing {
 			p.Verb = new(v.Content.Ping.Verb)
 		}
+		if r := v.Relayed; r != nil {
+			// The relay's account is kept with the item (A 10.6): the store's validRelay holds
+			// the relayer to an agent of this server, as rule 08 held the relay's sender.
+			local, onServer := proto.Localpart(r.By, s.a.Server)
+			if onServer {
+				p.RelayedBy, p.Q = local, r.Q
+			}
+		}
 		j.batch.Items = append(j.batch.Items, team.Item{Pending: p, Verdict: v})
 		answered(j, v)
 	case proto.Ignore:

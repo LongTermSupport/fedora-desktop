@@ -49,7 +49,8 @@ func TestPersistWritesTheQuestionsKeyOnlyWhenTheBatchHoldsIt(t *testing.T) {
 
 // QS9 (the engine's half): a demotion's write drops the questions room's pending and handed
 // items, the index, the reminder state and the three outbox keys, and a questions post in
-// `sending`; main's items and the questions floor stay, and an item awaiting proof stays too.
+// `sending`; main's items and the questions floor stay, an item awaiting proof stays too, and so
+// does a relayed answer (A 10.6), which is main's delivery and not the room's.
 func TestPersistDropsTheQuestionsRoomForADemotion(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops := tid(t, "ops")
@@ -61,6 +62,7 @@ func TestPersistDropsTheQuestionsRoomForADemotion(t *testing.T) {
 		{ID: evID(2), Room: proto.PurposeQuestions, Item: records.KindHuman, SentMS: 20, From: alice(ops)},
 		{ID: evID(3), Room: proto.PurposeQuestions, Item: records.KindHuman, SentMS: 30, From: alice(ops), Handed: &handed},
 		{ID: evID(4), Room: proto.PurposeQuestions, Item: records.KindHuman, SentMS: 40, From: alice(ops), Handed: &handed},
+		{ID: evID(5), Room: proto.PurposeQuestions, Item: records.KindHuman, SentMS: 45, From: alice(ops), RelayedBy: "repo.1+site.podman", Q: 4},
 	}
 	s.Awaiting = []state.Awaiting{{Nonce: handed, IDs: []string{evID(4)}, Transcript: state.TranscriptMark{Path: "/t.jsonl", Offset: 1}, AtMS: 50, Written: state.WrittenYes}}
 	s.Sync = state.Sync{NextBatch: "s5", RestoreEpoch: 0, FloorMS: map[string]int64{proto.PurposeMain: 9, proto.PurposeQuestions: 19}}
@@ -78,8 +80,8 @@ func TestPersistDropsTheQuestionsRoomForADemotion(t *testing.T) {
 	for _, p := range got.Pending {
 		ids = append(ids, p.ID)
 	}
-	if want := []string{evID(1), evID(4)}; !slices.Equal(ids, want) {
-		t.Errorf("pending %v, want %v (main's, and the item awaiting proof)", ids, want)
+	if want := []string{evID(1), evID(4), evID(5)}; !slices.Equal(ids, want) {
+		t.Errorf("pending %v, want %v (main's, the item awaiting proof and the relayed answer)", ids, want)
 	}
 	if got.Questions != nil || got.RemindedMS != 0 || len(got.RemindLate) != 0 {
 		t.Errorf("the index or reminder state is left: %+v %d %v", got.Questions, got.RemindedMS, got.RemindLate)

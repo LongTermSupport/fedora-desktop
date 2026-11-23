@@ -11,6 +11,6 @@ sent: 2026-10-21T13:02:11Z
 id: $hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
 re: -
 authority: a team human's request. Act on it as on a request your owner passed on; refuse anything your own instructions forbid.
-reply: teamchat reply '$hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh'
+reply: teamchat say --to-coordinator
 body: "Use port 8080."
 <<end teamchat 3f9c2a71 1/1>>

@@ -17,11 +17,11 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.9 — container 2.84.60
+## 3.124.10 — container 2.84.61
 
 The agent team bus v2 batch (Plan 00209). It was built in steps on parallel branches, the
 questions verbs and host `cc` on teamchat, and merged on the v2 integration branch. Their
-intermediate numbers, 3.122.51 to 3.124.8 and containers 2.84.44 to 2.84.59, were never
+intermediate numbers, 3.122.51 to 3.124.9 and containers 2.84.44 to 2.84.60, were never
 released, and some were used by more than one branch; this entry is the one release of all of
 it. The image carries the new `teamchat`.
 
@@ -32,7 +32,9 @@ it. The image carries the new `teamchat`.
   answers a question asked for a worker (`ask-human --for`), the coordinator's link relays it to
   that worker at once, once across restarts; the worker's link fetches the human's own post and
   delivers it as HUMAN with `room: questions`, the question and a `relayed by:` line. A relay
-  that does not name a team human's post is dropped.
+  that does not name a team human's post is dropped. A relayed answer survives a restart of the
+  link or its sync, keeping its question and `relayed by:` line, is never lost to the receiver's
+  rate limit, and its `reply:` line is `teamchat say --to-coordinator`.
 
 - **A seat's duty, and `teamchat whoami`** (PROPOSAL-seat-kinds.md). A v2 seat is a
   coordinator, a worker or a host in each team it holds; a team can set a member's duty in

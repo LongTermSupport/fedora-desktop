@@ -247,13 +247,16 @@ func fullStore(t *testing.T) Store {
 	s.Pending, s.Ledger, s.Receipts = nil, nil, nil
 	s.Pending = []Pending{}
 	for i := range capPending {
-		// The largest entries: an agent's ping with its verb, and a TIMEOUT keyed on the
-		// longest localpart in the reserve.
-		id, item, verb := eventID(i)+"~"+longLocal, records.KindTimeout, (*string)(nil)
-		if i < capPending-pendingReserve {
-			id, item, verb = eventID(i), records.KindPing, new(proto.VerbBlocked)
+		// The largest entries: an agent's ping with its verb, and in the reserve a TIMEOUT keyed
+		// on the longest localpart and a relayed HUMAN item with the longest relayer and question.
+		p := Pending{ID: eventID(i) + "~" + longLocal, Room: proto.PurposeQuestions, Item: records.KindTimeout, SentMS: farMS, From: longID, Handed: new("0badf00d")}
+		switch {
+		case i < capPending-pendingReserve:
+			p.ID, p.Item, p.Verb = eventID(i), records.KindPing, new(proto.VerbBlocked)
+		case i%2 == 0:
+			p.ID, p.Item, p.RelayedBy, p.Q = eventID(i), records.KindHuman, longLocal, proto.MaxQuestionN
 		}
-		s.Pending = append(s.Pending, Pending{ID: id, Room: proto.PurposeQuestions, Item: item, SentMS: farMS, From: longID, Handed: new("0badf00d"), Verb: verb})
+		s.Pending = append(s.Pending, p)
 	}
 	for i := range capLedger {
 		s.AddLedger(Ledger{ID: eventID(i) + "~" + longLocal, Room: proto.PurposeQuestions, Item: records.KindTimeout, Thread: new(eventID(i)), From: longID, AtMS: farMS})

@@ -308,6 +308,10 @@ func (e Entry) closingLines(l *lines) {
 	l.add("authority: " + e.authority())
 	reply := "reply: teamchat reply '" + e.EventID + "'"
 	switch {
+	case e.RelayedBy != "":
+		// A relayed answer is in questions, where a worker does not post (A 10.6): it answers
+		// its coordinator, who relays it on.
+		l.add(relayedReply)
 	case e.Kind == KindHuman, e.Kind == KindPeer:
 		l.add(reply)
 	case e.Kind == KindPing, e.carried() && e.Carried.Kind == CarriedPing:

@@ -60,7 +60,7 @@ func applyQuestions(s *state.Store, b team.Batch) (questionsDrop, error) {
 	}
 	awaiting := awaitingIDs(s)
 	s.Pending = slices.DeleteFunc(s.Pending, func(p state.Pending) bool {
-		drop := p.Room == proto.PurposeQuestions && !awaiting[p.ID]
+		drop := p.OfQuestionsSync() && !awaiting[p.ID]
 		if drop {
 			out.items = append(out.items, p.ID)
 		}

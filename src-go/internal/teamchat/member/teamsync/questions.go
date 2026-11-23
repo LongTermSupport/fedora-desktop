@@ -281,7 +281,7 @@ func (s *sess) qdemote() error {
 		return err
 	}
 	for _, p := range store.Pending {
-		if p.Room == proto.PurposeQuestions {
+		if p.OfQuestionsSync() {
 			t.log.Printf("demoted: the questions item %s is dropped", p.ID)
 		}
 	}
@@ -290,12 +290,12 @@ func (s *sess) qdemote() error {
 }
 
 // holdsQuestions says whether a store holds anything of the questions room that a member who
-// no longer coordinates it must drop (QS9).
+// no longer coordinates it must drop (QS9). A relayed item is not the room's: it is kept.
 func holdsQuestions(st state.Store) bool {
 	o := st.Outbox
 	return st.Questions != nil || st.RemindedMS != 0 || len(st.RemindLate) > 0 || o.QuestionsUnechoed != nil ||
 		o.QuestionsHandover || o.QuestionsUncounted != (state.Uncounted{}) ||
-		slices.ContainsFunc(st.Pending, func(p state.Pending) bool { return p.Room == proto.PurposeQuestions })
+		slices.ContainsFunc(st.Pending, state.Pending.OfQuestionsSync)
 }
 
 // qenter is QS2's join and QS5's start: the room's state read, joined by the roster's id when

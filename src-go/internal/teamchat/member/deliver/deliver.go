@@ -226,7 +226,12 @@ func entry(t paths.TeamID, self string, it Item, from Namer) (proto.Entry, bool)
 	case itemHuman:
 		h := it.Verdict.Human
 		e.Kind, e.From, e.Body, e.Re, e.Revises = proto.KindHuman, s.name, h.Body, h.ReplyTo, h.Revises
-		if r := it.Verdict.Relayed; r != nil {
+		r := it.Verdict.Relayed
+		if r == nil {
+			// Restored, the post is fetched again by ID; the store kept the relay's account.
+			r = p.Relay(paths.ServerName(t))
+		}
+		if r != nil {
 			// A relayed post (A 10.6): the question is the coordinator's claim, and it is named.
 			e.RelayedBy = ask(from, r.By).name
 			if e.Question == nil {

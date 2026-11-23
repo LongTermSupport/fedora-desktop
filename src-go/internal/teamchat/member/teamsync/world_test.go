@@ -483,7 +483,7 @@ func (e *fakeEngine) Persist(_ context.Context, b team.Batch) (int64, error) {
 		s.Outbox.Folded(b.QuestionsFolded, int64(len(b.QuestionsUncounted)))
 	}
 	if b.DropQuestions {
-		s.Pending = slices.DeleteFunc(s.Pending, func(p state.Pending) bool { return p.Room == proto.PurposeQuestions })
+		s.Pending = slices.DeleteFunc(s.Pending, state.Pending.OfQuestionsSync)
 		s.Questions, s.RemindedMS, s.RemindLate = nil, 0, []int64{}
 		s.Outbox.QuestionsUnechoed, s.Outbox.QuestionsUncounted, s.Outbox.QuestionsHandover = nil, state.Uncounted{}, false
 	}

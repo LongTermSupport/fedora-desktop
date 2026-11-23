@@ -484,3 +484,61 @@ func TestTheQuestionsSendKindsAreSendKinds(t *testing.T) {
 		}
 	}
 }
+
+// relayedItem is a HUMAN item of the questions room a worker took from a relay (A 10.6): the
+// relaying coordinator's localpart and the question it attached the post to.
+func relayedItem() Pending {
+	return Pending{ID: eventID(30), Room: proto.PurposeQuestions, Item: records.KindHuman, SentMS: 31, From: aliceID, RelayedBy: "repo.1+site.podman", Q: 4}
+}
+
+// A 10.6: a relayed item keeps the relay's account over a write and a read, and is the main
+// room's delivery, not the questions room's sync: a drop of the room (QS9) keeps it, while the
+// room's own items go.
+func TestARelayedItemKeepsItsAccount(t *testing.T) {
+	s := sampleStore(t)
+	relayed := relayedItem()
+	synced := Pending{ID: eventID(31), Room: proto.PurposeQuestions, Item: records.KindHuman, SentMS: 32, From: aliceID}
+	s.Pending = append(s.Pending, relayed, synced)
+	data, err := s.encode()
+	check(t, err)
+	got, err := DecodeStore(data)
+	check(t, err)
+	i := slices.IndexFunc(got.Pending, func(p Pending) bool { return p.ID == relayed.ID })
+	if i < 0 || got.Pending[i].RelayedBy != relayed.RelayedBy || got.Pending[i].Q != 4 {
+		t.Fatalf("the relayed item read back as %+v", got.Pending)
+	}
+	if r := got.Pending[i].Relay(server); r == nil || *r != (proto.Relayed{By: "@repo.1+site.podman:" + server, Q: 4}) {
+		t.Errorf("relay account %+v", r)
+	}
+	if synced.Relay(server) != nil {
+		t.Error("an item of the room's own sync has a relay account")
+	}
+	if relayed.OfQuestionsSync() || !synced.OfQuestionsSync() || s.Pending[0].OfQuestionsSync() {
+		t.Error("OfQuestionsSync does not tell the room's own items from a relayed one and main's")
+	}
+	if strings.Contains(string(data), `"relayed_by":""`) || strings.Contains(string(data), `"q":0`) {
+		t.Errorf("an item that was not relayed writes the relay keys: %s", data)
+	}
+}
+
+// A relay account is held to A 10.6: on a HUMAN item of the questions room, by an agent of the
+// team's server, on a question number A 7.3 allows; both keys or neither.
+func TestARelayAccountIsWellFormed(t *testing.T) {
+	for name, edit := range map[string]func(*Pending){
+		"in main":                 func(p *Pending) { p.Room = proto.PurposeMain },
+		"on a ping":               func(p *Pending) { p.Item, p.Verb = records.KindPing, new("review") },
+		"by a human":              func(p *Pending) { p.RelayedBy = "alice" },
+		"by a stranger":           func(p *Pending) { p.RelayedBy = "not a handle" },
+		"no question":             func(p *Pending) { p.Q = 0 },
+		"no relayer":              func(p *Pending) { p.RelayedBy = "" },
+		"a question out of range": func(p *Pending) { p.Q = 1_000_000_000 },
+	} {
+		s := sampleStore(t)
+		p := relayedItem()
+		edit(&p)
+		s.Pending = append(s.Pending, p)
+		if _, err := s.encode(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: encode = %v, want ErrInvalid", name, err)
+		}
+	}
+}
