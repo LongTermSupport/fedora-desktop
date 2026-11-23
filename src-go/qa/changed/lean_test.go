@@ -95,6 +95,31 @@ func TestLocallyAChangedRuleRunsTheGateWhole(t *testing.T) {
 	}
 }
 
+// A passing Go gate's stage-times table reaches the report, so a run (CI's above all) shows
+// where the Go gate's time went; nothing else of its captured output does.
+func TestThePassingGoGateShowsItsStageTimes(t *testing.T) {
+	w := newRunWorld(t)
+	writeFile(t, w.root, "src-go/internal/x/x.go", "package x\n")
+	out := "go-qa: test: start\ngo-qa: test: passed in 41.2s\n\ngo-qa stage times:\n  fmt          passed   1.1s\n  test         passed   41.2s\n  total                 42.3s\n\ngo-qa summary:\n  runners    test         passed\n"
+	w.runner.replies["bash "+filepath.Join(w.scripts, "qa-go-qa.bash")] = proc.Result{Stdout: out}
+	if code := w.main(); code != ExitOK {
+		t.Fatalf("exit %d, stderr %q", code, w.errOut.String())
+	}
+	want := "✓ go: go-qa, both modules (diff mode on a git change)\n  go-qa stage times:\n    fmt          passed   1.1s\n    test         passed   41.2s\n    total                 42.3s\n"
+	if !strings.Contains(w.out.String(), want) {
+		t.Fatalf("stdout lacks %q:\n%s", want, w.out.String())
+	}
+	if strings.Contains(w.out.String(), "go-qa summary") {
+		t.Fatalf("only the stage times are shown:\n%s", w.out.String())
+	}
+}
+
+func TestStageTimesIsEmptyWithoutATable(t *testing.T) {
+	if got := stageTimes("go-qa summary:\n  x passed\n"); got != "" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 // suiteSkipWorld is a run world whose test-one.bash drives the teams command, built from
 // src-go/internal/teams, with a store for recorded passes.
 func suiteSkipWorld(t *testing.T) (*runWorld, string) {

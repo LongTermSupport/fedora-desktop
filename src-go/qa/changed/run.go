@@ -328,6 +328,8 @@ func (s *session) timed(ctx context.Context, gate bool, fn func(context.Context)
 func (s *session) report(name, summary string, res checkResult, o outcome) {
 	if o == passed {
 		s.outf("✓ %s: %s\n", name, summary)
+		// The Go gate's step times, so a passing run (CI's above all) shows where its time went.
+		s.outf("%s", stageTimes(res.output))
 		return
 	}
 	suffix := ""

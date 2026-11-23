@@ -93,6 +93,30 @@ func (s *session) skipSuite(suite pickedSuite) (key string, skip bool) {
 	return key, skip
 }
 
+// stageTimesHeading starts the table of step times go-qa prints at the end of a run.
+const stageTimesHeading = "go-qa stage times:"
+
+// stageTimes is go-qa's stage-times table in a check's output, indented two spaces for the
+// report, through its total line; empty when the output holds none.
+func stageTimes(output string) string {
+	_, table, found := strings.Cut(output, stageTimesHeading+"\n")
+	if !found {
+		return ""
+	}
+	var out strings.Builder
+	out.WriteString("  " + stageTimesHeading + "\n")
+	for line := range strings.SplitSeq(table, "\n") {
+		if strings.TrimSpace(line) == "" {
+			break
+		}
+		out.WriteString("  " + line + "\n")
+		if strings.HasPrefix(strings.TrimSpace(line), "total") {
+			break
+		}
+	}
+	return out.String()
+}
+
 // recordPass remembers a suite that passed over its key; a record that cannot be written costs
 // only a later rerun, and says so.
 func (s *session) recordPass(suite pickedSuite, key string) {
