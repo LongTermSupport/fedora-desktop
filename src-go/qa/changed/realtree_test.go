@@ -2,6 +2,7 @@ package changed
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -166,6 +167,168 @@ func TestTheRealRoutingSendsAWorkflowToTheGoCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkSemgrepRoute(t, root, ".github/workflows/qa.yml", "check:go")
+}
+
+// goPathLiteral is a Go string literal that names a repository path outside src-go/.
+var goPathLiteral = regexp.MustCompile(`"((?:files|helpers|playbooks|tasks|vars|tests|CLAUDE|scripts|extensions|\.github)/[^"\\]*)"`)
+
+// goMentionsOnlyPackages name routed paths without reading the real files, whatever the path, with
+// why. The routing tests name every routed path as a sample; the only real files they read are the
+// routing tables, whose rows run the whole Go gate.
+var goMentionsOnlyPackages = map[string]string{
+	"qa/changed": "names routed paths as routing samples",
+}
+
+// goMentionsOnly are a package and a path it names without reading the real file, with why. Each
+// entry is one path, so a later test of the package that does read a routed file is still caught.
+var goMentionsOnly = map[[2]string]string{
+	{"qa/ccyversionbase", "files/var/local/claude-yolo/claude-yolo"}:             "the version gate reads it from git at a revision; its tests fake git",
+	{"qa/ccyversionbase", "files/var/local/claude-yolo/Dockerfile"}:              "the version gate reads it from git at a revision; its tests fake git",
+	{"qa/teamchatseparate", "files/var/local/claude-yolo/claude-yolo"}:           "a scope sample; the real tree is read by the gate, not this package's tests",
+	{"qa/teamchatseparate", "files/etc/systemd/system/teamchat-server@.service"}: "a scope sample of a file that does not exist",
+	{"qa/teamchatseparate", "vars/golang.yml"}:                                   "an allowlist entry, read by the gate over the real tree, not by this package's tests",
+	{"qa/cmd/qa-stdin-wait", "helpers/stdin_text/stdin_text.py"}:                 "written into a scratch tree by the test",
+	{"qa/cmd/qa-boot-hold", "files/bad.service"}:                                 "written into a scratch tree by the test",
+	{"qa/cmd/qa-boot-hold", "files/good.service"}:                                "written into a scratch tree by the test",
+	{"qa/internal/semgrepreport", "helpers/pingbus/cli.py"}:                      "an exclude-glob sample",
+	{"qa/internal/semgrepreport", "helpers/stdin_text/stdin_text.py"}:            "an exclude-glob sample",
+	{"qa/internal/semgrepreport", "helpers/stdin_text/sub/deeper.py"}:            "an exclude-glob sample",
+}
+
+// A row that sends a file outside src-go/ to the go check names the packages whose tests read the
+// file, and go-qa runs only those (and their importers). A reader left off the row is a test that
+// a change to the file would never run, silently. So every src-go package whose Go source names a
+// path the row matches (a string literal holding the path, or a directory above the row's files)
+// is named on the row, unless the row runs the whole gate. A path built from pieces is not seen
+// here; the row's comment names such a reader.
+func TestEveryRealGoReaderOfARoutedFileIsNamedOnItsRow(t *testing.T) {
+	r, err := loadRouting(filepath.Join(realScripts, "qa-routing.tsv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mentions := goPathMentions(t, "../..")
+	for _, rl := range r.also {
+		if len(rl.goPackages) == 0 {
+			continue
+		}
+		var missing []string
+		for pkg, paths := range mentions {
+			if _, ok := goMentionsOnlyPackages[pkg]; ok || goPackageNamed(rl.goPackages, pkg) {
+				continue
+			}
+			if slices.ContainsFunc(paths, func(p string) bool {
+				_, mentionOnly := goMentionsOnly[[2]string{pkg, p}]
+				return !mentionOnly && rowNamesPath(rl.m, p)
+			}) {
+				missing = append(missing, pkg)
+			}
+		}
+		slices.Sort(missing)
+		if len(missing) > 0 {
+			t.Errorf("qa-routing.tsv:%d: these packages name a file the row routes to go but are not in its go packages column: %s", rl.line, strings.Join(missing, ","))
+		}
+	}
+}
+
+// Every package a row names exists: a stale name makes go-qa refuse the run.
+func TestEveryRealGoPackageColumnNamesPackagesThatExist(t *testing.T) {
+	r, err := loadRouting(filepath.Join(realScripts, "qa-routing.tsv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rl := range r.also {
+		for _, pkg := range rl.goPackages {
+			dir := strings.TrimSuffix(pkg, goTree)
+			matches, err := filepath.Glob(filepath.Join("../..", filepath.FromSlash(dir), "*.go"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(matches) == 0 {
+				t.Errorf("qa-routing.tsv:%d: go package %s has no Go file in src-go/%s", rl.line, pkg, dir)
+			}
+		}
+	}
+}
+
+func TestGoPackageNamedAndRowNamesPath(t *testing.T) {
+	for _, c := range []struct {
+		named []string
+		pkg   string
+		want  bool
+	}{
+		{[]string{"internal/a"}, "internal/a", true},
+		{[]string{"internal/a"}, "internal/a/b", false},
+		{[]string{"internal/a/..."}, "internal/a/b", true},
+		{[]string{"internal/a/..."}, "internal/a", true},
+		{[]string{"internal/a/..."}, "internal/ab", false},
+	} {
+		if got := goPackageNamed(c.named, c.pkg); got != c.want {
+			t.Errorf("goPackageNamed(%v, %s) = %v", c.named, c.pkg, got)
+		}
+	}
+	m, err := parseMatcher("helpers/pingbus/*.py,files/x/tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for p, want := range map[string]bool{
+		"helpers/pingbus/a.py": true, "helpers/pingbus": true, "helpers": false, "files/x/tool": true,
+		"files/x": false, "helpers/pingbusy": false, "files/x/tool2": false, "helpers/other/a.py": false,
+	} {
+		if got := rowNamesPath(m, p); got != want {
+			t.Errorf("rowNamesPath(%s) = %v, want %v", p, got, want)
+		}
+	}
+}
+
+// goPathMentions maps each src-go package (its directory relative to src-go) to the repository
+// paths outside src-go its Go files name in string literals. vendor and testdata are not read.
+func goPathMentions(t *testing.T, srcGo string) map[string][]string {
+	t.Helper()
+	mentions := map[string][]string{}
+	tree := os.DirFS(srcGo)
+	err := fs.WalkDir(tree, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && (d.Name() == "vendor" || d.Name() == "testdata") {
+			return fs.SkipDir
+		}
+		if !d.Type().IsRegular() || !strings.HasSuffix(p, ".go") {
+			return nil
+		}
+		body, err := fs.ReadFile(tree, p)
+		if err != nil {
+			return err
+		}
+		pkg := path.Dir(p)
+		for _, m := range goPathLiteral.FindAllStringSubmatch(string(body), -1) {
+			mentions[pkg] = append(mentions[pkg], path.Clean(m[1]))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mentions
+}
+
+// goPackageNamed is whether a go packages column names the package, directly or by a tree.
+func goPackageNamed(named []string, pkg string) bool {
+	return slices.ContainsFunc(named, func(n string) bool {
+		dir, tree := strings.CutSuffix(n, goTree)
+		return dir == pkg || (tree && strings.HasPrefix(pkg, dir+"/"))
+	})
+}
+
+// rowNamesPath is whether a path a Go file names is one the row matches, or the directory a glob's
+// files sit in (the glob's text before its star, as helpers/pingbus for helpers/pingbus/*.py). A
+// top-level directory (files, for files/*.service) or a higher one is a tree walk's scope, which
+// every gate has, not a reader of the row's files.
+func rowNamesPath(m matcher, p string) bool {
+	return slices.ContainsFunc(m.globs, func(g string) bool {
+		star := strings.IndexByte(g, '*')
+		return globMatch(g, p) || (star > 0 && strings.Contains(p, "/") && g[:star] == p+"/")
+	})
 }
 
 // Every input of the vmtest-manifest gate, routed by the real table, runs the check: the manifest

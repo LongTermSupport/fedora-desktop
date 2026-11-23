@@ -108,10 +108,11 @@ func newSession(env Env, opts options) (*session, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &session{env: env, opts: opts, root: root, scripts: scripts, timeout: timeout}
+	s := &session{env: env, opts: opts, root: root, scripts: scripts, timeout: timeout, ci: ciEnabled(env.Getenv), narrowed: map[string]int{}}
 	if err := s.load(); err != nil {
 		return nil, err
 	}
+	s.openPasses()
 	return s, nil
 }
 
@@ -327,6 +328,8 @@ func (s *session) timed(ctx context.Context, gate bool, fn func(context.Context)
 func (s *session) report(name, summary string, res checkResult, o outcome) {
 	if o == passed {
 		s.outf("✓ %s: %s\n", name, summary)
+		// The Go gate's step times, so a passing run (CI's above all) shows where its time went.
+		s.outf("%s", stageTimes(res.output))
 		return
 	}
 	suffix := ""
@@ -363,26 +366,68 @@ func (s *session) execute(ctx context.Context) ExitCode {
 		if o == interrupted {
 			return s.interrupted()
 		}
-		s.report(d.id, d.summaryFor(cp), res, o)
+		s.report(d.id, s.summaryOf(d, cp), res, o)
 		record(d.id, o)
 	}
 	for _, suite := range s.plan.suites {
-		for _, argv := range s.suiteRuns(suite) {
-			res, o := s.timed(ctx, true, func(c context.Context) (checkResult, error) {
-				return s.exec(c, nil, argv.argv...)
-			})
-			if o == interrupted {
-				return s.interrupted()
-			}
-			name, reasons := "suite "+strings.TrimPrefix(suite.name, "scripts/"), "("+strings.Join(suite.why, "; ")+")"
-			if o == passed {
-				o, reasons, res.output = judgeSuite(res.output, reasons, argv.rows)
-			}
-			s.report(name, reasons, res, o)
-			record(name, o)
+		if s.runSuite(ctx, suite, record) {
+			return s.interrupted()
 		}
 	}
 	return s.verdict(failures, cannot)
+}
+
+// runSuite runs one picked suite, each of its command lines, unless a local run finds its inputs
+// passed before; a suite every line of which passed is remembered. It answers whether the run
+// was interrupted.
+func (s *session) runSuite(ctx context.Context, suite pickedSuite, record func(string, outcome)) bool {
+	key, skip := s.skipSuite(suite)
+	if skip {
+		return false
+	}
+	allPassed := true
+	for _, argv := range s.suiteRuns(suite) {
+		res, o := s.timed(ctx, true, func(c context.Context) (checkResult, error) {
+			return s.exec(c, nil, argv.argv...)
+		})
+		if o == interrupted {
+			return true
+		}
+		name, reasons := "suite "+strings.TrimPrefix(suite.name, "scripts/"), "("+strings.Join(suite.why, "; ")+")"
+		if o == passed {
+			o, reasons, res.output = judgeSuite(res.output, reasons, argv.rows)
+		}
+		s.report(name, reasons, res, o)
+		record(name, o)
+		allPassed = allPassed && o == passed
+	}
+	if allPassed {
+		s.recordPass(suite, key)
+	}
+	return false
+}
+
+// summaryOf is a check's report summary; a semgrep gate narrowed to the changed files says so
+// in place of "whole gate".
+func (s *session) summaryOf(d checkDef, cp *checkPlan) string {
+	for wrapper, n := range s.narrowed {
+		if gateCheck[wrapper] == d.id {
+			return fmt.Sprintf("%s, %d changed file(s) (CI runs it whole)", strings.TrimSuffix(d.fixed, ", whole gate"), n)
+		}
+	}
+	return d.summaryFor(cp)
+}
+
+// gateCheck is the check id of each semgrep gate's wrapper.
+var gateCheck = map[string]string{
+	"qa-gh-scopes.bash":          "gh-scopes",
+	"qa-find-race.bash":          "find-race",
+	"qa-arch-pin.bash":           "arch-pin",
+	"qa-argv-leak.bash":          "argv-leak",
+	"qa-place-issued-token.bash": "place-issued-token",
+	"qa-boot-hold.bash":          "boot-hold",
+	"qa-gh-poll.bash":            "gh-poll",
+	"qa-secret-screen.bash":      "secret-screen",
 }
 
 // suiteRun is one command of a picked suite and the row that gives it, which judges its output.

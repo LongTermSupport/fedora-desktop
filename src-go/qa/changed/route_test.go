@@ -106,6 +106,59 @@ func TestLoadRoutingRefusesBadRowsWithTheLineNumber(t *testing.T) {
 	}
 }
 
+// go-qa's diff mode sees only src-go/, so a row that routes a file outside it to the go check
+// names the Go packages that read the file, or @full for a file that can change every result.
+func TestLoadRoutingReadsTheGoPackagesColumn(t *testing.T) {
+	body := "also\tfiles/x/*.bash\tgo\t-\tinternal/a,internal/b/...\n" +
+		"also\tscripts/qa-routing.tsv\tbash-limits,go\tcovered\t@full\n" +
+		"first\tsrc-go/*\tgo\tcovered,closure\n"
+	r, err := loadRouting(writeFile(t, t.TempDir(), "r.tsv", body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(r.also[0].goPackages, []string{"internal/a", "internal/b/..."}) || r.also[0].goFull {
+		t.Fatalf("packages row: %+v", r.also[0])
+	}
+	if !r.also[1].goFull || len(r.also[1].goPackages) != 0 || !r.also[1].covered {
+		t.Fatalf("@full row: %+v", r.also[1])
+	}
+	if r.first[0].goFull || len(r.first[0].goPackages) != 0 {
+		t.Fatalf("src-go row: %+v", r.first[0])
+	}
+}
+
+func TestLoadRoutingRefusesABadGoPackagesColumn(t *testing.T) {
+	cases := map[string]string{
+		"outside file, no column":       "also\tfiles/x\tgo\t-\n",
+		"partly outside, no column":     "also\tsrc-go/a,files/x\tgo\t-\n",
+		"predicate, no column":          "also\t@py\tgo\t-\n",
+		"column without go":             "also\tfiles/x\tbash-limits\t-\tinternal/a\n",
+		"column on a src-go row":        "also\tsrc-go/a/*\tgo\t-\tinternal/a\n",
+		"empty column":                  "also\tfiles/x\tgo\t-\t\n",
+		"empty entry":                   "also\tfiles/x\tgo\t-\tinternal/a,\n",
+		"dash":                          "also\tfiles/x\tgo\t-\t-\n",
+		"src-go prefix":                 "also\tfiles/x\tgo\t-\tsrc-go/internal/a\n",
+		"dot slash":                     "also\tfiles/x\tgo\t-\t./internal/a\n",
+		"absolute":                      "also\tfiles/x\tgo\t-\t/internal/a\n",
+		"parent":                        "also\tfiles/x\tgo\t-\t../internal/a\n",
+		"unclean":                       "also\tfiles/x\tgo\t-\tinternal//a\n",
+		"full with packages":            "also\tfiles/x\tgo\t-\t@full,internal/a\n",
+		"six columns":                   "also\tfiles/x\tgo\t-\tinternal/a\textra\n",
+		"unknown at-word":               "also\tfiles/x\tgo\t-\t@all\n",
+		"repeated package":              "also\tfiles/x\tgo\t-\tinternal/a,internal/a\n",
+		"bare tree":                     "also\tfiles/x\tgo\t-\t...\n",
+		"dots inside":                   "also\tfiles/x\tgo\t-\tinternal/.../a\n",
+		"post row with a fifth column":  "post\tany:@sh\tgo\t-\tinternal/a\n",
+		"yaml first row with go column": "first\t*.yml\t@yaml\t-\tinternal/a\n",
+	}
+	for name, body := range cases {
+		path := writeFile(t, t.TempDir(), "r.tsv", "# ok\n"+body)
+		if _, err := loadRouting(path); err == nil || !strings.Contains(err.Error(), ":2:") {
+			t.Errorf("%s: want an error naming line 2, got %v", name, err)
+		}
+	}
+}
+
 // A check planned by two rules with different rel would keep the first rel silently
 // (plan.add), so the table may not say two things about one check.
 func TestLoadRoutingRefusesOneCheckWithTwoRels(t *testing.T) {

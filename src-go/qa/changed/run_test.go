@@ -41,6 +41,8 @@ func newRunWorld(t *testing.T) *runWorld {
 	for _, suite := range []string{"test-one.bash", "test-two.bash"} {
 		w.runner.replies["bash "+filepath.Join(w.scripts, suite)] = proc.Result{Stdout: "passed: 1 failed: 0\n"}
 	}
+	// A local run remembers suite passes; each world keeps its own store.
+	w.env["QA_SUITE_PASSES"] = filepath.Join(t.TempDir(), "suite-passes")
 	return w
 }
 
@@ -107,9 +109,9 @@ func TestAllChecksPassPrintsTheContractLines(t *testing.T) {
 		"✓ semgrep: 1 file(s)",
 		"✓ ready-wait-files: 1 file(s)",
 		"✓ bash-limits: whole gate (tooling is Go; allowlist ratchet)",
-		"✓ argv-leak: secret-in-argv rules, whole gate",
-		"✓ gh-poll: github-poll-too-often rule, whole gate",
-		"✓ secret-screen: secret-on-normal-screen rules, whole gate",
+		"✓ argv-leak: secret-in-argv rules, 1 changed file(s) (CI runs it whole)",
+		"✓ gh-poll: github-poll-too-often rule, 1 changed file(s) (CI runs it whole)",
+		"✓ secret-screen: secret-on-normal-screen rules, 1 changed file(s) (CI runs it whole)",
 		"✓ hidden-bindings: whole gate (no action reachable only by a key)",
 		"✓ lxc-attach-streams: whole gate (no command reaching lxc-attach has a standard stream on a file)",
 		"✓ gitleaks: whole gate (no secret gitleaks finds in what a commit would carry)",

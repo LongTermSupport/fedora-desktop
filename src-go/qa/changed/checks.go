@@ -155,13 +155,29 @@ func runToolchain(ctx context.Context, s *session, _ *checkPlan) (checkResult, e
 // runGoGate runs go-qa over the change qa-changed collected: its diff mode against the same base
 // (the changed packages, their importers, and everything when a module or rule file changed).
 // Diff mode sees only src-go/, so a file outside it that routes here (a parity reference, a table
-// the Go tests read) gets the full run, as does an explicit file list, which is no diff.
+// the Go tests read) adds the packages its routing row names (--also-packages), which go-qa runs
+// with their importers. The full run is kept for a file whose row says @full (one that can change
+// every Go result), for an outside file no row named packages for, and for an explicit file list,
+// which is no diff: go-qa's diff mode reads git, not the list.
 func runGoGate(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
-	outside := slices.ContainsFunc(cp.items, func(rel string) bool { return !strings.HasPrefix(rel, "src-go/") })
-	if s.opts.explicit || outside {
+	if s.goFullRun(cp.items) {
 		return s.script(ctx, nil, goGateScript)
 	}
-	return s.exec(ctx, nil, toolBash, filepath.Join(s.scripts, goGateScript), "--changed", "--base", s.opts.base)
+	argv := []string{toolBash, filepath.Join(s.scripts, goGateScript), "--changed", "--base", s.opts.base}
+	if len(s.plan.goPackages) > 0 {
+		argv = append(argv, "--also-packages", strings.Join(slices.Sorted(slices.Values(s.plan.goPackages)), ","))
+	}
+	return s.exec(ctx, nil, argv...)
+}
+
+// goFullRun is whether the go check runs the whole gate rather than go-qa's diff mode.
+func (s *session) goFullRun(items []string) bool {
+	if s.opts.explicit || len(s.plan.goFull) > 0 {
+		return true
+	}
+	return slices.ContainsFunc(items, func(rel string) bool {
+		return !strings.HasPrefix(rel, "src-go/") && !s.plan.goNamed[rel]
+	})
 }
 
 // goGateScript runs go-qa-ci's go-qa over both modules of src-go.
@@ -183,36 +199,65 @@ func runAnsiblePause(ctx context.Context, s *session, _ *checkPlan) (checkResult
 	return s.script(ctx, nil, "qa-ansible-pause.bash")
 }
 
+// semgrepGate runs one gate of the ghscopes engine (one semgrep rule file over every published
+// file). In CI, or when a changed file is part of the gate itself (gateSource), it runs whole, as
+// qa-all does. Otherwise, on a developer's machine, it runs over the changed files only, named
+// after --: an unchanged rule can only find something new in a file that changed, and semgrep
+// over the whole tree is the cost of the whole run. CI's diff run and qa-all still run it whole.
+func (s *session) semgrepGate(ctx context.Context, wrapper string) (checkResult, error) {
+	changed := slices.Concat(s.plan.existing, s.plan.deleted)
+	if s.ci || slices.ContainsFunc(changed, func(f string) bool { return gateSource(wrapper, f) }) {
+		return s.script(ctx, nil, wrapper)
+	}
+	s.narrowed[wrapper] = len(s.plan.existing)
+	return s.scriptOver(ctx, wrapper, slices.Concat([]string{"--"}, s.plan.existing))
+}
+
+// gateSource is whether a changed file is part of a semgrep gate run by the wrapper: the rules and
+// fixtures under .semgrep/, the QA module that holds the engine, the wrapper, the wrapper library
+// and the trees table the engine reads. Such a change re-applies the gate to every file.
+func gateSource(wrapper, rel string) bool {
+	return strings.HasPrefix(rel, ".semgrep/") || strings.HasPrefix(rel, "src-go/qa/") ||
+		rel == "scripts/"+wrapper || rel == "scripts/lib/go-tool.bash" || rel == "scripts/qa-trees.tsv"
+}
+
+// ciEnabled is whether the CI environment variable says this run is CI: set, and neither
+// "false" nor "0" (go-qa reads it the same way). GitHub Actions sets CI=true.
+func ciEnabled(getenv func(string) string) bool {
+	v := getenv("CI")
+	return v != "" && v != "false" && v != "0"
+}
+
 func runGhScopes(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
-	return s.script(ctx, nil, "qa-gh-scopes.bash")
+	return s.semgrepGate(ctx, "qa-gh-scopes.bash")
 }
 
 func runFindRace(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
-	return s.script(ctx, nil, "qa-find-race.bash")
+	return s.semgrepGate(ctx, "qa-find-race.bash")
 }
 
 func runArchPin(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
-	return s.script(ctx, nil, "qa-arch-pin.bash")
+	return s.semgrepGate(ctx, "qa-arch-pin.bash")
 }
 
 func runArgvLeak(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
-	return s.script(ctx, nil, "qa-argv-leak.bash")
+	return s.semgrepGate(ctx, "qa-argv-leak.bash")
 }
 
 func runPlaceIssuedToken(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
-	return s.script(ctx, nil, "qa-place-issued-token.bash")
+	return s.semgrepGate(ctx, "qa-place-issued-token.bash")
 }
 
 func runBootHold(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
-	return s.script(ctx, nil, "qa-boot-hold.bash")
+	return s.semgrepGate(ctx, "qa-boot-hold.bash")
 }
 
 func runGHPoll(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
-	return s.script(ctx, nil, "qa-gh-poll.bash")
+	return s.semgrepGate(ctx, "qa-gh-poll.bash")
 }
 
 func runSecretScreen(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
-	return s.script(ctx, nil, "qa-secret-screen.bash")
+	return s.semgrepGate(ctx, "qa-secret-screen.bash")
 }
 
 // runReadyWaitFiles runs the ready-wait gate over the changed Python and shell files only.

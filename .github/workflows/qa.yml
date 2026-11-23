@@ -181,9 +181,11 @@ jobs:
       # directive) come from the module proxy. golangci-lint is installed at the pin below.
       # The Go cache (GOCACHE and the module cache) is restored and saved by the go part only:
       # setup-go keys it on the two go.sum files alone and saves it once per key, from the first
-      # job to end, so a part with a thin cache would otherwise win the key. go-qa runs its main
-      # test pass with -count=1, so the cache saves compiling, vetting and the busfailpoints test
-      # stage, not the main test run (Plan 00262 subagent-reports/interim-ci-report.md).
+      # job to end, so a part with a thin cache would otherwise win the key. A CI run of go-qa is
+      # forced (-shuffle=on -count=1), and the busfailpoints test stage runs with -shuffle=on
+      # -count=2 in the full run only (when = "full"); go caches no test result with either flag,
+      # so the cache saves compiling and vetting, never a test run (Plan 00262
+      # subagent-reports/interim-ci-report.md, qa-changed-lean-report.md).
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -192,6 +194,20 @@ jobs:
           cache-dependency-path: |
             src-go/go.sum
             src-go/qa/go.sum
+
+      # golangci-lint keeps its analysis cache in its own directory (the user cache directory,
+      # ~/.cache/golangci-lint on the runner), which setup-go's cache does not hold. The go part
+      # restores and saves it, keyed on the two go.sum files and the two golangci configurations;
+      # a changed key restores the newest earlier cache by the prefix, and golangci-lint keys its
+      # own entries on file content, so a restored cache never answers for changed code.
+      - name: Cache golangci-lint analysis
+        if: matrix.part == 'go'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/golangci-lint
+          key: golangci-lint-${{ runner.os }}-${{ hashFiles('src-go/go.sum', 'src-go/qa/go.sum', 'src-go/.golangci.yml', 'src-go/qa/.golangci.yml') }}
+          restore-keys: |
+            golangci-lint-${{ runner.os }}-
 
       # Every QA tool is pinned from the single source of truth (.qa-versions),
       # the same file the host playbook and the CCY image read. A gate's verdict
@@ -347,7 +363,8 @@ jobs:
       # under the busfailpoints tag with -count=2. With teamchat it needs more than qa-all's default
       # limit of 30 minutes per gate (its first run on this tree was killed at exactly that limit,
       # the other gates having passed), so the limit is 120 minutes here, and the same per check
-      # for qa-changed, whose Go gate on a teamchat change runs those stages whole. A hung test is
+      # for qa-changed (whose Go gate no longer runs the busfailpoints stages: they are
+      # when = "full" in src-go/qa/go-qa.toml, so only this full run does). A hung test is
       # still stopped at 30 minutes by `go test -timeout`, which names it (scripts/qa-go-qa.bash).
       - name: Run full QA suite (this part)
         if: needs.base.outputs.mode == 'full'

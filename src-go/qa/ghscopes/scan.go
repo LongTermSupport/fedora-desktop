@@ -65,16 +65,22 @@ func (g *gate) proveAgainst(ctx context.Context, rel string) (ExitCode, error) {
 // handOver lists what git would publish and keeps the regular files: a symlink is left out
 // (semgrep refuses it, and its target is scanned in its own right or is vendored), and so are a
 // file git lists that is gone from the disk and a file the trees table keeps out of every gate.
+//
+// A narrowed run hands over the named files instead, by the same rules, and may hand over none.
 func (g *gate) handOver(ctx context.Context, within scope) ([]string, error) {
-	res, err := g.runTool(ctx, gitTimeout, "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
-	if err == nil && res.Code != 0 {
-		err = fmt.Errorf("git exited %d: %s", res.Code, strings.TrimSpace(res.Stderr))
-	}
-	if err != nil {
-		return nil, fmt.Errorf("cannot list the files git would publish under .: %w", err)
+	listed := g.named
+	if !g.narrowed {
+		res, err := g.runTool(ctx, gitTimeout, "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+		if err == nil && res.Code != 0 {
+			err = fmt.Errorf("git exited %d: %s", res.Code, strings.TrimSpace(res.Stderr))
+		}
+		if err != nil {
+			return nil, fmt.Errorf("cannot list the files git would publish under .: %w", err)
+		}
+		listed = strings.Split(res.Stdout, "\x00")
 	}
 	var files []string
-	for rel := range strings.SplitSeq(res.Stdout, "\x00") {
+	for _, rel := range listed {
 		if rel == "" {
 			continue
 		}
@@ -93,7 +99,7 @@ func (g *gate) handOver(ctx context.Context, within scope) ([]string, error) {
 			}
 		}
 	}
-	if len(files) == 0 {
+	if len(files) == 0 && !g.narrowed {
 		return nil, errors.New("git named no files to scan; nothing was checked")
 	}
 	slices.Sort(files)
@@ -164,7 +170,9 @@ func (g *gate) judge(files []string, excl excludes, rep semgrepReport) (ExitCode
 	if len(lost) > 0 {
 		return ExitCannotRun, fmt.Errorf("semgrep did not scan %d file(s) it was handed and did not say why it skipped them:\n%s\n  A pass reported over files the analyser never opened is not a pass", len(lost), indent(lost))
 	}
-	if len(rep.Paths.Scanned) == 0 {
+	// A narrowed run whose every named file semgrep skipped with a reason has nothing to judge;
+	// the whole tree always holds a file the rule reads.
+	if len(rep.Paths.Scanned) == 0 && (!g.narrowed || len(skipped) == 0) {
 		return ExitCannotRun, errors.New("semgrep scanned no file, so a clean result proves nothing")
 	}
 	if len(skipped) > 0 {
