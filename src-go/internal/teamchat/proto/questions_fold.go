@@ -151,9 +151,12 @@ func (x *QuestionIndex) Feed(v Verdict) bool {
 		return false
 	}
 	var r foldResult
-	if v.Content.Key == KeyQuestion {
+	switch {
+	case v.Content.Retitles != "":
+		return x.retitle(v)
+	case v.Content.Key == KeyQuestion:
 		r = x.count(v)
-	} else {
+	default:
 		r = x.threadPost(v)
 	}
 	x.echoed(v, r)
@@ -180,8 +183,8 @@ func (x *QuestionIndex) count(v Verdict) foldResult {
 	x.raise(c.N)
 	x.questions[c.N] = &IndexedQuestion{
 		N: c.N, EventID: v.Event.ID, Latest: v.Event.ID, Headline: headline, Hash: sectionHash(section),
-		AskedBy: x.indexUsers(c.AskedBy), Re: cloneList(c.Re), AskedMs: v.Event.OriginTs,
-		RemindAfterS: c.RemindAfterS, Unanswered: []string{},
+		From: x.indexUser(v.Event.Sender), Why: c.Why, AskedBy: x.indexUsers(c.AskedBy), Re: cloneList(c.Re),
+		AskedMs: v.Event.OriginTs, RemindAfterS: c.RemindAfterS, WaitingMs: v.Event.OriginTs, Unanswered: []string{},
 	}
 	x.roots[v.Event.ID] = c.N
 	x.trim(false, MaxOpenQuestions)
@@ -190,6 +193,14 @@ func (x *QuestionIndex) count(v Verdict) foldResult {
 
 // indexUsers are the user IDs the index keeps of an `asked_by`: those of this server that pass
 // the grammar within 128 bytes; another entry is not kept.
+// indexUser is id when the index keeps it, else "".
+func (x *QuestionIndex) indexUser(id string) string {
+	if x.validIndexUser(id) {
+		return id
+	}
+	return ""
+}
+
 func (x *QuestionIndex) indexUsers(ids []string) []string {
 	kept := []string{}
 	for _, id := range ids {
@@ -246,16 +257,59 @@ func (x *QuestionIndex) threadPost(v Verdict) foldResult {
 		return repeated
 	}
 	q, ok := x.questions[t.N]
-	if !ok || q.Redacted() || v.Content.Relation.Root != q.EventID {
+	if !ok || q.Redacted() {
+		return notCounted
+	}
+	if t.Link != "" {
+		return x.linkBack(v, q)
+	}
+	if v.Content.Relation.Root != q.EventID {
 		return notCounted
 	}
 	x.agents.add(AgentPost{ID: v.Event.ID, Q: t.N})
 	q.Latest, q.Unanswered, q.UnansweredMore = v.Event.ID, []string{}, 0
+	if t.Wait {
+		q.WaitingMs = v.Event.OriginTs
+	}
 	if t.Close && !q.Closed {
-		q.Closed = true
+		q.Closed, q.WaitingMs = true, 0
 		x.trim(true, MaxClosedQuestions)
 	}
 	return counted
+}
+
+// linkBack is the link-back (A 10.3): a top-level reply to a human post attached to its
+// question, remembered as an agent post of it so that a reply to it attaches; it changes nothing
+// else. One that replies to a post not attached to its question is not counted.
+func (x *QuestionIndex) linkBack(v Verdict, q *IndexedQuestion) foldResult {
+	if e, ok := x.posts.get(v.Content.Relation.InReplyTo); !ok || e.Q != q.N {
+		return notCounted
+	}
+	x.agents.add(AgentPost{ID: v.Event.ID, Q: q.N})
+	return counted
+}
+
+// retitle is the coordinator's retitle edit of its own question (A 10.4): from the question's
+// sender, with the same `n`, `asked_by`, `re`, `why` and `Question:` hash, it gives the question
+// its new headline. Any other edit changes nothing.
+func (x *QuestionIndex) retitle(v Verdict) bool {
+	if _, seen := x.folded(v.Event.ID); seen {
+		return false
+	}
+	c := v.Content.Question
+	n, ok := x.roots[v.Content.Retitles]
+	q := x.questions[n]
+	if !ok || q.From == "" || q.From != v.Event.Sender || c.N != n || c.Why != q.Why ||
+		!slices.Equal(x.indexUsers(c.AskedBy), q.AskedBy) || !slices.Equal(cloneList(c.Re), q.Re) {
+		return false
+	}
+	headline, section, err := QuestionForm(n, v.Content.Body)
+	if err != nil || sectionHash(section) != q.Hash {
+		return false
+	}
+	x.agents.add(AgentPost{ID: v.Event.ID, Q: n})
+	q.Headline = headline
+	return true
 }
 
 // plainReply is an agent's reply to a human post (A 10.3): the post, if it is listed
@@ -292,7 +346,7 @@ func (x *QuestionIndex) Attach(ev Event, h Human) (IndexedQuestion, bool) {
 		}
 		return IndexedQuestion{}, false
 	}
-	q.Attached++
+	q.Attached, q.WaitingMs = q.Attached+1, 0
 	if len(q.Unanswered) < MaxUnanswered {
 		q.Unanswered = append(q.Unanswered, ev.ID)
 	} else {

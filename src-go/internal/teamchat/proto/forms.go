@@ -1,7 +1,9 @@
 package proto
 
 import (
+	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -31,11 +33,24 @@ const MaxOptions = 9
 const (
 	SectionContext  = "Context:"
 	SectionQuestion = "Question:"
+	SectionWhy      = "Why a human:"
 	SectionOptions  = "Options:"
 )
 
+// The words `Why a human:` starts with, and a question's `why` holds (A 10.2): an owner-only
+// decision, a physical act, a credential, a preference.
+const (
+	WhyDecision   = "decision"
+	WhyPhysical   = "physical"
+	WhyCredential = "credential"
+	WhyPreference = "preference"
+)
+
+// WhyWords are the four words of `Why a human:`, in the order the refusal names them.
+var WhyWords = []string{WhyDecision, WhyPhysical, WhyCredential, WhyPreference}
+
 var (
-	questionSections = []string{SectionContext, SectionQuestion, SectionOptions}
+	questionSections = []string{SectionContext, SectionQuestion, SectionWhy, SectionOptions}
 	optionRe         = regexp.MustCompile(`^([1-9])\.\s`)
 )
 
@@ -68,7 +83,7 @@ func QuestionForm(n int64, body string) (string, string, error) {
 	case !numbered:
 		return "", "", refused(ReasonBody, "the body starts Q<n> and a space")
 	case len(body) > MaxQuestionBody:
-		return "", "", refused(ReasonBody, "a question is at most 8000 bytes")
+		return "", "", refused(ReasonBody, tooLarge("question", len(body), MaxQuestionBody))
 	}
 	headline, err := Headline(text)
 	if err != nil {
@@ -97,13 +112,33 @@ func QuestionForm(n int64, body string) (string, string, error) {
 func ThreadBody(n int64, text string, closes bool) (string, error) {
 	switch {
 	case len(text) > MaxThreadBody:
-		return "", refused(ReasonBody, "a thread post is at most 4000 bytes")
+		return "", refused(ReasonBody, tooLarge("text", len(text), MaxThreadBody))
 	case strings.TrimSpace(text) != "":
 		return text, nil
 	case closes:
 		return QuestionName(int(n)) + " closed.", nil
 	}
 	return "", refused(ReasonBody, "a thread post that does not close its question has text")
+}
+
+// WhyOf is the first word of a question's `Why a human:` section (A 10.2), which the coordinator's
+// question must have and its `why` holds: one of WhyWords, else `body`. text is the question
+// after its `Q<n> `.
+func WhyOf(text string) (string, error) {
+	sections, err := questionSectionsOf(text)
+	if err != nil {
+		return "", err
+	}
+	words := strings.Fields(sections[SectionWhy])
+	if len(words) == 0 || !slices.Contains(WhyWords, words[0]) {
+		return "", refused(ReasonBody, "the "+SectionWhy+" section is missing or does not start with one of "+strings.Join(WhyWords, ", "))
+	}
+	return words[0], nil
+}
+
+// tooLarge is a size refusal's detail, naming the size and the limit (#365).
+func tooLarge(what string, size, limit int) string {
+	return fmt.Sprintf("the %s is %d bytes, over the %d-byte limit", what, size, limit)
 }
 
 func sectionOf(line string) string {

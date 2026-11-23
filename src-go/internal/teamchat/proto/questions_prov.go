@@ -61,7 +61,7 @@ func (x *QuestionIndex) PlaceQuestion(txn, sender string, q Question, body strin
 		return err
 	}
 	x.prov = append(x.prov, provisional{txn: txn, sender: sender, isQuestion: true, q: IndexedQuestion{
-		N: q.N, Headline: headline, Hash: sectionHash(section), AskedBy: x.indexUsers(q.AskedBy),
+		N: q.N, Headline: headline, Hash: sectionHash(section), From: x.indexUser(sender), Why: q.Why, AskedBy: x.indexUsers(q.AskedBy),
 		Re: slices.Concat([]string{}, q.Re), RemindAfterS: q.RemindAfterS, Unanswered: []string{}, Provisional: true,
 	}})
 	return nil

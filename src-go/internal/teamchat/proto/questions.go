@@ -38,23 +38,33 @@ var questionPrefixRe = regexp.MustCompile(`^[Qq]([1-9][0-9]{0,5})[ :.]`)
 // SHA-256 of the `Question:` section, white space collapsed, never its text. A question no
 // event holds, whose number a redacted event held (QX7), has no id, text or hash and is closed.
 // Provisional is the coordinator's own question placed before its echo is folded (QX3); it is
-// never stored. The JSON keys are the ones QX6's byte sums count.
+// never stored. From is its sender, the one seat that may retitle it (A 10.4; "" when the sender
+// is not a user ID the index keeps), Why its `why` ("" for none), and WaitingMs the
+// origin_server_ts of its newest waiting agent post that no attached human post or close
+// followed (A 10.4's waiting), 0 when it waits on nobody. The JSON keys are the ones QX6's byte
+// sums count.
 type IndexedQuestion struct {
 	N              int64    `json:"n"`
 	EventID        string   `json:"id"`
 	Latest         string   `json:"latest"`
 	Headline       string   `json:"headline"`
 	Hash           string   `json:"hash"`
+	From           string   `json:"from"`
+	Why            string   `json:"why"`
 	AskedBy        []string `json:"asked_by"`
 	Re             []string `json:"re"`
 	AskedMs        int64    `json:"asked_ms"`
 	RemindAfterS   int64    `json:"remind_after_s"`
+	WaitingMs      int64    `json:"waiting_ms"`
 	Attached       int64    `json:"attached"`
 	Unanswered     []string `json:"unanswered"`
 	UnansweredMore int64    `json:"unanswered_more"`
 	Closed         bool     `json:"closed"`
 	Provisional    bool     `json:"-"`
 }
+
+// Waiting is A 10.4's waiting on a human: not closed, and a waiting post not yet answered.
+func (q IndexedQuestion) Waiting() bool { return !q.Closed && q.WaitingMs > 0 }
 
 // State is A 10.4's: closed once a closing post exists, else answered once a human post is
 // attached, else open.

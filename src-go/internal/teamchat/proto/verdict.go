@@ -263,13 +263,22 @@ func decodeEvent(raw Value) (Event, bool) {
 	return ev, f.rule == "" && ValidEventID(ev.ID) && ev.OriginTs >= 0
 }
 
-// questionIndex is rule 03's exception: a question or thread post from any agent account, or a
-// question from the admin, feeds the index once it decodes, and is judged no further.
+// questionIndex is rule 03's exception: a question or thread post from any agent account, an
+// agent's retitle edit (A 10.4), or a question from the admin, feeds the index once it
+// decodes, and is judged no further.
 func (j Judge) questionIndex(v Verdict) (Verdict, bool) {
 	keys := QuestionKeys
 	class := ClassifyUserID(v.Event.Sender, j.Server)
 	if class == IDAdmin {
 		keys = []string{KeyQuestion}
+	}
+	if class == IDAgent && isRetitle(v.Event.Content) {
+		c, reason := DecodeRetitle(v.Event.Content)
+		if reason != "" {
+			return drop(v, reason), true
+		}
+		v.Outcome, v.Content = Index, c
+		return v, true
 	}
 	if class != IDAgent && class != IDAdmin || !hasAnyKey(v.Event.Content, keys) {
 		return v, false
@@ -280,6 +289,16 @@ func (j Judge) questionIndex(v Verdict) (Verdict, bool) {
 	}
 	v.Outcome, v.Content = Index, c
 	return v, true
+}
+
+// isRetitle is an edit whose new content is a question: the one agent edit rule 03 reads.
+func isRetitle(content Value) bool {
+	newContent, ok := content.Get(keyNewContent)
+	if !ok {
+		return false
+	}
+	_, question := newContent.Get(KeyQuestion)
+	return question
 }
 
 func hasAnyKey(content Value, keys []string) bool {

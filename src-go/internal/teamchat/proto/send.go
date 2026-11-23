@@ -2,6 +2,7 @@ package proto
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/richtext"
 )
@@ -38,13 +39,41 @@ type QuestionPost struct {
 
 // ThreadPost is a coordinator's post in questions (A 10.3). With N it goes in Q<N>'s thread,
 // answering the attached human post Answers when one is named; without N it is the reply to
-// the unattached human post Answers. Ask mentions the humans; Close closes Q<N>.
+// the unattached human post Answers. A post in the thread that answers nothing waits on the
+// humans, `m.text` mentioning them all, unless it is a Note or a Close (quiet); a reply
+// mentions only To, the human it answers ("" for none, quiet). Close closes Q<N>.
 type ThreadPost struct {
-	N          int64
-	Text       string
-	Close, Ask bool
-	Answers    string
+	N           int64
+	Text        string
+	Close, Note bool
+	Answers, To string
 }
+
+// LinkPost is the link-back (A 10.3): the top-level reply to Post, a human post attached to Q<N>
+// outside its thread, naming Link, the thread answer, by Permalink; it mentions To, Post's
+// sender.
+type LinkPost struct {
+	N                         int64
+	Post, Link, To, Permalink string
+}
+
+// RetitlePost is a coordinator's retitle of its own question Q<N> (A 10.4): Original is the
+// question's root event as fetched, and Headline the new headline, which a closed question
+// prefixes with ClosedTitle.
+type RetitlePost struct {
+	N        int64
+	Headline string
+	Original Event
+}
+
+// ClosedTitle is what a closed question's retitled headline starts with (the owner's v1 form).
+const ClosedTitle = "✅ CLOSED — "
+
+// editMarker starts an edit's fallback body, as Matrix clients write it.
+const editMarker = "* "
+
+// Permalink is the matrix.to link to an event of a room, which a link-back names.
+func Permalink(roomID, eventID string) string { return "https://matrix.to/#/" + roomID + "/" + eventID }
 
 // Composer builds what a sender posts, and refuses what a receiver would drop. Every composer
 // refuses in one order, the first failure winning: the sender's class and role; what the
@@ -219,6 +248,13 @@ func (c Composer) Question(q QuestionPost) (Outgoing, error) {
 		return Outgoing{}, err
 	}
 	obj := []Member{M("v", Int(WireMajor)), M("n", Int(n)), M("asked_by", strArray(q.AskedBy)), M("re", strArray(q.Re))}
+	if c.class() == SenderCoordinator {
+		why, err := WhyOf(q.Text)
+		if err != nil {
+			return Outgoing{}, err
+		}
+		obj = append(obj, M("why", Str(why)))
+	}
 	if q.RemindAfterS != 0 {
 		obj = append(obj, M("remind_after_s", Int(q.RemindAfterS)))
 	}
@@ -264,8 +300,15 @@ func (c Composer) Thread(t ThreadPost) (Outgoing, error) {
 		obj = append(obj, M("close", Bool(true)))
 	}
 	msgtype, mentioned := MsgNotice, []string(nil)
-	if t.Ask {
+	switch {
+	case t.Answers != "" && t.To != "":
+		if !c.Roster.IsHuman(t.To) {
+			return Outgoing{}, refused(ReasonTarget, "a reply mentions the human it answers")
+		}
+		msgtype, mentioned = MsgText, []string{t.To}
+	case t.Answers == "" && t.N > 0 && !t.Note && !t.Close:
 		msgtype, mentioned = MsgText, c.Roster.Humans
+		obj = append(obj, M("wait", Bool(true)))
 	}
 	content := formatted(agentContent(msgtype, body, mentioned, rel, KeyThread, Obj(obj...)))
 	if _, err := decodeSent(content, QuestionKeys); err != nil {
@@ -275,6 +318,81 @@ func (c Composer) Thread(t ThreadPost) (Outgoing, error) {
 		return Outgoing{}, err
 	}
 	key := DuplicateKey(KeyThread, "", rel.InReplyTo, nil, body)
+	return Outgoing{Purpose: PurposeQuestions, Content: content, dupKey: key, dedupe: true}, nil
+}
+
+// LinkBack composes the link-back (A 10.3): after the coordinator answered, in Q<N>'s thread,
+// a human post attached to Q<N> outside it, one top-level reply to that post naming the
+// answer, `m.text` mentioning the post's sender. It neither waits nor closes.
+func (c Composer) LinkBack(l LinkPost) (Outgoing, error) {
+	if class, err := c.agent(); err != nil || class != SenderCoordinator {
+		return Outgoing{}, questionsRole(err)
+	}
+	if _, ok := c.Questions.Question(l.N); !ok {
+		return Outgoing{}, refused(ReasonTarget, QuestionName(int(l.N))+" is not a question")
+	}
+	if attached, known := c.Questions.Attachment(l.Post); !known || attached != l.N {
+		return Outgoing{}, refused(ReasonTarget, "the post linked back to is not attached to "+QuestionName(int(l.N)))
+	}
+	if !c.Roster.IsHuman(l.To) {
+		return Outgoing{}, refused(ReasonTarget, "a link-back mentions the human whose post it answers")
+	}
+	body := QuestionName(int(l.N)) + ": answered in its thread: " + l.Permalink
+	obj := Obj(M("v", Int(WireMajor)), M("n", Int(l.N)), M("link", Str(l.Link)))
+	content := formatted(agentContent(MsgText, body, []string{l.To}, ReplyTo(l.Post), KeyThread, obj))
+	if _, err := decodeSent(content, QuestionKeys); err != nil {
+		return Outgoing{}, err
+	}
+	if err := c.screen(body); err != nil {
+		return Outgoing{}, err
+	}
+	key := DuplicateKey(KeyThread, "", l.Post, nil, body)
+	return Outgoing{Purpose: PurposeQuestions, Content: content, dupKey: key, dedupe: true}, nil
+}
+
+// Retitle composes the coordinator's retitle of its own question (A 10.4): a quiet `m.replace`
+// edit of the root whose new content is the root's own `teamchat.question` and sections under
+// the new headline, `Q<n> ✅ CLOSED — <headline>` once the question is closed.
+func (c Composer) Retitle(r RetitlePost) (Outgoing, error) {
+	if class, err := c.agent(); err != nil || class != SenderCoordinator {
+		return Outgoing{}, questionsRole(err)
+	}
+	q, ok := c.Questions.Question(r.N)
+	switch {
+	case !ok || q.Redacted() || q.Provisional:
+		return Outgoing{}, refused(ReasonTarget, QuestionName(int(r.N))+" is not a question this index keeps")
+	case r.Original.ID != q.EventID || r.Original.Sender != c.Self || q.From != c.Self:
+		return Outgoing{}, refused(ReasonTarget, QuestionName(int(r.N))+" was asked by another seat; only its sender can edit it")
+	}
+	original, err := decodeSent(r.Original.Content, []string{KeyQuestion})
+	if err != nil {
+		return Outgoing{}, err
+	}
+	headline := strings.TrimPrefix(strings.TrimSpace(r.Headline), ClosedTitle)
+	if strings.Contains(headline, "\n") {
+		return Outgoing{}, refused(ReasonBody, "the headline is one line")
+	}
+	if q.Closed {
+		headline = ClosedTitle + headline
+	}
+	body := QuestionName(int(r.N)) + " " + headline
+	if _, rest, found := strings.Cut(original.Body, "\n"); found {
+		body += "\n" + rest
+	}
+	if _, _, err := QuestionForm(r.N, body); err != nil {
+		return Outgoing{}, err
+	}
+	obj := typedObject(r.Original.Content, KeyQuestion)
+	newContent := formatted(agentContent(MsgText, body, c.Roster.Humans, Relation{}, KeyQuestion, obj))
+	content := Obj(M("msgtype", Str(MsgNotice)), M("body", Str(editMarker+body)), M(keyMentions, Obj()),
+		M(keyNewContent, newContent), M(keyRelatesTo, Obj(M("rel_type", Str(relReplace)), M("event_id", Str(q.EventID)))))
+	if _, reason := DecodeRetitle(content); reason != "" {
+		return Outgoing{}, refused(reason, "")
+	}
+	if err := c.screen(headline); err != nil {
+		return Outgoing{}, err
+	}
+	key := DuplicateKey(relReplace, "", q.EventID, nil, body)
 	return Outgoing{Purpose: PurposeQuestions, Content: content, dupKey: key, dedupe: true}, nil
 }
 
@@ -441,6 +559,16 @@ func formatted(content Value) Value {
 		return with
 	}
 	return content
+}
+
+// typedObject is content's typed object under key, which the caller has decoded.
+func typedObject(content Value, key string) Value {
+	for _, m := range content.Members() {
+		if m.Key == key {
+			return m.Val
+		}
+	}
+	return Obj()
 }
 
 // agentContent is A 7.1's shape: msgtype, body, the mentions of the addressees sorted, the

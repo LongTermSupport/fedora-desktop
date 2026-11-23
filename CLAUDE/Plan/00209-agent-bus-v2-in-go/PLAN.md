@@ -444,11 +444,13 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
 - [ ] 🔄 **Task 4.6**: Seat duties (coordinator, worker, host), approved by the owner
   (PROPOSAL-seat-kinds.md, section 7): the approval-gated `duties` field, `teamchat whoami --json`
   and duty on the status rows. Being built test first on its own branch.
-- [ ] ⬜ **Task 4.7**: The coordinator-retrospective backlog,
+- [ ] 🔄 **Task 4.7**: The coordinator-retrospective backlog,
   [BACKLOG-coordinator-retro.md](BACKLOG-coordinator-retro.md) (R1-R10, v2 only): an owner's
   answer delivered to the seat that asked, a needs-owner digest, reply routing, a required
   "Why a human:" field, seat capabilities, a one-seat-per-team session lock, team wind-down,
   host load visible in the container, and the size and questions-room verify issues.
+  - R0, the questions verbs ([DESIGN-questions-v2.md](DESIGN-questions-v2.md) section 5), on
+    branch `v2-questions`: steps 1-3 built (sizes, attachment, the forms); steps 4-8 to do.
 
 ### Phase 5: N5, other member kinds
 
