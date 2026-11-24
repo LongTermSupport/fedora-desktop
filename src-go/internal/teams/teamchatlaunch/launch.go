@@ -238,6 +238,9 @@ func (l *Launch) Run(ctx context.Context, session paths.SessionName, list string
 		takes[i].Session = session
 	}
 	if err = l.Taker.TakeAll(ctx, takes); err != nil {
+		if errors.Is(err, seat.ErrNoRecord) {
+			return nil, fmt.Errorf("%w; the seat sweep releases a seat whose session has no record, so start the session with ccy (or cc) at a terminal outside ccy's tmux, which writes the record, or declare it with ccy-sessions declare and start it with ccy-sessions restore", err)
+		}
 		return nil, err
 	}
 	data, err := Desired(session, chosen, l.NowMS())

@@ -147,6 +147,27 @@ func (s *sessions) set(n string, restorable bool) {
 	s.live[n] = restorable
 }
 
+// during marks n restorable while a take runs, as a launcher's record is (ST0), and returns
+// the call that puts back what the test had set, so a session the test made over stays over.
+func (s *sessions) during(n string) func() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.live == nil {
+		s.live = map[string]bool{}
+	}
+	was, had := s.live[n]
+	s.live[n] = true
+	return func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if had {
+			s.live[n] = was
+		} else {
+			delete(s.live, n)
+		}
+	}
+}
+
 func (s *sessions) fail(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -270,6 +291,7 @@ func (w *world) tryTake(session string, state HandleState) (Taken, error) {
 	w.t.Helper()
 	a := w.lock()
 	defer w.unlock(a)
+	defer w.sessions.during(session)()
 	return w.store.Take(w.t.Context(), a, Take{Seat: w.seat, Session: mustSession(w.t, session), State: state})
 }
 

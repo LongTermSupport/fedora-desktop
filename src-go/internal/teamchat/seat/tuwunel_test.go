@@ -90,7 +90,7 @@ func TestTuwunelTakeAndRelease(t *testing.T) {
 	key := mustKey(t, "c0")
 	store, err := Open(Config{
 		StateHome: filepath.Join(home, "state"), RuntimeDir: filepath.Join(home, "run"), Checkout: key,
-		Clock: clock, Credential: Password{Clock: clock}, Sessions: &sessions{}, Announcer: &announcer{outcome: Outcome{Posted: true}},
+		Clock: clock, Credential: Password{Clock: clock}, Sessions: &sessions{live: map[string]bool{"s1": true}}, Announcer: &announcer{outcome: Outcome{Posted: true}},
 		Reach: VersionsReach{Clock: clock},
 	})
 	if err != nil {

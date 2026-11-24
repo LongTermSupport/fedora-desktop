@@ -98,6 +98,13 @@ is the health tick's record, not the seat store's.
 
 `Take(ctx, alloc, Take{Seat, Session, State})`, as the owner, under the allocation lock.
 
+- **ST0. The session's record.** The session must be restorable, as the sweep judges it (its
+  session record exists, 00203 H5), before anything is read or made: one with no record is
+  `ErrNoRecord` naming it, and a record that cannot be read refuses the take. The sweep releases
+  a holding whose session is not restorable, even under a live keeper, so a seat taken without
+  a record would be moved out from under the session within a minute (fedora-desktop#393). The
+  launcher's refusal (exit 78) names the starts that write a record: ccy or cc at a terminal
+  outside ccy's tmux, or `ccy-sessions declare` then `ccy-sessions restore`.
 - **ST1. Step 1.** The pool seat must have a complete record (its credential file and
   `seat.json`) and no `<seat>.new-*` leftover (named, offering `member reissue`). The handle's
   state decides: `enrolled` goes on; `parked` or `lost` is `ErrReturn`; `needs: reissue` is
@@ -105,7 +112,10 @@ is the health tick's record, not the seat store's.
   `released/pool/.../<seat>-<claim>/` under a fresh claim id, with its credential unlinked. A `held/` whose
   `held.json` is missing or incomplete is moved to quarantine (a take that died before step 2
   finished). A `held/` naming a session that is live or restorable is `ErrHeld`; one naming a
-  session that is over is released first (section 7, under the lock this take holds). Then a
+  session that is over is released first (section 7, under the lock this take holds). A `held/`
+  naming the taking session itself, with no keeper holding its seat lock and no seat directory
+  for the team, is that session's own take that stopped after step 2 (ST3, a homeserver that did
+  not answer): it holds nothing, so it is released and the take goes on (X10's take again). Then a
   session whose `<team>` seat directory is already there, or cannot be looked into, is `ErrHeld`
   naming it, before step 2 (n2c-D12 addendum).
 - **ST2. Step 2.** `mkdirat(held)`; `held.json` with a fresh claim id and `since_ms` now, or one

@@ -17,6 +17,20 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.20 — container 2.84.67
+
+A teamchat seat is no longer taken for a session that has no ccy session record (issue #393).
+The image is rebuilt for the `teamchat` it carries.
+
+- **A take needs the session's record.** The seat sweep releases any holding whose session has
+  no record in ccy's session registry, every minute, even while the session's keeper holds the
+  seat. A launch with `--teams` from a pane already on ccy's tmux, or with no terminal, writes
+  no record, so its seat was moved out from under it about a minute after it started, and the
+  session went on unable to send. The seat store now refuses such a take before anything is
+  made (`seat.ErrNoRecord`), and `ccy --teams` stops with exit 78 naming the starts that write
+  the record: ccy (or cc) at a terminal outside ccy's tmux, or `ccy-sessions declare` then
+  `ccy-sessions restore`. A restart and a restore keep their record and take as before.
+
 ## 3.124.19 — container 2.84.66
 
 A seat no longer wedges its store after a ping is delivered over the socket (issue #392). The

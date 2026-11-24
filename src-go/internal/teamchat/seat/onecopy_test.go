@@ -25,6 +25,7 @@ func (w *world) takeSeat(seat Seat, session string) (Taken, error) {
 	w.t.Helper()
 	a := w.lock()
 	defer w.unlock(a)
+	defer w.sessions.during(session)()
 	return w.store.Take(w.t.Context(), a, Take{Seat: seat, Session: mustSession(w.t, session), State: StateActive})
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -218,6 +219,24 @@ func TestLaunchArgsRefusals(t *testing.T) {
 		w.taker.err = err
 		if code := w.run("launch-args", "s1", w.checkout, "1@alpha", "", "--"); code != want {
 			t.Errorf("%v: exit %d, want %d", err, code, want)
+		}
+	}
+}
+
+// fedora-desktop#393: a take for a session with no ccy session record (a launch from a pane
+// already on ccy's tmux, or from no terminal) is refused with exit 78, naming the starts that
+// write the record, so the sweep cannot release the seat a minute later.
+func TestLaunchArgsRefusesASessionWithNoRecord(t *testing.T) {
+	w := newVerbs(t)
+	w.pool("repo.1+site.podman")
+	w.taker.err = fmt.Errorf("%w: s1", seat.ErrNoRecord)
+	code := w.run("launch-args", "s1", w.checkout, "1@alpha", "", "--")
+	if code != term.ExitConfig || w.out.Len() != 0 {
+		t.Fatalf("exit %d, out %q", code, w.out)
+	}
+	for _, want := range []string{"s1", "at a terminal outside ccy's tmux", "ccy-sessions declare", "ccy-sessions restore"} {
+		if !strings.Contains(w.err.String(), want) {
+			t.Errorf("stderr %q lacks %q", w.err, want)
 		}
 	}
 }

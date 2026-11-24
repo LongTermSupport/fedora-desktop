@@ -2,6 +2,7 @@ package seat
 
 import (
 	"errors"
+	"io/fs"
 	"net/http"
 	"os"
 	"strings"
@@ -205,6 +206,7 @@ func TestTakeRefusesAnIncompleteRecordOrALeftover(t *testing.T) {
 	writeFile(t, other1.Bundle(), w.readFile(w.pool().Bundle()))
 	writeFile(t, other1.Password(), testPassword)
 	a := w.lock()
+	defer w.sessions.during("s1")()
 	if _, err := w.store.Take(t.Context(), a, Take{Seat: Seat{Team: w.seat.Team, Name: other}, Session: mustSession(t, "s1"), State: StateActive}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("a record naming another handle: %v", err)
 	}
@@ -234,6 +236,38 @@ func TestTakeQuarantinesABrokenHeld(t *testing.T) {
 }
 
 // ST1: a seat held by a live or restorable session is ErrHeld.
+// ST0: a take for a session with no session record is ErrNoRecord, before anything is read or
+// made: the sweep releases a holding whose session is not restorable, so the seat would be
+// moved out from under the session a minute later (fedora-desktop#393). An unreadable record
+// refuses the take too.
+func TestTakeRefusesASessionWithNoRecord(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	a := w.lock()
+	_, err := w.store.Take(t.Context(), a, Take{Seat: w.seat, Session: mustSession(t, "s1"), State: StateActive})
+	w.unlock(a)
+	if !errors.Is(err, ErrNoRecord) || !strings.Contains(err.Error(), "s1") {
+		t.Fatalf("a session with no record: %v", err)
+	}
+	for _, path := range []string{w.pool().Held(), w.store.store.Session(mustSession(t, "s1"))} {
+		if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s after a refused take: %v", path, err)
+		}
+	}
+	w.sessions.fail(errors.New("unreadable record"))
+	a = w.lock()
+	_, err = w.store.Take(t.Context(), a, Take{Seat: w.seat, Session: mustSession(t, "s1"), State: StateActive})
+	w.unlock(a)
+	if err == nil || errors.Is(err, ErrNoRecord) || !strings.Contains(err.Error(), "unreadable record") {
+		t.Errorf("an unreadable session record: %v", err)
+	}
+	w.sessions.fail(nil)
+	w.sessions.set("s1", true)
+	if _, err := w.tryTake("s1", StateActive); err != nil {
+		t.Errorf("a session with its record: %v", err)
+	}
+}
+
 func TestTakeRefusesAHeldSeat(t *testing.T) {
 	w := newWorld(t)
 	w.seed()
