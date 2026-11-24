@@ -106,6 +106,8 @@ type App struct {
 	Sweep *seatsweep.Cmd
 	// SeatConversation is `ccy-teams seats conversation`, the id a seat's session recorded.
 	SeatConversation *SeatConversation
+	// SeatResume is `ccy-teams internal seat-resume`, which conversation a seated launch starts in.
+	SeatResume *SeatResume
 	// Interrupted makes the run's context: Ctrl-C cancels it instead of ending the process,
 	// so the sudo credential is still dropped (review L-A).
 	Interrupted func(context.Context) (context.Context, context.CancelFunc)
@@ -119,7 +121,7 @@ func NewApp(cfg config.Config) *App { return Wire(host.New(cfg)) }
 // output cannot reach the value.
 func NewAppFor(cfg config.Config, args []string) *App {
 	if len(args) > 0 && (args[0] == subChooseTeams || args[0] == subLaunchSummary || args[0] == subSystem || args[0] == subSeats) ||
-		len(args) > 1 && args[0] == subInternal && (args[1] == verbLaunchArgs || args[1] == verbSeatCheck) {
+		len(args) > 1 && args[0] == subInternal && (args[1] == verbLaunchArgs || args[1] == verbSeatCheck || args[1] == verbSeatResume) {
 		return Wire(host.NewDiverted(cfg))
 	}
 	return NewApp(cfg)
@@ -189,7 +191,9 @@ func Wire(h *host.Host) *App {
 		Sweep:   newSweep(h),
 		SeatConversation: &SeatConversation{
 			Stdout: h.Payload, Stderr: h.Stderr, Getenv: h.Getenv, Getwd: os.Getwd,
+			NowMS: func() int64 { return time.Now().UnixMilli() },
 		},
+		SeatResume: &SeatResume{Stdout: h.Payload, Stderr: h.Stderr, Getenv: h.Getenv, Getwd: os.Getwd},
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
 		},
@@ -356,6 +360,8 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 			return a.ContainerName.Run(ctx, rest[1:])
 		case "go-cache":
 			return a.GoCache.Run(ctx, rest[1:])
+		case verbSeatResume:
+			return a.SeatResume.Run(rest[1:])
 		case verbLaunchArgs, verbSeatCheck, "seat-take", "bus-disconnected", "cc-run":
 			return a.Launch.Run(ctx, rest)
 		}
@@ -364,6 +370,7 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 		"internal restart-args <session>, internal claim-container-name <project> <suffix> <owner-pid>, " +
 		"internal go-cache <project> [z], internal launch-args <session> <checkout> <seats> <Z or empty> -- <mounts...>, " +
 		"internal seat-check <list> [--resolved], internal seat-take <list> [--no-prompt], " +
+		"internal seat-resume <seats> [--fresh] [--rebind] [--relaunch] -- <claude args...>, " +
 		"internal bus-disconnected <status> <pingbus> <pingbus arguments>, " +
 		"or internal cc-run <tmp> <checkout> <session or empty> <cc pid> <seats> <true|false> -- <claude args...>.")
 }

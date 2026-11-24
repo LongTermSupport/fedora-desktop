@@ -1221,13 +1221,24 @@ are not given the limits.
 
 **Running sessions** keep the cgroup and limits they started with until relaunched; `podman update` cannot move a running container into the slice.
 
-**Team seats and `--continue`.** A launch that takes team seats (`--teams`, or Quick Launch's
-saved team) refuses claude's `-c`/`--continue` with exit 64: it would resume the checkout's
-newest conversation, which may be another seat's. The refusal prints the exact
-`ccy --resume <id> --teams <seats>`, with the id recorded by the session that held those seats
-(`ccy-teams seats conversation <seats>` prints it). When none can be named (no record, or one id
-recorded by two sessions), it says why and points at a bare `ccy --resume --teams <seats>`:
-Claude Code's picker, whose choice the seat records. ccy never rewrites the arguments.
+**Team seats resume their conversation.** A launch that takes team seats (`--teams`, or Quick
+Launch's saved team) resumes the conversation recorded for those seats: no id to type.
+`ccy-teams seats conversation <seats>` prints it. Each seat of a checkout points at one
+conversation (`.claude/ccy/seat-conversations/`), moved on to the newest record of a session
+that held the seat; a list resolves when every named seat with a pointer agrees, and a seat
+with none goes along. When none can be named (no record, a session that recorded none, seats
+that disagree, or the transcript missing on this host) the launch exits 64, says why, and names
+the two ways on:
+
+- repair: `ccy-teams seats conversation <seats> --set <id>` points the seats at a conversation
+  whose transcript is in this checkout;
+- start fresh on purpose: `ccy --teams <seats> --fresh`.
+
+`ccy --resume <id> --teams <seats>` with an id the seats' record does not name is refused unless
+`--rebind` is added; a bare `ccy --resume --teams <seats>` is Claude Code's picker, whose choice
+the seat records. `-c`/`--continue` is refused (exit 64; it would resume the checkout's newest
+conversation, which may be another seat's) and names the plain `ccy --teams <seats>`.
+`--fresh` and `--rebind` need `--teams`.
 
 The setting lives in `lib/container-limits.bash` (the Go copy, `src-go/internal/ccylimits`, is
 tested against it). The rules that hold every ccy run to the whole set:

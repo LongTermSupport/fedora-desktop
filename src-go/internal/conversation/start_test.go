@@ -22,7 +22,7 @@ func TestStartPlanResumesTheRecordedConversation(t *testing.T) {
 	if err != nil || got.Fresh || got.ID != id {
 		t.Fatalf("StartPlan = %+v, %v", got, err)
 	}
-	if !slices.Equal(got.Args[len(got.Args)-2:], []string{"--resume", id}) {
+	if !slices.Equal(got.Args[len(got.Args)-2:], []string{"--resume", id}) || slices.Contains(got.Args, "--fresh") {
 		t.Fatalf("args %q do not resume %s", got.Args, id)
 	}
 }
@@ -36,7 +36,8 @@ func TestStartPlanStartsAMarkedRecordWithNothingRecordedFresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := StartPlan(rec, none)
-	if err != nil || !got.Fresh || got.ID != "" || slices.Contains(got.Args, "--resume") {
+	// Issue 417: the seated launch says --fresh, or it would resume the seats' record.
+	if err != nil || !got.Fresh || got.ID != "" || slices.Contains(got.Args, "--resume") || !slices.Contains(got.Args, "--fresh") {
 		t.Fatalf("StartPlan = %+v, %v", got, err)
 	}
 	if !strings.Contains(got.Why, "no conversation is recorded") {

@@ -27,49 +27,54 @@
 # decides each list's system and refuses (78) an agent-bus list when agent-bus is missing, so a
 # teamchat launch runs on a host without it.
 
-# ccy_seats_check <list> <attended> [claude-args...] — the canonical form of a --teams list,
-# printed on stdout, as `agent-bus seat check` gives it. Attended (true: a person at a
-# terminal), a team named alone is kept for the chooser; otherwise it is refused (64). A launch
-# that takes seats with claude's -c/--continue is refused (64, the owner's ruling Q67): it
-# resumes the checkout's newest conversation, which in a team checkout may be another seat's.
-# The arguments are never rewritten; the refusal names `ccy --resume <id>` with the id the
-# seat's session recorded (`ccy-teams seats conversation`, issue 409), or, when none can be
-# named, a bare `ccy --resume` (Claude Code's picker; the SessionStart hook records the
-# conversation picked, owner's ruling Q70). Changes nothing and runs no sudo.
+# ccy_seats_check <list> <attended> — the canonical form of a --teams list, printed on stdout,
+# as `agent-bus seat check` gives it. Attended (true: a person at a terminal), a team named
+# alone is kept for the chooser; otherwise it is refused (64). Which conversation the seats
+# start in is ccy_seats_resume's. Changes nothing and runs no sudo.
 #   status 0   the list is usable here; its canonical form printed
 #   otherwise  ccy-teams' or agent-bus's own code (64 usage, 78 a team not running here or
-#              agent-bus missing for an agent-bus list), 64 for --continue, or 78 when no
-#              single list was printed; the reason on stderr
+#              agent-bus missing for an agent-bus list), or 78 when no single list was
+#              printed; the reason on stderr
 ccy_seats_check() {
-    local list="${1?ccy_seats_check requires a list}" canonical rc=0 arg id
-    local attended="${2:?ccy_seats_check requires true or false}"
-    shift 2
+    local list="${1?ccy_seats_check requires a list}" canonical rc
     local check=(ccy-teams internal seat-check "$list")
-    if [ "$attended" != true ]; then
-        check+=(--resolved)
-    fi
-    canonical=$("${check[@]}") || rc=$?
-    if [ "$rc" -ne 0 ]; then
+    [ "${2:?ccy_seats_check requires true or false}" = true ] || check+=(--resolved)
+    canonical=$("${check[@]}") || {
+        rc=$?
         print_error "--teams '$list' refused by agent-bus seat check (exit $rc; the reason is above)."
         return "$rc"
-    fi
-    if [ -z "$canonical" ] || [[ "$canonical" == *$'\n'* ]]; then
+    }
+    [[ -n "$canonical" && "$canonical" != *$'\n'* ]] || {
         print_error "agent-bus seat check accepted '$list' but did not print one canonical list; update agent-bus (play-agent-bus.yml)."
         return 78
-    fi
-    for arg in "$@"; do
-        [ "$arg" = --continue ] || [ "$arg" = -c ] || continue
-        print_error "ccy refuses --continue in a team seat: it resumes this checkout's newest conversation, which may be another seat's."
-        if id=$(ccy-teams seats conversation "$canonical"); then
-            printf '%s\n' "  Resume the conversation this seat's session recorded:" "    ccy --resume $id --teams $canonical" >&2
-        else
-            printf '%s\n' "  No recorded conversation of the seat can be named (ccy-teams seats conversation $canonical; the reason is above)." \
-                "  Choose it in Claude Code's picker instead; the seat records the conversation you pick:" \
-                "    ccy --resume --teams $canonical" >&2
-        fi
-        return 64
-    done
+    }
     printf '%s\n' "$canonical"
+}
+
+# ccy_seats_launch [<list> <attended>] — a launch's seats and the conversation they start in
+# (issue 417). With no arguments (a launch without --teams), ccy's --fresh and --rebind are
+# refused (64). Otherwise CCY_SEATS is ccy_seats_check's canonical list, and
+# `ccy-teams internal seat-resume` decides over CLAUDE_ARGS: --fresh and --rebind (those before
+# a `--`) come out, and a plain launch gets `--resume <id>`, the seats' recorded conversation;
+# -c/--continue, a --resume <id> the seats' record does not name (without --rebind) and no
+# conversation to resume are refused (64), naming the plain launch, the repair and --fresh. A
+# restore, a team restart and the supervisor's relaunch, which resume the session's own
+# conversation, add --relaunch.
+#   status 0   CLAUDE_ARGS (and CLAUDE_ARGS_BEFORE_SEPARATOR) are what claude gets
+#   otherwise  ccy_seats_check's code, 64, or seat-resume's own code; the reason on stderr
+ccy_seats_launch() {
+    local before="${CLAUDE_ARGS_BEFORE_SEPARATOR:-${#CLAUDE_ARGS[@]}}" word out=() relaunch=()
+    for word in "${CLAUDE_ARGS[@]:0:$before}"; do
+        [[ "$#" -gt 0 || "$word" != --fresh && "$word" != --rebind ]] || { print_error "$word chooses a team seat's conversation, so it goes with --teams <seat>@<team>." && return 64; }
+    done
+    [ "$#" -gt 0 ] || return 0
+    CCY_SEATS=$(ccy_seats_check "$1" "${2:?ccy_seats_launch requires true or false}") || return
+    [ -z "${CCY_SESSION_RESTORE:-}${CCY_RESTART_RELAUNCH_SESSION:-}" ] || relaunch=(--relaunch)
+    # NUL separated: an argument may hold a newline. The count before the `--` comes first.
+    mapfile -d '' -t out < <(ccy-teams internal seat-resume "$CCY_SEATS" "${relaunch[@]}" "$before" -- "${CLAUDE_ARGS[@]}")
+    wait "$!" || return
+    [ -z "${CLAUDE_ARGS_BEFORE_SEPARATOR:-}" ] || CLAUDE_ARGS_BEFORE_SEPARATOR="${out[0]}"
+    CLAUDE_ARGS=("${out[@]:1}")
 }
 
 # ccy_seats_take <canonical-list> <unattended> <no-bus> <container> — fill CCY_SEAT_RUN_ARGS
@@ -103,11 +108,10 @@ ccy_seats_take() {
 # position for --teams=<list>) replaced by `--teams <canonical>`, NUL separated. A restart and
 # a restore replay these, so they come back in the same seats, spelled one way.
 ccy_teams_canonical_args() {
-    local flag_pos="${1:?ccy_teams_canonical_args requires the flag position}"
-    local value_pos="${2:?ccy_teams_canonical_args requires the value position}"
-    local canonical="${3:?ccy_teams_canonical_args requires the canonical list}"
+    local flag_pos="${1:?ccy_teams_canonical_args requires the flag position}" pos=0 arg \
+        value_pos="${2:?ccy_teams_canonical_args requires the value position}" \
+        canonical="${3:?ccy_teams_canonical_args requires the canonical list}"
     shift 3
-    local pos=0 arg
     for arg in "$@"; do
         pos=$((pos + 1))
         if [ "$pos" -eq "$flag_pos" ]; then
