@@ -95,6 +95,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_conversation_record`     | a host reader naming a session's conversation record's path outside `conversation.Locate`, so it knows one system's record only                                                                                                | `conversation.read`: joined v1's `SessionDir` and `File`, so no host reader found a v2 session's conversation (Plan 00209 Task 5.1)                                                                                     |
 | `project_record_file_by_name`     | a session record's file found by the record's name (`Store.Remove`, or `<registry dir>/<name>` built) rather than by the reading that found it, so a record whose file is named otherwise is left behind or named wrongly      | `ccy-sessions` picker: End removed `<registry>/<name>`, and the restore's refusals named it (fedora-desktop#398, after #396)                                                                                            |
 | `project_foreign_strict_parse`    | input from outside teamchat's protocol (stdin, an environment variable) decoded whole by the wire's strict parser `proto.Parse`, so a field the program never reads refuses the fields it reads                                | teamchat `hook`: every Claude Code SessionStart payload unusable, no `started`, every `/exit` ending 78 (fedora-desktop#394)                                                                                            |
+| `project_selector_parse`          | claude's conversation selectors (`--resume`, `-r`, `--continue`, `-c`, `--session-id`) read from a recorded launch outside registry's `selectorOf`, so two readers of one grammar disagree on what a bare `--resume` takes     | `ccy-sessions` restore: `ResumeID` named `--teams` the conversation of a session launched `ccy --resume --teams <seats>` (fedora-desktop#411)                                                                           |
 | `project_floor_by_time`           | an event-ordering floor in teamchat's member tree held as a millisecond alone, or a wall-clock since bound cut by `<=` or `>`, so the events sharing its millisecond are dropped                                               | `teamsync` qtake and relays: an owner's answer posted in the millisecond of the post before it was skipped as below the questions floor (Plan 00209 R0 step 7)                                                          |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
@@ -3929,3 +3930,50 @@ member is skipped whatever its form.
   payload with the new `proto.ForeignObject`, reading only its fields. The original: `hook`
   `TestAFieldTheHookDoesNotReadRefusesNothing` and `TestAFieldReadTwiceIsRefused`, red before
   the fix, green after; `proto` `TestForeignObject*` hold the decoder.
+
+### project_selector_parse
+
+**What it is about.** Claude's conversation selectors in a recorded launch are `-c`/`--continue`,
+`-r`/`--resume` (with or without an id), `--resume=<id>`, `--session-id <id>` and
+`--session-id=<id>`. `-r` and `--resume` take an optional value: a bare `--resume` opens Claude
+Code's picker, and the word after it is its id only when it is not a flag. `registry.selectorOf`
+is the one parser of that grammar; every reader of the selectors asks it.
+
+**Why it exists.** fedora-desktop#411: `registry.ResumeID` read the selectors for itself and took
+the word after `--resume` whatever it was, while `withoutSelectors` (through `selectorOf`) took it
+only when it was not a flag. A session launched as `ccy --resume --teams <seats>` (a supported
+launch since owner ruling Q70) was put in the restore manifest by `ccy-sessions restore` as
+resuming `--teams`.
+
+**What it flags**, outside `_test.go`, in `internal/registry` and every package that imports it
+(the readers of a session record's launch words): a constant string that is a selector (or the
+prefix `--resume=` or `--session-id=`), matched by value so a named constant counts, used as an
+operand of `==` or `!=`, a case of a tagged switch, or an argument of a `strings` or `slices`
+function, anywhere but `selectorOf`. A selector spelled to build arguments (`ResumeArgs`'s
+`--resume`) is not a read and is not judged.
+
+**Scope, examined.** A package that does not import the registry parses some other command line:
+`ccc`'s own `--continue` (ccc's flag, not a recorded launch), `teamchat/member/cli`'s refusal of a
+resume flag in claude's CMD (presence only, no value read). Wider rule considered: every argv
+reader in `src-go` that takes the word after an optional-value option without asking whether it
+is a flag. Not built: which options take an optional value is not in the code to read (the
+launcher's own value flags take the next word whatever it is, by design), so such a rule would be
+a list of option names, which is this rule. The bash twin `ccy_registry_resume_id` is beyond a Go
+analyzer; `TestResumeIDAndSupervisedGolden` runs every golden row through both, so it cannot
+disagree with `ResumeID`.
+
+**Not caught:** a selector held in a variable or a slice and compared through it; a map keyed by
+selectors; a package handed launch words as a `[]string` that does not import the registry.
+
+**How to fix:** ask `selectorOf` (or a registry function built on it), and add any new selector
+there.
+
+- Red, fixture: `testdata/src/selector`: `internal/registry` (`ResumeID` as it was: 4 findings;
+  `selectorOf` and a built `--resume` clean), `badreader` (`==` both ways round, `!=`, a tagged
+  switch with a named constant, `slices.Contains`, `strings.CutPrefix`: 7 findings; a test file and
+  an unrelated word clean), `ownflags` (its own `--continue`, no registry import: clean). With the
+  analyzer reporting nothing the test missed all 11 diagnostics.
+- Red, real tree (the defence commit, the driver as `go vet -vettool`, both modules, untagged and
+  `ccyteamstest`): 4 findings, all in `registry/restore.go` `ResumeID` (lines 247-249). The
+  independent search made before the rule ran (every reader of a selector in `src-go` and the
+  launcher's bash) found the same Go instance and its bash twin.

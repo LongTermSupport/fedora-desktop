@@ -223,12 +223,21 @@ func TestStartDecision(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), StartDecision, "fix/internal/registry", "fix/internal/conversation", "fix/internal/badstart")
 }
 
+// A recorded launch's conversation selectors read outside registry's selectorOf
+// (fedora-desktop#411): ResumeID as it was, beside ==, !=, a tagged switch, a named constant
+// and the strings and slices helpers in a package that reads records; selectorOf itself, a
+// selector spelled to build arguments, test files and a package that reads no record (its own
+// --continue) are not judged.
+func TestSelectorParse(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), SelectorParse, "selector/internal/registry", "selector/badreader", "selector/ownflags")
+}
+
 func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 62 {
-		t.Fatalf("want 62 rules, got %d", got)
+	if got := len(All()); got != 63 {
+		t.Fatalf("want 63 rules, got %d", got)
 	}
 }
 
