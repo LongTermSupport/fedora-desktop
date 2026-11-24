@@ -102,7 +102,10 @@ expect_has "python: mirrored test" "$plan" "check unit-tests: tests.helpers.gnom
 expect_lacks "python: no shellcheck" "$plan" "check shellcheck"
 
 plan="$(plan_for tests/helpers/gnome/test_check_panel_contract.py)"
-expect_has "changed test runs itself" "$plan" "check unit-tests: tests.helpers.gnome.test_check_panel_contract"
+# One unit-tests line names every module the plan runs (a changed test also runs the checker
+# sweeps, issue 406), so the module is matched on that line, in any position.
+expect_has "changed test runs itself" "$plan" " tests.helpers.gnome.test_check_panel_contract"
+expect_has "changed test runs the cited-constant sweep" "$plan" "tests.helpers.plan_acceptance.test_cited_constant_copy_rule"
 
 plan="$(plan_for playbooks/imports/play-python.yml)"
 expect_has "playbook: ansible-syntax" "$plan" "check ansible-syntax: playbooks/imports/play-python.yml"
@@ -159,6 +162,11 @@ mkdir -p "$REPO/files/home/.local/bin"
 git_s() { git -C "$REPO" -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false "$@"; }
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 git_s init -q
+# A local plan asks the repository which files each semgrep gate reads (issue 403): its rule files
+# and the trees table, as the Go tests' scratch repository holds them (seedRuleGates).
+mkdir -p "$REPO/.semgrep" "$REPO/scripts"
+cp "$SCRIPT_DIR"/../.semgrep/*.yml "$REPO/.semgrep/"
+cp "$SCRIPT_DIR/qa-trees.tsv" "$REPO/scripts/"
 printf 'ignored.bash\n' > "$REPO/.gitignore"
 printf '#!/usr/bin/bash\n:\n' > "$REPO/kept.bash"
 printf '#!/usr/bin/bash\n:\n' > "$REPO/gone.bash"
@@ -250,7 +258,10 @@ expect_lacks "bash-limits: untouched by markdown" "$plan" "check bash-limits"
 
 echo
 echo "== the files the arch-pin rule guards -> the arch-pin gate =="
-for changed in files/var/local/claude-yolo/Dockerfile .claude/ccy/Dockerfile playbooks/imports/play-python.yml tasks/build-go-command.yml vars/fedora-version.yml files/var/local/docker-in-lxc .github/workflows/qa.yml .semgrep/arch-pin.yml; do
+# Not .claude/ccy/Dockerfile: scripts/qa-trees.tsv keeps .claude/ccy out of every gate, so the
+# gate never reads it and a local plan does not run it there (issue 403); the coverage question
+# is the owner's (issue 408).
+for changed in files/var/local/claude-yolo/Dockerfile playbooks/imports/play-python.yml tasks/build-go-command.yml vars/fedora-version.yml files/var/local/docker-in-lxc .github/workflows/qa.yml .semgrep/arch-pin.yml; do
     plan="$(plan_for "$changed")"
     expect_has "arch-pin: $changed runs the gate" "$plan" "check arch-pin"
 done
