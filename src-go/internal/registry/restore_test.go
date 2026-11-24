@@ -53,6 +53,8 @@ func TestResumeArgsGoldenCases(t *testing.T) {
 		{"compose running", "running", "ccy", nil, "--compose|start|--supervise|" + r},
 		{"compose declined", "declined", "ccy", []string{"--"}, "--compose|skip|--supervise|--|" + r},
 		{"compose is ccy's flag only", "started", "cc", []string{"-x"}, "-x|" + r},
+		// Issue 417: a seated resume is never fresh, and a recorded choice of ccy's goes.
+		{"a seated resume has no fresh", "", "ccy", []string{"--teams", "1@t", "--fresh", "--rebind"}, "--teams|1@t|--supervise|" + r},
 	}
 	for _, c := range cases {
 		got, err := ResumeArgs(c.compose, c.prefix, c.args, conversation)
@@ -80,6 +82,12 @@ func TestFreshArgsAreTheResumeArgsWithoutTheResume(t *testing.T) {
 		{"a recorded continue goes", "", "ccy", []string{"--continue", "-r", "abc"}, "--supervise"},
 		{"compose replayed", "declined", "ccy", []string{"--", "--model", "opus", "-c"}, "--compose|skip|--supervise|--|--model|opus"},
 		{"cc gets its own words only", "started", "cc", []string{"--bus", "--resume"}, "--bus"},
+		// Issue 417: a plain seated launch resumes the seats' record, so a fresh start says --fresh.
+		{"a seated ccy start is fresh on purpose", "", "ccy", []string{"--teams", "1@t", "-c"}, "--teams|1@t|--supervise|--fresh"},
+		{"a seated --teams= start too", "", "ccy", []string{"--teams=1@t", "--fresh"}, "--teams=1@t|--supervise|--fresh"},
+		{"fresh goes before dash dash", "", "ccy", []string{"--teams", "1@t", "--", "--model", "x"}, "--teams|1@t|--supervise|--fresh|--|--model|x"},
+		{"teams after dash dash is claude's", "", "ccy", []string{"--", "--teams", "1@t"}, "--supervise|--|--teams|1@t"},
+		{"cc gets no fresh", "", "cc", []string{"--teams", "1@t"}, "--teams|1@t"},
 	}
 	for _, c := range cases {
 		got, err := FreshArgs(c.compose, c.prefix, c.args)
@@ -119,7 +127,10 @@ func TestFlagClassAgreesWithBash(t *testing.T) {
 	words := []string{
 		"--rebuild", "--rebuild=1", "--update-token=x", "--update-token", "--teams=1@a", "--teams", "--token", "--no-ssh",
 		"--supervise", "--compose", "--no-restore", "-h", "--model", "plain", "--connect", "--engine", "--until",
-		"--no-bus",
+		"--no-bus", "--fresh", "--rebind",
+	}
+	if FlagClass("--fresh") != ClassDrop || FlagClass("--rebind") != ClassDrop {
+		t.Errorf("--fresh and --rebind are replayed: a restore resumes the session's own conversation (issue 417)")
 	}
 	if FlagClass("--no-bus") != ClassKeep {
 		t.Errorf("--no-bus is replayed: a restore keeps a session out of the bus as it was launched")

@@ -520,7 +520,7 @@ func TestWizardInACheckoutAcceptsEveryDefault(t *testing.T) {
 	wzContain(t, "stderr", e, "ccy --teams proj",
 		"1/6  What the team works on", "6/6  Other machines",
 		"✓ Repositories you list (one or more), starting with example-org/proj", "✓ example-org/proj",
-		"Starting ccy --teams proj in ~/proj.")
+		"Starting ccy --teams proj --fresh in ~/proj.")
 	wzLack(t, "stderr", e, "forge_api", "path_prefixes", "meta-deploy", "Traceback")
 	if n := strings.Count(h.boxes(), "private room"); n != 1 {
 		t.Errorf("private room explained %d times", n)
@@ -534,7 +534,7 @@ func TestWizardInACheckoutAcceptsEveryDefault(t *testing.T) {
 	if len(h.pwd) != 0 || len(h.element) != 0 {
 		t.Errorf("declined offers ran: %v %v", h.pwd, h.element)
 	}
-	if len(h.execd) != 1 || !slices.Equal(h.execd[0], []string{wzHome + "/proj", "/opt/ccy/launcher", "--teams", "proj"}) {
+	if len(h.execd) != 1 || !slices.Equal(h.execd[0], []string{wzHome + "/proj", "/opt/ccy/launcher", "--teams", "proj", "--fresh"}) {
 		t.Errorf("exec %v", h.execd)
 	}
 	wzContain(t, "stdout", h.stdout.String(), "CHANGED\tteam proj, port 6169")

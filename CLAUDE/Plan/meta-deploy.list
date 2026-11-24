@@ -98,6 +98,10 @@
 # #411 (ccy 3.124.43): ccy-sessions is rebuilt and the launcher's session-registry library deployed so
 # a session launched with a bare ccy --resume (the picker), such as ccy --resume --teams <seats>,
 # is no longer put in the restore manifest as resuming --teams. The image is unchanged.
+# #417 (ccy 3.125.1): a plain ccy --teams <seats> resumes the conversation recorded for the
+# seats (behaviour change: use --fresh to start a new one); none recorded is exit 64 naming
+# ccy-teams seats conversation <seats> --set <id> and --fresh. The launcher and ccy-teams are
+# rebuilt; the image is unchanged.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that

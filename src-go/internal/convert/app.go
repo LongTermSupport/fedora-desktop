@@ -17,7 +17,6 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -30,16 +29,14 @@ type Env struct {
 	Stdout   io.Writer
 	Stderr   io.Writer
 	LookPath func(string) (string, error)
-	// Pid names the temporary each engine writes to (E11).
-	Pid   int
-	Table []InputType
+	Table    []InputType
 }
 
 // NewEnv is the production environment.
 func NewEnv() Env {
 	return Env{
 		Runner: execx.OS{}, Stdout: os.Stdout, Stderr: os.Stderr,
-		LookPath: exec.LookPath, Pid: os.Getpid(), Table: Table,
+		LookPath: exec.LookPath, Table: Table,
 	}
 }
 
@@ -62,10 +59,10 @@ func fail(format string, args ...any) error {
 
 var errCancelled = &failure{code: term.ExitCancelled, msg: "cancelled."}
 
-// job is one requested output: its row, where it lands and the temporary the engine writes.
+// job is one requested output: its row and where it lands.
 type job struct {
-	out       Output
-	path, tmp string
+	out  Output
+	path string
 }
 
 // Run is one invocation; its exit code is SPEC-convert.md section 5's.
@@ -157,7 +154,7 @@ func (a App) plan(opts options, in InputType) ([]job, error) {
 				opts.file, in.Name, format, strings.Join(in.formats(), ", "))}
 		}
 		path := stem + "." + format
-		jobs = append(jobs, job{out: o, path: path, tmp: fmt.Sprintf("%s.tmp.%d", path, a.Env.Pid)})
+		jobs = append(jobs, job{out: o, path: path})
 	}
 	for _, j := range jobs {
 		if _, err := os.Lstat(j.path); err == nil && !opts.force {
@@ -176,24 +173,36 @@ func notInstalled(e Engine) error {
 	return fail("%s is not installed; the play that installs it is %s (run it, do not install by hand).", e.Program(), e.Play())
 }
 
-// convert is E11, E12 and E14 for one output: the engine writes the temporary, which is
-// renamed onto the output only when the engine succeeded.
+// convert is E11, E12 and E14 for one output: the engine writes a temporary of the output's
+// name inside a directory of this run's own beside it (never at a name a link could be planted
+// at first: rule project_temp_not_exclusive, issue 417), which is renamed onto the output only
+// when the engine succeeded; the directory is removed either way.
 func (a App) convert(ctx context.Context, abs, file string, j job) error {
-	tmp, err := filepath.Abs(j.tmp)
+	target, err := filepath.Abs(j.path)
 	if err != nil {
-		return fail("cannot resolve '%s': %v", j.tmp, err)
+		return fail("cannot resolve '%s': %v", j.path, err)
 	}
-	err = j.out.Engine.Convert(ctx, a.Env.Runner, abs, tmp)
-	if err == nil {
-		if rerr := os.Rename(tmp, j.path); rerr != nil {
-			return errors.Join(fail("cannot move the output into place at '%s': %v", j.path, rerr), fsx.RemoveIfPresent(tmp))
-		}
-		return nil
+	dir, err := os.MkdirTemp(filepath.Dir(target), "."+filepath.Base(target)+".convert-")
+	if err != nil {
+		return fail("cannot make a working directory beside '%s': %v", j.path, err)
 	}
-	if rerr := fsx.RemoveIfPresent(tmp); rerr != nil {
-		return fail("%v; and %v", engineError(ctx, file, j, err), rerr)
+	err = a.convertIn(ctx, abs, file, j, filepath.Join(dir, filepath.Base(target)))
+	if rerr := os.RemoveAll(dir); rerr != nil {
+		return errors.Join(err, fail("cannot remove '%s': %v", dir, rerr))
 	}
-	return engineError(ctx, file, j, err)
+	return err
+}
+
+// convertIn is convert's work, the engine writing tmp.
+func (a App) convertIn(ctx context.Context, abs, file string, j job, tmp string) error {
+	err := j.out.Engine.Convert(ctx, a.Env.Runner, abs, tmp)
+	if err != nil {
+		return engineError(ctx, file, j, err)
+	}
+	if rerr := os.Rename(tmp, j.path); rerr != nil {
+		return fail("cannot move the output into place at '%s': %v", j.path, rerr)
+	}
+	return nil
 }
 
 func engineError(ctx context.Context, file string, j job, err error) error {

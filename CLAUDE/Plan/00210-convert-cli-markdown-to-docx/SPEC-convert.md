@@ -85,8 +85,11 @@ Options: `--to LIST` or `--to=LIST`; `-f`/`--force` (replace an existing output)
 - **E10** Every engine the request needs is looked up on PATH before any conversion runs. A
   missing one is exit 1: `convert: <program> is not installed; the play that installs it is <play> (run it, do not install by hand).` The same message is given if the engine disappears
   between the check and the run (the runner's not-installed error).
-- **E11** An engine writes to a temporary beside the output (`<output>.tmp.<pid>`), which is
-  renamed onto the output only when the engine exits 0, so no reader ever sees half a file.
+- **E11** An engine writes to a temporary of the output's name inside a directory the run makes
+  beside the output (`.<output>.convert-<random>/`, `os.MkdirTemp`, so no link planted at a
+  predictable name is followed: rule `project_temp_not_exclusive`, issue 417), which is renamed
+  onto the output only when the engine exits 0, so no reader ever sees half a file; the
+  directory is removed either way.
 - **E12** An engine that exits non-zero is exit 1:
   `convert: <program> could not convert '<FILE>' to <format>: <its stderr>`. The temporary is
   removed. Outputs already written by earlier formats in the same run stay, and are listed on

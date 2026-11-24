@@ -17,6 +17,41 @@ Two version numbers move independently — see
 
 ---
 
+## 3.125.1 — container 2.84.78
+
+**Behaviour change:** a plain `ccy --teams <seats>` now resumes the conversation recorded for
+those seats, with no id typed, where it used to start a new one (issue #417). A launch that
+should start fresh says so: `ccy --teams <seats> --fresh`. `ccy-teams` is rebuilt on the host,
+and the image is rebuilt for the exclusive temporary files below.
+
+- **Each seat points at its conversation.** The pointer is
+  `.claude/ccy/seat-conversations/<seat>@<team>.json` in the checkout, written whole by
+  ccy-teams only. Every lookup first moves each pointer on to the newest record of a session
+  that held the seat (agent-bus: its keeper's `applied.json` and `conversation.json`; teamchat:
+  its `desired.json` and its link's record), transcript in this checkout included, so a seat
+  keeps its conversation when its session's folder is later used for other seats.
+- **A subset or a superset of a session's seats resolves** when every named seat with a pointer
+  agrees on one id; a named seat with none goes along and is recorded by the session the launch
+  starts.
+- **When none can be named, exit 64**, naming the case (no record for any named seat, sessions
+  that held them recorded no conversation, the seats disagree with each seat's id, or the
+  agreed conversation's transcript is missing with the path expected) and the two ways on:
+  repair with `ccy-teams seats conversation <seats> --set <id>` (new; the transcript must be in
+  this checkout), or start fresh with `--fresh`.
+- **`--resume <id>` of another conversation is refused** unless `--rebind`; the same id, or no
+  record, works as before. A bare `ccy --resume --teams <seats>` is still Claude Code's picker
+  (Q70). The `--continue` refusal now names the plain `ccy --teams <seats>`.
+- `--fresh` and `--rebind` are ccy's words and are refused without `--teams`. A restore, a team
+  restart and the supervisor's relaunch resume the session's own conversation as before; a
+  restore of a record marked fresh-if-no-conversation passes `--fresh`, and ccy-teams create's
+  new-session offer launches with `--fresh`.
+- **Files written whole never follow a planted link.** The shared atomic writer (`fsx`, used by
+  the seat pointers, the session registry and some thirty other writers on the host and in the
+  image) wrote `<file>.tmp.<pid>`, a name another party could predict, with a create that follows
+  a link there. It now creates `<file>.tmp.<random>` exclusively. A new Go rule,
+  `project_temp_not_exclusive`, holds every such temporary to an exclusive create or a private
+  directory; ftp-camera, vmtest, wsi and convert were fixed with it.
+
 ## 3.124.43 — container 2.84.77
 
 3.124.42 and 3.124.43 are one change (issue #411): 3.124.43 brings the launcher library back

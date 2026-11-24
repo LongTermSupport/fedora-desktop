@@ -61,6 +61,7 @@ Executing Claude Code with arguments:
 Note: docker did not list its networks; none was checked for this project.
 === calls
 ccy-teams internal seat-check dev1@team-a --resolved
+ccy-teams internal seat-resume dev1@team-a 1 -- --resume
 claude --help
 getenforce
 podman info --format '{{.Host.Security.SELinuxEnabled}}'

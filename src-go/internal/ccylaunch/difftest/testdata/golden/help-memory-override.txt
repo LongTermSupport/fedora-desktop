@@ -51,14 +51,14 @@ Options:
                          and is refused when there are none; a key that needs a
                          passphrase is refused unless your ssh-agent holds it (ssh-add it)
   --teams [TEAM | SEAT@TEAM[,SEAT@TEAM...]]
-                         Join agent team bus teams, one seat each. Bare --teams lists the
-                         teams and what each is for (Tab marks several); one not covering
-                         this repository is widened only on a yes. A team alone: ccy asks
-                         the seat (lowest free is the default), and offers to create a team
-                         this machine lacks. Name seats (--teams 1@dev-team,qa2@other-team;
-                         quote a list with spaces) when nobody can be asked. A seat is made
-                         on first use (sudo agent-bus add-member), held by one session; the
-                         launch prints each seat, role and description (status line 👥 A,B).
+                         Join agent team bus teams, one seat each, resuming the seats' recorded
+                         conversation: --fresh starts a new one, --resume ID of another needs
+                         --rebind, none recorded is exit 64 (repair: ccy-teams seats
+                         conversation SEATS --set ID). Bare --teams lists the teams (Tab marks
+                         several); a team alone: ccy asks the seat, and offers to create a team
+                         this machine lacks. Name seats (--teams 1@dev-team,qa2@other-team)
+                         when nobody can be asked. A seat is made on first use, held by one
+                         session; the launch prints each seat, role and description.
                          Exit 64 list unusable, 75 seat held elsewhere, 78 team or seat not
                          set up here. Needs play-agent-bus.yml; Quick Launch keeps both.
   --no-bus               Leave the agent team bus kit out. Without --teams a session started

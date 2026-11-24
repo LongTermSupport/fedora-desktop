@@ -547,7 +547,7 @@ m7_launch() {
     mkfifo -- "${ev}/stdin.fifo" || return 1
     args=(--headless --no-restore --no-supervise)
     if [[ -n "$2" ]]; then
-        args+=(--teams "$2")
+        args+=(--teams "$2" --fresh)
     fi
     args+=(--prompt "${M7_PROMPT}" -- --input-format stream-json --output-format stream-json --verbose --model "${M7_MODEL}")
     SESSION_STARTED=1

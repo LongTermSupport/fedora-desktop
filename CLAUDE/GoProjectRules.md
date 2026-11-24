@@ -97,6 +97,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_foreign_strict_parse`    | input from outside teamchat's protocol (stdin, an environment variable) decoded whole by the wire's strict parser `proto.Parse`, so a field the program never reads refuses the fields it reads                                | teamchat `hook`: every Claude Code SessionStart payload unusable, no `started`, every `/exit` ending 78 (fedora-desktop#394)                                                                                            |
 | `project_selector_parse`          | claude's conversation selectors (`--resume`, `-r`, `--continue`, `-c`, `--session-id`) read from a recorded launch outside registry's `selectorOf`, so two readers of one grammar disagree on what a bare `--resume` takes     | `ccy-sessions` restore: `ResumeID` named `--teams` the conversation of a session launched `ccy --resume --teams <seats>` (fedora-desktop#411)                                                                           |
 | `project_floor_by_time`           | an event-ordering floor in teamchat's member tree held as a millisecond alone, or a wall-clock since bound cut by `<=` or `>`, so the events sharing its millisecond are dropped                                               | `teamsync` qtake and relays: an owner's answer posted in the millisecond of the post before it was skipped as below the questions floor (Plan 00209 R0 step 7)                                                          |
+| `project_temp_not_exclusive`      | a temporary created without O_EXCL and then renamed or linked into place, so a link planted at its predictable name is followed and the write lands where it points                                                            | `fsx.WriteAtomic`: `<path>.tmp.<pid>` written by `os.WriteFile`, in a directory a container shares (fedora-desktop#417 review)                                                                                          |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
 `go vet -vettool=<driver> help ...` does not reach it) says what it does and
@@ -3983,3 +3984,61 @@ there.
   `registry` `TestResumeIDAndSupervisedGolden` (`{--resume --teams x} -> ""` and five more rows,
   Go and the bash twin) and `sessions` `TestABareResumeLaunchIsNeverResumedAsTheFlagAfterIt`
   (the manifest named `--no-ssh` before the fix), green after.
+### project_temp_not_exclusive
+
+**What it is about.** A file written whole is written to a temporary beside it and renamed (or
+linked) into place, so no reader sees half of it. A create without `O_EXCL` (`os.WriteFile`,
+`os.Create`, `os.OpenFile` with `O_CREATE` alone, a child program's output file) opens whatever is
+already at the temporary's name, and follows a link there. The name is usually predictable (the
+target's name with a pid or a fixed suffix), so anyone who can write the directory can plant a
+link first and the write lands where it points; two writers sharing the name lose one's content.
+
+**Why it exists.** The fedora-desktop#417 review: `fsx.WriteAtomic`, which some thirty writers
+share (the seat conversation pointers among them, under `.claude/ccy`, which a ccy container
+writes as its own), wrote `<path>.tmp.<pid>` with `os.WriteFile`.
+
+**What it flags**, in non-test files: in one function body (a function literal is its own), a
+create made without `O_EXCL` whose path a later call of the same body renames or links into place
+(`os.Rename`, `os.Link`, `os.Root`'s `Rename` and `Link`, `unix` or `syscall` `Rename`,
+`Renameat`, `Renameat2`, `Link`, `Linkat`). A create is `os.WriteFile`, `os.Create`, `os.Root`'s
+`WriteFile` and `Create`; `os.OpenFile`, `os.Root.OpenFile`, `unix.Open`, `unix.Openat` and
+`syscall.Open` whose flags hold `O_CREAT` and not `O_EXCL` (a constant, or a local the body
+assigns one); a call of a function that creates its parameter's path so (a fact, so a helper of
+any package counts, through any number of calls); and a path among the `Args` of an
+`internal/execx` `Cmd` literal (directly or through a slice the body builds), which the child may
+create. Two paths are the same when they are the same variable or the same expression as
+written (a `filepath.Clean` around one taken off). A path built from a name `os.MkdirTemp` or
+`os.CreateTemp` chose is clean: only this process made it.
+
+**Scope, examined.** A rename before the create (a rotation: the file moved aside, then the
+target written) is not a temporary and is not judged. A path handed to a child that only reads it
+and then renamed would be flagged too; none is in the tree. Wider rule considered: every create
+without `O_EXCL` in a directory another party can write, renamed or not. Not built: which
+directories another party writes is not in the code, and a file written in place is the target
+itself, whose name the writer owns.
+
+**Not caught:** a temporary created in one function and moved in another (a returned path, a
+struct field); a create or move through an interface (`convert`'s `Engine.Convert`, carry's fs
+interface); a path rebuilt in another spelling between the two calls; flags the body does not
+spell (a parameter).
+
+**How to fix:** create the temporary with `os.CreateTemp` in the target's directory (a random
+name, `O_CREATE|O_EXCL`) and rename `f.Name()`; for a child program, give it a path inside an
+`os.MkdirTemp` directory beside the target. An exclusive create of a fixed name
+(`O_CREATE|O_EXCL|O_NOFOLLOW`) is clean too, and fails on a leftover rather than following it.
+
+- Red, fixture: `testdata/tempexclusive/src/fix`: `internal/badtemp` (the defect; `os.Create`,
+  `OpenFile` with `O_TRUNC`, a link, `os.Root`'s `WriteFile` and `Create`, flags held in a
+  variable, `unix.Openat`, a function literal, a helper of the package and of another package,
+  curl through a built argument slice, sox through a literal: 13 findings), `internal/goodtemp`
+  (`CreateTemp`, `O_EXCL` spelled and in a constant, the raw call with `O_EXCL`, a write in
+  place, a rotation, a helper that creates exclusively, a child writing in an `os.MkdirTemp`
+  directory, a test: clean), and the facts of `badtemp`, `goodtemp` and `tempio`. With the
+  analyzer reporting nothing the test missed all 9 diagnostics of the first fixture.
+- Red, real tree (the defence commit, the driver as `go vet -vettool`, both modules and every
+  build tag set): 5 findings, `fsx/fsx.go` (`WriteAtomic`), `ftpcamera/upload.go`
+  (`copyIntoMount` through `copyFile`), `vmtest/build.go` (`base.json.new`), `vmtest/fetch.go`
+  (curl `-o <dest>.partial`) and `wsi/transcribe.go` (sox's output). The independent search made
+  before the rule (every rename and link in `src-go`, each traced to its create) found the first
+  four, judged sox's unsure, and found one the rule cannot see: `convert/app.go`, whose engine
+  writes `<path>.tmp.<pid>` through an interface (fixed with the rest).

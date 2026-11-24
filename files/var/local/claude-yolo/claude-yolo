@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.124.43"  # Container 2.84.77: a session launched with a bare ccy --resume (the picker) is no longer recorded by a restore as resuming the flag after it, such as --teams (#411); teamchat's hook reads only the fields it uses from Claude Code's payload and ignores any other member whatever its form, so every SessionStart is usable again, the link says started and /exit no longer ends 78 (#394); the --continue refusal in a team seat prints ccy --resume with the conversation id the seat's session recorded (ccy-teams seats conversation), refuses an id two sessions record, and with none names the bare ccy --resume picker, never a transcript (#409); ccy-teams seats abandon releases the held seats of a team whose server is gone for good, on the owner's word, without a logout, refuses a run with nothing held in this checkout and names the file behind each known-team refusal (#386), reading only the session folders under control/, so the launcher's disconnect.log there no longer refuses every run (#404); a session record is acted on through the file it was read from, never <registry>/<name>, so ending a session removes its record however its file is named and refusals name the right file (#398); its stop file stays keyed by the session's name (#401); the daily Claude Code update check says when the image's Claude Code is newer than every screen capture the idle checks were tested on (#397). See docs/ccy-changelog.md.
+CCY_VERSION="3.125.1"  # Container 2.84.78: a plain ccy --teams <seats> resumes the conversation recorded for the seats (a per-seat pointer, ccy-teams seats conversation), exit 64 naming the repair (--set <id>) and --fresh when none can be named; --resume <id> of another conversation needs --rebind; the --continue refusal names the plain launch (#417, after #409); teamchat's hook reads only the fields it uses from Claude Code's payload and ignores any other member whatever its form, so every SessionStart is usable again, the link says started and /exit no longer ends 78 (#394); ccy-teams seats abandon releases the held seats of a team whose server is gone for good, on the owner's word, without a logout, refuses a run with nothing held in this checkout and names the file behind each known-team refusal (#386), reading only the session folders under control/, so the launcher's disconnect.log there no longer refuses every run (#404); a session record is acted on through the file it was read from, never <registry>/<name>, so ending a session removes its record however its file is named and refusals name the right file (#398); its stop file stays keyed by the session's name (#401); the daily Claude Code update check says when the image's Claude Code is newer than every screen capture the idle checks were tested on (#397). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -105,7 +105,7 @@ ccy_container_limits || exit 1
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.84.77"
+REQUIRED_CONTAINER_VERSION="2.84.78"
 
 set -e
 
@@ -241,14 +241,14 @@ Options:
                          and is refused when there are none; a key that needs a
                          passphrase is refused unless your ssh-agent holds it (ssh-add it)
   --teams [TEAM | SEAT@TEAM[,SEAT@TEAM...]]
-                         Join agent team bus teams, one seat each. Bare --teams lists the
-                         teams and what each is for (Tab marks several); one not covering
-                         this repository is widened only on a yes. A team alone: ccy asks
-                         the seat (lowest free is the default), and offers to create a team
-                         this machine lacks. Name seats (--teams 1@dev-team,qa2@other-team;
-                         quote a list with spaces) when nobody can be asked. A seat is made
-                         on first use (sudo agent-bus add-member), held by one session; the
-                         launch prints each seat, role and description (status line 👥 A,B).
+                         Join agent team bus teams, one seat each, resuming the seats' recorded
+                         conversation: --fresh starts a new one, --resume ID of another needs
+                         --rebind, none recorded is exit 64 (repair: ccy-teams seats
+                         conversation SEATS --set ID). Bare --teams lists the teams (Tab marks
+                         several); a team alone: ccy asks the seat, and offers to create a team
+                         this machine lacks. Name seats (--teams 1@dev-team,qa2@other-team)
+                         when nobody can be asked. A seat is made on first use, held by one
+                         session; the launch prints each seat, role and description.
                          Exit 64 list unusable, 75 seat held elsewhere, 78 team or seat not
                          set up here. Needs play-agent-bus.yml; Quick Launch keeps both.
   --no-bus               Leave the agent team bus kit out. Without --teams a session started
@@ -878,7 +878,8 @@ ccy_launch_teams() {
         # Empty: the owner left the chooser, and said so is already on stderr.
         [ -n "$TEAMS_LIST" ] || exit 0
     fi
-    CCY_SEATS=$(ccy_seats_check "$TEAMS_LIST" "$attended" "${CLAUDE_ARGS[@]}") || rc=$?
+    # The seats, and the conversation they start in: their recorded one, unless --fresh (#417).
+    ccy_seats_launch "$TEAMS_LIST" "$attended" || rc=$?
     if [ "$rc" -ne 0 ]; then
         # An unquoted `--teams a@x, b@y` reaches ccy as `a@x,` and a separate word.
         next="${*:$((TEAMS_VALUE_POS + 1)):1}"
@@ -890,13 +891,15 @@ ccy_launch_teams() {
 }
 if [ "$TEAMS_GIVEN" = true ]; then
     ccy_launch_teams "$@"
-    _ccy_teams_args=()
     # NUL-separated, which a variable cannot hold, so it stays < <(...) with its wait (#322).
     mapfile -d '' -t _ccy_teams_args < <(ccy_teams_canonical_args "$TEAMS_FLAG_POS" "$TEAMS_VALUE_POS" "$CCY_SEATS" "$@")
     wait "$!" || exit 1
     set -- "${_ccy_teams_args[@]}"
     CCY_ORIG_ARGS=("$@")
     unset _ccy_teams_args
+else
+    # Without seats, --fresh and --rebind are refused.
+    ccy_seats_launch || exit $?
 fi
 
 # Export the GitHub-443 toggle as the env var consumed BOTH by the host-side SSH
@@ -968,10 +971,8 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
         grep -q '^Usage:' <<< "$claude_help" || claude_help=""
     fi
 
-    if [ -z "$claude_help" ]; then
-        # No way to validate. Skip and let claude itself reject later.
-        :
-    else
+    # No help text: no way to validate, so claude itself rejects a bad flag later.
+    if [ -n "$claude_help" ]; then
 
         unknown=()
         for f in "${suspect_flags[@]}"; do

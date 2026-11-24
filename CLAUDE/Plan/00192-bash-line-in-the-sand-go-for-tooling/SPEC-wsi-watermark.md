@@ -179,9 +179,11 @@ Python and are run from the directory the binary is in.
 
 ### Transcribing
 
-- W20. `sox <wav> <wav>.resampled.wav rate 16k` (stderr shown with `-d`), then the result
+- W20. `sox <wav> <dir>/<wav name>.resampled.wav rate 16k` (stderr shown with `-d`; `<dir>` a
+  directory the run makes beside the recording, `<wav>.sox-<random>`, removed after: no link
+  planted at a predictable name in the shared temporary directory is followed, issue 417), then the result
   replaces the recording; either failing is W9, exit 1. `soxi -D <wav>`: a duration under 1 s
-  is padded (`sox <wav> <wav>.padded pad 0 1`, then it replaces the recording; failing is W9,
+  is padded (`sox <wav> <dir>/<wav name>.padded pad 0 1`, then it replaces the recording; failing is W9,
   exit 1); soxi failing or printing no number is a problem (W9 problem) and the pad is skipped.
 - W21. The `TRANSCRIBING` state. With a server:
   `curl -S -s <addr>/inference -H Content-Type: multipart/form-data -F file=@<wav> -F temperature=0.0 -F temperature_inc=0.2 -F response_format=text`; a failing curl is

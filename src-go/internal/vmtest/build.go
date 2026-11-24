@@ -582,14 +582,18 @@ func (c *cli) flatten(ctx context.Context, l *lab, b baseFacts, st *building, r 
 	return nil
 }
 
-// writeRecord has write_base_record write base.json.new, then renames it over base.json.
+// writeRecord has write_base_record write a temporary beside base.json, created exclusively
+// under a name of its own (rule project_temp_not_exclusive), then renames it over base.json.
 func (c *cli) writeRecord(ctx context.Context, baseDir string, args []string) error {
-	next := filepath.Join(baseDir, "base.json.new")
-	out, err := os.OpenFile(next, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	out, err := os.CreateTemp(baseDir, "base.json.*.new")
 	if err != nil {
-		return failf("cannot create %s: %v", next, err)
+		return failf("cannot create a temporary base record in %s: %v", baseDir, err)
 	}
-	_, runErr := c.helper(ctx, helperCall{module: "write_base_record", args: args, stdout: out})
+	next := out.Name()
+	runErr := out.Chmod(0o644)
+	if runErr == nil {
+		_, runErr = c.helper(ctx, helperCall{module: "write_base_record", args: args, stdout: out})
+	}
 	if err := errors.Join(runErr, out.Close()); err != nil {
 		return errors.Join(ctxErr(ctx, failf("could not write the base record: %v", err)), removeIfPresent(next))
 	}
