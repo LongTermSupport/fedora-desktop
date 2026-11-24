@@ -126,6 +126,13 @@ playbooks/imports/play-claude-yolo.yml
 # only start is ccy-teams, Enter on the member's row, Start its session in its LXC container
 # (installed by play-claude-yolo.yml above).
 playbooks/imports/play-agent-bus.yml
+# Plan 00178: export and verify the room history of every v1 team on this host whose homeserver
+# is running, before v1 is retired. It uses play-teamchat.yml's teamchat-admin, installed above.
+# It changes nothing in v1. Each record is a new stamped directory under
+# /var/lib/teamchat-admin/_v1-export/, root only. A host with no v1 team exports nothing and
+# passes. A team directory whose server is not running (declared absent) fails the entry,
+# named.
+00178-agent-team-history-export/export.bash
 # Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that
 # is running, the session units are present, not enabled and not linked in
 # multi-user.target.wants. A stopped container is reported offline and skipped. It then ASKS,

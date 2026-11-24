@@ -54,7 +54,8 @@ the admin token, and the event shapes.
   does not judge them: their `--team` names a v1 team, not a v2 one.
 - [ ] ⬜ **Task 1.4**: A plan script, `export.bash`, run through meta-deploy. It exports and
   verifies every v1 team on the host that is declared present, and names the absent ones. Then
-  the `qa-reviewer` agent on the branch.
+  the `qa-reviewer` agent on the branch. The script is written and queued in `meta-deploy.list`
+  after `play-teamchat.yml`; the review is still to run.
 
 ### Phase 2: Host
 
