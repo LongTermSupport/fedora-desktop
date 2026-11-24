@@ -41,33 +41,93 @@ const (
 	detailFresh = "fresh"
 )
 
-// parseRestore reads the arguments after `restore`: nothing, --dry-run or --check.
-func parseRestore(args []string) (string, string) {
-	if len(args) == 0 {
-		return "", ""
+// parseRestore reads the arguments after `restore`: --check alone, or an optional --dry-run
+// followed by the names of the sessions to restore (none: every record).
+func parseRestore(args []string) (string, []string, string) {
+	mode, names := "", args
+	if len(names) > 0 && (names[0] == flagDryRun || names[0] == flagCheck) {
+		mode, names = names[0], names[1:]
 	}
-	if args[0] != flagDryRun && args[0] != flagCheck {
-		return "", fmt.Sprintf("unknown restore option '%s'.", args[0])
+	for _, word := range names {
+		switch {
+		case mode == flagCheck || word == flagDryRun || word == flagCheck:
+			return "", nil, fmt.Sprintf("unexpected argument '%s'.", word)
+		case word == "" || strings.HasPrefix(word, "-"):
+			return "", nil, fmt.Sprintf("unknown restore option '%s'.", word)
+		}
 	}
-	if len(args) > 1 {
-		return "", fmt.Sprintf("unexpected argument '%s'.", args[1])
-	}
-	return args[0], ""
+	return mode, names, ""
 }
 
-// runRestore starts every recorded session that is not running, or with --check judges them.
+// runRestore starts every recorded session that is not running, or only the named ones, or with
+// --check judges every record.
 func (a *App) runRestore(ctx context.Context, args []string) term.ExitCode {
-	mode, problem := parseRestore(args)
+	mode, names, problem := parseRestore(args)
 	if problem != "" {
 		return a.usageError(problem)
 	}
 	if mode == flagCheck {
 		return a.checkRestore(ctx)
 	}
-	if err := a.restoreSessions(ctx, mode == flagDryRun); err != nil {
+	err := a.restoreSessions(ctx, mode == flagDryRun, names)
+	var missing *noRecordError
+	if errors.As(err, &missing) {
+		return a.usageError(missing.Error())
+	}
+	if err != nil {
 		return a.failed(err)
 	}
 	return term.ExitOK
+}
+
+// noRecordError is a session named on the command line that has no record: a usage mistake.
+type noRecordError struct{ names []string }
+
+func (e *noRecordError) Error() string {
+	return "no session record named '" + strings.Join(e.names, "', '") + "'."
+}
+
+// scoped is the part of the reading the named sessions are: a record by its name, an unreadable
+// one by its file's name, as the restore names it. No names is every record. A name found in
+// neither is an error naming it.
+func scoped(reading registry.Reading, names []string) (registry.Reading, error) {
+	if len(names) == 0 {
+		return reading, nil
+	}
+	var out registry.Reading
+	found := map[string]bool{}
+	for _, rec := range reading.Records {
+		if slices.Contains(names, rec.Name) {
+			out.Records = append(out.Records, rec)
+			found[rec.Name] = true
+		}
+	}
+	for _, p := range reading.Problems {
+		if name := filepath.Base(p.File); slices.Contains(names, name) {
+			out.Problems = append(out.Problems, p)
+			found[name] = true
+		}
+	}
+	var missing []string
+	for _, name := range names {
+		if !found[name] && !slices.Contains(missing, name) {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		return registry.Reading{}, &noRecordError{names: missing}
+	}
+	return out, nil
+}
+
+// staleNote is what to say of a record no restore can ever start: one with no conversation to
+// resume that is not marked to start fresh without one. Every later restore would fail on it
+// until it is removed, so the note says how.
+func staleNote(rec registry.Record, why string) string {
+	if why != whyNoConversation || rec.FreshIfNoConversation {
+		return ""
+	}
+	return " " + rec.Name + " is a stale record: no restore can start it. Remove it with: ccy-sessions " + cmdForget + " " + rec.Name
 }
 
 // restorePlan is how one record would be started, or why it cannot be: why is a word from the
@@ -238,7 +298,7 @@ func (a *App) checkRestore(ctx context.Context) term.ExitCode {
 		}
 		plan := a.judgeRestore(ctx, rec, filepath.Join(regdir, rec.Name))
 		if plan.why != "" {
-			a.fail(rec.Name + " cannot be restored: " + plan.sentence)
+			a.fail(rec.Name + " cannot be restored: " + plan.sentence + staleNote(rec, plan.why))
 			lines.WriteString(rec.Name + checkLineUnrestorable + plan.why + "\n")
 			refused = append(refused, rec.Name)
 			continue
@@ -305,7 +365,11 @@ type restoreRun struct {
 // stop at a passphrase prompt. It is then dropped from the environment, so tmux's server, whose
 // environment every later pane inherits, never holds it. Each ccy session is given its path on
 // its own command (never its contents); a cc session starts no container and loads no key.
-func (a *App) restoreSessions(ctx context.Context, dryRun bool) error {
+//
+// With names, only those records are restored and judged (an unreadable one by its file's name),
+// so a record the caller is not restoring cannot fail its restore; a name with no record is a
+// noRecordError, and nothing is started.
+func (a *App) restoreSessions(ctx context.Context, dryRun bool, names []string) error {
 	passphrase := a.cfg.PassphraseFile
 	if err := a.Unsetenv(unlockFileEnv); err != nil {
 		a.failErr(err)
@@ -330,9 +394,20 @@ func (a *App) restoreSessions(ctx context.Context, dryRun bool) error {
 		return err
 	}
 	if absent {
+		if _, scopeErr := scoped(registry.Reading{}, names); scopeErr != nil {
+			return scopeErr
+		}
 		a.sayf("ccy session registry: nothing to restore (%s does not exist).\n", regdir)
 		run.writeManifest(manifest)
 		return run.result()
+	}
+	reading, err := registry.New(regdir).ReadAll()
+	if err != nil {
+		a.failErr(err)
+		return errReported
+	}
+	if reading, err = scoped(reading, names); err != nil {
+		return err
 	}
 	sessions, err := a.Tmux.List(ctx)
 	if err != nil {
@@ -343,11 +418,6 @@ func (a *App) restoreSessions(ctx context.Context, dryRun bool) error {
 	run.live = map[string]bool{}
 	for _, s := range sessions {
 		run.live[s.Name] = true
-	}
-	reading, err := registry.New(regdir).ReadAll()
-	if err != nil {
-		a.failErr(err)
-		return errReported
 	}
 	return run.restoreAll(ctx, reading, manifest)
 }
@@ -414,8 +484,12 @@ func (r *restoreRun) restoreAll(ctx context.Context, reading registry.Reading, m
 // notStarted counts a session the restore could not start and puts it in the manifest as
 // not-started with why, so that verify-restore reports it: left out, an all-failed restore would
 // write an empty manifest, which verify-restore reads as nothing to verify (fedora-desktop#108).
+// A dry run says it on stdout, one line each, so the dry run is a gate a caller can read.
 func (r *restoreRun) notStarted(entry restore.Entry, why string) {
 	r.failures++
+	if r.dryRun {
+		r.app.out("would fail " + entry.Name + ": " + why + "\n")
+	}
 	entry.Going, entry.Detail = restore.GoingNotStarted, why
 	r.entries = append(r.entries, entry)
 }
@@ -445,7 +519,7 @@ func (r *restoreRun) record(ctx context.Context, rec registry.Record) {
 	}
 	plan := a.planRestore(rec, file)
 	if plan.why != "" {
-		a.fail("cannot restore " + rec.Name + ": " + plan.sentence)
+		a.fail("cannot restore " + rec.Name + ": " + plan.sentence + staleNote(rec, plan.why))
 		r.notStarted(entry, plan.why)
 		return
 	}

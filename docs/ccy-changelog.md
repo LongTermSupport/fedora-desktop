@@ -17,6 +17,23 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.24 — container 2.84.66
+
+One stale session record no longer fails every restore on the host (issue #396). Host only:
+`ccy-sessions` is rebuilt by `play-claude-yolo.yml`; the image is unchanged.
+
+- **`ccy-sessions restore [--dry-run] [NAME...]`.** With names, only those records are
+  restored and judged, so a caller restoring one session gets that session's verdict; a name
+  with no record is a usage mistake (exit 64) and nothing starts. With none, every record, as
+  before. `restore --check` still judges every record.
+- **A stale record is named as one.** A record with no conversation to resume that is not
+  marked `fresh-if-no-conversation` can never be restored; its message says so and how to
+  remove it.
+- **`ccy-sessions forget NAME`** removes that one record (`<name> FORGOTTEN`), refused while a
+  live session has the name.
+- **`restore --dry-run` is a gate.** It prints `would fail <name>: <why>` on stdout for each
+  record that would fail, and exits 1 when there is one.
+
 ## 3.124.19 — container 2.84.66
 
 A seat no longer wedges its store after a ping is delivered over the socket (issue #392). The

@@ -308,7 +308,11 @@ conversation is not restored** (Plan 00203 Decision 10), unless provisioning mar
 record to start fresh (below): `ccy --no-bus`, a plain `cc`, or a session that ended before
 its first prompt. The restore names it as a failure and keeps its
 record; bring it back with `ccy --resume` in its folder, whose picker lists the
-conversations.
+conversations. Such a record is called stale: no restore can start it, so once nothing in it
+is wanted, `ccy-sessions forget <name>` removes it (refused for a live session).
+`ccy-sessions restore NAME...` restores and judges only the named records, so a stale
+neighbour cannot fail it; `restore --dry-run` prints `would fail <name>: <why>` on stdout for
+each record that would fail, and exits 1 (fedora-desktop#396).
 
 **A record resumes by its recorded id.** A restore appends `--resume <id>`, so a session
 launched without `--continue` comes back on the conversation it recorded, not fresh
