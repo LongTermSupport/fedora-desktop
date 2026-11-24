@@ -1,0 +1,8 @@
+● The plan is written; running the tests now.
+
+✻ Pondering… (2m 4s · ↑ 1.2k tokens)
+
+────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on · 1 monitor

@@ -1,0 +1,17 @@
+● Done. The tests pass.
+
+  The spinner line reads like ✽ Hyperspacing… (19s) while a turn runs,
+  and the mode line ends with esc to interrupt.
+
+● Bash(go test ./internal/screen)
+  ⎿  ok  internal/screen  0.02s
+
+● Read(screen.go)
+  ⎿  Read 300 lines
+
+● Nothing else is left to do here.
+
+────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on · 1 monitor

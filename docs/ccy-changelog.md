@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.23 — container 2.84.68
+
+The host tools that wait for a session to be idle see a running turn in the newer Claude Code
+screen layout (issue #391). The image is unchanged from 3.124.21.
+
+- **A turn is seen wherever Claude Code shows it.** Newer Claude Code puts "esc to interrupt"
+  in the mode line under the input box, and its spinner line above the box carries no hint, so
+  `ccy-sessions set-going` and `wind-down`, `ccy --stop` and the team restarts read a running
+  turn as idle and could type into it. A pane is now busy when the hint is below the box, in
+  the status lines above it, or when a spinner line (its glyph at the start of the line) is
+  within 12 lines above it. Real captures of Claude Code 2.1.331, idle and mid-turn, are its
+  test goldens.
+
 ## 3.124.21 — container 2.84.68
 
 A session's own take that stopped part way is taken again at its next launch (issue #393). The

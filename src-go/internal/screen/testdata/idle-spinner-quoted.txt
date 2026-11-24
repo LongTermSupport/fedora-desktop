@@ -1,0 +1,10 @@
+● Bash(./scripts/demo.bash)
+  ⎿  Running… (12s)
+     ✻ Pondering… (2m 4s · ↑ 1.2k tokens)
+
+● Waiting… (5s) was the last thing it printed; the run is over.
+
+────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on · 1 monitor

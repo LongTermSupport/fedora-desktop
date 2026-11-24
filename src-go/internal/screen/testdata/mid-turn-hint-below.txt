@@ -1,0 +1,11 @@
+● The plan is written; running the tests now.
+
+● Bash(go test ./internal/screen)
+  ⎿  Running…
+
+✽ Hyperspacing… (19s · ↓ 735 tokens · thinking with high effort)
+
+────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on · 1 monitor · esc to interrupt

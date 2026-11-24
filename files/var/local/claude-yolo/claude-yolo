@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.124.21"  # Container 2.84.68: a teamchat seat is taken only for a session with a ccy session record, so the sweep cannot release it a minute later (#393). See docs/ccy-changelog.md.
+CCY_VERSION="3.124.23"  # Container 2.84.68: the host tools see a running turn in the newer Claude Code screen layout, so they do not type into it (#391). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
