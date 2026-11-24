@@ -236,7 +236,7 @@ func TestEveryRealGoPackageColumnNamesPackagesThatExist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, rl := range r.also {
+	for _, rl := range slices.Concat(r.also, r.comments) {
 		for _, pkg := range rl.goPackages {
 			dir := strings.TrimSuffix(pkg, goTree)
 			matches, err := filepath.Glob(filepath.Join("../..", filepath.FromSlash(dir), "*.go"))

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"regexp"
@@ -104,6 +105,7 @@ type postRule struct {
 // routing is the parsed scripts/qa-routing.tsv: the classification as data.
 type routing struct {
 	also, first  []rule
+	comments     []rule
 	post         []postRule
 	perFileGates []string
 }
@@ -132,7 +134,7 @@ func loadRouting(path string) (*routing, error) {
 // be dropped silently.
 func (r *routing) checkRels() error {
 	seen := map[string]string{}
-	for _, rl := range slices.Concat(r.also, r.first) {
+	for _, rl := range slices.Concat(r.also, r.first, r.comments) {
 		ids := rl.checks
 		if len(rl.modules) > 0 {
 			ids = append(slices.Clone(ids), unitTestsID)
@@ -209,12 +211,15 @@ func (r *routing) add(rw row) error {
 		}
 		return r.addPost(rw.line, matchField, checkField)
 	}
-	if phase != "also" && phase != "first" {
-		return fmt.Errorf("unknown phase %q (want also, first, post or perfile-gate)", phase)
+	if phase != "also" && phase != "first" && phase != "comments" {
+		return fmt.Errorf("unknown phase %q (want also, first, comments, post or perfile-gate)", phase)
 	}
 	m, err := parseMatcher(matchField)
 	if err != nil {
 		return err
+	}
+	if phase == "comments" && !rowsComparable(m) {
+		return fmt.Errorf("a comments row names only files qa-changed can compare by their rows (%s), each by its path", strings.Join(slices.Sorted(maps.Keys(rowComparers)), ", "))
 	}
 	rl := rule{line: rw.line, m: m}
 	if err := rl.parseChecksAndFlags(phase, checkField, flagField); err != nil {
@@ -223,9 +228,12 @@ func (r *routing) add(rw row) error {
 	if err := rl.parseGoPackages(rw.fields[routeColumns:]); err != nil {
 		return err
 	}
-	if phase == "also" {
+	switch phase {
+	case "also":
 		r.also = append(r.also, rl)
-	} else {
+	case "comments":
+		r.comments = append(r.comments, rl)
+	default:
 		r.first = append(r.first, rl)
 	}
 	return nil

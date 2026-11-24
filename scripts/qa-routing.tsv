@@ -7,7 +7,12 @@
 # phase
 #   also    every matching row applies, in order, and none stops the others
 #   first   the first matching row classifies the file and ends the search
-#   post    after every file is classified, when any file matched the kind: any:@sh, any:@py,
+#   comments  when the file's change is to its comments and blank lines alone (its parsed rows
+#           equal those at the base), these rows route it instead of every also and first row.
+#           Only a file qa-changed can compare by its rows (src-go/qa/changed rowComparers:
+#           scripts/qa-trees.tsv), named by its path; any doubt (no base, a base git cannot show,
+#           a text that does not parse) routes it by its also and first rows, with a note
+#   post   after every file is classified, when any file matched the kind: any:@sh, any:@py,
 #           or any:@file (any changed file that still exists)
 #   perfile-gate  not a rule: the qa-*.bash gates that scripts/qa-gates.tsv lists which are NOT suites
 #                 (run per file above, run whole as a gate, or inspecting the host)
@@ -164,6 +169,12 @@ also	scripts/shellcheck-disable.allowlist	bash	covered
 # The tables that route files and list the gates are read by the Go tests (which run the real ones),
 # and decide what every check, the go check's own scope included, runs: the whole Go gate.
 also	scripts/qa-routing.tsv,scripts/qa-trees.tsv,scripts/qa-gates.tsv	go	covered	@full
+# A change to the trees table's comments or blank lines alone changes nothing any gate reads (issue
+# #413), so instead of every row above and below that names it, it runs only the table's own
+# checks: the two qa-trees-drift tests (CLAUDE/QA.md#qa-trees-drift), which load the real table
+# strictly, so they are its syntax check too. qa-changed's own comparison parses both texts with
+# qatrees.Parse first.
+comments	scripts/qa-trees.tsv	go	covered	qa/ghscopes,qa/bashlimits
 # The Go gate's wrapper, and .qa-versions, whose pins (golangci-lint's held equal to go-qa-ci's by a
 # Go test) decide every Go result: the whole Go gate.
 also	scripts/qa-go-qa.bash,.qa-versions	go	-	@full

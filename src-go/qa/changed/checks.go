@@ -214,8 +214,11 @@ func (s *session) semgrepGate(ctx context.Context, wrapper string) (checkResult,
 }
 
 // gateChanged is whether a changed file, existing or deleted, is part of the gate the wrapper runs.
+// A file whose change is to its comments alone (the trees table's) changed nothing the gate reads.
 func (s *session) gateChanged(wrapper string) bool {
-	return slices.ContainsFunc(slices.Concat(s.plan.existing, s.plan.deleted), func(f string) bool { return gateSource(wrapper, f) })
+	return slices.ContainsFunc(slices.Concat(s.plan.existing, s.plan.deleted), func(f string) bool {
+		return gateSource(wrapper, f) && !slices.Contains(s.plan.commentsOnly, f)
+	})
 }
 
 // gateSource is whether a changed file is part of a semgrep gate run by the wrapper: the rules and
