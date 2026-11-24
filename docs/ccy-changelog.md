@@ -17,12 +17,13 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.34 — container 2.84.72
+## 3.124.35 — container 2.84.72
 
 A session record whose file is not named after its `name=` (one edited or renamed by hand) is
-acted on through the file it was read from (issue #398, after #396). `ccy-sessions` and
-`ccy-teams` are rebuilt on the host; the image is unchanged. (3.124.32 and 3.124.33 were steps
-on the branch and were never deployed.)
+acted on through the file it was read from (issue #398, after #396), and the daily Claude Code
+update check says when the image's Claude Code is newer than the newest screen capture (issue
+#397). `ccy-sessions`, `ccy-teams` and the `claude-yolo` front are rebuilt on the host; the image
+is unchanged. (3.124.32 to 3.124.34 were steps on the branches and were never deployed.)
 
 - **Ending a session** (the `ccy-sessions` picker's End, `ccy --stop`'s hard stop, a
   `ccy --teams` launch that forgets its record) removes every record answering to the session,
@@ -34,6 +35,13 @@ on the branch and were never deployed.)
 - **The refusals** of `restore`, `restore --check` and `declare` name the file the record was
   read from. A `declare` refused before any record exists names no file, since none is kept.
 - **ccy-teams** names an unreadable record by its file.
+- **The daily Claude Code update check** now reports when the image's Claude Code is newer than
+  the newest screen capture the idle checks were tested on (issue #397). A newer Claude Code may
+  draw a layout no capture shows, as #391's did, so the check says on stderr to take a mid-turn
+  and an idle capture (`tmux capture-pane -p -e`), redact them keeping the layout and every
+  escape, and add them as goldens named for the version. It is a report: the update check
+  carries on as before. The captures are built into the front, so the comparison needs no
+  checkout and no network; versions compare numerically per component.
 
 ## 3.124.31 — container 2.84.72
 

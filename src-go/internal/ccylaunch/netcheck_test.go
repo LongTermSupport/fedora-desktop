@@ -130,6 +130,20 @@ func TestBothVersionsKnownArePrintedInstalledThenLatest(t *testing.T) {
 	}
 }
 
+// An image whose Claude Code is newer than every screen capture is said on stderr, and the
+// answer on stdout is unchanged (fedora-desktop#397): a report, never a failure.
+func TestAnImageNewerThanTheScreenCapturesIsReported(t *testing.T) {
+	r := versionsRun(t, execx.Result{Stdout: []byte("999.0.0 (Claude Code)\n")}, registrySays, nil)
+	if code := r.start(t); code != term.ExitOK || r.stdout.String() != "999.0.0 2.1.3\n" {
+		t.Fatalf("exit %d, stdout %q, stderr %q", code, r.stdout, r.stderr)
+	}
+	for _, words := range []string{"999.0.0", "tmux capture-pane -p -e", "idle-cc-999.0.0.txt", "mid-turn-cc-999.0.0.txt"} {
+		if !strings.Contains(r.stderr.String(), words) {
+			t.Errorf("stderr %q does not say %q", r.stderr, words)
+		}
+	}
+}
+
 func TestAVersionThatCouldNotBeReadSaysWhy(t *testing.T) {
 	cases := []struct {
 		name            string

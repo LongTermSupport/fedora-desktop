@@ -2,6 +2,13 @@
 // removed, whether Claude's input box is drawn, busy or holding typed text, which launcher
 // prompt (if any) the pane is waiting at, and whether it is at Claude Code's conversation picker. The screen reading lives only here; the launchers'
 // prompt table in lib/common-pure.bash stays the owner of the prompt texts while they are bash.
+//
+// Each Claude Code layout it reads has a real `tmux capture-pane -p -e` capture in testdata,
+// named for the version it was taken from (<what>-cc-<version>.txt) and built into the package.
+// LayoutDrift says when an installed Claude Code is newer than the newest of them; ccy's daily
+// update check (--claude-versions) reports it, since a newer Claude Code may draw a layout no
+// capture shows (fedora-desktop#391, #397). To cover a new version, add a mid-turn and an idle
+// capture redacted to placeholders, keeping the layout and every escape, with tests that read them.
 package screen
 
 import (
