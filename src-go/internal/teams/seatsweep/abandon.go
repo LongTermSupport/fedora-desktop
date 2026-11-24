@@ -281,10 +281,15 @@ func (c *Cmd) sayAbandon(err error) error {
 // CurrentUser is the caller `seats abandon` records: the user name, or "uid N" when the
 // account database has no name for the uid.
 func CurrentUser() (string, error) {
-	u, err := user.Current()
+	return callerName(user.Current, os.Getuid())
+}
+
+// callerName is CurrentUser over the account lookup and the process's uid.
+func callerName(lookup func() (*user.User, error), uid int) (string, error) {
+	u, err := lookup()
 	var unknown user.UnknownUserIdError
 	if errors.As(err, &unknown) {
-		return "uid " + strconv.Itoa(os.Getuid()), nil
+		return "uid " + strconv.Itoa(uid), nil
 	}
 	if err != nil {
 		return "", err

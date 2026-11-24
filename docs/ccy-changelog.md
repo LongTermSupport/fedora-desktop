@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.36 — container 2.84.76
+## 3.124.37 — container 2.84.76
 
 A teamchat seat of a team whose server is gone for good can now be released, on the owner's word
 (issue #386). A session record whose file is not named after its `name=` (one edited or renamed

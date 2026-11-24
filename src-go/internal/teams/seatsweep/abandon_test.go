@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -178,24 +179,94 @@ func TestAbandonUsage(t *testing.T) {
 	}
 }
 
+// Nothing of the team held in the working directory's checkout is a refusal (78) that names the
+// team and the pool it looked in, and says where to run it: no pool for the team (a wrong
+// directory or a mistyped team), a pool with no seat held, or named members none of which is
+// held. Another checkout's or another team's held seat is untouched.
+func TestAbandonNothing(t *testing.T) {
+	for name, args := range map[string][]string{
+		"no pool": {"abandon", "gone", "--reason", "gone"},
+		"free":    {"abandon", "dead", "--reason", "gone"},
+		"named":   {"abandon", "dead", "3", "--reason", "gone"},
+	} {
+		w, key := abandonWorld(t)
+		w.write(w.store.PoolSeat(key, mustTeam(t, "dead"), mustSeat(t, "repo.3+site.podman")).Bundle(), "{}")
+		other := w.hold(w.key("/work/other"), "dead", seat1, "s1")
+		ops := w.hold(key, "ops", seat1, "s1")
+		code := w.run(args...)
+		if code != term.ExitConfig || w.out.Len() != 0 || !exists(t, other.Held()) || !exists(t, ops.Held()) {
+			t.Errorf("%s: exit %d, stdout %q: %s", name, code, w.out.String(), w.errOut.String())
+		}
+		team := args[1]
+		for _, want := range []string{"team " + team, w.store.PoolTeam(key, mustTeam(t, team)), "checkout the seats were taken in"} {
+			if !strings.Contains(w.errOut.String(), want) {
+				t.Errorf("%s: stderr %q does not say %q", name, w.errOut.String(), want)
+			}
+		}
+	}
+}
+
+// A pool that cannot be read is a failure (1), not a usage error.
+func TestAbandonPoolError(t *testing.T) {
+	w, key := abandonWorld(t)
+	w.write(w.store.PoolTeam(key, mustTeam(t, "dead")), "not a directory")
+	if code := w.run("abandon", "dead", "--reason", "gone"); code != term.ExitFailure {
+		t.Errorf("exit %d: %s", code, w.errOut.String())
+	}
+}
+
+// A seat lock that cannot be looked at may hide a running link: refused (75), still held.
+func TestAbandonLockRefused(t *testing.T) {
+	w, key := abandonWorld(t)
+	a := w.hold(key, "dead", seat1, "s1")
+	lock := w.store.SessionSeat(mustSession(t, "s1"), mustTeam(t, "dead")).Lock()
+	if err := os.MkdirAll(lock, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if code := w.run("abandon", "dead", "--reason", "gone"); code != term.ExitBusy || !exists(t, a.Held()) {
+		t.Errorf("exit %d, held %v: %s", code, exists(t, a.Held()), w.errOut.String())
+	}
+	if !strings.Contains(w.errOut.String(), "cannot be looked at") {
+		t.Errorf("stderr %q", w.errOut.String())
+	}
+}
+
+// A session directory under control/ with no desired.json lists nothing: a launch that could
+// not write it failed, and holds no seat. The abandon goes on.
+func TestAbandonNoDesired(t *testing.T) {
+	w, key := abandonWorld(t)
+	a := w.hold(key, "dead", seat1, "s1")
+	if err := os.MkdirAll(w.store.Control(mustSession(t, "s3")), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if code := w.run("abandon", "dead", "--reason", "gone"); code != term.ExitOK || exists(t, a.Held()) {
+		t.Errorf("exit %d, held %v: %s", code, exists(t, a.Held()), w.errOut.String())
+	}
+}
+
 // A team a local source still knows is refused (78) unless --allow-known-team names it: a
-// session's desired.json listing it, or its status record on this machine.
+// session's desired.json listing it, or its status record on this machine. The refusal names
+// the file that knows it, so the owner can judge it.
 func TestAbandonKnown(t *testing.T) {
-	sources := map[string]func(*world){
-		"desired": func(w *world) { w.desire("s2", `{"team":"dead","seat":"9"}`) },
-		"status": func(w *world) {
+	sources := map[string]func(*world) string{
+		"desired": func(w *world) string {
+			w.desire("s2", `{"team":"dead","seat":"9"}`)
+			return "team dead is listed in " + w.store.DesiredFile(mustSession(w.t, "s2"))
+		},
+		"status": func(w *world) string {
 			w.cmd.Status = func(paths.TeamID) (status.Record, bool, error) { return status.Record{}, true, nil }
+			return "team dead has a status record at " + paths.StatusFile(mustTeam(w.t, "dead"))
 		},
 	}
 	for name, known := range sources {
 		w, key := abandonWorld(t)
 		a := w.hold(key, "dead", seat1, "s1")
-		known(w)
+		source := known(w)
 		if code := w.run("abandon", "dead", "--reason", "gone"); code != term.ExitConfig || !exists(t, a.Held()) {
 			t.Errorf("%s: exit %d, held %v", name, code, exists(t, a.Held()))
 		}
-		if !strings.Contains(w.errOut.String(), "--allow-known-team dead") {
-			t.Errorf("%s: stderr %q does not name the override", name, w.errOut.String())
+		if !strings.Contains(w.errOut.String(), "--allow-known-team dead") || !strings.Contains(w.errOut.String(), source) {
+			t.Errorf("%s: stderr %q does not name the override and %q", name, w.errOut.String(), source)
 		}
 		if code := w.run("abandon", "dead", "--reason", "gone", "--allow-known-team", "dead"); code != term.ExitOK || exists(t, a.Held()) {
 			t.Errorf("%s with the override: exit %d: %s", name, code, w.errOut.String())
@@ -212,8 +283,8 @@ func TestAbandonUnreadable(t *testing.T) {
 			}
 		},
 		"desired": func(w *world) { w.write(w.store.DesiredFile(mustSession(w.t, "s2")), "not json") },
-		"missing": func(w *world) {
-			if err := os.MkdirAll(w.store.Control(mustSession(w.t, "s3")), 0o700); err != nil {
+		"dir": func(w *world) {
+			if err := os.MkdirAll(w.store.DesiredFile(mustSession(w.t, "s3")), 0o700); err != nil {
 				w.t.Fatal(err)
 			}
 		},
@@ -256,5 +327,22 @@ func TestCurrentUser(t *testing.T) {
 	who, err := CurrentUser()
 	if err != nil || who == "" {
 		t.Fatalf("CurrentUser: %q, %v", who, err)
+	}
+	for name, c := range map[string]struct {
+		u    *user.User
+		err  error
+		want string
+	}{
+		"named":   {u: &user.User{Uid: "42", Username: "tester"}, want: "tester"},
+		"no name": {u: &user.User{Uid: "42"}, want: "uid 42"},
+		"unknown": {err: user.UnknownUserIdError(7), want: "uid 7"},
+	} {
+		got, err := callerName(func() (*user.User, error) { return c.u, c.err }, 7)
+		if err != nil || got != c.want {
+			t.Errorf("%s: %q, %v; want %q", name, got, err, c.want)
+		}
+	}
+	if _, err := callerName(func() (*user.User, error) { return nil, errors.New("no db") }, 7); err == nil {
+		t.Error("a lookup error was not returned")
 	}
 }
