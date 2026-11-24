@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.124.33"  # Container 2.84.72: a session record is acted on through the file it was read from, never <registry>/<name>, so ending a session removes its record however its file is named and refusals name the right file (#398). See docs/ccy-changelog.md.
+CCY_VERSION="3.124.34"  # Container 2.84.72: a session record is acted on through the file it was read from, never <registry>/<name>, so ending a session removes its record however its file is named and refusals name the right file (#398); its stop file stays keyed by the session's name (#401). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the

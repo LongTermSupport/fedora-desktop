@@ -592,8 +592,8 @@ ccy_registry_read() {
 # single-quoted printf format in the trampoline, so it must hold no quote and no percent.
 CCY_SESSION_ENDED_TEXT="Press Enter to close this session."
 
-# ccy_registry_trampoline <record-path> <prefix> — the `bash -c` string a session's tmux
-# pane runs, printed. It runs the launcher (the pane's remaining arguments), removes the
+# ccy_registry_trampoline <record-path> <session-name> <prefix> — the `bash -c` string a
+# session's tmux pane runs, printed. It runs the launcher (the pane's remaining arguments), removes the
 # record the moment the launcher RETURNS — a returned launcher is an ended session, whatever
 # its status — and on a non-zero status holds the window so the error can be read.
 #
@@ -605,14 +605,15 @@ CCY_SESSION_ENDED_TEXT="Press Enter to close this session."
 # The one returned launcher that is not an ended session is status 88,
 # CCY_EXIT_UNATTENDED_STOP (lib/unattended-stop.bash): a launch nobody attended stopped where
 # only a person could go on, so its record is kept for the next restore and the held line says
-# so. The launcher writes why to CCY_UNATTENDED_STOP_FILE, <registry>/../stopped/<session>, which
-# this clears first, so it only ever says why the latest start stopped; verify-restore reports
-# NOT-STARTED <reason> from it (fedora-desktop#283). The Go twin, registry.Trampoline, is held
-# byte for byte to this string by its tests.
+# so. The launcher writes why to CCY_UNATTENDED_STOP_FILE, <registry>/../stopped/<session name>
+# (the session's name, never the record file's, which a record edited by hand need not share:
+# fedora-desktop#401), which this clears first, so it only ever says why the latest start
+# stopped; verify-restore reports NOT-STARTED <reason> from it (fedora-desktop#283). The Go twin,
+# registry.Trampoline, is held byte for byte to this string by its tests.
 ccy_registry_trampoline() {
-    local record="${1:?ccy_registry_trampoline requires a record path}"
-    local prefix="${2:?ccy_registry_trampoline requires a prefix}" quoted
-    printf -v quoted '%q\n%q' "$record" "${record%/*}/../stopped/${record##*/}"
+    local record="${1:?ccy_registry_trampoline requires a record path}" name="${2:?ccy_registry_trampoline requires a session name}"
+    local prefix="${3:?ccy_registry_trampoline requires a prefix}" quoted
+    printf -v quoted '%q\n%q' "$record" "${record%/*}/../stopped/${name}"
     printf '%s' "rm -f -- ${quoted#*$'\n'}; CCY_UNATTENDED_STOP_FILE=${quoted#*$'\n'} \"\$@\"; rc=\$?; if [ \"\$rc\" -eq 88 ]; then printf '\\n${prefix} did not start: nobody was there to answer, so its record is kept for the next restore. ${CCY_SESSION_ENDED_TEXT}\\n'; read -r; exit \"\$rc\"; fi; rm -f -- ${quoted%%$'\n'*}; if [ \"\$rc\" -ne 0 ]; then printf '\\n${prefix} exited with status %s. ${CCY_SESSION_ENDED_TEXT}\\n' \"\$rc\"; read -r; fi; exit \"\$rc\""
 }
 

@@ -17,19 +17,20 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.33 — container 2.84.72
+## 3.124.34 — container 2.84.72
 
 A session record whose file is not named after its `name=` (one edited or renamed by hand) is
 acted on through the file it was read from (issue #398, after #396). `ccy-sessions` and
-`ccy-teams` are rebuilt on the host; the image is unchanged. (3.124.32 was a step on the
-branch and was never deployed.)
+`ccy-teams` are rebuilt on the host; the image is unchanged. (3.124.32 and 3.124.33 were steps
+on the branch and were never deployed.)
 
 - **Ending a session** (the `ccy-sessions` picker's End, `ccy --stop`'s hard stop, a
   `ccy --teams` launch that forgets its record) removes every record answering to the session,
   each by its own file, and never another session's record that happens to sit in the file
   named after it. Before, the record survived as a stale record the next restore failed on.
 - **A restored or restarted session's trampoline** removes the file its record was read from
-  when the session ends.
+  when the session ends. Its stop file stays named after the session (issue #401), where
+  `verify-restore` and `ccy-teams restart` read why an unattended launch stopped.
 - **The refusals** of `restore`, `restore --check` and `declare` name the file the record was
   read from. A `declare` refused before any record exists names no file, since none is kept.
 - **ccy-teams** names an unreadable record by its file.

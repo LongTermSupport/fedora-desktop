@@ -312,11 +312,13 @@ const StopEnv = "CCY_UNATTENDED_STOP_FILE"
 // stoppedDir is the directory beside the registry that holds the stop files.
 const stoppedDir = "stopped"
 
-// stopPath is the stop file of the record at recordPath, spelled as the trampoline spells it:
-// <registry>/../stopped/<session>, beside the registry, never in it (every file in the registry
-// is read as a record).
-func stopPath(recordPath string) string {
-	return filepath.Dir(recordPath) + "/../" + stoppedDir + "/" + filepath.Base(recordPath)
+// stopPath is the stop file of the session named name whose record is at recordPath, spelled as
+// the trampoline spells it: <registry>/../stopped/<session name>, beside the registry, never in
+// it (every file in the registry is read as a record). It is keyed by the session's name, as
+// ReadStop reads it, never by the record file's, which a record edited by hand need not share
+// (fedora-desktop#401).
+func stopPath(recordPath, name string) string {
+	return filepath.Dir(recordPath) + "/../" + stoppedDir + "/" + name
 }
 
 // StopFile is the file holding why the latest start of the session named in the registry regdir
@@ -356,8 +358,8 @@ func ReadStop(regdir, name string) (Stop, bool, error) {
 	return Stop{Reason: reason, Sentence: sentence}, true, nil
 }
 
-// Trampoline is the `bash -c` string a session's tmux pane runs. It clears the session's stop
-// file, runs the launcher (the pane's remaining arguments) with StopEnv naming it, removes the
+// Trampoline is the `bash -c` string the tmux pane of the session named name runs, its record
+// being the file at recordPath. It clears the session's stop file, runs the launcher (the pane's remaining arguments) with StopEnv naming it, removes the
 // record the moment the launcher RETURNS (a returned launcher is an ended session, whatever its
 // status) and, on a non-zero status, holds the window so the error can be read. The removal is
 // here and nowhere else, because this is the one place that runs after the session's command
@@ -365,12 +367,12 @@ func ReadStop(regdir, name string) (Stop, bool, error) {
 // here, and the record stays. That asymmetry is the whole feature. The one returned launcher
 // that is not an ended session is ExitUnattendedStop: its record is kept, and the held line says
 // so (screen.UnattendedStopText).
-func Trampoline(recordPath, prefix string) string {
-	name := formatInSingleQuotes(prefix)
-	stop := shellword.Quote(stopPath(recordPath))
+func Trampoline(recordPath, name, prefix string) string {
+	shown := formatInSingleQuotes(prefix)
+	stop := shellword.Quote(stopPath(recordPath, name))
 	return `rm -f -- ` + stop + `; ` + StopEnv + `=` + stop + ` "$@"; rc=$?; if [ "$rc" -eq ` + strconv.Itoa(ExitUnattendedStop) +
-		` ]; then printf '\n` + name + ` ` + screen.UnattendedStopText + ` ` + screen.EndedText + `\n'; read -r; exit "$rc"; fi; rm -f -- ` +
-		shellword.Quote(recordPath) + `; if [ "$rc" -ne 0 ]; then printf '\n` + name + ` exited with status %s. ` + screen.EndedText +
+		` ]; then printf '\n` + shown + ` ` + screen.UnattendedStopText + ` ` + screen.EndedText + `\n'; read -r; exit "$rc"; fi; rm -f -- ` +
+		shellword.Quote(recordPath) + `; if [ "$rc" -ne 0 ]; then printf '\n` + shown + ` exited with status %s. ` + screen.EndedText +
 		`\n' "$rc"; read -r; fi; exit "$rc"`
 }
 

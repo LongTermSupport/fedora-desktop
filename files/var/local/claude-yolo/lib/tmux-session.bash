@@ -466,7 +466,7 @@ ccy_tmux_start_detached() {
         fi
     done
     regdir=$(ccy_registry_dir) || return 1
-    trampoline=$(ccy_registry_trampoline "$regdir/$name" "$CCY_TMUX_SESSION_PREFIX")
+    trampoline=$(ccy_registry_trampoline "$regdir/$name" "$name" "$CCY_TMUX_SESSION_PREFIX")
     # The unit name carries the session name (escaped) as well as this pid: a restore starts
     # several sessions from one process, and two scopes may not share a name.
     systemd-run --user --scope --quiet --collect \

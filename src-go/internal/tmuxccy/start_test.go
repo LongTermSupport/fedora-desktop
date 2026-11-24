@@ -48,7 +48,7 @@ func TestStartDetachedExactArgv(t *testing.T) {
 		"--unit", `ccy-tmux-4242-ccy\x2dproj`, "--description", "CCY tmux session ccy-proj",
 		"--", "tmux", "-L", "ccy",
 		"new-session", "-d", "-s", "ccy-proj", "-c", "/srv/my proj", "--",
-		"bash", "-c", registry.Trampoline("/state/ccy/sessions/ccy-proj", "ccy"), "ccy-tmux",
+		"bash", "-c", registry.Trampoline("/state/ccy/sessions/ccy-proj", "ccy-proj", "ccy"), "ccy-tmux",
 		"env", "CCY_SESSION_RESTORE=1", "/var/local/claude-yolo/claude-yolo", "--supervise", "--continue",
 		";", "set-hook", "-g", "client-attached", tmuxccy.SingleAttachHook(),
 	}
@@ -224,7 +224,7 @@ func TestRegistryTrampolineAndStartAgree(t *testing.T) {
 	if err := startRig(f).StartDetached(context.Background(), spec); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(f.Calls()[1].Args, registry.Trampoline(spec.RecordPath, "ccy")) {
+	if !slices.Contains(f.Calls()[1].Args, registry.Trampoline(spec.RecordPath, spec.Name, "ccy")) {
 		t.Fatalf("args %q", f.Calls()[1].Args)
 	}
 }

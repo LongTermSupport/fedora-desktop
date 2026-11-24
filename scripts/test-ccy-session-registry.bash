@@ -325,7 +325,7 @@ echo "=== the trampoline: gone on exit, kept on a kill ==="
 # pane's bash reach the removal, and that is precisely the record restore must find.
 tramp_rec="$(ccy_registry_dir)/ccy-tramp"
 ccy_registry_write "ccy-tramp" "$SPACED" /l ccy yes
-tramp="$(ccy_registry_trampoline "$tramp_rec" ccy)"
+tramp="$(ccy_registry_trampoline "$tramp_rec" ccy-tramp ccy)"
 out="$(bash -c "$tramp" ccy-tmux true </dev/null 2>&1)"
 rc=$?
 check "a clean exit returns the command's status" "0" "$rc"
@@ -376,7 +376,7 @@ ccy_registry_remove "ccy-tramp"
 # A record path with a space or a quote must survive the trip through bash -c.
 odd_rec="$(ccy_registry_dir)/ccy-odd name"
 ccy_registry_write "ccy-odd name" "$SPACED" /l ccy yes
-out="$(bash -c "$(ccy_registry_trampoline "$odd_rec" ccy)" ccy-tmux true </dev/null 2>&1)"
+out="$(bash -c "$(ccy_registry_trampoline "$odd_rec" "ccy-odd name" ccy)" ccy-tmux true </dev/null 2>&1)"
 if [ -f "$odd_rec" ]; then
     check "a record path with a space is removed correctly" "absent" "present"
 else
