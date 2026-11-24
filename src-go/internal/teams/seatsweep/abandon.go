@@ -105,9 +105,12 @@ func scanAbandon(args []string) (positional []string, reason, allow *string, err
 // abandon is `seats abandon`: each held seat of the team (or of the members named) in the
 // working directory's checkout released without its logout, on the caller's word that the
 // team's server will never answer that logout again (issue 386). It contacts no server. One
-// line per seat abandoned on stdout; a seat that is not held is said on stderr and is no error.
-// Exit 64 for a usage error, 78 for a team a local source still knows (or a source that cannot
-// be read), 75 when a seat's link is running for that team, 1 for any other failure.
+// line per seat abandoned on stdout; a seat that is not held is said on stderr and is no error,
+// but a run that abandons nothing (no seat of the team in this checkout's pool, or none held) is
+// refused, since it is most likely run from the wrong directory or for a mistyped team.
+// Exit 64 for a usage error, 78 for nothing to abandon here or a team a local source still
+// knows (or a source that cannot be read), 75 when a seat's link is running for that team or
+// its seat lock cannot be looked at, 1 for any other failure.
 func (c *Cmd) abandon(ctx context.Context, args []string) term.ExitCode {
 	a, err := parseAbandon(args)
 	if err != nil {
@@ -118,8 +121,13 @@ func (c *Cmd) abandon(ctx context.Context, args []string) term.ExitCode {
 		return c.fail(err, term.ExitFailure)
 	}
 	seats, err := c.chosen(store, key, a)
-	if err != nil {
+	switch {
+	case errors.Is(err, errUsage):
 		return c.fail(err, term.ExitUsage)
+	case errors.Is(err, errNothing):
+		return c.fail(err, term.ExitConfig)
+	case err != nil:
+		return c.fail(err, term.ExitFailure)
 	}
 	if !a.allow {
 		if why, knownErr := c.knownBy(store, a.team); knownErr != nil || why != "" {
@@ -136,20 +144,34 @@ func (c *Cmd) abandon(ctx context.Context, args []string) term.ExitCode {
 	if err != nil {
 		return c.fail(err, term.ExitFailure)
 	}
-	code := c.abandonEach(ctx, s, seats, a, by)
+	code, abandoned := c.abandonEach(ctx, s, seats, a, by)
+	if code == term.ExitOK && abandoned == 0 {
+		code = c.fail(nothingHere(a.team, store.PoolTeam(key, a.team), "has no seat held in this checkout's pool"), term.ExitConfig)
+	}
 	if err := s.Close(); err != nil {
 		return c.fail(err, term.ExitFailure)
 	}
 	return code
 }
 
-// abandonEach abandons each seat on its own: the worst outcome is the exit, 1 over 75 over 0.
-func (c *Cmd) abandonEach(ctx context.Context, s Store, seats []paths.SeatName, a abandonArgs, by string) term.ExitCode {
-	failed, busy := false, false
+// errNothing is a run of `seats abandon` that has nothing to abandon in this checkout.
+var errNothing = errors.New("nothing to abandon")
+
+// nothingHere is the refusal of a run that would abandon nothing: the team, what was found and
+// the pool it looked in, and where the verb must be run.
+func nothingHere(team paths.TeamID, pool, what string) error {
+	return fmt.Errorf("%w: team %s %s (%s); run it from the checkout the seats were taken in", errNothing, team, what, pool)
+}
+
+// abandonEach abandons each seat on its own: the worst outcome is the exit, 1 over 75 over 0,
+// and the number of seats abandoned.
+func (c *Cmd) abandonEach(ctx context.Context, s Store, seats []paths.SeatName, a abandonArgs, by string) (term.ExitCode, int) {
+	failed, busy, abandoned := false, false, 0
 	for _, name := range seats {
 		one := seat.Seat{Team: a.team, Name: name}
 		got, err := s.Abandon(ctx, one, a.reason, by)
 		if got.Held {
+			abandoned++
 			if werr := c.print(fmt.Sprintf("abandoned seat %s of team %s (session %s)\n", name, a.team, got.Session)); werr != nil {
 				err = errors.Join(err, fmt.Errorf("seat %s of team %s was abandoned, but stdout could not say so: %w", name, a.team, werr))
 			}
@@ -165,25 +187,29 @@ func (c *Cmd) abandonEach(ctx context.Context, s Store, seats []paths.SeatName, 
 			failed = true
 		}
 		if werr := c.sayAbandon(fmt.Errorf("seat %s of team %s: %w", name, a.team, err)); werr != nil {
-			return term.ExitFailure
+			return term.ExitFailure, abandoned
 		}
 	}
 	switch {
 	case failed:
-		return term.ExitFailure
+		return term.ExitFailure, abandoned
 	case busy:
-		return term.ExitBusy
+		return term.ExitBusy, abandoned
 	}
-	return term.ExitOK
+	return term.ExitOK, abandoned
 }
 
 // chosen is the pool seats of the team in the checkout: all of them, or the members named, each
-// by its whole name or its handle's seat part. A name that is no pool seat of the team is an
-// error, so a typo never abandons nothing quietly.
+// by its whole name or its handle's seat part. No pool seat of the team at all is errNothing; a
+// name that is no pool seat of the team is a usage error, so a typo never abandons nothing
+// quietly; a pool that cannot be read is any other error.
 func (c *Cmd) chosen(store paths.Store, key paths.CheckoutKey, a abandonArgs) ([]paths.SeatName, error) {
 	all, err := system.PoolSeats(store, key, a.team)
 	if err != nil {
 		return nil, err
+	}
+	if len(all) == 0 {
+		return nil, nothingHere(a.team, store.PoolTeam(key, a.team), "has no seat in this checkout's pool")
 	}
 	if len(a.members) == 0 {
 		return all, nil
@@ -195,7 +221,7 @@ func (c *Cmd) chosen(store paths.Store, key paths.CheckoutKey, a abandonArgs) ([
 			return n.String() == m || ok && h.Seat == m
 		})
 		if i < 0 {
-			return nil, fmt.Errorf("member %s is no pool seat of team %s in this checkout", strconv.Quote(m), a.team)
+			return nil, fmt.Errorf("%w: member %s is no pool seat of team %s in this checkout", errUsage, strconv.Quote(m), a.team)
 		}
 		if !slices.Contains(out, all[i]) {
 			out = append(out, all[i])
@@ -211,15 +237,17 @@ func (c *Cmd) chosen(store paths.Store, key paths.CheckoutKey, a abandonArgs) ([
 //   - the team's status record on this machine (paths.StatusFile, read by Cmd.Status): a team
 //     installed here has one;
 //   - every session's desired.json under the seat store's control/ (paths.Store.DesiredFile): a
-//     team any session wants is known, whatever declared it. A control/<session> with no
-//     desired.json is a launch still writing it, whose teams cannot be known: a refusal.
+//     team any session wants is known, whatever declared it. Nothing removes these files, so a
+//     session once launched with the team lists it until it is relaunched without it; the
+//     refusal names the file, for the owner to judge and override. A control/<session> with no
+//     desired.json lists nothing: a launch that cannot write it fails, and holds no seat.
 func (c *Cmd) knownBy(store paths.Store, team paths.TeamID) (string, error) {
 	_, installed, err := c.Status(team)
 	if err != nil {
-		return "", fmt.Errorf("the status record of team %s: %w", team, err)
+		return "", fmt.Errorf("the status record of team %s (%s): %w", team, paths.StatusFile(team), err)
 	}
 	if installed {
-		return "this machine has a status record for team " + team.String() + " (" + paths.StatusFile(team) + ")", nil
+		return "team " + team.String() + " has a status record at " + paths.StatusFile(team), nil
 	}
 	control := store.Root() + "/control"
 	entries, err := os.ReadDir(control)
@@ -235,22 +263,23 @@ func (c *Cmd) knownBy(store paths.Store, team paths.TeamID) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("%s/%s: %w", control, e.Name(), err)
 		}
-		info, err := os.Lstat(store.DesiredFile(session))
+		file := store.DesiredFile(session)
+		info, err := os.Lstat(file)
 		if errors.Is(err, fs.ErrNotExist) {
-			return "", fmt.Errorf("session %s has no desired.json yet, so the teams it wants cannot be known", session)
+			continue
 		}
 		if err != nil {
 			return "", err
 		}
 		if !info.Mode().IsRegular() {
-			return "", fmt.Errorf("the desired.json of session %s is not a regular file", session)
+			return "", fmt.Errorf("%s is not a regular file", file)
 		}
 		got, _, err := d.read(session)
 		if err != nil {
-			return "", fmt.Errorf("the desired.json of session %s: %w", session, err)
+			return "", fmt.Errorf("%s: %w", file, err)
 		}
 		if slices.ContainsFunc(got.Seats, func(s state.DesiredSeat) bool { return s.Team == team }) {
-			return "session " + session.String() + "'s desired.json lists team " + team.String(), nil
+			return "team " + team.String() + " is listed in " + file, nil
 		}
 	}
 	return "", nil

@@ -17,14 +17,14 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.37 — container 2.84.76
+## 3.124.38 — container 2.84.76
 
-A teamchat seat of a team whose server is gone for good can now be released, on the owner's word
-(issue #386). A session record whose file is not named after its `name=` (one edited or renamed
+A teamchat seat of a team whose server is gone for good can now be released, on the owner's word,
+and a run with nothing to release there says so (issue #386). A session record whose file is not named after its `name=` (one edited or renamed
 by hand) is acted on through the file it was read from (issue #398, after #396), and the daily
 Claude Code update check says when the image's Claude Code is newer than the newest screen
 capture (issue #397). `ccy-sessions`, `ccy-teams` and the `claude-yolo` front are rebuilt on the
-host, and the image is rebuilt for its copy of the seat store. (3.124.32 to 3.124.35 and
+host, and the image is rebuilt for its copy of the seat store. (3.124.32 to 3.124.37 and
 containers 2.84.73 to 2.84.75 were steps on the branches, including an automatic abandonment
 that was withdrawn, and were never deployed.)
 
@@ -34,10 +34,15 @@ that was withdrawn, and were never deployed.)
   the pool's `held/` go to quarantine as a release moves them, and `released.json` records
   `abandoned` with the reason, the caller and the time. One line per seat on stdout.
 
-- **Its refusals**: no or empty `--reason` (64); a team with a status record on this machine, one
-  a session's `desired.json` lists, or a source that cannot be read, unless `--allow-known-team`
-  repeats the team (78); a seat whose member link of that team is running (75). The check is per
-  team: a session's live seat of another team neither blocks it nor is touched.
+- **Its refusals**: no or empty `--reason` (64); nothing of the team held in this checkout's
+  pool, as when run from another directory or for a mistyped team (78, naming the team and the
+  pool); a team with a status record on this machine, one a session's `desired.json` lists, or a
+  source that cannot be read, unless `--allow-known-team` repeats the team (78, naming the file);
+  a seat whose member link of that team is running, or whose seat lock cannot be looked at (75).
+  A pool that cannot be read is exit 1. A session once launched with the team keeps it listed
+  until relaunched, so after a purge or rename the override is the expected route; a session
+  directory with no `desired.json` lists nothing. The check is per team: a session's live seat
+  of another team neither blocks it nor is touched.
 
 - A release (a session's end, the seat sweep) is unchanged: only a logout the server confirms,
   or a token it no longer knows, ends it; every other failure is retried.

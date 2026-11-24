@@ -280,10 +280,14 @@ Usage:
                                    held/ go to quarantine as a release moves them, and its
                                    released.json records the reason, who and when. One line per
                                    seat abandoned; a seat not held is said and skipped. Refused:
-                                   no reason (exit 64); a team this machine has a status record
-                                   for, or a session's desired.json lists, or a source that
+                                   no reason (exit 64); no seat of the team held in this
+                                   checkout's pool, as when run from another directory (78);
+                                   a team this machine has a status record for, or a session's
+                                   desired.json lists (it names the file; a session keeps a
+                                   team listed until relaunched without it), or a source that
                                    cannot be read, unless --allow-known-team repeats the team
-                                   (exit 78); a seat whose link of that team is running (75)
+                                   (exit 78); a seat whose link of that team is running, or
+                                   whose seat lock cannot be looked at (75)
   ccy-teams seats units list
   ccy-teams seats units print <name>
                                    the two user units that run the sweep: each name and its

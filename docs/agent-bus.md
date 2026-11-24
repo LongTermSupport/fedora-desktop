@@ -819,13 +819,25 @@ allocation lock the session's copy of the seat and the pool's `held/` go to quar
 release moves them, the token file is unlinked, and `released.json` records
 `"abandoned":{"reason":…,"by":…,"at_ms":…}` (the caller's user name, or uid). One line per seat
 abandoned on stdout; a seat that is not held is said on stderr and skipped. It refuses, changing
-nothing, a missing or empty `--reason` (exit 64); a team this machine has a status record for,
-or that any session's `desired.json` lists, or a source of these it cannot read (a session with
-no `desired.json` yet included) unless `--allow-known-team` repeats the team (exit 78); and a
-seat whose member link of that team is running (its seat lock is held, or cannot be looked at;
-exit 75). The running check is per team: a session's live seat of another team does not stop
-it, and is left alone. The token itself stays valid on the server if the server still exists,
-so abandon only a team you know is gone.
+nothing:
+
+- a missing or empty `--reason` (exit 64);
+- a run that would abandon nothing: no seat of the team in this checkout's pool, or none held
+  (exit 78). The message names the team and the pool it looked in; run it from the checkout
+  the seats were taken in;
+- a team this machine has a status record for, or that any session's `desired.json` lists, or
+  a source of these it cannot read, unless `--allow-known-team` repeats the team (exit 78). The
+  refusal names the file. Nothing removes a session's `desired.json`, so a session once
+  launched with the team keeps it listed until it is relaunched without it: after a purge or a
+  rename, read the file named and use the override. A session directory with no
+  `desired.json` lists nothing (a launch that cannot write it fails, and holds no seat);
+- a seat whose member link of that team is running (exit 75): its seat lock is held, or cannot
+  be looked at (a link, a directory, a mode that denies you), which may hide a running link and
+  so it is refused as running and no flag overrides it.
+
+The running check is per team: a session's live seat of another team does not stop it, and is
+left alone. The token itself stays valid on the server if the server still exists, so abandon
+only a team you know is gone.
 
 It runs as you, with no dedicated agent user, so it can reach what you can, including the
 Matrix session you are signed in to in Element, Nheko or Lightning (the Matrix clients this
