@@ -290,29 +290,35 @@ func TestAnUnusablePayloadIsCounted(t *testing.T) {
 	}
 }
 
-// Issue 394: each hook op's unusable input is named by Claude Code's event for it.
+// Issue 394: an op that is no hook gets no event name, which session.json refuses.
 func TestAnOpThatIsNoHookHasNoEventName(t *testing.T) {
 	if got := hookEvent(wire.OpStatus); got != "" {
 		t.Fatalf("a non-hook op is named %q", got)
 	}
 }
 
-func TestAnUnusableInputNamesItsEvent(t *testing.T) {
-	for op, event := range map[string]string{
-		wire.OpHookSessionStart: state.HookSessionStart,
-		wire.OpHookPrompt:       state.HookPrompt,
-		wire.OpHookStop:         state.HookStop,
-		wire.OpHookSessionEnd:   state.HookSessionEnd,
+// Issue 394: each hook op's unusable input is named by Claude Code's event for it; one world
+// per op, each in its own subtest so each registers its leak check once. The names are short
+// because the test's name is in its link.sock path, which has a byte bound.
+func TestUnusableEvent(t *testing.T) {
+	for _, c := range []struct{ name, op, event string }{
+		{"start", wire.OpHookSessionStart, state.HookSessionStart},
+		{"prompt", wire.OpHookPrompt, state.HookPrompt},
+		{"stop", wire.OpHookStop, state.HookStop},
+		{"end", wire.OpHookSessionEnd, state.HookSessionEnd},
 	} {
-		w := newHookWorld(t)
-		reason, n := wire.UnusableUTF8, int64(3)
-		w.hookWith(op, wire.HookArgs{Payload: wire.PayloadUnusable, Unusable: &reason, UnusableBytes: &n})
-		if last := w.sessionFile().Unusable.HookLast; last == nil || last.Event != event {
-			t.Fatalf("%s: hook_last %+v", op, last)
-		}
-		if line := "unusable at " + event + " (utf8, 3 bytes); 1 so far"; !strings.Contains(w.log.String(), line) {
-			t.Fatalf("%s: link.log lacks %q: %q", op, line, w.log.String())
-		}
+		op, event := c.op, c.event
+		t.Run(c.name, func(t *testing.T) {
+			w := newHookWorld(t)
+			reason, n := wire.UnusableUTF8, int64(3)
+			w.hookWith(op, wire.HookArgs{Payload: wire.PayloadUnusable, Unusable: &reason, UnusableBytes: &n})
+			if last := w.sessionFile().Unusable.HookLast; last == nil || last.Event != event {
+				t.Fatalf("hook_last %+v", last)
+			}
+			if line := "unusable at " + event + " (utf8, 3 bytes); 1 so far"; !strings.Contains(w.log.String(), line) {
+				t.Fatalf("link.log lacks %q: %q", line, w.log.String())
+			}
+		})
 	}
 }
 

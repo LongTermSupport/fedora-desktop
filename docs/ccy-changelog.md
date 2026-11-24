@@ -17,12 +17,12 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.30 — container 2.84.71
+## 3.124.31 — container 2.84.72
 
 A teamchat hook input that could not be used now names the hook it came from (issue #394), and
 `ccy-sessions verify-restore` says why a restored session is still `SETTING-GOING` (issue
 #395). The image is rebuilt for its `teamchat`; `ccy-sessions` is rebuilt on the host.
-(3.124.26 to 3.124.29 and containers 2.84.69 and 2.84.70 were steps on the two branches and
+(3.124.26 to 3.124.30 and containers 2.84.69 to 2.84.71 were steps on the two branches and
 were never deployed.)
 
 - **link.log** says `link: a hook's input was unusable at <event> (<reason>, <n> bytes); <count> so far`, where `<event>` is Claude Code's hook event (`SessionStart`, `UserPromptSubmit`,

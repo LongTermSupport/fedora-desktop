@@ -46,7 +46,7 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Issues #393, #391, #396, #395 and #394 (ccy 3.124.30, container 2.84.71). #393: ccy-teams takes a teamchat seat only for a
+# Issues #393, #391, #396, #395 and #394 (ccy 3.124.31, container 2.84.72). #393: ccy-teams takes a teamchat seat only for a
 # session with a ccy session record. A ccy --teams (or cc --teams) launch from a pane already
 # on ccy's tmux, or with no terminal, has no record, so the seat sweep released its seat about a
 # minute after it started; such a launch now stops at once with exit 78, naming the starts that
@@ -64,7 +64,7 @@
 # restore --dry-run prints "would fail <name>: <why>" for each record that would fail. #395:
 # ccy-sessions verify-restore says, for a session still SETTING-GOING that set-going has not
 # typed into, whether a set-going is running to do it or that none is.
-# #394 (ccy 3.124.30, container 2.84.71): a teamchat hook input that could not be used is named
+# #394 (ccy 3.124.31, container 2.84.72): a teamchat hook input that could not be used is named
 # by its hook event, reason and byte count (never its content) in link.log, session.json,
 # status.json and the status line, so the next one seen after a restore says which hook it was.
 # The image is rebuilt once more for its teamchat; sessions started after the rebuild show it.
