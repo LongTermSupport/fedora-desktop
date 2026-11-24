@@ -68,6 +68,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_room_default`            | a teamchat send's room tested against one side room, so every other room (a later one too) takes main's path: posted, re-checked or refused as main's                                                                          | teamchat `engine`: `postRoom`, `recheck`, `sendFailed` after the reports room (Plan 00209, n3f-b3)                                                                                                                      |
 | `project_questions_item_by_room`  | a pending item's room tested against the questions room in the engine or teamsync, which cannot tell a relayed answer in flight from the room's stale items, so a drop of the room loses the answer                            | teamchat `holdsQuestions` and `applyQuestions`: a session restart deleted a worker's undelivered relayed answer (Plan 00209, R0 step 7 review)                                                                          |
 | `project_ledger_built_by_hand`    | a teamchat seat-store ledger entry built field by field outside the store, so a field the store's check requires (a ping's verb) can be dropped and every write that settles the delivery is refused                           | teamchat `engine`: the socket delivery's written-yes write and the proof's `ledgerOf` dropped a ping's verb, and the link retried the refused write every round (fedora-desktop#392)                                    |
+| `project_defer_assign_lost`       | a deferred function literal that assigns a variable of its enclosing function that is not a named result, so the value (a joined Close error) is lost at the return                                                            | teamchat `migrate/v1` `verifyDir`: the record directory's Close error was joined into an unnamed `err` and dropped (Plan 00178)                                                                                         |
 | `project_fake_restart`            | a test that stops or restarts a fake server in a function literal or a go statement, off the goroutine that then uses it                                                                                                       | `teamsync` `TestARestartedServerBetweenPolls`: the persist hook restarted fakehs while the test posted, `no answer` in CI (fedora-desktop#149)                                                                          |
 | `project_shared_due`              | a test that names a fake-clock due (`AwaitDue`, `Armed`) two Duration limits of the package under test share, so the other limit's timer can answer (in teamsync, `reportsJoinLimit` before `reportsSettled`)                  | `teamsync` `TestARestoreUnderALongPoll`: hung to the 30-minute timeout in CI (the failpoints test stage), passing locally; `tlsterm` `TestT10ASilentClientIsClosedAtRequestLimit` under `qa-changed`'s loaded go-qa run |
 | `project_walk_open`               | an entry a directory walk found opened with no regular-file check guarding the open, so a named pipe among the entries blocks the open for ever                                                                                | `stt`, `vmtest`, `registry` and 17 more of fedora-desktop#195: the Go side of #191, where `run.bash --changed` hung on a pipe under `untracked/`                                                                        |
@@ -1833,6 +1834,46 @@ every field of the item the ledger keeps.
   built from the wire, where the field set is the message's.
 - Not caught: an entry built in another package by a conversion from a struct of the same
   fields, or by `reflect`; none exists.
+
+### project_defer_assign_lost
+
+**What it is about.** A deferred call runs after the return values are set, and only a named
+result is read after it. A deferred function literal that assigns any other variable of its
+function (a local or a parameter) writes a value nothing reads. The usual form is
+`defer func() { err = errors.Join(err, f.Close()) }()` in a function whose results are
+unnamed: the Close error is dropped and the function reports success.
+
+**Why it exists.** Plan 00178: `verifyDir` in teamchat's `migrate/v1` joined the record
+directory's Close error into an `err` declared by `:=`, in a function returning
+`([]byte, error)`. Neither errcheck nor vet reports it: the error is "used".
+
+**What it flags**, in every file, test files included: an assignment (not `:=`) or an
+increment in a deferred function literal whose target is an identifier naming a variable
+declared in the function the `defer` sits directly in, outside the literal, that is not one of
+that function's named results.
+
+**Not flagged**: a named result; a variable declared inside the deferred literal; a field or a
+pointer's target; a variable of a function further out (a `defer` inside an immediately
+called literal that sets the outer function's `err`, which the outer function then returns); a
+deferred named function.
+
+**How to fix a violation.** Name the function's results, so the deferred assignment is what is
+returned; or handle the value inside the deferred function.
+
+- Red, fixture: `testdata/src/deferassign/a` (the originating form, an increment, a nested
+  literal's own local, a test file's helper; a named result, a named result of a literal, a
+  field, a pointer target and a deferred named function clean).
+- Red, real tree: one finding, `internal/teamchat/migrate/v1/record.go` (`verifyDir`), in both
+  modules and the `busfailpoints` build. An independent search (text, then reading each hit)
+  found the same one, and seven of the same shape outside the class: five `carry` verbs and two
+  tests whose `defer` sits in an immediately called literal, the outer function reading the
+  variable afterwards.
+- Green: `verifyDir` names its results.
+- Considered and not built: a rule over every deferred write to a captured variable, a
+  function further out included. Those are read by the outer function (the seven above), so
+  the rule would flag correct code.
+- Not caught: a deferred named function given a pointer to a local (`defer closeInto(&err)`),
+  which is the same loss one call away; neither search covered it.
 
 ### project_fake_restart
 
