@@ -60,15 +60,20 @@ the admin token, and the event shapes.
 
 ### Phase 2: Host
 
-- [ ] ⬜ **Task 2.1**: Only one host still holds v1 team data; the others hold none, checked
+- [x] ✅ **Task 2.1**: Only one host still holds v1 team data; the others hold none, checked
   read-only. On that host: `play-teamchat.yml` installs the new `teamchat-admin`, then
   `export.bash` runs. Each absent but unpurged team is opened, exported, verified and closed
-  again. The owner reads a `history.md`.
+  again. Run through meta-deploy: four teams, all present, each exported and verified, none
+  absent and unpurged; the admin's `/sync` was accepted.
+- [ ] ⬜ **Task 2.2**: The owner reads a `history.md` (root only, under
+  `/var/lib/teamchat-admin/_v1-export/`) and says whether it reads as the room's conversation,
+  and decides whether the human copy (`export.bash --human-copy`) is made by default.
 
 ## Success Criteria
 
-- [ ] Every v1 team still holding data has a record that `export-verify` passes. Its
-  `history.md` reads as the room's conversation. No token or password is in any file.
+- [x] Every v1 team still holding data has a record that `export-verify` passes. No token or
+  password is in any file (held by the package's tests).
+- [ ] Its `history.md` reads as the room's conversation (the owner's read, Task 2.2).
 - [ ] Plan 00209 Task 6.5 can then purge v1 against verified exports.
 
 ## Delivery & Milestones
