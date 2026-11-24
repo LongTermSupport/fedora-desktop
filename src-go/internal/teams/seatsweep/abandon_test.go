@@ -274,7 +274,48 @@ func TestAbandonKnown(t *testing.T) {
 	}
 }
 
-// A source that cannot be read is a refusal (78), never a pass.
+// Only the directories of control/ are sessions (fedora-desktop#404): a regular file there, such
+// as the launcher's disconnect.log, is skipped, and so is a symlink to one; a symlink to a
+// directory is a session folder like any other. No session lists the team: no override needed.
+func TestAbandonControlFiles(t *testing.T) {
+	w, key := abandonWorld(t)
+	a := w.hold(key, "dead", seat1, "s1")
+	w.desire("s2", `{"team":"ops","seat":"9"}`)
+	if err := os.MkdirAll(w.store.Control(mustSession(t, "s3")), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	control := w.store.Root() + "/control"
+	w.write(control+"/disconnect.log", "a launcher's log line\n")
+	if err := os.Symlink(control+"/disconnect.log", control+"/old.log"); err != nil {
+		t.Fatal(err)
+	}
+	if code := w.run("abandon", "dead", "--reason", "gone"); code != term.ExitOK || exists(t, a.Held()) {
+		t.Errorf("exit %d, held %v: %s", code, exists(t, a.Held()), w.errOut.String())
+	}
+}
+
+// A symlinked session folder is followed: a desired.json in it that lists the team refuses.
+func TestAbandonLinkedKnown(t *testing.T) {
+	w, key := abandonWorld(t)
+	a := w.hold(key, "dead", seat1, "s1")
+	w.desire("s2", `{"team":"dead","seat":"9"}`)
+	moved := filepath.Join(w.home, "moved")
+	if err := os.Rename(w.store.Control(mustSession(t, "s2")), moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(moved, w.store.Control(mustSession(t, "s2"))); err != nil {
+		t.Fatal(err)
+	}
+	if code := w.run("abandon", "dead", "--reason", "gone"); code != term.ExitConfig || !exists(t, a.Held()) {
+		t.Errorf("exit %d, held %v: %s", code, exists(t, a.Held()), w.errOut.String())
+	}
+	if want := w.store.DesiredFile(mustSession(t, "s2")); !strings.Contains(w.errOut.String(), want) {
+		t.Errorf("stderr %q does not name %s", w.errOut.String(), want)
+	}
+}
+
+// A source that cannot be read is a refusal (78), never a pass: an entry of control/ that is
+// neither a folder nor a regular file (a broken symlink, a named pipe) is one.
 func TestAbandonUnreadable(t *testing.T) {
 	sources := map[string]func(*world){
 		"status": func(w *world) {
@@ -288,7 +329,27 @@ func TestAbandonUnreadable(t *testing.T) {
 				w.t.Fatal(err)
 			}
 		},
-		"stray": func(w *world) { w.write(w.store.Root()+"/control/NOT A SESSION", "") },
+		"stray": func(w *world) {
+			if err := os.MkdirAll(w.store.Root()+"/control/NOT A SESSION", 0o700); err != nil {
+				w.t.Fatal(err)
+			}
+		},
+		"broken link": func(w *world) {
+			if err := os.MkdirAll(w.store.Root()+"/control", 0o700); err != nil {
+				w.t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(w.home, "gone"), w.store.Control(mustSession(w.t, "s4"))); err != nil {
+				w.t.Fatal(err)
+			}
+		},
+		"fifo": func(w *world) {
+			if err := os.MkdirAll(w.store.Root()+"/control", 0o700); err != nil {
+				w.t.Fatal(err)
+			}
+			if err := unix.Mkfifo(w.store.Control(mustSession(w.t, "s5")), 0o600); err != nil {
+				w.t.Fatal(err)
+			}
+		},
 	}
 	for name, broken := range sources {
 		w, key := abandonWorld(t)

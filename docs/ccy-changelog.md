@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.39 — container 2.84.76
+
+`ccy-teams seats abandon` no longer refuses every run because of a regular file under the seat
+store's `control/` (issue #404). `ccy-teams` is rebuilt on the host; the image is unchanged.
+
+- **Its known-team check reads only session folders.** The launcher's `disconnect.log` sits in
+  `control/` beside the session folders; the check read it as a session, could not, and refused
+  with 78, so every run needed `--allow-known-team`. A regular file is now skipped, a symlink is
+  judged by its target (a session folder linked into place is still read), and anything else (a
+  broken symlink, a socket, a named pipe) is refused as a source that cannot be read, naming it.
+
 ## 3.124.38 — container 2.84.76
 
 A teamchat seat of a team whose server is gone for good can now be released, on the owner's word,

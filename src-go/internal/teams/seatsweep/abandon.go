@@ -240,7 +240,8 @@ func (c *Cmd) chosen(store paths.Store, key paths.CheckoutKey, a abandonArgs) ([
 //     team any session wants is known, whatever declared it. Nothing removes these files, so a
 //     session once launched with the team lists it until it is relaunched without it; the
 //     refusal names the file, for the owner to judge and override. A control/<session> with no
-//     desired.json lists nothing: a launch that cannot write it fails, and holds no seat.
+//     desired.json lists nothing: a launch that cannot write it fails, and holds no seat. Only
+//     the folders of control/ are sessions (sessionFolder): a regular file there is skipped.
 func (c *Cmd) knownBy(store paths.Store, team paths.TeamID) (string, error) {
 	_, installed, err := c.Status(team)
 	if err != nil {
@@ -249,6 +250,11 @@ func (c *Cmd) knownBy(store paths.Store, team paths.TeamID) (string, error) {
 	if installed {
 		return "team " + team.String() + " has a status record at " + paths.StatusFile(team), nil
 	}
+	return desiredBy(store, team)
+}
+
+// desiredBy names the desired.json under control/ that lists team, "" when none does.
+func desiredBy(store paths.Store, team paths.TeamID) (string, error) {
 	control := store.Root() + "/control"
 	entries, err := os.ReadDir(control)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -259,6 +265,13 @@ func (c *Cmd) knownBy(store paths.Store, team paths.TeamID) (string, error) {
 	}
 	d := Desired{Store: store}
 	for _, e := range entries {
+		folder, err := sessionFolder(control+"/"+e.Name(), e.Type())
+		if err != nil {
+			return "", err
+		}
+		if !folder {
+			continue
+		}
 		session, err := paths.ParseSessionName(e.Name())
 		if err != nil {
 			return "", fmt.Errorf("%s/%s: %w", control, e.Name(), err)
@@ -283,6 +296,27 @@ func (c *Cmd) knownBy(store paths.Store, team paths.TeamID) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// sessionFolder is whether an entry of control/ is a session folder: a directory is one, a
+// regular file (the launcher's disconnect.log) is not, and a symlink is judged by its target, so
+// a session folder linked into place is still read. Anything else (a broken symlink, a socket, a
+// named pipe, a device) is an error: it may hide a session, so the scan cannot pass it.
+func sessionFolder(path string, mode fs.FileMode) (bool, error) {
+	if mode&fs.ModeSymlink != 0 {
+		info, err := os.Stat(path)
+		if err != nil {
+			return false, fmt.Errorf("%s is a symlink whose target cannot be read: %w", path, err)
+		}
+		mode = info.Mode()
+	}
+	switch {
+	case mode.IsDir():
+		return true, nil
+	case mode.IsRegular():
+		return false, nil
+	}
+	return false, fmt.Errorf("%s is neither a session folder nor a regular file (mode %s)", path, mode.Type())
 }
 
 // refusal is the known-team refusal: the source that knows it, or the one that could not be

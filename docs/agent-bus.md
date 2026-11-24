@@ -829,8 +829,11 @@ nothing:
   a source of these it cannot read, unless `--allow-known-team` repeats the team (exit 78). The
   refusal names the file. Nothing removes a session's `desired.json`, so a session once
   launched with the team keeps it listed until it is relaunched without it: after a purge or a
-  rename, read the file named and use the override. A session directory with no
-  `desired.json` lists nothing (a launch that cannot write it fails, and holds no seat);
+  rename, read the file named and use the override. Only the folders under the seat store's
+  `control/` are sessions: a regular file there (the launcher's `disconnect.log`) is skipped, a
+  symlink is judged by its target, and anything else (a broken symlink, a socket, a named pipe)
+  is a source it cannot read. A session folder with no `desired.json` lists nothing (a launch
+  that cannot write it fails, and holds no seat);
 - a seat whose member link of that team is running (exit 75): its seat lock is held, or cannot
   be looked at (a link, a directory, a mode that denies you), which may hide a running link and
   so it is refused as running and no flag overrides it.

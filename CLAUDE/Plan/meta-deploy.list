@@ -84,6 +84,9 @@
 # session once launched with the team keeps it listed in its desired.json, so the verb names
 # that file and --allow-known-team <team> is the expected route. The image is rebuilt for its
 # copy of the seat store.
+# #404 (ccy 3.124.39): ccy-teams is rebuilt so seats abandon's known-team check reads only the
+# session folders under the seat store's control/: the launcher's disconnect.log there no
+# longer refuses every run, so --allow-known-team is needed only where a session lists the team.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that

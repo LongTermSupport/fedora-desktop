@@ -73,6 +73,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_fake_restart`            | a test that stops or restarts a fake server in a function literal or a go statement, off the goroutine that then uses it                                                                                                       | `teamsync` `TestARestartedServerBetweenPolls`: the persist hook restarted fakehs while the test posted, `no answer` in CI (fedora-desktop#149)                                                                          |
 | `project_shared_due`              | a test that names a fake-clock due (`AwaitDue`, `Armed`) two Duration limits of the package under test share, so the other limit's timer can answer (in teamsync, `reportsJoinLimit` before `reportsSettled`)                  | `teamsync` `TestARestoreUnderALongPoll`: hung to the 30-minute timeout in CI (the failpoints test stage), passing locally; `tlsterm` `TestT10ASilentClientIsClosedAtRequestLimit` under `qa-changed`'s loaded go-qa run |
 | `project_walk_open`               | an entry a directory walk found opened with no regular-file check guarding the open, so a named pipe among the entries blocks the open for ever                                                                                | `stt`, `vmtest`, `registry` and 17 more of fedora-desktop#195: the Go side of #191, where `run.bash --changed` hung on a pipe under `untracked/`                                                                        |
+| `project_walk_entry_type`         | a path beneath an entry a directory listing found (a file inside it, or a listing of it) used in a loop that never asks the entry's type, so a regular file, socket or broken link among the entries is read as a directory    | `seatsweep` `seats abandon`: the launcher's `disconnect.log` under the seat store's `control/` read as a session folder, refusing every run (fedora-desktop#404)                                                        |
 | `project_zombie_exit`             | a process judged ended by its leader's zombie state in /proc stat, while its other threads still hold its files                                                                                                                | teamchat `wiring` `TestClaudeStatusLine`: the status line read once the killed link showed Z found link.lock held (fedora-desktop#182)                                                                                  |
 | `project_coordinator_absence`     | an absence clause written outside the `CoordinatorAbsent` case of `proto.ClaimCoordinator`, so a seat is told it from a record not known to be current                                                                         | teamchat: a seat told "no coordinator" from a stale record, then acting on it (issue 192)                                                                                                                               |
 | `project_container_pids_limit`    | a container run without ccy's whole limit set (`--cgroup-parent`, `--pids-limit`, `--memory`, `--memory-reservation`), so a fork bomb runs to the engine's pids default and the containers together can take the host's memory | `ccc`'s session and sign-in runs (no limit, then no memory caps), after the ccy launcher's Go probes had taken the pids limit (the Go counterpart of the Semgrep rule `ccy-container-default-pids-limit`)               |
@@ -3807,3 +3808,57 @@ remove with `Store.RemoveFile`, or `Store.RemoveSession` for every record of an 
   `TestARestoredSessionIsHandedTheFileItsRecordWasReadFrom` and
   `TestADeclareRefusalNamesOnlyARecordThatIsThere` (each a record whose file is named otherwise
   than its `name=`), red at the test commit, green after.
+
+### project_walk_entry_type
+
+**What it is about.** A directory listing holds whatever is in the directory: directories,
+regular files, symlinks (broken ones too), sockets and pipes. Code that takes every entry for a
+folder and reads a file inside it fails on the first entry that is not one.
+
+**Why it exists.** fedora-desktop#404: `ccy-teams seats abandon` checks every session's
+`desired.json` under the seat store's `control/` (`knownBy` in `internal/teams/seatsweep`). The
+launcher also keeps a regular file there, `disconnect.log`; the scan read it as a session folder,
+the read failed as an unreadable source, and every run refused with 78 unless
+`--allow-known-team` was given, which made the refusal meaningless.
+
+**What it flags**, in non-test files: in a range over a slice of `fs.DirEntry` or `fs.FileInfo`
+(whatever produced it), a file system call (`os.Open`, `OpenFile`, `ReadFile`, `Stat`, `Lstat`,
+`ReadDir`, `Readlink`, `Chdir`, `DirFS`, `ioutil.ReadFile`/`ReadDir`, `fs.ReadFile`/`ReadDir`/`Stat`,
+`filepath.Walk`/`WalkDir`) given a path beneath the entry, or a directory reader given the entry's
+own path, when the loop body never asks the entry's type. The entry is followed through every
+value the body builds from it (a call of any package, so a path built by another package's helper
+from a parsed name counts; a local; a `+` chain), but not into a bool, a number, an error or a
+byte slice. The entry's own path is a `filepath.Join`/`path.Join` whose last element is its
+`Name()` and whose others are not built from it, a `+` ending in its `Name()`, or a local holding
+one; anything else built from it is beneath it. Asking the type is a call of the entry's `IsDir`,
+`Type`, `Info` or `Mode`, or `os.Stat`/`os.Lstat`/`fs.Stat` of its own path.
+
+**Scope, examined.** The guard is the loop, not the branch: a loop that asks the type anywhere is
+clean, so a check whose answer is used wrongly is not caught (a guard-precise rule, like
+`project_walk_open`'s, was weighed against the one instance found and not built). The false
+positive is a path derived from the name that is not beneath the entry (a sibling such as
+`<name>.lock` built from a trimmed name): flagged, and fixed by asking the type, which costs one
+call. Opening the entry itself is `project_walk_open`'s concern and not judged here.
+
+**Not caught:** a range over names only (`Readdirnames`, `Glob`); an entry indexed
+(`entries[i]`) rather than ranged; the entry handed to a function of the package that builds the
+path and reads it; a value built from the entry kept outside the loop and used after it.
+
+**How to fix:** skip or refuse the entry unless its type is a directory (`if !e.IsDir() { continue }`), or `os.Stat` its own path to follow a symlink and ask the target's type.
+
+- Red, fixture: `testdata/walkentry/src/fix`: `internal/badwalkentry` (the defect: a name parsed
+  and the path built by another package's method, then `os.Lstat`; one `Join` with a further
+  element and `os.ReadFile`; `os.ReadDir` of the entry; a local relaying the entry's path from
+  `(*os.File).ReadDir` to `os.Open`; `Readdir`'s `FileInfo` through `fs.ReadFile`; a `+` chain over
+  a listing a function returns: 6 findings), `internal/goodwalkentry` (`IsDir`, a switch on
+  `Type`, a `Stat` of the entry's own path, the entry opened as a file, names only, a range over
+  strings, a test: clean). With the analyzer reporting nothing the test missed all 6 diagnostics.
+- Red, real tree (the defence commit, the driver as `go vet -vettool`, both modules and every
+  build tag set): 1 finding, `teams/seatsweep/abandon.go` (`knownBy`'s `os.Lstat` of
+  `store.DesiredFile(session)`). The independent search (every `Join` with an element after a
+  `.Name()` in `src-go`) found one more loop, `tuwunelhs.processes`, which asks `e.IsDir()` first
+  (clean).
+- Green, the fix commit: 0 findings. `knownBy` takes only directories of `control/` as session
+  folders, skips regular files, follows a symlink and judges its target the same, and refuses
+  anything else (a broken link, a socket, a pipe) with its path. The original:
+  `seatsweep` `TestAbandonControlFiles`, red at the test commit, green after.
