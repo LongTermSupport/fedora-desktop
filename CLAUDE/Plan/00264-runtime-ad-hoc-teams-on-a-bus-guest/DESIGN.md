@@ -142,6 +142,12 @@ Creating a team is a security change by DC18: existence is a gated field, with `
    uid. A request outside it (a human, a wider network, a trust setting) is parked as pending and
    needs route 1.
 
+**Trust shape (owner decision Q69).** A runtime team's `trust` has the shape a declared team's has
+today: one main GitHub owner (`org`) plus single named repositories (`repos`). A team that needs
+one repository of another owner names that repository in `repos`; it never adds that owner as a
+second `org`. A request whose trust holds more than one `org` is refused (exit 64), whichever
+route would approve it.
+
 **Audit.** Every request keeps its document, the requester's uid, the verdict, the policy digest it
 was judged against and the CHANGED lines in `done/<id>.json`, root-owned, never deleted by the
 verbs (pruned by count, like the status events, `status.MaxEvents`). The status record gains an
