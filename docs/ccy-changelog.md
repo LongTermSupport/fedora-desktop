@@ -17,6 +17,22 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.42 — container 2.84.77
+
+A session launched with a bare `ccy --resume` (Claude Code's picker), such as
+`ccy --resume --teams <seats>`, is no longer recorded by a restore as resuming the flag after
+it (issue #411). The image is unchanged.
+
+- **A bare `--resume` names no conversation.** `ccy-sessions restore` (and the launcher
+  library's `ccy_registry_resume_id`) took the word after `--resume` or `-r` as its id whatever
+  it was, so the restore manifest named `--teams` as the conversation such a session resumes.
+  The word is now its id only when it is not a flag, as the restart's relaunch already read it;
+  `--session-id`'s value is no longer read as anything else. The session itself is still
+  started from its recorded conversation (`conversation.json`), or refused with the reason when
+  none is recorded; this only changed what the manifest and `verify-restore` name.
+- **One reader of the selectors.** The Go side reads claude's conversation selectors only
+  through the registry's one parser, held by the new project rule `project_selector_parse`.
+
 ## 3.124.41 — container 2.84.77
 
 A teamchat v2 member's SessionStart is usable again, and `/exit` no longer ends with exit 78

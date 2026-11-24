@@ -147,7 +147,7 @@ func withoutSelectors(prefix string, args []string) []string {
 	for _, w := range args {
 		if resumeValue {
 			resumeValue = false
-			dropNext = !strings.HasPrefix(w, "-")
+			dropNext = selectorValue(w)
 		}
 		switch {
 		case dropNext:
@@ -166,7 +166,7 @@ func withoutSelectors(prefix string, args []string) []string {
 			out = append(out, w)
 			continue
 		}
-		switch selectorOf(w) {
+		switch selectorOf(w).kind {
 		case selectorAlone:
 		case selectorMaybeValue:
 			resumeValue = true
@@ -195,16 +195,34 @@ const (
 	selectorWithValue                  // --session-id: the next word is its id
 )
 
-func selectorOf(w string) selector {
-	switch {
-	case w == "-c", w == "--continue", strings.HasPrefix(w, "--resume="), strings.HasPrefix(w, "--session-id="):
-		return selectorAlone
-	case w == "-r", w == "--resume":
-		return selectorMaybeValue
-	case w == "--session-id":
-		return selectorWithValue
+// selectorWord is one word read as a conversation selector: what it is, and for --resume=<id>
+// (resumes) the id it names.
+type selectorWord struct {
+	kind    selector
+	resumes bool
+	id      string
+}
+
+// selectorOf is the one reader of claude's conversation selectors (rule project_selector_parse).
+func selectorOf(w string) selectorWord {
+	if id, ok := strings.CutPrefix(w, "--resume="); ok {
+		return selectorWord{kind: selectorAlone, resumes: true, id: id}
 	}
-	return selectorNone
+	switch {
+	case w == "-c", w == "--continue", strings.HasPrefix(w, "--session-id="):
+		return selectorWord{kind: selectorAlone}
+	case w == "-r", w == "--resume":
+		return selectorWord{kind: selectorMaybeValue}
+	case w == "--session-id":
+		return selectorWord{kind: selectorWithValue}
+	}
+	return selectorWord{kind: selectorNone}
+}
+
+// selectorValue is whether the word after a bare -r or --resume is its id: only when it is not a
+// flag, since a bare one opens the picker (fedora-desktop#411).
+func selectorValue(next string) bool {
+	return !strings.HasPrefix(next, "-")
 }
 
 // composeArgs is the --compose flag a compose outcome maps to.
@@ -233,8 +251,11 @@ func recordedSupervise(args []string) bool {
 }
 
 // ResumeID is the conversation id the launch resumes: the value of --resume <id>, --resume=<id>
-// or -r <id>; empty for --continue or no flag. A ccy flag that takes a value consumes the next
-// word, as the launcher's parser does, so `--token -r` names a token, not a resume.
+// or -r <id>; empty for --continue, no flag, or a bare --resume or -r (the picker), whose next
+// word is its id only when it is not a flag, as in withoutSelectors (fedora-desktop#411). The
+// selectors are read by selectorOf, so the two cannot disagree. A ccy flag that takes a value
+// consumes the next word, as the launcher's parser does, so `--token -r` names a token, not a
+// resume, and --session-id's value is its own.
 func ResumeID(args []string) string {
 	id, skip, afterDD := "", false, false
 	for i := 0; i < len(args); i++ {
@@ -244,19 +265,35 @@ func ResumeID(args []string) string {
 			skip = false
 		case word == "--":
 			afterDD = true
-		case strings.HasPrefix(word, "--resume="):
-			id = strings.TrimPrefix(word, "--resume=")
-		case word == "--resume", word == "-r":
-			id = ""
-			if i+1 < len(args) {
-				i++
-				id = args[i]
-			}
-		case !afterDD:
-			skip = FlagClass(word) == ClassKeepValue || FlagClass(word) == ClassDropValue
+		default:
+			id, skip = resumeWord(args, &i, id, afterDD)
 		}
 	}
 	return id
+}
+
+// resumeWord reads the word args[*i] for ResumeID: the id so far, as that word leaves it, and
+// whether the next word is another flag's value. A --resume or -r with its id moves *i past it.
+func resumeWord(args []string, i *int, id string, afterDD bool) (string, bool) {
+	word := args[*i]
+	read := selectorOf(word)
+	switch read.kind {
+	case selectorAlone:
+		if read.resumes {
+			return read.id, false
+		}
+		return id, false
+	case selectorMaybeValue:
+		if *i+1 < len(args) && selectorValue(args[*i+1]) {
+			*i++
+			return args[*i], false
+		}
+		return "", false
+	case selectorWithValue:
+		return id, true
+	case selectorNone:
+	}
+	return id, !afterDD && takesValue(word)
 }
 
 // Opencode reports whether a ccy record's launch ran opencode instead of Claude Code: ccy's

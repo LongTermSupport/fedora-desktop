@@ -95,6 +95,9 @@
 # Claude Code's payload, so every SessionStart is usable again: the link says started, /exit no
 # longer ends 78 and marks the seat launch-failed, and session.json records the real source.
 # The image is rebuilt for its teamchat; sessions started after the rebuild have the fix.
+# #411 (ccy 3.124.42): ccy-sessions is rebuilt and the launcher's session-registry library deployed so
+# a session launched with a bare ccy --resume (the picker), such as ccy --resume --teams <seats>,
+# is no longer put in the restore manifest as resuming --teams. The image is unchanged.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that

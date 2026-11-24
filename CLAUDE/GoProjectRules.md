@@ -3977,3 +3977,9 @@ there.
   `ccyteamstest`): 4 findings, all in `registry/restore.go` `ResumeID` (lines 247-249). The
   independent search made before the rule ran (every reader of a selector in `src-go` and the
   launcher's bash) found the same Go instance and its bash twin.
+- Green, the fix commit: 0 findings (both modules, untagged and `ccyteamstest`). `selectorOf`
+  also returns `--resume=<id>`'s id, and `selectorValue` is the one "is the next word a bare
+  `--resume`'s id" test that `withoutSelectors` and `ResumeID` share. The original:
+  `registry` `TestResumeIDAndSupervisedGolden` (`{--resume --teams x} -> ""` and five more rows,
+  Go and the bash twin) and `sessions` `TestABareResumeLaunchIsNeverResumedAsTheFlagAfterIt`
+  (the manifest named `--no-ssh` before the fix), green after.

@@ -705,6 +705,8 @@ check "--resume <id>" "0a1b-2c" "$(ccy_registry_resume_id --token work -- --resu
 check "--resume=<id>" "0a1b" "$(ccy_registry_resume_id --resume=0a1b)"
 check "-r <id>" "0a1b" "$(ccy_registry_resume_id --supervise -r 0a1b)"
 check "a ccy flag's value is not a resume" "" "$(ccy_registry_resume_id --token -r --continue)"
+check "a bare --resume names no conversation (#411)" "" "$(ccy_registry_resume_id --resume --teams dev1@team-a)"
+check "--session-id's value is not a resume" "" "$(ccy_registry_resume_id --session-id -r --continue)"
 check "ccy is supervised by default" "yes" "$(ccy_registry_supervised ccy --token work --supervise --continue)"
 check "--no-supervise is not" "no" "$(ccy_registry_supervised ccy --no-supervise --continue)"
 check "a --no-supervise after -- is claude's word" "yes" "$(ccy_registry_supervised ccy --supervise -- --no-supervise)"

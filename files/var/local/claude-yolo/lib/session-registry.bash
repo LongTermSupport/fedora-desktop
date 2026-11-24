@@ -876,9 +876,11 @@ ccy_restore_manifest_rewrite() {
 }
 
 # ccy_registry_resume_id [restore-args...] — the conversation id the launch resumes, printed:
-# the value of --resume <id>, --resume=<id> or -r <id>; nothing for --continue or no flag.
-# PURE. A ccy flag that takes a value consumes the next word, as the launcher's parser does,
-# so `--token -r` names a token, not a resume.
+# the value of --resume <id>, --resume=<id> or -r <id>; nothing for --continue, no flag, or a
+# bare --resume or -r (the picker), whose next word is its id only when it is not a flag, as in
+# ccy_restart_relaunch_args (fedora-desktop#411). PURE. A ccy flag that takes a value consumes
+# the next word, as the launcher's parser does, so `--token -r` names a token, not a resume,
+# and --session-id's value is its own. The Go twin is registry.ResumeID.
 ccy_registry_resume_id() {
     local word id="" skip=false after_dd=false
     while [[ $# -gt 0 ]]; do
@@ -895,11 +897,13 @@ ccy_registry_resume_id() {
         case "$word" in
         --resume=*) id="${word#--resume=}" ;;
         --resume | -r)
-            id="${1:-}"
-            if [[ $# -gt 0 ]]; then
+            id=""
+            if [[ $# -gt 0 && "$1" != -* ]]; then
+                id="$1"
                 shift
             fi
             ;;
+        --session-id) skip=true ;;
         *)
             if [[ "$after_dd" == false ]]; then
                 case "$(ccy_registry_flag_class "$word")" in
