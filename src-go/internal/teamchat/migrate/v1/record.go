@@ -188,7 +188,7 @@ func writeRecord(d Deps, teamName, stamp string, files []recordFile) (rec string
 }
 
 // recordParent makes the team's records directory below teamchat-admin's state root, which must
-// exist; each directory made or found is root's, 0700, and not a symlink.
+// exist. Each directory it makes is 0700; each made or found must be root's and not a symlink.
 func recordParent(d Deps, teamName string) (string, error) {
 	base := d.Root + paths.AdminStateRoot
 	if info, err := os.Lstat(base); err != nil {
@@ -272,7 +272,7 @@ func (e *MismatchError) Error() string {
 
 // verifyDir re-reads the record at dir against its digest (E18) and returns the digest's bytes. A
 // digest that cannot be read is an error; files that do not match are a *MismatchError.
-func verifyDir(dir, teamName string) ([]byte, error) {
+func verifyDir(dir, teamName string) (digestRaw []byte, err error) {
 	info, err := os.Lstat(dir)
 	if err != nil {
 		return nil, err
@@ -419,26 +419,41 @@ func copyTarget(d Deps, req Request) (Account, error) {
 // copyRecord copies the record rec to <CopyTo>/<team>-<stamp>/ (E17): each file 0600, the
 // directory 0700, all the owner's, verified against the record's digest while the directory is
 // still root's, then given to the owner. A failed copy is removed; the record stays.
+//
+// The copy's directory is made and opened through the opened --copy-to directory, whose owner is
+// checked on the open descriptor, so the owner cannot swap in a symlink that leads root's writes
+// elsewhere: a root never resolves a name outside itself.
 func copyRecord(d Deps, rec, teamName, stamp string, req Request) (dst string, err error) {
 	acct, err := copyTarget(d, req)
 	if err != nil {
 		return "", fmt.Errorf("%w; the record %s stays", err, rec)
 	}
-	target := req.CopyTo + "/" + teamName + "-" + stamp
-	if err := os.Mkdir(target, 0o700); err != nil {
+	parent, err := openCopyParent(req.CopyTo, acct)
+	if err != nil {
+		return "", fmt.Errorf("--copy-to: %w; the record %s stays", err, rec)
+	}
+	defer func() { err = errors.Join(err, parent.Close()) }()
+	name := teamName + "-" + stamp
+	target := req.CopyTo + "/" + name
+	if err := parent.Mkdir(name, 0o700); err != nil {
 		return "", fmt.Errorf("the copy: %w; the record %s stays", err, rec)
 	}
 	defer func() {
 		if err != nil {
-			err = fmt.Errorf("the copy to %s failed: %w; the record %s stays", target, errors.Join(err, os.RemoveAll(target)), rec)
+			err = fmt.Errorf("the copy to %s failed: %w; the record %s stays", target, errors.Join(err, parent.RemoveAll(name)), rec)
 		}
 	}()
+	out, err := parent.OpenRoot(name)
+	if err != nil {
+		return "", err
+	}
+	defer func() { err = errors.Join(err, out.Close()) }()
 	want, err := verifyDir(rec, teamName)
 	if err != nil {
 		return "", err
 	}
-	if err := fillCopy(rec, target, want, acct); err != nil {
-		return "", err
+	if err := fillCopy(d, rec, out, want, acct); err != nil {
+		return "", fmt.Errorf("%s: %w", target, err)
 	}
 	got, err := verifyDir(target, teamName)
 	if err != nil {
@@ -447,12 +462,32 @@ func copyRecord(d Deps, rec, teamName, stamp string, req Request) (dst string, e
 	if !bytes.Equal(got, want) {
 		return "", errors.New("the copy's digest.json is not the record's")
 	}
-	return target, giveDir(target, acct)
+	return target, giveDir(d, out, acct)
 }
 
-// fillCopy writes each file of the record's digest, and the digest, into dst through dst's root,
-// so nothing in dst can lead a write outside it.
-func fillCopy(rec, dst string, digestRaw []byte, acct Account) (err error) {
+// openCopyParent opens --copy-to and checks, on the open directory, that the copy's owner owns
+// it, so the directory checked is the directory written in.
+func openCopyParent(dir string, acct Account) (*os.Root, error) {
+	parent, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	info, err := parent.Stat(".")
+	if err == nil {
+		var uid int
+		if uid, _, err = ownerOf(info); err == nil && uid != acct.UID {
+			err = fmt.Errorf("%s is owned by uid %d, not the copy's owner (uid %d)", dir, uid, acct.UID)
+		}
+	}
+	if err != nil {
+		return nil, errors.Join(err, parent.Close())
+	}
+	return parent, nil
+}
+
+// fillCopy writes each file of the record's digest, and the digest, into the copy's root out, so
+// nothing in it can lead a write outside it.
+func fillCopy(deps Deps, rec string, out *os.Root, digestRaw []byte, acct Account) (err error) {
 	var d digest
 	if err := json.Unmarshal(digestRaw, &d); err != nil {
 		return err
@@ -462,11 +497,6 @@ func fillCopy(rec, dst string, digestRaw []byte, acct Account) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, src.Close()) }()
-	out, err := os.OpenRoot(dst)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, out.Close()) }()
 	names := []string{digestName}
 	for name := range d.Files {
 		names = append(names, name)
@@ -480,14 +510,14 @@ func fillCopy(rec, dst string, digestRaw []byte, acct Account) (err error) {
 		if err != nil {
 			return fmt.Errorf("%s/%s: %w", rec, name, err)
 		}
-		if err := writeOwned(out, name, data, acct); err != nil {
-			return fmt.Errorf("%s/%s: %w", dst, name, err)
+		if err := writeOwned(deps, out, name, data, acct); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
 		}
 	}
 	return nil
 }
 
-func writeOwned(root *os.Root, name string, data []byte, acct Account) (err error) {
+func writeOwned(d Deps, root *os.Root, name string, data []byte, acct Account) (err error) {
 	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return err
@@ -496,20 +526,20 @@ func writeOwned(root *os.Root, name string, data []byte, acct Account) (err erro
 	if _, err := f.Write(data); err != nil {
 		return err
 	}
-	if err := f.Chown(acct.UID, acct.GID); err != nil {
+	if err := d.Chown(f, acct.UID, acct.GID); err != nil {
 		return err
 	}
 	return f.Sync()
 }
 
-// giveDir gives the finished copy's directory to its owner, mode 0700.
-func giveDir(dir string, acct Account) (err error) {
-	f, err := os.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0)
+// giveDir gives the finished copy's directory, the root dir, to its owner, mode 0700.
+func giveDir(d Deps, dir *os.Root, acct Account) (err error) {
+	f, err := dir.Open(".")
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, f.Close()) }()
-	if err := f.Chown(acct.UID, acct.GID); err != nil {
+	if err := d.Chown(f, acct.UID, acct.GID); err != nil {
 		return err
 	}
 	if err := f.Chmod(0o700); err != nil {

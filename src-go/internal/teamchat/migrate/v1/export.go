@@ -27,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"time"
 )
 
@@ -40,13 +41,15 @@ type Account struct {
 
 // Deps is what an export reaches: Root prefixes every path ("" on a host); RootUID is the owner
 // of root's own files (0 on a host); Lookup finds a local account by name (found false when there
-// is none); HTTP sends each GET; Now is the clock the stamp and the export time are read from.
+// is none); HTTP sends each GET; Now is the clock the stamp and the export time are read from;
+// Chown gives an open file of the human copy to its owner ((*os.File).Chown on a host).
 type Deps struct {
 	Root    string
 	RootUID int
 	Lookup  func(name string) (Account, bool, error)
 	HTTP    Doer
 	Now     func() time.Time
+	Chown   func(f *os.File, uid, gid int) error
 }
 
 // Request is one export: the v1 team, and, both or neither, the directory the human copy goes in

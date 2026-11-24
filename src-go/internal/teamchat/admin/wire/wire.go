@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"sync"
 	"time"
 
@@ -161,7 +162,7 @@ func (m machine) system(digest string) (*admin.System, error) {
 		HistoryExport: func() (admin.HistoryExport, error) {
 			return v1.Exporter{Deps: v1.Deps{
 				Root: root, RootUID: int(stateOwnerUID), Lookup: m.account,
-				HTTP: matrix.LoopbackClient(v1.RequestLimit), Now: clock.Now,
+				HTTP: matrix.LoopbackClient(v1.RequestLimit), Now: clock.Now, Chown: (*os.File).Chown,
 			}}, nil
 		},
 	}

@@ -204,8 +204,9 @@ func newWorld(t *testing.T) *world {
 			a, ok := w.users[name]
 			return a, ok, nil
 		},
-		HTTP: matrix.LoopbackClient(RequestLimit),
-		Now:  func() time.Time { return fixed },
+		HTTP:  matrix.LoopbackClient(RequestLimit),
+		Now:   func() time.Time { return fixed },
+		Chown: (*os.File).Chown,
 	}
 	w.mkdir(paths.AdminStateRoot, 0o700)
 	w.mkdir("/var/lib/agent-bus", 0o700)

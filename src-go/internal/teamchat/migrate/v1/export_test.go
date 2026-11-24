@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -527,6 +528,35 @@ func TestE17Copy(t *testing.T) {
 	}
 	if !strings.Contains(w.stderr.String(), "copied to "+res.Copy) {
 		t.Errorf("%s", w.stderr.String())
+	}
+}
+
+// E17: every file of the copy, and its directory, is given to the copy's owner. The owner change
+// goes through Deps.Chown, recorded here, so the check runs unprivileged (project_test_chown).
+func TestE17CopyIsGivenToItsOwner(t *testing.T) {
+	w := populated(t)
+	owner := Account{UID: os.Getuid(), GID: os.Getgid() + 1}
+	w.users["owner"] = owner
+	type given struct{ uid, gid int }
+	got := map[string]given{}
+	w.deps.Chown = func(f *os.File, uid, gid int) error {
+		got[filepath.Base(f.Name())] = given{uid, gid}
+		return nil
+	}
+	res, err := w.export(Request{CopyTo: w.copyDir(), CopyOwner: "owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The directory is given through its root, opened as ".".
+	want := append([]string{"."}, entries(t, res.Copy)...)
+	if len(got) != len(want) {
+		t.Fatalf("owner changes %v, want one for each of %v", got, want)
+	}
+	for _, n := range want {
+		g, ok := got[n]
+		if !ok || g != (given{owner.UID, owner.GID}) {
+			t.Errorf("%s: given %+v (%v), want %+v", n, g, ok, given{owner.UID, owner.GID})
+		}
 	}
 }
 

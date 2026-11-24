@@ -123,7 +123,7 @@ func TestHistoryExportIsTheHosts(t *testing.T) {
 		t.Fatal(err)
 	}
 	x, ok := seam.(v1.Exporter)
-	if !ok || x.Deps.Root != f.root || x.Deps.RootUID != 7 || x.Deps.HTTP == nil || x.Deps.Now == nil || f.n != (counts{}) {
+	if !ok || x.Deps.Root != f.root || x.Deps.RootUID != 7 || x.Deps.HTTP == nil || x.Deps.Now == nil || x.Deps.Chown == nil || f.n != (counts{}) {
 		t.Fatalf("%T %+v %+v", seam, x.Deps, f.n)
 	}
 	acct, found, err := x.Deps.Lookup(paths.CtlUser)

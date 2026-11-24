@@ -8,8 +8,8 @@
 # TEAM` (the record re-hashed against its digest). With --human-copy, each export also leaves
 # the owner a copy under ~/agent-team-archives/.
 #
-# WHICH TEAMS: a v1 team is a directory under /var/lib/agent-bus/ (root-only, listed through
-# sudo). A team whose homeserver unit (agent-bus-hs@TEAM.service) is active is exported. A team
+# WHICH TEAMS: a v1 team is a directory under /var/lib/agent-bus/ holding team.json (listed
+# through sudo). A team whose homeserver unit (agent-bus-hs@TEAM.service) is active is exported. A team
 # directory whose unit is not active belongs to a team declared absent: v1's play stopped its
 # server and blocked it, so it cannot be read. The run names each such team and fails at the
 # end. The remedy is to declare it present again, run v1's play, run this again, and then
@@ -66,9 +66,11 @@ fi
 # Each listing goes to a file, not a process substitution, so its failure stops the run.
 dirsFile="${PLAN_RUN_DIR}/v1-team-dirs.txt"
 unitsFile="${PLAN_RUN_DIR}/v1-active-units.txt"
+# A team is a directory holding team.json, as v1 finds them; the directory is also the v1 user's
+# home, so other entries are not teams. The tests here need no sudo, so a sudo failure stops.
 teamDirs=""
-if sudo test -d /var/lib/agent-bus; then
-    teamDirs="$(sudo find /var/lib/agent-bus -mindepth 1 -maxdepth 1 -type d -printf '%f\n')"
+if [[ -d /var/lib/agent-bus ]]; then
+    teamDirs="$(sudo find /var/lib/agent-bus -mindepth 2 -maxdepth 2 -name team.json -type f -printf '%h\n')"
 fi
 if [[ -n "${teamDirs}" ]]; then
     printf '%s\n' "${teamDirs}" >"${dirsFile}"
@@ -87,21 +89,26 @@ if ((humanCopy)); then
 fi
 
 exported=0
+found=0
 stopped=()
-while IFS= read -r team; do
+# The list is read on descriptor 3, and each sudo's stdin is /dev/null, so no command can
+# consume the rest of the list.
+while IFS= read -r -u 3 teamDir; do
+    team="${teamDir##*/}"
+    found=$((found + 1))
     if ! grep -q "^agent-bus-hs@${team}\.service " "${unitsFile}"; then
         stopped+=("${team}")
-        printf '==> %s: homeserver not running (declared absent?): not exported\n' "${team}"
+        printf '==> %s: homeserver not running (declared absent, stopped or failed): not exported\n' "${team}"
         continue
     fi
     printf '==> %s: exporting\n' "${team}"
-    sudo teamchat-admin migrate export --team "${team}" "${copyArgs[@]}"
+    sudo teamchat-admin migrate export --team "${team}" "${copyArgs[@]}" </dev/null
     printf '==> %s: verifying\n' "${team}"
-    sudo teamchat-admin migrate export-verify --team "${team}"
+    sudo teamchat-admin migrate export-verify --team "${team}" </dev/null
     exported=$((exported + 1))
-done <"${dirsFile}"
+done 3<"${dirsFile}"
 
-printf '%s v1 team(s) exported and verified\n' "${exported}"
+printf '%s of %s v1 team(s) exported and verified\n' "${exported}" "${found}"
 if ((${#stopped[@]} > 0)); then
     printf '[FAIL] not exported, homeserver not running: %s\n' "${stopped[*]}" >&2
     printf 'Declare each present again (v1 play), run this again, then declare it absent again.\n' >&2

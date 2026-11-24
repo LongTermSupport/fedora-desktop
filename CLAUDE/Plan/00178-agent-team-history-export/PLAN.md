@@ -52,10 +52,11 @@ the admin token, and the event shapes.
 - [x] ✅ **Task 1.3**: The two `teamchat-admin migrate` verbs, with the human copy. The
   `teamchat-keeps-off-v1` gate stays green: v1 names appear only in `migrate/v1`. The carry gate
   does not judge them: their `--team` names a v1 team, not a v2 one.
-- [ ] ⬜ **Task 1.4**: A plan script, `export.bash`, run through meta-deploy. It exports and
+- [x] ✅ **Task 1.4**: A plan script, `export.bash`, run through meta-deploy. It exports and
   verifies every v1 team on the host that is declared present, and names the absent ones. Then
-  the `qa-reviewer` agent on the branch. The script is written and queued in `meta-deploy.list`
-  after `play-teamchat.yml`; the review is still to run.
+  the `qa-reviewer` agent on the branch. The script is queued in `meta-deploy.list` after
+  `play-teamchat.yml`; the review's fixes, and the rule `project_defer_assign_lost`, are in the
+  journal.
 
 ### Phase 2: Host
 
