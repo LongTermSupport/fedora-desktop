@@ -209,7 +209,7 @@ func TestARuleReadFileBesideExcludedOnesStillPlansTheRuleGate(t *testing.T) {
 // A change to the gate itself runs it, even when the rule excludes the changed file (its own rule
 // file and fixture always are).
 func TestAChangeToTheGatesOwnRuleStillPlansIt(t *testing.T) {
-	out := planOf(t, map[string]string{".semgrep/gh-poll.fixture": "gh run watch\n"})
+	out := planOf(t, map[string]string{".semgrep/gh-poll.fixture": "# changed\n"})
 	if !slices.Contains(lines(out), "check gh-poll") {
 		t.Errorf("a change to the gh-poll fixture does not run gh-poll:\n%s", out)
 	}
