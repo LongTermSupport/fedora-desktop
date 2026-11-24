@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -57,7 +58,7 @@ func (w *world) file(name, body string) string {
 
 func (w *world) env() Env {
 	return Env{
-		Runner: w.fake, Stdout: &w.stdout, Stderr: &w.stderr, Pid: 7, Table: w.table,
+		Runner: w.fake, Stdout: &w.stdout, Stderr: &w.stderr, Table: w.table,
 		LookPath: func(name string) (string, error) {
 			if w.missing[name] {
 				return "", errors.New("not found")
@@ -136,11 +137,17 @@ func TestConvertWritesBesideTheInputThroughATemporary(t *testing.T) { // E8, E11
 	if w.stdout.String() != out+"\n" {
 		t.Fatalf("stdout %q", w.stdout.String())
 	}
-	if !w.exists(out) || w.exists(out+".tmp.7") {
-		t.Fatalf("output %v, temporary %v", w.exists(out), w.exists(out+".tmp.7"))
+	if !w.exists(out) || w.leftovers() {
+		t.Fatalf("output %v, temporary left %v", w.exists(out), w.leftovers())
 	}
+	// The engine writes the output's name in a directory of the run's own beside it (issue 417).
 	calls := w.fake.Calls()
-	if len(calls) != 1 || calls[0].Line() != "pandoc --from=markdown --to=docx --output="+out+".tmp.7 "+in {
+	prefix := "pandoc --from=markdown --to=docx --output=" + filepath.Join(w.dir, ".NOTES.docx.convert-")
+	rest, ok := "", len(calls) == 1
+	if ok {
+		rest, ok = strings.CutPrefix(calls[0].Line(), prefix)
+	}
+	if _, tail, found := strings.Cut(rest, "/"); !ok || !found || tail != "NOTES.docx "+in {
 		t.Fatalf("calls %v", calls)
 	}
 }
@@ -198,8 +205,8 @@ func TestEngineFailureRemovesTheTemporary(t *testing.T) { // E12
 	in := w.file("a.md", "# A")
 	w.expect(w.run(in, "--to", "docx"), term.ExitFailure, "convert: pandoc could not convert '"+in+"' to docx: bad table")
 	out := filepath.Join(w.dir, "a.docx")
-	if w.exists(out) || w.exists(out+".tmp.7") || w.stdout.Len() != 0 {
-		t.Fatalf("left output %v, temporary %v, stdout %q", w.exists(out), w.exists(out+".tmp.7"), w.stdout.String())
+	if w.exists(out) || w.leftovers() || w.stdout.Len() != 0 {
+		t.Fatalf("left output %v, temporary %v, stdout %q", w.exists(out), w.leftovers(), w.stdout.String())
 	}
 }
 
@@ -244,7 +251,7 @@ func TestCancelledRunRemovesTheTemporaryAndExits130(t *testing.T) { // E14
 	in := w.file("a.md", "# A")
 	code := App{Env: w.env()}.Run(ctx, []string{in, "--to", "docx"})
 	w.expect(code, term.ExitCancelled, "convert: cancelled.")
-	if w.exists(filepath.Join(w.dir, "a.docx.tmp.7")) || w.exists(filepath.Join(w.dir, "a.docx")) {
+	if w.leftovers() || w.exists(filepath.Join(w.dir, "a.docx")) {
 		t.Fatal("a file was left behind")
 	}
 }
@@ -263,10 +270,20 @@ func TestUnwritableStdoutFailsTheRun(t *testing.T) { // E15
 
 func TestNewEnvIsTheRealProcess(t *testing.T) {
 	env := NewEnv()
-	if env.Stdout != os.Stdout || env.Stderr != os.Stderr || env.Pid != os.Getpid() || len(env.Table) == 0 {
+	if env.Stdout != os.Stdout || env.Stderr != os.Stderr || len(env.Table) == 0 {
 		t.Fatalf("env %+v", env)
 	}
 	if _, ok := env.Runner.(execx.OS); !ok {
 		t.Fatalf("runner %T", env.Runner)
 	}
+}
+
+// leftovers is whether a working directory of a conversion is left beside the input.
+func (w *world) leftovers() bool {
+	w.t.Helper()
+	entries, err := os.ReadDir(w.dir)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return slices.ContainsFunc(entries, func(e os.DirEntry) bool { return strings.Contains(e.Name(), ".convert-") })
 }

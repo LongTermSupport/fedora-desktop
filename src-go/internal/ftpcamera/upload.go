@@ -264,11 +264,16 @@ func (s *session) copyIntoMount(ctx context.Context, sorted string) error {
 	}
 	destDir := strings.TrimSuffix(s.mount, "/") + "/" + filepath.Dir(s.c.rel(sorted))
 	name := filepath.Base(sorted)
-	tmp := destDir + "/.ftp-camera.tmp." + name
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return fmt.Errorf("create %s: %w", destDir, err)
 	}
-	if err := copyFile(sorted, tmp); err != nil {
+	// A name of its own, created exclusively: a link planted at a fixed one would be followed.
+	out, err := os.CreateTemp(destDir, ".ftp-camera.tmp.*."+name)
+	if err != nil {
+		return fmt.Errorf("create a temporary in %s: %w", destDir, err)
+	}
+	tmp := out.Name()
+	if err := copyFile(sorted, out); err != nil {
 		return errors.Join(err, removeIfThere(tmp))
 	}
 	if err := os.Rename(tmp, destDir+"/"+name); err != nil {
@@ -284,27 +289,19 @@ func removeIfThere(path string) error {
 	return nil
 }
 
-// copyFile copies src's bytes to a new dst with src's permission bits (no ownership: a cloud
-// mount cannot hold it).
-func copyFile(src, dst string) error {
+// copyFile copies src's bytes into out, which it closes. The mode is the mount's: a cloud mount
+// holds neither ownership nor permission bits.
+func copyFile(src string, out *os.File) error {
 	in, err := os.Open(src)
 	if err != nil {
-		return fmt.Errorf("open %s: %w", src, err)
+		return errors.Join(fmt.Errorf("open %s: %w", src, err), out.Close())
 	}
 	defer closeQuietly(in)
-	info, err := in.Stat()
-	if err != nil {
-		return fmt.Errorf("read %s: %w", src, err)
-	}
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, info.Mode().Perm())
-	if err != nil {
-		return fmt.Errorf("create %s: %w", dst, err)
-	}
 	if _, err := io.Copy(out, in); err != nil {
-		return errors.Join(fmt.Errorf("copy to %s: %w", dst, err), out.Close())
+		return errors.Join(fmt.Errorf("copy to %s: %w", out.Name(), err), out.Close())
 	}
 	if err := out.Close(); err != nil {
-		return fmt.Errorf("finish %s: %w", dst, err)
+		return fmt.Errorf("finish %s: %w", out.Name(), err)
 	}
 	return nil
 }

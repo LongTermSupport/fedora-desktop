@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -25,8 +26,27 @@ func (r *run) checkRecording(ctx context.Context) error {
 }
 
 // audioTool runs sox, its stderr shown only with -d, and puts its output in place of the
-// recording (W20).
-func (r *run) audioTool(ctx context.Context, what, output string, args ...string) error {
+// recording (W20). sox writes the recording's name plus suffix inside a directory of this run's
+// own beside it, never at a name in the shared temporary directory where a link could be planted
+// first (rule project_temp_not_exclusive, issue 417).
+func (r *run) audioTool(ctx context.Context, what, suffix string, args ...string) error {
+	dir, err := os.MkdirTemp(filepath.Dir(r.wav), filepath.Base(r.wav)+".sox-")
+	if err != nil {
+		return r.fail(ctx, what+" failed: "+err.Error())
+	}
+	err = r.soxInto(ctx, what, filepath.Join(dir, filepath.Base(r.wav)+suffix), args...)
+	if rerr := os.RemoveAll(dir); rerr != nil {
+		if err != nil {
+			r.log.say("[WSI] cannot remove " + dir + ": " + rerr.Error())
+			return err
+		}
+		return r.fail(ctx, what+" failed: "+rerr.Error())
+	}
+	return err
+}
+
+// soxInto is audioTool's sox run, writing output, then the rename over the recording.
+func (r *run) soxInto(ctx context.Context, what, output string, args ...string) error {
 	stderr := io.Writer(nil)
 	if r.o.debug {
 		stderr = r.env.Stderr
@@ -70,7 +90,7 @@ func (r *run) duration(ctx context.Context) (int, bool) {
 // prepareAudio is W20: 16 kHz, and at least a second long.
 func (r *run) prepareAudio(ctx context.Context) error {
 	r.log.debug("Resampling audio from 44100Hz to 16000Hz...")
-	if err := r.audioTool(ctx, "Resampling the recording", r.wav+".resampled.wav", "rate", "16k"); err != nil {
+	if err := r.audioTool(ctx, "Resampling the recording", ".resampled.wav", "rate", "16k"); err != nil {
 		return err
 	}
 	seconds, ok := r.duration(ctx)
@@ -82,7 +102,7 @@ func (r *run) prepareAudio(ctx context.Context) error {
 		return nil
 	}
 	r.log.debug("Audio too short, padding to 1 second...")
-	return r.audioTool(ctx, "Padding the recording", r.wav+".padded", "pad", "0", "1")
+	return r.audioTool(ctx, "Padding the recording", ".padded", "pad", "0", "1")
 }
 
 // transcribe is W20-W24: the text the dictation delivers.
