@@ -95,7 +95,7 @@
 # Claude Code's payload, so every SessionStart is usable again: the link says started, /exit no
 # longer ends 78 and marks the seat launch-failed, and session.json records the real source.
 # The image is rebuilt for its teamchat; sessions started after the rebuild have the fix.
-# #417 (ccy 3.125.0): a plain ccy --teams <seats> resumes the conversation recorded for the
+# #417 (ccy 3.125.1): a plain ccy --teams <seats> resumes the conversation recorded for the
 # seats (behaviour change: use --fresh to start a new one); none recorded is exit 64 naming
 # ccy-teams seats conversation <seats> --set <id> and --fresh. The launcher and ccy-teams are
 # rebuilt; the image is unchanged.

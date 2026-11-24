@@ -17,12 +17,12 @@ Two version numbers move independently — see
 
 ---
 
-## 3.125.0 — container 2.84.77
+## 3.125.1 — container 2.84.78
 
 **Behaviour change:** a plain `ccy --teams <seats>` now resumes the conversation recorded for
 those seats, with no id typed, where it used to start a new one (issue #417). A launch that
-should start fresh says so: `ccy --teams <seats> --fresh`. `ccy-teams` is rebuilt on the host;
-the image is unchanged.
+should start fresh says so: `ccy --teams <seats> --fresh`. `ccy-teams` is rebuilt on the host,
+and the image is rebuilt for the exclusive temporary files below.
 
 - **Each seat points at its conversation.** The pointer is
   `.claude/ccy/seat-conversations/<seat>@<team>.json` in the checkout, written whole by
@@ -45,6 +45,12 @@ the image is unchanged.
   restart and the supervisor's relaunch resume the session's own conversation as before; a
   restore of a record marked fresh-if-no-conversation passes `--fresh`, and ccy-teams create's
   new-session offer launches with `--fresh`.
+- **Files written whole never follow a planted link.** The shared atomic writer (`fsx`, used by
+  the seat pointers, the session registry and some thirty other writers on the host and in the
+  image) wrote `<file>.tmp.<pid>`, a name another party could predict, with a create that follows
+  a link there. It now creates `<file>.tmp.<random>` exclusively. A new Go rule,
+  `project_temp_not_exclusive`, holds every such temporary to an exclusive create or a private
+  directory; ftp-camera, vmtest, wsi and convert were fixed with it.
 
 ## 3.124.41 — container 2.84.77
 

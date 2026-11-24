@@ -6,15 +6,26 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // WriteAtomic stores data at path, written to a temporary beside it and renamed into place so a
 // reader never sees half a file. what names the file in the errors ("session record"). The
-// temporary is path plus ".tmp.<pid>"; readers that list a directory skip names containing
+// temporary is path plus ".tmp.<random>", created exclusively (os.CreateTemp), so a link
+// planted at a name another party could predict is never followed (rule
+// project_temp_not_exclusive, issue 417); readers that list a directory skip names containing
 // ".tmp.".
 func WriteAtomic(path, what string, data []byte, mode os.FileMode) error {
-	tmp := fmt.Sprintf("%s.tmp.%d", path, os.Getpid())
-	if err := os.WriteFile(tmp, data, mode); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp.*")
+	if err != nil {
+		return fmt.Errorf("could not write the %s %s: %w", what, path, err)
+	}
+	tmp := f.Name()
+	err = f.Chmod(mode)
+	if err == nil {
+		_, err = f.Write(data)
+	}
+	if err = errors.Join(err, f.Close()); err != nil {
 		return errors.Join(fmt.Errorf("could not write the %s %s: %w", what, path, err), RemoveIfPresent(tmp))
 	}
 	if err := os.Rename(tmp, path); err != nil {
