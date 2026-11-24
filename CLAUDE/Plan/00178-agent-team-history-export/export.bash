@@ -63,21 +63,27 @@ if ! command -v teamchat-admin >/dev/null; then
     exit 1
 fi
 
+# v1's state root and homeserver unit names are read from this checkout's agent_bus helpers
+# through Plan 00201's product reader, never copied, so they cannot drift from the product.
+productValue=(python3 -I "${PLAN_REPO_ROOT}/CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py" product-value)
+stateRoot="$("${productValue[@]}" helpers/agent_bus/render.py STATE_ROOT)"
+unitGlob="$("${productValue[@]}" helpers/agent_bus/health.py hs_unit '*')"
+
 # Each listing goes to a file, not a process substitution, so its failure stops the run.
 dirsFile="${PLAN_RUN_DIR}/v1-team-dirs.txt"
 unitsFile="${PLAN_RUN_DIR}/v1-active-units.txt"
 # A team is a directory holding team.json, as v1 finds them; the directory is also the v1 user's
 # home, so other entries are not teams. The tests here need no sudo, so a sudo failure stops.
 teamDirs=""
-if [[ -d /var/lib/agent-bus ]]; then
-    teamDirs="$(sudo find /var/lib/agent-bus -mindepth 2 -maxdepth 2 -name team.json -type f -printf '%h\n')"
+if [[ -d "${stateRoot}" ]]; then
+    teamDirs="$(sudo find "${stateRoot}" -mindepth 2 -maxdepth 2 -name team.json -type f -printf '%h\n')"
 fi
 if [[ -n "${teamDirs}" ]]; then
     printf '%s\n' "${teamDirs}" >"${dirsFile}"
 else
     : >"${dirsFile}"
 fi
-systemctl list-units --no-legend --plain --state=active 'agent-bus-hs@*.service' >"${unitsFile}"
+systemctl list-units --no-legend --plain --state=active "${unitGlob}" >"${unitsFile}"
 
 copyArgs=()
 if ((humanCopy)); then
@@ -96,7 +102,9 @@ stopped=()
 while IFS= read -r -u 3 teamDir; do
     team="${teamDir##*/}"
     found=$((found + 1))
-    if ! grep -q "^agent-bus-hs@${team}\.service " "${unitsFile}"; then
+    unit="$("${productValue[@]}" helpers/agent_bus/health.py hs_unit "${team}" </dev/null)"
+    # The unit is the first field of a listed line, compared whole, not as a pattern.
+    if ! awk -v unit="${unit}" '$1 == unit { found = 1 } END { exit !found }' "${unitsFile}"; then
         stopped+=("${team}")
         printf '==> %s: homeserver not running (declared absent, stopped or failed): not exported\n' "${team}"
         continue

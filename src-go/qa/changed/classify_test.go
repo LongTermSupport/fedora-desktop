@@ -148,7 +148,13 @@ func TestPythonGetsRuffAndItsMirroredUnitTest(t *testing.T) {
 		"helpers/gnome/check_panel_contract.py", "tests/helpers/gnome/test_check_panel_contract.py",
 		"helpers/gnome/lonely.py", "helpers/gnome/__init__.py", "helpers/top.py", "tools/other.py",
 	})
-	wantMods := []string{"tests.helpers.gnome.test_check_panel_contract", "tests.helpers.test_top"}
+	// A changed test module is a file the checker sweeps judge, so they run too (issue 406).
+	wantMods := []string{
+		"tests.helpers.gnome.test_check_panel_contract",
+		"tests.helpers.plan_acceptance.test_cited_constant_copy_rule",
+		"tests.helpers.plan_acceptance.test_plain_member_bundle_rule",
+		"tests.helpers.test_top",
+	}
 	if !reflect.DeepEqual(p.items("unit-tests"), wantMods) {
 		t.Fatalf("modules (de-duplicated, first seen): %v", p.items("unit-tests"))
 	}
@@ -935,6 +941,54 @@ func TestAPlanCheckerChangeRunsThePlanTestsGate(t *testing.T) {
 		if p := w.classify([]string{f}); p.has("plan-tests") {
 			t.Errorf("%s must not run plan-tests: %v", f, keys(p))
 		}
+	}
+}
+
+// The checker sweeps (checker-copies-cited-constant, plain-member-bundle) judge every active plan
+// checker, test suite and script; a change to one runs those two modules, and only those, so a
+// copy of a product value is caught on the branch that adds it (issue 406). A plan's Markdown,
+// a deleted checker and an ordinary helper do not run them.
+func TestAPlanCheckerChangeRunsTheCheckerSweeps(t *testing.T) {
+	sweeps := []string{
+		"tests.helpers.plan_acceptance.test_cited_constant_copy_rule",
+		"tests.helpers.plan_acceptance.test_plain_member_bundle_rule",
+	}
+	for _, f := range []string{
+		"CLAUDE/Plan/00178-agent-team-history-export/export.bash",
+		"CLAUDE/Plan/00201-x/m7_check.py",
+		"CLAUDE/Plan/00203-x/_triage-hs.inc.bash",
+		"scripts/test-ccy-teams-command.bash",
+		"tests/helpers/agent_bus/test_health.py",
+	} {
+		w := newWorld(t)
+		w.touch(f, "x = 1")
+		p := w.classify([]string{f})
+		for _, m := range sweeps {
+			if !slices.Contains(p.items("unit-tests"), m) {
+				t.Errorf("%s does not run %s: %v", f, m, p.items("unit-tests"))
+			}
+		}
+		if len(p.uncovered) != 0 {
+			t.Errorf("%s is uncovered: %v", f, p.uncovered)
+		}
+	}
+	w := newWorld(t)
+	w.touch("CLAUDE/Plan/00178-x/export.bash", "#!/usr/bin/env bash")
+	if got := w.classify([]string{"CLAUDE/Plan/00178-x/export.bash"}).items("unit-tests"); !reflect.DeepEqual(got, sweeps) {
+		t.Errorf("a plan script runs exactly the sweeps, got %v", got)
+	}
+	for _, f := range []string{"CLAUDE/Plan/00178-x/PLAN.md", "helpers/other.py"} {
+		w = newWorld(t)
+		w.touch(f, "x = 1")
+		for _, m := range sweeps {
+			if slices.Contains(w.classify([]string{f}).items("unit-tests"), m) {
+				t.Errorf("%s must not run %s", f, m)
+			}
+		}
+	}
+	w = newWorld(t)
+	if got := w.classify(nil, "CLAUDE/Plan/00178-x/gone.bash").items("unit-tests"); len(got) != 0 {
+		t.Errorf("a deleted checker has nothing left to sweep: %v", got)
 	}
 }
 

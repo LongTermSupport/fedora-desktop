@@ -19,7 +19,8 @@
 # checks
 #   comma-separated check ids, - for none, or @yaml (a first row only): the playbook / task /
 #   vars logic, which computes the playbook set and so stays code. unit-tests on a Python file
-#   adds the mirrored unit test module, not the file.
+#   adds the mirrored unit test module, not the file. unit-tests:<module> (tests.<pkg>.test_<name>)
+#   adds that module for any file the row matches, whatever the file is: a sweep over a file kind.
 # flags
 #   - for none, or comma-separated:
 #     covered       a file the row handles counts as covered
@@ -288,6 +289,12 @@ also	CLAUDE/Plan/*.py,CLAUDE/Plan/*.bash,CLAUDE/Plan/*.sh	plan-tests	-
 # checker reads (Go sources and goldens, the launcher, pins) do not select the gate, and qa-all
 # runs it whole.
 also	helpers/pingbus/*,helpers/agent_bus*	plan-tests	-
+# The checker sweeps (checker-copies-cited-constant, plain-member-bundle; CLAUDE/QA.md) judge
+# every active plan folder's checkers, tests/ and scripts/, so a change to one of those Python or
+# shell files runs the two sweep modules alone, not the whole helper suite: a copy of a product
+# value is then caught on the branch that adds it, not first on the protected line (issue 406).
+# An extensionless checker with a shell shebang is not matched here; qa-all runs the sweeps whole.
+also	CLAUDE/Plan/*.py,CLAUDE/Plan/*.bash,CLAUDE/Plan/*.sh,tests/*.py,tests/*.bash,tests/*.sh,scripts/*.py,scripts/*.bash,scripts/*.sh	unit-tests:tests.helpers.plan_acceptance.test_cited_constant_copy_rule,unit-tests:tests.helpers.plan_acceptance.test_plain_member_bundle_rule	-
 also	scripts/qa-plan-tests.bash,src-go/qa/plantests/*,src-go/qa/cmd/qa-plan-tests/*,src-go/qa/discovery/*,helpers/qa_environment/unittest_counts.py,helpers/qa_environment/session_env.py,scripts/lib/go-tool.bash,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	plan-tests	-
 also	src-go/qa/ansible/*,src-go/qa/cmd/qa-ansible/*,src-go/qa/internal/cmdmain/*,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*	ansible-patterns	-
 # The regex-backref-escape fixtures of qa-ansible are read only by the Go tests of the rule.
