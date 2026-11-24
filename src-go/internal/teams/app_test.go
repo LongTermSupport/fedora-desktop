@@ -395,6 +395,7 @@ func TestUsageTextNamesTheLauncherSubcommandsAndTheCoordinator(t *testing.T) {
 		"ccy-teams session role <session>|<handle> <team> worker|coordinator [--demote-current] [--yes]",
 		"ccy-teams session repair <session> [--yes]",
 		"ccy-teams seats sweep", "ccy-teams seats units list", "ccy-teams seats units print <name>",
+		`ccy-teams seats abandon <team> [<member>...] --reason "<text>" [--allow-known-team <team>]`,
 		"Only sessions started through ccy's tmux (listed by ccy-sessions), and cc sessions started with",
 	}
 	for _, want := range wants {

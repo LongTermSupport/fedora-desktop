@@ -801,6 +801,32 @@ session no record names, has no record, and its take is refused (78), because th
 with no record. A list on both systems, and `cc --bus`, stay agent-bus only.
 Design: Plan 00209 `DESIGN-host-cc-v2.md`.
 
+**A seat of a team whose server is gone for good** (issue #386). Releasing a teamchat seat (a
+session's end, or the seat sweep, `ccy-teams seats sweep`) logs its token out on the team's
+server, and only a logout the server confirms (or a token it no longer knows) ends the release;
+every other failure is retried on the next pass, so a token that may still be live is never left
+valid. A seat of a team that was purged or renamed therefore stays held, and each exit of its
+session reports it as not settled. Nothing judges that by itself: the owner says it, from the
+checkout the seats were taken in:
+
+```bash
+ccy-teams seats abandon <team> [<member>...] --reason "<text>" [--allow-known-team <team>]
+```
+
+It releases every held seat of the team in this checkout's pool (or only the members named, by
+seat part or whole name) without a logout and without contacting any server: under the
+allocation lock the session's copy of the seat and the pool's `held/` go to quarantine as a
+release moves them, the token file is unlinked, and `released.json` records
+`"abandoned":{"reason":…,"by":…,"at_ms":…}` (the caller's user name, or uid). One line per seat
+abandoned on stdout; a seat that is not held is said on stderr and skipped. It refuses, changing
+nothing, a missing or empty `--reason` (exit 64); a team this machine has a status record for,
+or that any session's `desired.json` lists, or a source of these it cannot read (a session with
+no `desired.json` yet included) unless `--allow-known-team` repeats the team (exit 78); and a
+seat whose member link of that team is running (its seat lock is held, or cannot be looked at;
+exit 75). The running check is per team: a session's live seat of another team does not stop
+it, and is left alone. The token itself stays valid on the server if the server still exists,
+so abandon only a team you know is gone.
+
 It runs as you, with no dedicated agent user, so it can reach what you can, including the
 Matrix session you are signed in to in Element, Nheko or Lightning (the Matrix clients this
 repository installs, one list: `helpers/pingbus/matrix_clients.json`). A misbehaving agent
