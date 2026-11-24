@@ -26,6 +26,9 @@ const unlockFileFix = "Re-run play-claude-yolo.yml on this server (it writes the
 // flagCheck is `restore --check`: judge every record, start nothing.
 const flagCheck = "--check"
 
+// endOfOptions ends the options of restore and forget: every word after it is a session name.
+const endOfOptions = "--"
+
 // The words a record that cannot be restored is reported by: the manifest's detail for a
 // not-started entry, and what `restore --check` prints after UNRESTORABLE.
 const (
@@ -42,11 +45,15 @@ const (
 )
 
 // parseRestore reads the arguments after `restore`: --check alone, or an optional --dry-run
-// followed by the names of the sessions to restore (none: every record).
+// followed by the names of the sessions to restore (none: every record). After "--" every word
+// is a name, so a session whose name starts with '-' can be named.
 func parseRestore(args []string) (string, []string, string) {
 	mode, names := "", args
 	if len(names) > 0 && (names[0] == flagDryRun || names[0] == flagCheck) {
 		mode, names = names[0], names[1:]
+	}
+	if len(names) > 0 && names[0] == endOfOptions && mode != flagCheck {
+		return mode, names[1:], ""
 	}
 	for _, word := range names {
 		switch {
@@ -341,10 +348,13 @@ type restoreRun struct {
 	dryRun     bool
 	passphrase string
 	regdir     string
-	live       map[string]bool
-	started    int
-	failures   int
-	entries    []restore.Entry
+	// names are the sessions the caller named, nil for every record: the manifest keeps this
+	// boot's entries for the others.
+	names    []string
+	live     map[string]bool
+	started  int
+	failures int
+	entries  []restore.Entry
 }
 
 // restoreSessions starts every recorded session that is not running. Per record: marked
@@ -387,7 +397,7 @@ func (a *App) restoreSessions(ctx context.Context, dryRun bool, names []string) 
 		a.failErr(err)
 		return errReported
 	}
-	run := &restoreRun{app: a, dryRun: dryRun, passphrase: passphrase, regdir: regdir}
+	run := &restoreRun{app: a, dryRun: dryRun, passphrase: passphrase, regdir: regdir, names: names}
 	manifest := restore.NewStore(regdir, a.cfg.BootIDFile)
 	absent, err := a.registryListable(regdir)
 	if err != nil {
@@ -446,7 +456,7 @@ func (r *restoreRun) writeManifest(manifest *restore.Store) {
 	warn := func(err error) {
 		r.app.sayf("ccy session restore: replacing the earlier restore manifest: %s\n", err)
 	}
-	if err := manifest.Merge(r.entries, warn); err != nil {
+	if err := manifest.MergeNamed(r.names, r.entries, warn); err != nil {
 		r.app.failErr(err)
 		r.failures++
 	}

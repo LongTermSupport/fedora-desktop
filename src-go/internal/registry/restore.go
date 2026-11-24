@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/shellword"
 )
@@ -389,9 +390,22 @@ type Problem struct {
 }
 
 // Reading is every record in the registry, with the reason each unreadable one was left out.
+// Files[i] is the file Records[i] was read from: a record's name= is not held to its file's
+// name, so a caller that removes a record removes that file (RemoveFile).
 type Reading struct {
 	Records  []Record
+	Files    []string
 	Problems []Problem
+}
+
+// RemoveFile deletes one file of the registry by its path, as ReadAll gave it. A path that is
+// not directly in the registry directory is refused, so nothing else can be removed through it.
+func (s *Store) RemoveFile(path string) error {
+	clean := filepath.Clean(path)
+	if filepath.Dir(clean) != filepath.Clean(s.dir) {
+		return fmt.Errorf("%s is not a record in the session registry %s; nothing was removed", path, s.dir)
+	}
+	return fsx.RemoveIfPresent(clean)
 }
 
 // ReadAll reads every record in byte order of file name, skipping writes in flight, and keeps
@@ -417,6 +431,7 @@ func (s *Store) ReadAll() (Reading, error) {
 			continue
 		}
 		out.Records = append(out.Records, rec)
+		out.Files = append(out.Files, file)
 	}
 	return out, nil
 }

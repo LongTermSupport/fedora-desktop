@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -372,20 +373,19 @@ func acquire(path string, wait time.Duration, openMsg, busyMsg string) (func() e
 // the entries this restore knows are the ones that should be up. warn, if not nil, is told why
 // an existing manifest was replaced because it could not be read; that is not a failure.
 func (s *Store) Merge(entries []Entry, warn func(error)) error {
+	return s.MergeNamed(nil, entries, warn)
+}
+
+// MergeNamed is Merge for a restore of the named sessions only (fedora-desktop#396): this boot's
+// entries for every session not named are kept as they are, in their places, so set-going and
+// verify-restore still see them. A named session's held entry is replaced by the run's entry
+// for it, or dropped when the run wrote none; a run entry the manifest did not hold is added at
+// the end. With no names, every entry is replaced, as Merge does.
+func (s *Store) MergeNamed(names []string, entries []Entry, warn func(error)) error {
 	return s.Locked(func() error {
-		boot, err := s.BootID()
+		held, err := s.heldThisBoot(warn)
 		if err != nil {
 			return err
-		}
-		var held Manifest
-		if _, statErr := os.Stat(s.Path); statErr == nil {
-			m, readErr := s.Read()
-			switch {
-			case readErr != nil && warn != nil:
-				warn(readErr)
-			case readErr == nil && m.Boot == boot:
-				held = m
-			}
 		}
 		out := make([]Entry, 0, len(entries))
 		for _, e := range entries {
@@ -398,8 +398,56 @@ func (s *Store) Merge(entries []Entry, warn func(error)) error {
 			}
 			out = append(out, e)
 		}
+		if len(names) > 0 {
+			out = keepUnnamed(held.Entries, names, out)
+		}
 		return s.Write(out)
 	})
+}
+
+// heldThisBoot is the manifest this boot already holds: empty when there is none, it is an
+// earlier boot's, or it cannot be read (warn, if not nil, is told why).
+func (s *Store) heldThisBoot(warn func(error)) (Manifest, error) {
+	boot, err := s.BootID()
+	if err != nil {
+		return Manifest{}, err
+	}
+	var held Manifest
+	if _, statErr := os.Stat(s.Path); statErr == nil {
+		m, readErr := s.Read()
+		switch {
+		case readErr != nil && warn != nil:
+			warn(readErr)
+		case readErr == nil && m.Boot == boot:
+			held = m
+		}
+	}
+	return held, nil
+}
+
+// keepUnnamed is held with each named session's entry replaced by run's entry for it (dropped
+// when run has none), and run's other entries after them.
+func keepUnnamed(held []Entry, names []string, run []Entry) []Entry {
+	out := make([]Entry, 0, len(held)+len(run))
+	placed := map[string]bool{}
+	for _, h := range held {
+		if !slices.Contains(names, h.Name) {
+			out = append(out, h)
+			continue
+		}
+		for _, e := range run {
+			if e.Name == h.Name && !placed[e.Name] {
+				out = append(out, e)
+				placed[e.Name] = true
+			}
+		}
+	}
+	for _, e := range run {
+		if !placed[e.Name] {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // Change is the four fields set-going records about an entry.
