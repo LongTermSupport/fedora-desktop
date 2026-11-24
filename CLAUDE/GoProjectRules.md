@@ -69,6 +69,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_questions_item_by_room`  | a pending item's room tested against the questions room in the engine or teamsync, which cannot tell a relayed answer in flight from the room's stale items, so a drop of the room loses the answer                            | teamchat `holdsQuestions` and `applyQuestions`: a session restart deleted a worker's undelivered relayed answer (Plan 00209, R0 step 7 review)                                                                          |
 | `project_ledger_built_by_hand`    | a teamchat seat-store ledger entry built field by field outside the store, so a field the store's check requires (a ping's verb) can be dropped and every write that settles the delivery is refused                           | teamchat `engine`: the socket delivery's written-yes write and the proof's `ledgerOf` dropped a ping's verb, and the link retried the refused write every round (fedora-desktop#392)                                    |
 | `project_defer_assign_lost`       | a deferred function literal that assigns a variable of its enclosing function that is not a named result, so the value (a joined Close error) is lost at the return                                                            | teamchat `migrate/v1` `verifyDir`: the record directory's Close error was joined into an unnamed `err` and dropped (Plan 00178)                                                                                         |
+| `project_seat_hold_unrecorded`    | a teamchat seat holding made outside `seat.Store.Take`, or in it before the session record is asked, so a session the sweep judges over (no ccy record) is given a seat the sweep takes back a minute later                    | teamchat `seat.Store.Take` took a seat for a `ccy --teams` launch from a pane on ccy's tmux, which has no record, and the sweep released it under the running session (fedora-desktop#393)                              |
 | `project_fake_restart`            | a test that stops or restarts a fake server in a function literal or a go statement, off the goroutine that then uses it                                                                                                       | `teamsync` `TestARestartedServerBetweenPolls`: the persist hook restarted fakehs while the test posted, `no answer` in CI (fedora-desktop#149)                                                                          |
 | `project_shared_due`              | a test that names a fake-clock due (`AwaitDue`, `Armed`) two Duration limits of the package under test share, so the other limit's timer can answer (in teamsync, `reportsJoinLimit` before `reportsSettled`)                  | `teamsync` `TestARestoreUnderALongPoll`: hung to the 30-minute timeout in CI (the failpoints test stage), passing locally; `tlsterm` `TestT10ASilentClientIsClosedAtRequestLimit` under `qa-changed`'s loaded go-qa run |
 | `project_walk_open`               | an entry a directory walk found opened with no regular-file check guarding the open, so a named pipe among the entries blocks the open for ever                                                                                | `stt`, `vmtest`, `registry` and 17 more of fedora-desktop#195: the Go side of #191, where `run.bash --changed` hung on a pipe under `untracked/`                                                                        |
@@ -1874,6 +1875,42 @@ returned; or handle the value inside the deferred function.
   the rule would flag correct code.
 - Not caught: a deferred named function given a pointer to a local (`defer closeInto(&err)`),
   which is the same loss one call away; neither search covered it.
+
+### project_seat_hold_unrecorded
+
+**What it is about.** A take whose precondition is weaker than the keep condition of the sweep
+that judges what it made. The owner's seat sweep releases every holding whose session is not
+restorable (has no ccy session record), even under a live keeper. A take that accepts any
+session name makes holdings the sweep will take back.
+
+**Why it exists.** fedora-desktop#393: a `ccy --teams` launch from a pane already on ccy's tmux
+writes no session record (only `ccy_tmux_insulate` writes one, and it does nothing inside
+tmux). `seat.Store.Take` took the seat anyway; a minute later the sweep released it, moving the
+session's seat directory away under the running keeper, and the session could not send.
+
+**What it flags**, in `internal/teamchat/seat` outside test files: a call of `(*Store).hold`,
+the one step that makes a holding (`held/` and `held.json`), outside `(*Store).Take`, or in
+`Take` with no call of the session records' `Restorable` before it.
+
+**Not flagged**: `Take` calling `hold` after `Restorable`; a test file; any other package.
+
+**How to fix a violation.** Make the holding through `Store.Take`, whose first step (SPEC-n2c
+ST0) asks the session record and refuses a session with none (`ErrNoRecord`).
+
+- Red, fixture: `testdata/src/seathold/bad/internal/teamchat/seat` (the originating `Take`
+  with no record asked, a holding made by another method, and one that asks only after it
+  holds); `seathold/good/...` (a `Take` that asks first) clean.
+- Red, real tree: one finding, `internal/teamchat/seat/take.go` (`Take`) at the F44 tip before
+  the fix.
+- Green: `Take` asks `Sessions.Restorable` first and returns `ErrNoRecord` for a session with
+  no record; the launcher maps it to exit 78 naming the starts that write a record
+  (`TestTakeRefusesASessionWithNoRecord`, `TestLaunchArgsRefusesASessionWithNoRecord`).
+- Considered and not built: a rule over every entry point that reaches a take (the
+  issue's first idea, `launch-args` and `cc-run`). Every take goes through `Store.Take`, so the
+  check there covers them all, and one rule on the one place a holding is made is narrower and
+  cannot miss a new entry point.
+- Not caught: a holding written through another path that creates `held.json` directly; none
+  exists (`hold` is the only writer).
 
 ### project_fake_restart
 
