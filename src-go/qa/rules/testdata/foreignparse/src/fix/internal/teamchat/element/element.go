@@ -4,6 +4,7 @@ package element
 
 import (
 	"io"
+	"os"
 
 	"fix/internal/stdinread"
 	"fix/internal/teamchat/proto"
@@ -15,4 +16,9 @@ func start(stdin io.Reader) (proto.Value, error) {
 		return proto.Value{}, err
 	}
 	return proto.Parse(data)
+}
+
+// fromEnvironment is judged here as anywhere: only the package's stdin is its protocol's.
+func fromEnvironment() (proto.Value, error) {
+	return proto.Parse([]byte(os.Getenv("TEAMS"))) // want `an environment variable parsed by teamchat's strict wire parser`
 }

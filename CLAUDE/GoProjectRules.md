@@ -3888,8 +3888,9 @@ assigned an expression naming it, a conversion, a function of `bytes` or `string
 closure, a function whose result holds one (a fact). Only strings and byte slices carry it.
 
 **Scope, examined.** Not judged: `proto.ForeignObject` (the remedy, whose parse of a key's value
-is strict on purpose) and the packages whose stdin is a document teamchat specifies and itself
-writes, each decoded to its every key (`protocolStdin` in the rule, the producer as the reason):
+is strict on purpose) and stdin (only stdin: an environment variable there is still judged) in
+the packages whose stdin is a document teamchat specifies and itself writes, each decoded to its
+every key (`protocolStdin` in the rule, the producer as the reason):
 `teamchat/element` (the Element play's EL1 team list), `teamchat/member/guest` (the host's
 teamchat over lxc-attach), `teamchat/member/placeissued` (teamchat-admin's issued seat) and
 `teamchat/admin` (ctl-child's request from the root parent). There a field nobody reads is a
@@ -3915,8 +3916,9 @@ member is skipped whatever its form.
   a function of the package and by another package's method; a closure: 11 findings), its test
   (clean), `internal/goodforeign` (`ForeignObject`, teamchat's own file and socket, a length of
   stdin, a constant beside an environment variable: clean), `internal/teamchat/element` (a
-  protocol-stdin package: clean), and the facts of `proto`, `wrap`, `stdinread` and
-  `badforeign`. With the analyzer reporting nothing the test missed all 11 diagnostics.
+  protocol-stdin package: its stdin clean, an environment variable parsed there 1 finding), and
+  the facts of `proto`, `wrap`, `stdinread` and
+  `badforeign`. With the analyzer reporting nothing the test missed all 12 diagnostics.
 - Red, real tree (the defence commit, the driver as `go vet -vettool`, both modules and every
   build tag set): 1 finding, `teamchat/member/hook/hook.go` (`payload`'s `proto.Parse` of the
   hook's stdin). Before `protocolStdin` held them, the rule also found the four protocol-stdin

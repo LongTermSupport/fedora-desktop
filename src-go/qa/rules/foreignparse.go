@@ -55,8 +55,9 @@ anywhere in the document refused the whole payload, and the fields read were los
 SessionStart was unusable, the link never said started, and every /exit ended 78
 (fedora-desktop#394).
 
-Not judged: proto.ForeignObject (the remedy), tests, and the packages whose stdin is a
-document teamchat specifies and writes, decoded to its every key (protocolStdin in the rule).
+Not judged: proto.ForeignObject (the remedy), tests, and stdin in the packages whose stdin is a
+document teamchat specifies and writes, decoded to its every key (protocolStdin in the rule); an
+environment variable there is still judged.
 
 Not caught: a file a foreign program writes (a path does not say who wrote it), a foreign
 program's output read through execx, a socket's answer, a value kept in a struct field or a map
@@ -110,6 +111,9 @@ type foreignRun struct {
 	pass    *analysis.Pass
 	parses  map[*types.Func][]int
 	sources map[*types.Func]string
+	// stdinOwned is a package whose stdin is a teamchat protocol: its stdin is not judged, an
+	// environment variable still is.
+	stdinOwned bool
 }
 
 func runForeignStrictParse(pass *analysis.Pass) {
@@ -136,9 +140,9 @@ func runForeignStrictParse(pass *analysis.Pass) {
 			break
 		}
 	}
-	report := !slices.ContainsFunc(protocolStdin, func(p struct{ pkg, producer string }) bool { return ownedBy(pass.Pkg.Path(), p.pkg) })
+	r.stdinOwned = slices.ContainsFunc(protocolStdin, func(p struct{ pkg, producer string }) bool { return ownedBy(pass.Pkg.Path(), p.pkg) })
 	for _, fd := range decls {
-		r.judge(fd, report)
+		r.judge(fd, true)
 	}
 	for fn, params := range r.parses {
 		pass.ExportObjectFact(fn, &foreignParseFact{Params: params})
@@ -185,7 +189,7 @@ func (r *foreignRun) sink(fn *types.Func, call *ast.CallExpr, taint map[types.Ob
 			continue
 		}
 		o := r.originOf(call.Args[p], taint)
-		if o.from != "" && report {
+		if o.from != "" && report && (o.from != fromStdin || !r.stdinOwned) {
 			r.pass.Reportf(call.Pos(), "%s%s", o.from, foreignParseFix)
 		}
 		for _, i := range o.params {
