@@ -103,9 +103,10 @@ func scoped(reading registry.Reading, names []string) (registry.Reading, error) 
 	}
 	var out registry.Reading
 	found := map[string]bool{}
-	for _, rec := range reading.Records {
+	for i, rec := range reading.Records {
 		if slices.Contains(names, rec.Name) {
 			out.Records = append(out.Records, rec)
+			out.Files = append(out.Files, reading.Files[i])
 			found[rec.Name] = true
 		}
 	}
@@ -154,16 +155,16 @@ type restorePlan struct {
 func (a *App) planRestore(rec registry.Record, file string) restorePlan {
 	if info, statErr := os.Stat(rec.Dir); statErr != nil || !info.IsDir() {
 		return restorePlan{why: whyDirectoryGone, sentence: "its directory no longer exists: " + rec.Dir +
-			" (the record is kept at " + file + "; remove it if the project is gone)."}
+			keptAtAdvising(file, "; remove it if the project is gone")}
 	}
 	start, err := conversation.StartPlan(rec, conversation.Here(a.Getenv))
 	var argsErr *conversation.ArgsError
 	switch {
 	case errors.As(err, &argsErr):
 		return restorePlan{why: whyArgumentsUnknown, sentence: "the arguments to restore it with could not be worked out: " +
-			err.Error() + " (the record is kept at " + file + ")."}
+			err.Error() + keptAt(file)}
 	case err != nil:
-		return restorePlan{why: whyNoConversation, sentence: err.Error() + " (the record is kept at " + file + ")."}
+		return restorePlan{why: whyNoConversation, sentence: err.Error() + keptAt(file)}
 	}
 	return restorePlan{start: start}
 }
@@ -239,11 +240,10 @@ func composeUnanswered(rec registry.Record, file string) string {
 	}
 	declare := "ccy-sessions declare --replace --name " + rec.Name + fresh + " " + rec.Dir + " -- --compose start|skip ..."
 	if rec.FreshIfNoConversation {
-		return "its record was provisioned without a compose answer" + has + "Declare it with one: " + declare +
-			" (the record is kept at " + file + ")."
+		return "its record was provisioned without a compose answer" + has + "Declare it with one: " + declare + keptAt(file)
 	}
 	return "its record holds no compose answer (a ccy older than 3.89.1 wrote none, and a launch that never met the compose question writes none)" +
-		has + "Launch it once with --compose start|skip, or declare it with one: " + declare + " (the record is kept at " + file + ")."
+		has + "Launch it once with --compose start|skip, or declare it with one: " + declare + keptAt(file)
 }
 
 // ownArgs is the launcher's own arguments of a recorded launch: those before any `--`.
@@ -299,11 +299,11 @@ func (a *App) checkRestore(ctx context.Context) term.ExitCode {
 		lines.WriteString(name + checkLineUnrestorable + whyRecordUnreadable + "\n")
 		refused = append(refused, name)
 	}
-	for _, rec := range reading.Records {
+	for i, rec := range reading.Records {
 		if !a.restoreTries(rec) {
 			continue
 		}
-		plan := a.judgeRestore(ctx, rec, filepath.Join(regdir, rec.Name))
+		plan := a.judgeRestore(ctx, rec, reading.Files[i])
 		if plan.why != "" {
 			a.fail(rec.Name + " cannot be restored: " + plan.sentence + staleNote(rec, plan.why))
 			lines.WriteString(rec.Name + checkLineUnrestorable + plan.why + "\n")
@@ -479,8 +479,8 @@ func (r *restoreRun) restoreAll(ctx context.Context, reading registry.Reading, m
 		a.failErr(p.Err)
 		r.notStarted(restore.Entry{Name: filepath.Base(p.File)}, whyRecordUnreadable)
 	}
-	for _, rec := range reading.Records {
-		r.record(ctx, rec)
+	for i, rec := range reading.Records {
+		r.record(ctx, rec, reading.Files[i])
 	}
 	r.writeManifest(manifest)
 	if len(reading.Records)+len(reading.Problems) == 0 {
@@ -504,10 +504,10 @@ func (r *restoreRun) notStarted(entry restore.Entry, why string) {
 	r.entries = append(r.entries, entry)
 }
 
-// record restores one session from its record.
-func (r *restoreRun) record(ctx context.Context, rec registry.Record) {
+// record restores one session from its record, read from file: the file its trampoline removes
+// when the session ends, which need not be named after the session (fedora-desktop#398).
+func (r *restoreRun) record(ctx context.Context, rec registry.Record, file string) {
 	a := r.app
-	file := filepath.Join(r.regdir, rec.Name)
 	if !a.restoreTries(rec) {
 		return
 	}
@@ -561,7 +561,7 @@ func (r *restoreRun) record(ctx context.Context, rec registry.Record) {
 	spec := tmuxccy.StartSpec{Name: rec.Name, Dir: rec.Dir, Command: command, RecordPath: file, Prefix: rec.Prefix}
 	if err := a.Tmux.StartDetached(ctx, spec); err != nil {
 		a.failErr(err)
-		a.fail("could not start " + rec.Name + " in " + rec.Dir + " (the record is kept at " + file + ").")
+		a.fail("could not start " + rec.Name + " in " + rec.Dir + keptAt(file))
 		r.notStarted(entry, whyStartFailed)
 		return
 	}

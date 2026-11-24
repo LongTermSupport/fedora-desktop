@@ -418,16 +418,18 @@ func TestSetTeamsWithNoRecordIsAnError(t *testing.T) {
 	}
 }
 
-func TestRemoveIsIdempotent(t *testing.T) {
+func TestRemoveSessionIsIdempotent(t *testing.T) {
 	s := newStore(t)
-	if err := s.Remove("ghost"); err != nil {
+	if err := s.RemoveSession("ghost"); err != nil {
 		t.Fatalf("absent: %v", err)
 	}
 	if err := s.Write(sample()); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Remove("ccy-proj"); err != nil {
-		t.Fatal(err)
+	for range 2 {
+		if err := s.RemoveSession("ccy-proj"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if _, err := s.Get("ccy-proj"); !errors.Is(err, ErrNoRecord) {
 		t.Fatalf("still there: %v", err)
@@ -456,14 +458,14 @@ func TestListSeparatesReadableFromUnreadable(t *testing.T) {
 	for _, r := range list.Records {
 		names = append(names, r.Name)
 	}
-	if !slices.Equal(names, []string{"a", "b"}) || !slices.Equal(list.Unreadable, []string{"broken"}) {
-		t.Fatalf("%v / %v", names, list.Unreadable)
+	if !slices.Equal(names, []string{"a", "b"}) || !slices.Equal(list.UnreadableFiles, []string{filepath.Join(s.Dir(), "broken")}) {
+		t.Fatalf("%v / %v", names, list.UnreadableFiles)
 	}
 }
 
 func TestListOfAbsentDirectoryIsEmpty(t *testing.T) {
 	list, err := newStore(t).List()
-	if err != nil || len(list.Records) != 0 || len(list.Unreadable) != 0 {
+	if err != nil || len(list.Records) != 0 || len(list.UnreadableFiles) != 0 {
 		t.Fatalf("%+v, %v", list, err)
 	}
 }
@@ -528,7 +530,7 @@ func TestBashWritesGoReads(t *testing.T) {
 	}
 	bash(t, state, `ccy_registry_write cc-other /d /l cc yes`)
 	list, err := s.List()
-	if err != nil || len(list.Records) != 2 || len(list.Unreadable) != 0 {
+	if err != nil || len(list.Records) != 2 || len(list.UnreadableFiles) != 0 {
 		t.Fatalf("%+v, %v", list, err)
 	}
 }

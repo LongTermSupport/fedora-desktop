@@ -408,6 +408,69 @@ func (s *Store) RemoveFile(path string) error {
 	return fsx.RemoveIfPresent(clean)
 }
 
+// FilesOf is every file of the reading that answers to the session name, as the restore names
+// records: a readable record by its name=, an unreadable one by its file's name.
+func (r Reading) FilesOf(name string) []string {
+	var files []string
+	for i, rec := range r.Records {
+		if rec.Name == name {
+			files = append(files, r.Files[i])
+		}
+	}
+	for _, p := range r.Problems {
+		if filepath.Base(p.File) == name {
+			files = append(files, p.File)
+		}
+	}
+	return files
+}
+
+// Find is the one record of the session name and the file it was read from. No record is
+// ErrNoRecord; an unreadable one answering by its file's name is its reader's error; two are
+// refused, since which of them the session is cannot be told.
+func (s *Store) Find(name string) (Record, string, error) {
+	reading, err := s.ReadAll()
+	if err != nil {
+		return Record{}, "", err
+	}
+	files := reading.FilesOf(name)
+	switch len(files) {
+	case 0:
+		return Record{}, "", fmt.Errorf("session %s has no record in %s: %w", name, s.dir, ErrNoRecord)
+	case 1:
+	default:
+		return Record{}, "", fmt.Errorf("more than one record answers to %s (%s), so which is the session's cannot be told: remove the wrong one",
+			name, strings.Join(files, ", "))
+	}
+	for i, file := range reading.Files {
+		if file == files[0] {
+			return reading.Records[i], file, nil
+		}
+	}
+	for _, p := range reading.Problems {
+		if p.File == files[0] {
+			return Record{}, "", p.Err
+		}
+	}
+	return Record{}, "", fmt.Errorf("session %s has no record in %s: %w", name, s.dir, ErrNoRecord)
+}
+
+// RemoveSession removes every record of the ended session name, each by the file it was read
+// from: a session that has ended has no record to keep, and one left behind is a stale record the
+// next restore fails on. A session with no record is not an error.
+func (s *Store) RemoveSession(name string) error {
+	reading, err := s.ReadAll()
+	if err != nil {
+		return err
+	}
+	for _, file := range reading.FilesOf(name) {
+		if err := s.RemoveFile(file); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ReadAll reads every record in byte order of file name, skipping writes in flight, and keeps
 // the reason each unreadable record failed, so a restore can report it and count it as a
 // failure. An absent registry directory is an empty registry.

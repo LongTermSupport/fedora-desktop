@@ -307,8 +307,8 @@ func (c *Collector) collectSessions(ctx context.Context, s *Snapshot) error {
 		c.Term.PrintError(err.Error())
 		return errReported
 	}
-	for _, name := range listing.Unreadable {
-		c.Term.PrintError("the session record " + filepath.Join(store.Dir(), name) + " could not be read; its seats show no session.")
+	for _, file := range listing.UnreadableFiles {
+		c.Term.PrintError("the session record " + file + " could not be read; its seats show no session.")
 		s.Incomplete = "a session record is unreadable"
 	}
 	for _, rec := range listing.Records {

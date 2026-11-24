@@ -3798,3 +3798,12 @@ remove with `Store.RemoveFile`, or `Store.RemoveSession` for every record of an 
   unreadable record's file, rebuilt from `List`'s names). The independent search made before the
   rule ran (every `Remove(`, `Join(` and `+` of a registry directory, and every holder of
   `registry.Dir`, `Locate` and a `Registry()` store in `src-go`) found the same 9.
+- Green, the fix commit: 0 findings. The name-keyed `Store.Remove` is deleted (no caller was
+  left); an ended session's records go by `Store.RemoveSession` (the files `Reading.FilesOf`
+  names), the restore and its check take `Reading.Files`, restart takes `Store.Find`'s file,
+  declare names only a record that is there, and `Listing.UnreadableFiles` carries paths. The
+  original: `sessions` `TestEndingASessionRemovesTheFileItsRecordWasReadFrom`,
+  `TestARestoreRefusalNamesTheFileTheRecordWasReadFrom`,
+  `TestARestoredSessionIsHandedTheFileItsRecordWasReadFrom` and
+  `TestADeclareRefusalNamesOnlyARecordThatIsThere` (each a record whose file is named otherwise
+  than its `name=`), red at the test commit, green after.

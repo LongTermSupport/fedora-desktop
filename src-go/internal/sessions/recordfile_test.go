@@ -63,6 +63,7 @@ func TestARestoreRefusalNamesTheFileTheRecordWasReadFrom(t *testing.T) {
 		" (the record is kept at "+file+"; remove it if the project is gone).")
 
 	h.errOut.Reset()
+	restoreOn(h, true)
 	exitCodeIs(t, h.run("restore", "--check"), 1, h)
 	contains(t, "check", h.stderr(), "(the record is kept at "+file+"; remove it if the project is gone).")
 }

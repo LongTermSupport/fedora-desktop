@@ -17,6 +17,22 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.32 — container 2.84.72
+
+A session record whose file is not named after its `name=` (one edited or renamed by hand) is
+acted on through the file it was read from (issue #398, after #396). `ccy-sessions` and
+`ccy-teams` are rebuilt on the host; the image is unchanged.
+
+- **Ending a session** (the `ccy-sessions` picker's End, `ccy --stop`'s hard stop, a
+  `ccy --teams` launch that forgets its record) removes every record answering to the session,
+  each by its own file, and never another session's record that happens to sit in the file
+  named after it. Before, the record survived as a stale record the next restore failed on.
+- **A restored or restarted session's trampoline** removes the file its record was read from
+  when the session ends.
+- **The refusals** of `restore`, `restore --check` and `declare` name the file the record was
+  read from. A `declare` refused before any record exists names no file, since none is kept.
+- **ccy-teams** names an unreadable record by its file.
+
 ## 3.124.31 — container 2.84.72
 
 A teamchat hook input that could not be used now names the hook it came from (issue #394), and

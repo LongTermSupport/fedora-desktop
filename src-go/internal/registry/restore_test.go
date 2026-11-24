@@ -432,8 +432,8 @@ func TestARecordThatIsNotARegularFileIsAProblemNeverOpened(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(list.Unreadable, []string{"ccy-pipe"}) {
-		t.Fatalf("unreadable %v", list.Unreadable)
+	if !slices.Equal(list.UnreadableFiles, []string{pipe}) {
+		t.Fatalf("unreadable %v", list.UnreadableFiles)
 	}
 	if opened() {
 		t.Fatal("the pipe was opened")

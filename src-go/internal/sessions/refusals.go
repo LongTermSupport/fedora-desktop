@@ -31,9 +31,19 @@ const (
 	unlockDropInAssignment = "Environment=" + unlockFileEnv + "="
 )
 
-// keptAt ends a refusal's sentence: the record stays where it is.
+// keptAt ends a refusal's sentence: the record stays in file, the one it was read from. With no
+// file there is no record to keep (a declare refused before any was written), and the sentence
+// just ends.
 func keptAt(file string) string {
-	return " (the record is kept at " + file + ")."
+	return keptAtAdvising(file, "")
+}
+
+// keptAtAdvising is keptAt with advice after the file.
+func keptAtAdvising(file, advice string) string {
+	if file == "" {
+		return "."
+	}
+	return " (the record is kept at " + file + advice + ")."
 }
 
 // launchRefusal is why the restore, or the record's launch, would stop before the session

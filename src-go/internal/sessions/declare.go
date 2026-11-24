@@ -130,8 +130,12 @@ func (a *App) declareSession(ctx context.Context, args []string) term.ExitCode {
 		a.failErr(err)
 		return term.ExitFailure
 	}
-	file := filepath.Join(store.Dir(), rec.Name)
-	plan := a.judgeRestore(ctx, rec, file)
+	reading, err := store.ReadAll()
+	if err != nil {
+		a.failErr(err)
+		return term.ExitFailure
+	}
+	plan := a.judgeRestore(ctx, rec, keptFile(reading, rec.Name))
 	if plan.why != "" {
 		a.fail("nothing is declared: the boot restore could not start " + rec.Name + " (" + plan.why + "): " + plan.sentence)
 		return term.ExitFailure
@@ -148,6 +152,16 @@ func (a *App) declareSession(ctx context.Context, args []string) term.ExitCode {
 	}
 	a.out(rec.Name + verdict + "\n")
 	return term.ExitOK
+}
+
+// keptFile is the file a refused declare keeps: the one record already answering to name, read
+// from whatever file it is in (fedora-desktop#398), or "" when there is none, or more than one
+// and so no one record a refusal could name.
+func keptFile(reading registry.Reading, name string) string {
+	if files := reading.FilesOf(name); len(files) == 1 {
+		return files[0]
+	}
+	return ""
 }
 
 // declareInto writes rec unless the same record is there, refusing a different one unless
