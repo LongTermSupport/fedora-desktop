@@ -3923,3 +3923,7 @@ member is skipped whatever its form.
   packages (6 call sites); each was read to its producer. The independent search made before
   the rule ran (every call site of `proto.Parse` and of each function reaching it in `src-go`,
   each traced to its bytes' producer) found the same one foreign instance.
+- Green, the fix commit: 0 findings (both modules, every build tag set). The hook decodes the
+  payload with the new `proto.ForeignObject`, reading only its fields. The original: `hook`
+  `TestAFieldTheHookDoesNotReadRefusesNothing` and `TestAFieldReadTwiceIsRefused`, red before
+  the fix, green after; `proto` `TestForeignObject*` hold the decoder.

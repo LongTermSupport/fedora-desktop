@@ -1721,8 +1721,11 @@ request to the link (2.4.4) with the payload fields it uses (`session_id`, `tran
 `source`, `stop_hook_active`, `reason`) and the inbox socket variables, and prints the link's
 answer: one JSON line, `{}` or Claude Code's `hookSpecificOutput`, `decision`/`reason` or
 `systemMessage` shapes (H6). The answer is built by the link from fixed templates filled with
-counts and grammar-checked names only (H14). Stdin that is too long, not UTF-8 or not a JSON object
-is sent as `"payload": "unusable"` with the reason from a closed set (`size`, `utf8`, `json`) and
+counts and grammar-checked names only (H14). The payload is Claude Code's, not teamchat's, so
+only the fields the hook reads are held to the wire's strict rules (each given once); any other
+member, whatever its form (a float, an integer past 2^53, a repeated key), is ignored
+(`proto.ForeignObject`; issue 394, rule `project_foreign_strict_parse`). Stdin that is too long,
+not UTF-8, not a JSON object, or with a field read repeated or breaking those rules is sent as `"payload": "unusable"` with the reason from a closed set (`size`, `utf8`, `json`) and
 `unusable_bytes`, the number of bytes the hook read (0 to 1 MiB + 1, since the read stops one byte
 past the bound; 0 when stdin could not be read, as the read keeps nothing of a failed read); the
 two are given exactly for an unusable payload. The link counts it in `session.json`

@@ -1,7 +1,9 @@
 // Package hook is `teamchat hook <event>`, the plugin's one hook command (Plan 00209 B 2.8,
 // SPEC-n3 HK1's client half). It reads Claude Code's payload from stdin (at most 1 MiB, strict
 // UTF-8, one JSON object), sends one hook.<event> request to the link with the payload fields
-// the link uses and the inbox socket variables, and prints the link's answer line.
+// the link uses and the inbox socket variables, and prints the link's answer line. The payload
+// is a foreign producer's, so only the fields the hook reads are held to the wire's rules (each
+// once); any other member, a float or an integer past 2^53 included, is ignored (issue 394).
 //
 // It always exits 0 (OF1; n3e-D15): only an event outside kit.Hooks, which the parser refuses
 // before this runs, is 64. With no TEAMCHAT_RUNTIME it answers {} without a dial. When the link
@@ -134,7 +136,9 @@ func say(e cli.Env, a hooktext.Answer) term.ExitCode {
 }
 
 // payload is the args op's stdin gives: its fields when it is one JSON object within the
-// bound, else unusable with the first reason that holds and the bytes read (issue 394). A
+// bound, else unusable with the first reason that holds and the bytes read (issue 394). Only
+// the keys op reads are judged (proto.ForeignObject): one of them repeated, or breaking the
+// wire's rules, is unusable json; any other member, whatever its form, is ignored. A
 // field that is not a string within its bound is absent, not unusable; a stdin that fails to
 // read is json, as nothing whole was read, and 0 bytes, as stdinread keeps nothing of a failed
 // read. Claude Code always writes and closes the payload, so the read has no bound; a payload
@@ -156,30 +160,52 @@ func payload(e cli.Env, clk stdinread.Clock, op string) wire.HookArgs {
 	case !utf8.Valid(data):
 		return unusable(wire.UnusableUTF8)
 	}
-	v, err := proto.Parse(data)
-	if err != nil || v.Kind() != proto.KindObject {
+	// Claude Code's payload is a foreign producer's: only the keys this op reads are parsed
+	// (strictly, and a key read twice refuses the payload, as which value was meant cannot be
+	// told); every other member is skipped whatever its form (issue 394).
+	keys := []string{keySessionID, keyTranscript}
+	if extra, ok := opKeys[op]; ok {
+		keys = append(keys, extra)
+	}
+	v, err := proto.ForeignObject(data, keys...)
+	if err != nil {
 		return unusable(wire.UnusableJSON)
 	}
 	a := wire.HookArgs{
 		Payload:        wire.PayloadOK,
-		SessionID:      field(v, "session_id", wire.MaxHookSessionID),
-		TranscriptPath: field(v, "transcript_path", wire.MaxHookTranscript),
+		SessionID:      field(v, keySessionID, wire.MaxHookSessionID),
+		TranscriptPath: field(v, keyTranscript, wire.MaxHookTranscript),
 	}
 	switch op {
 	case wire.OpHookSessionStart:
-		a.Source = field(v, "source", wire.MaxHookWord)
+		a.Source = field(v, keySource, wire.MaxHookWord)
 	case wire.OpHookStop:
-		active, ok := v.Get("stop_hook_active")
+		active, ok := v[keyStopActive]
 		a.StopHookFalse = ok && active.Kind() == proto.KindBool && !active.Bool()
 	case wire.OpHookSessionEnd:
-		a.Reason = field(v, "reason", wire.MaxHookWord)
+		a.Reason = field(v, keyReason, wire.MaxHookWord)
 	}
 	return a
 }
 
-// field is v's key when it is a string within the bound.
-func field(v proto.Value, key string, most int) *string {
-	f, ok := v.Get(key)
+// The payload keys the hook reads: every op's two, and one more for three of the ops.
+const (
+	keySessionID  = "session_id"
+	keyTranscript = "transcript_path"
+	keySource     = "source"
+	keyStopActive = "stop_hook_active"
+	keyReason     = "reason"
+)
+
+var opKeys = map[string]string{
+	wire.OpHookSessionStart: keySource,
+	wire.OpHookStop:         keyStopActive,
+	wire.OpHookSessionEnd:   keyReason,
+}
+
+// field is the key's value when it is a string within the bound.
+func field(v map[string]proto.Value, key string, most int) *string {
+	f, ok := v[key]
 	if !ok || f.Kind() != proto.KindString || len(f.Str()) > most {
 		return nil
 	}
