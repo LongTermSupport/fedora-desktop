@@ -24,8 +24,11 @@
 #   it replaces; it is a byte copy of .claude/skills, already excluded, and is recreated by
 #   every upgrade, so deleting the directory defers the failure rather than fixing it.
 # .claude/ccy: the whole CCY runtime tree (snapshots, plugins, history, saved transcripts) and
-#   the daemon-deployed claude-supervise.py, for both lists. arch-pin still reads the one file
-#   of it that is this project's own, the image Dockerfile (CLAUDE/QA.md "qa-trees-drift").
+#   the daemon-deployed claude-supervise.py, for both lists. The semgrep rule gates still read
+#   the files of it that are this project's own: its config (.gitignore, ccy.env,
+#   ccy.env.local.dist, mounts; the one shared list ccyProjectFiles in
+#   src-go/qa/ghscopes/run.go) for every gate, and the image Dockerfile for arch-pin
+#   (CLAUDE/QA.md "qa-trees-drift").
 # .claude/hooks: for shell only, the hook scripts the daemon generates (one per event, plus
 #   status-line).
 # .claude/skills: installed skill payloads.

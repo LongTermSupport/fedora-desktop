@@ -23,7 +23,7 @@ func findRaceWorld(t *testing.T, files map[string]string) *world {
 		FindRace.fixtureFile: "# fixture\n# ruleid: " + FindRace.ruleName + "\n",
 	}
 	maps.Copy(all, files)
-	return newWorld(t, all)
+	return newWorld(t, withCCYProjectFiles(all))
 }
 
 func (w *world) mainSpec(s Spec, args ...string) result {
@@ -44,6 +44,7 @@ func TestTheFindRaceSpecRunsItsOwnRuleAndFixture(t *testing.T) {
 	if !slices.Contains(w.run.scanArgv, filepath.Join(w.root, ".semgrep/find-race.yml")) {
 		t.Fatalf("the scan did not use the find-race rule: %v", w.run.scanArgv)
 	}
+	wantCCYProjectFilesHanded(t, w.run.scanArgv)
 }
 
 func TestTheFindRaceUsageNamesItsCommand(t *testing.T) {
@@ -81,7 +82,7 @@ func TestAFindRaceRuleWithoutExcludesNamesItsRuleFile(t *testing.T) {
 }
 
 // archPinWorld is a repository holding the arch-pin rule and fixture instead of gh-scopes', and
-// the image Dockerfile inside .claude/ccy that the arch-pin spec still scans.
+// the image Dockerfile inside .claude/ccy that the arch-pin spec alone still scans.
 func archPinWorld(t *testing.T, files map[string]string) *world {
 	t.Helper()
 	rules := strings.NewReplacer("gh-scope-outside-ssot", ArchPin.ruleName,
@@ -94,7 +95,7 @@ func archPinWorld(t *testing.T, files map[string]string) *world {
 		".claude/ccy/Dockerfile": "FROM x\n",
 	}
 	maps.Copy(all, files)
-	return newWorld(t, all)
+	return newWorld(t, withCCYProjectFiles(all))
 }
 
 // The arch-pin gate is the same engine over its own rule file, fixture and words.
@@ -111,6 +112,7 @@ func TestTheArchPinSpecRunsItsOwnRuleAndFixture(t *testing.T) {
 	if !slices.Contains(handed(w.run.scanArgv), ".claude/ccy/Dockerfile") {
 		t.Fatalf("the arch-pin scan left out the image Dockerfile: %v", w.run.scanArgv)
 	}
+	wantCCYProjectFilesHanded(t, w.run.scanArgv)
 }
 
 func TestTheArchPinUsageNamesItsCommand(t *testing.T) {
@@ -135,7 +137,7 @@ func TestAnArchPinFindingIsNamedAndCountedInItsOwnWords(t *testing.T) {
 func TestAFindRaceSkipIsHeadedByItsOwnName(t *testing.T) {
 	w := findRaceWorld(t, map[string]string{"big.bin": "x\n"})
 	w.run.scan = func([]string) string {
-		return report([]string{"a.txt"}, nil, []string{"big.bin"})
+		return report(append([]string{"a.txt"}, ccyProjectFiles...), nil, []string{"big.bin"})
 	}
 	got := w.mainSpec(FindRace)
 	wantExit(t, got, ExitOK)
@@ -155,7 +157,7 @@ func argvLeakWorld(t *testing.T, files map[string]string) *world {
 		ArgvLeak.fixtureFile: "# fixture\n# ruleid: " + ArgvLeak.ruleName + "\n",
 	}
 	maps.Copy(all, files)
-	return newWorld(t, all)
+	return newWorld(t, withCCYProjectFiles(all))
 }
 
 // The secret-in-argv gate is the same engine over its own rule file, fixture and words.
@@ -169,6 +171,7 @@ func TestTheArgvLeakSpecRunsItsOwnRuleAndFixture(t *testing.T) {
 	if !slices.Contains(w.run.scanArgv, filepath.Join(w.root, ".semgrep/argv-leak.yml")) {
 		t.Fatalf("the scan did not use the secret-in-argv rule: %v", w.run.scanArgv)
 	}
+	wantCCYProjectFilesHanded(t, w.run.scanArgv)
 }
 
 func TestTheArgvLeakUsageNamesItsCommand(t *testing.T) {
@@ -206,7 +209,7 @@ func secretScreenWorld(t *testing.T, files map[string]string) *world {
 		all[more] = "# fixture\n# ruleid: " + SecretScreen.ruleName + "\n"
 	}
 	maps.Copy(all, files)
-	return newWorld(t, all)
+	return newWorld(t, withCCYProjectFiles(all))
 }
 
 // A rule file written for several languages is proven against a fixture in each: the shell
@@ -224,6 +227,7 @@ func TestTheSecretScreenSpecProvesEveryFixture(t *testing.T) {
 	if !slices.Contains(w.run.scanArgv, rules) {
 		t.Fatalf("the scan did not use the secret-screen rules: %v", w.run.scanArgv)
 	}
+	wantCCYProjectFilesHanded(t, w.run.scanArgv)
 }
 
 // A further fixture that is missing is a gate that cannot prove its rules: exit 2, nothing

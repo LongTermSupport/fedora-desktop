@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -43,6 +44,12 @@ func realRun(t *testing.T, files map[string]string) (ghscopes.ExitCode, string, 
 	files[".semgrep/find-race.yml"] = projectFile(t, ".semgrep/find-race.yml")
 	files[".semgrep/find-race.fixture"] = projectFile(t, ".semgrep/find-race.fixture")
 	files["scripts/qa-trees.tsv"] = projectFile(t, "scripts/qa-trees.tsv")
+	// The files inside .claude/ccy the gate still reads: its whole-tree run requires them.
+	for _, rel := range ghscopes.FindRace.StillScannedFiles() {
+		if _, given := files[rel]; !given {
+			files[rel] = "nothing\n"
+		}
+	}
 	for rel, text := range files {
 		path := filepath.Join(root, rel)
 		if mkErr := os.MkdirAll(filepath.Dir(path), 0o750); mkErr != nil {
@@ -77,11 +84,34 @@ func TestTheRealEngineFindsTheUnguardedProbeAndPassesTheGuardedOne(t *testing.T)
 		// Daemon-deployed: the trees table keeps it out of every gate (qa-trees-drift).
 		"CLAUDE/Plan/mkplan.bash": "find \"$d\" -ignore_readdir_race " + negation + " -user root -print\n",
 	})
-	if code != ghscopes.ExitFailed || !strings.Contains(stdout, "tasks/probe.yml:7  find-race-negated-stat-test") || !strings.Contains(stdout, "passed: 3 failed: 1") || strings.Contains(stdout, "mkplan") {
+	if code != ghscopes.ExitFailed || !strings.Contains(stdout, "tasks/probe.yml:7  find-race-negated-stat-test") || !strings.Contains(stdout, "passed: 7 failed: 1") || strings.Contains(stdout, "mkplan") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 	code, stdout, stderr = realRun(t, map[string]string{"tasks/clean.yml": guardedProbe})
-	if code != ghscopes.ExitOK || !strings.Contains(stdout, "passed: 2 failed: 0") {
+	if code != ghscopes.ExitOK || !strings.Contains(stdout, "passed: 6 failed: 0") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+}
+
+// This project's own files inside .claude/ccy are read although scripts/qa-trees.tsv keeps the
+// rest of that tree out (issues #408 and #412): a finding in each is reported, and the
+// daemon-deployed supervisor's is not.
+func TestTheRealEngineReadsTheCCYProjectFiles(t *testing.T) {
+	ccy := ghscopes.FindRace.StillScannedFiles()
+	if !slices.Contains(ccy, ".claude/ccy/ccy.env") {
+		t.Fatalf("the gate does not still scan the ccy config: %v", ccy)
+	}
+	files := map[string]string{".claude/ccy/claude-supervise.py": unguardedProbe}
+	for _, rel := range ccy {
+		files[rel] = unguardedProbe
+	}
+	code, stdout, stderr := realRun(t, files)
+	if code != ghscopes.ExitFailed || strings.Contains(stdout, "claude-supervise") {
+		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	for _, rel := range ccy {
+		if !strings.Contains(stdout, rel+":7  find-race-negated-stat-test") {
+			t.Errorf("%s was not read:\n%s", rel, stdout)
+		}
 	}
 }

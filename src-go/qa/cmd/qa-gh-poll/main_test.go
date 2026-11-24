@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -43,6 +44,12 @@ func realRun(t *testing.T, files map[string]string) (ghscopes.ExitCode, string, 
 	files[".semgrep/gh-poll.yml"] = projectFile(t, ".semgrep/gh-poll.yml")
 	files[".semgrep/gh-poll.fixture"] = projectFile(t, ".semgrep/gh-poll.fixture")
 	files["scripts/qa-trees.tsv"] = projectFile(t, "scripts/qa-trees.tsv")
+	// The files inside .claude/ccy the gate still reads: its whole-tree run requires them.
+	for _, rel := range ghscopes.GHPoll.StillScannedFiles() {
+		if _, given := files[rel]; !given {
+			files[rel] = "nothing\n"
+		}
+	}
 	for rel, text := range files {
 		path := filepath.Join(root, rel)
 		if mkErr := os.MkdirAll(filepath.Dir(path), 0o750); mkErr != nil {
@@ -77,5 +84,28 @@ func TestTheRealEngineFindsTheFastWatchersAndPassesTheSlowOne(t *testing.T) {
 	code, stdout, stderr = realRun(t, map[string]string{"scripts/slow.bash": slowScript})
 	if code != ghscopes.ExitOK {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+}
+
+// This project's own files inside .claude/ccy are read although scripts/qa-trees.tsv keeps the
+// rest of that tree out (issues #408 and #412): a finding in each is reported, and the
+// daemon-deployed supervisor's is not.
+func TestTheRealEngineReadsTheCCYProjectFiles(t *testing.T) {
+	ccy := ghscopes.GHPoll.StillScannedFiles()
+	if !slices.Contains(ccy, ".claude/ccy/ccy.env") {
+		t.Fatalf("the gate does not still scan the ccy config: %v", ccy)
+	}
+	files := map[string]string{".claude/ccy/claude-supervise.py": fastScript}
+	for _, rel := range ccy {
+		files[rel] = fastScript
+	}
+	code, stdout, stderr := realRun(t, files)
+	if code != ghscopes.ExitFailed || strings.Contains(stdout, "claude-supervise") {
+		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	for _, rel := range ccy {
+		if !strings.Contains(stdout, rel+":2  github-poll-too-often") {
+			t.Errorf("%s was not read:\n%s", rel, stdout)
+		}
 	}
 }

@@ -49,7 +49,7 @@ func (failWriter) Write([]byte) (int, error) { return 0, errors.New("closed") }
 
 // G2
 func TestAStdoutThatCannotBeWrittenIsExitTwo(t *testing.T) {
-	w := newWorld(t, nil)
+	w := newWorld(t, withCCYProjectFiles(nil))
 	var stderr strings.Builder
 	code := Main(nil, Env{Stdout: failWriter{}, Stderr: &stderr, Cwd: w.root, Runner: w.run})
 	if code != ExitCannotRun || !strings.Contains(stderr.String(), "ERROR: cannot write to stdout") {

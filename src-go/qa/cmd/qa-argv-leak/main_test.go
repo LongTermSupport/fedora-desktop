@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -43,6 +44,12 @@ func realRun(t *testing.T, files map[string]string) (ghscopes.ExitCode, string, 
 	files[".semgrep/argv-leak.yml"] = projectFile(t, ".semgrep/argv-leak.yml")
 	files[".semgrep/argv-leak.fixture.yml"] = projectFile(t, ".semgrep/argv-leak.fixture.yml")
 	files["scripts/qa-trees.tsv"] = projectFile(t, "scripts/qa-trees.tsv")
+	// The files inside .claude/ccy the gate still reads: its whole-tree run requires them.
+	for _, rel := range ghscopes.ArgvLeak.StillScannedFiles() {
+		if _, given := files[rel]; !given {
+			files[rel] = "nothing\n"
+		}
+	}
 	for rel, text := range files {
 		path := filepath.Join(root, rel)
 		if mkErr := os.MkdirAll(filepath.Dir(path), 0o750); mkErr != nil {
@@ -74,7 +81,7 @@ func TestAModuleDocstringIsProseAndAnAssignedStringIsCode(t *testing.T) {
 		"helpers/script.py": "import os\n\nSCRIPT = \"\"\"\n" + prose + "\"\"\"\n",
 	})
 	if code != ghscopes.ExitFailed || !strings.Contains(stdout, "helpers/script.py:4  secret-in-argv") ||
-		strings.Contains(stdout, "helpers/doc.py") || !strings.Contains(stdout, "passed: 2 failed: 1") {
+		strings.Contains(stdout, "helpers/doc.py") || !strings.Contains(stdout, "passed: 6 failed: 1") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 }
@@ -89,12 +96,35 @@ func TestTheRealEngineFindsTheSecretOnTheCommandLineAndPassesStdin(t *testing.T)
 		".claude/init.sh": argvScript,
 	})
 	if code != ghscopes.ExitFailed || !strings.Contains(stdout, "argv/rekey.bash:2  secret-in-argv") ||
-		!strings.Contains(stdout, "argv/play.yml:5  secret-in-argv") || !strings.Contains(stdout, "passed: 3 failed: 2") ||
+		!strings.Contains(stdout, "argv/play.yml:5  secret-in-argv") || !strings.Contains(stdout, "passed: 7 failed: 2") ||
 		strings.Contains(stdout, ".claude/") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 	code, stdout, stderr = realRun(t, map[string]string{"clean/askpass.bash": promptedScript, "clean/play.yml": stdinPlay})
-	if code != ghscopes.ExitOK || !strings.Contains(stdout, "passed: 3 failed: 0") {
+	if code != ghscopes.ExitOK || !strings.Contains(stdout, "passed: 7 failed: 0") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+}
+
+// This project's own files inside .claude/ccy are read although scripts/qa-trees.tsv keeps the
+// rest of that tree out (issues #408 and #412): a finding in each is reported, and the
+// daemon-deployed supervisor's is not.
+func TestTheRealEngineReadsTheCCYProjectFiles(t *testing.T) {
+	ccy := ghscopes.ArgvLeak.StillScannedFiles()
+	if !slices.Contains(ccy, ".claude/ccy/ccy.env") {
+		t.Fatalf("the gate does not still scan the ccy config: %v", ccy)
+	}
+	files := map[string]string{".claude/ccy/claude-supervise.py": argvScript}
+	for _, rel := range ccy {
+		files[rel] = argvScript
+	}
+	code, stdout, stderr := realRun(t, files)
+	if code != ghscopes.ExitFailed || strings.Contains(stdout, "claude-supervise") {
+		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	for _, rel := range ccy {
+		if !strings.Contains(stdout, rel+":2  secret-in-argv") {
+			t.Errorf("%s was not read:\n%s", rel, stdout)
+		}
 	}
 }

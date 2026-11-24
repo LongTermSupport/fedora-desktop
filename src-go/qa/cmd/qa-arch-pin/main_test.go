@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -43,6 +44,12 @@ func realRun(t *testing.T, files map[string]string) (ghscopes.ExitCode, string, 
 	files[".semgrep/arch-pin.yml"] = projectFile(t, ".semgrep/arch-pin.yml")
 	files[".semgrep/arch-pin.fixture"] = projectFile(t, ".semgrep/arch-pin.fixture")
 	files["scripts/qa-trees.tsv"] = projectFile(t, "scripts/qa-trees.tsv")
+	// The files inside .claude/ccy the gate still reads: its whole-tree run requires them.
+	for _, rel := range ghscopes.ArchPin.StillScannedFiles() {
+		if _, given := files[rel]; !given {
+			files[rel] = "nothing\n"
+		}
+	}
 	for rel, text := range files {
 		path := filepath.Join(root, rel)
 		if mkErr := os.MkdirAll(filepath.Dir(path), 0o750); mkErr != nil {
@@ -77,12 +84,35 @@ func TestTheRealEngineFindsThePinnedDownloadAndPassesTheSelectedOne(t *testing.T
 		".claude/ccy/Dockerfile": pinnedDownload,
 	})
 	if code != ghscopes.ExitFailed || !strings.Contains(stdout, "pinned/Dockerfile:2  arch-pinned-artefact") ||
-		!strings.Contains(stdout, ".claude/ccy/Dockerfile:2  arch-pinned-artefact") || !strings.Contains(stdout, "passed: 2 failed: 2") ||
+		!strings.Contains(stdout, ".claude/ccy/Dockerfile:2  arch-pinned-artefact") || !strings.Contains(stdout, "passed: 6 failed: 2") ||
 		strings.Contains(stdout, "claude-supervise") || strings.Contains(stdout, "init.sh") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 	code, stdout, stderr = realRun(t, map[string]string{"clean/Dockerfile": selectedDownload, ".claude/ccy/Dockerfile": selectedDownload})
-	if code != ghscopes.ExitOK || !strings.Contains(stdout, "passed: 3 failed: 0") {
+	if code != ghscopes.ExitOK || !strings.Contains(stdout, "passed: 7 failed: 0") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+}
+
+// This project's own files inside .claude/ccy are read although scripts/qa-trees.tsv keeps the
+// rest of that tree out (issues #408 and #412): a finding in each is reported, and the
+// daemon-deployed supervisor's is not.
+func TestTheRealEngineReadsTheCCYProjectFiles(t *testing.T) {
+	ccy := ghscopes.ArchPin.StillScannedFiles()
+	if !slices.Contains(ccy, ".claude/ccy/ccy.env") {
+		t.Fatalf("the gate does not still scan the ccy config: %v", ccy)
+	}
+	files := map[string]string{".claude/ccy/claude-supervise.py": pinnedDownload}
+	for _, rel := range ccy {
+		files[rel] = pinnedDownload
+	}
+	code, stdout, stderr := realRun(t, files)
+	if code != ghscopes.ExitFailed || strings.Contains(stdout, "claude-supervise") {
+		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	for _, rel := range ccy {
+		if !strings.Contains(stdout, rel+":2  arch-pinned-artefact") {
+			t.Errorf("%s was not read:\n%s", rel, stdout)
+		}
 	}
 }

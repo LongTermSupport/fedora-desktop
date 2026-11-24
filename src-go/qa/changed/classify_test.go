@@ -328,6 +328,32 @@ func TestTheArchPinGateRunsForTheFilesItGuards(t *testing.T) {
 	}
 }
 
+// Every semgrep rule gate still reads this project's own config inside .claude/ccy (issue
+// #412), so a change of one of those files alone plans each gate; a change of a file the gates
+// never read there plans none of them.
+func TestTheSemgrepGatesRunForTheCCYConfigTheyStillRead(t *testing.T) {
+	gates := []string{"gh-scopes", "find-race", "arch-pin", "argv-leak", "place-issued-token", "boot-hold", "gh-poll", "secret-screen"}
+	files := []string{".claude/ccy/.gitignore", ".claude/ccy/ccy.env", ".claude/ccy/ccy.env.local.dist", ".claude/ccy/mounts"}
+	for _, f := range files {
+		w := newWorld(t)
+		w.touch(f, "X=1")
+		p := w.classify([]string{f})
+		for _, g := range gates {
+			if !p.has(g) {
+				t.Errorf("%s does not plan %s: %v", f, g, keys(p))
+			}
+		}
+	}
+	w := newWorld(t)
+	w.touch(".claude/ccy/claude-supervise.py", "X = 1")
+	p := w.classify([]string{".claude/ccy/claude-supervise.py"})
+	for _, g := range gates {
+		if p.has(g) {
+			t.Errorf("a file the gates never read plans %s: %v", g, keys(p))
+		}
+	}
+}
+
 func TestThePatternsGateRunsWhenItsRulesFixtureOrToolChange(t *testing.T) {
 	w := newWorld(t)
 	for _, f := range []string{".semgrep/bash-conventions.yml", ".semgrep/bash-conventions.bash", "src-go/qa/patterns/run.go", "src-go/qa/cmd/qa-patterns/main.go"} {

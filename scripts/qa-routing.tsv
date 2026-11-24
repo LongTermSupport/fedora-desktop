@@ -128,6 +128,17 @@ also	playbooks/*,tasks/*,vars/*,files/*,helpers/*,vault.bash	secret-screen	-
 also	.semgrep/secret-screen.*	secret-screen	covered
 also	src-go/qa/ghscopes/*,src-go/qa/cmd/qa-secret-screen/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	secret-screen	-
 also	scripts/qa-secret-screen.bash,scripts/lib/go-tool.bash	secret-screen	-
+# Every semgrep rule gate still reads this project's own config inside .claude/ccy, a tree
+# scripts/qa-trees.tsv keeps out of every gate (ghscopes' ccyProjectFiles, issue #412), so a
+# change to one of those files runs each gate whole.
+also	.claude/ccy/.gitignore,.claude/ccy/ccy.env,.claude/ccy/ccy.env.local.dist,.claude/ccy/mounts	gh-scopes	-
+also	.claude/ccy/.gitignore,.claude/ccy/ccy.env,.claude/ccy/ccy.env.local.dist,.claude/ccy/mounts	find-race	-
+also	.claude/ccy/.gitignore,.claude/ccy/ccy.env,.claude/ccy/ccy.env.local.dist,.claude/ccy/mounts	arch-pin	-
+also	.claude/ccy/.gitignore,.claude/ccy/ccy.env,.claude/ccy/ccy.env.local.dist,.claude/ccy/mounts	argv-leak	-
+also	.claude/ccy/.gitignore,.claude/ccy/ccy.env,.claude/ccy/ccy.env.local.dist,.claude/ccy/mounts	place-issued-token	-
+also	.claude/ccy/.gitignore,.claude/ccy/ccy.env,.claude/ccy/ccy.env.local.dist,.claude/ccy/mounts	boot-hold	-
+also	.claude/ccy/.gitignore,.claude/ccy/ccy.env,.claude/ccy/ccy.env.local.dist,.claude/ccy/mounts	gh-poll	-
+also	.claude/ccy/.gitignore,.claude/ccy/ccy.env,.claude/ccy/ccy.env.local.dist,.claude/ccy/mounts	secret-screen	-
 # The Python gate runs whole when its tool, the ruff config, the pin, its wrapper or the table of excluded trees change.
 also	src-go/qa/python/*,src-go/qa/cmd/qa-python/*,src-go/qa/discovery/*,src-go/qa/internal/cmdmain/*,src-go/qa/internal/rootargs/*	python	-
 also	ruff.toml	python	covered
