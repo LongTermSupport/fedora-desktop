@@ -12,6 +12,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylimits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/engine"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -30,6 +31,10 @@ import (
 // and the newest the npm registry publishes, printed "INSTALLED LATEST" on stdout, exit 0. Exit 1
 // when either could not be read, saying which and why: the image's run and its words, or curl's
 // failure (the registry not reached, or its error answer), or an answer naming no version.
+// When the image's version is newer than every screen capture internal/screen was tested on,
+// stderr also says how to capture the new layout (screen.LayoutDrift); a report, never a
+// failure, made here because this is where the version the sessions run is read
+// (fedora-desktop#397).
 //
 // Anything but the two arguments is exit 64. Both are answered under CCY_LEGACY too: the bash
 // asks them.
@@ -116,11 +121,18 @@ func (f Front) claudeVersions(ctx context.Context) term.ExitCode {
 	if why != "" {
 		return f.fail(versionsUnread + why)
 	}
+	drift, err := screen.LayoutDrift(installed)
+	if err != nil {
+		return f.fail("ccy: the image's Claude Code could not be compared with the screen captures: " + err.Error())
+	}
 	latest, why := f.latestVersion(ctx)
 	if why != "" {
 		return f.fail(versionsUnread + why)
 	}
 	var p term.Printer
+	if drift != "" {
+		p.Print(f.Stderr, "ccy: "+drift)
+	}
 	p.Print(f.Stdout, installed+" "+latest+"\n")
 	if err := p.Err(); err != nil {
 		return f.fail("ccy: could not write the answer: " + err.Error())

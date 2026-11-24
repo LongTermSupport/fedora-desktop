@@ -17,6 +17,21 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.32 — container 2.84.72
+
+The daily Claude Code update check now reports when the image's Claude Code is newer than the
+newest screen capture the idle checks were tested on (issue #397). The tools that wait for a
+session to be idle read its screen, and each layout they understand has a real capture in
+`src-go/internal/screen/testdata`, named for its Claude Code version (`*-cc-<version>.txt`). A
+newer Claude Code may draw a layout none of them shows, as #391's did, so the check says, on
+stderr, to take a mid-turn and an idle capture (`tmux capture-pane -p -e`), redact them to
+placeholders keeping the layout and every escape, and add them as goldens named for the
+version. It is a report: the update check carries on as before. The image is not rebuilt; the
+`claude-yolo` front is rebuilt on the host.
+
+- The captures are built into the front, so the comparison needs no checkout and no network.
+- Versions compare numerically per component: 2.1.331 is newer than 2.1.40.
+
 ## 3.124.31 — container 2.84.72
 
 A teamchat hook input that could not be used now names the hook it came from (issue #394), and
