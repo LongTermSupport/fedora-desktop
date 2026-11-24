@@ -89,6 +89,8 @@ func (s Status) check(c *rules) {
 	c.need(validMS(s.WrittenMS), "written_ms is not a time")
 	c.need(slices.Contains(desiredStates, s.Desired), "desired is not applied or refused")
 	c.need(s.UnusableHookStdin >= 0, "unusable_hook_stdin is negative")
+	c.need(validLast(s.UnusableHookStdin, s.UnusableHookLast),
+		"unusable_hook_last is not null exactly when unusable_hook_stdin is 0, or not a hook event, reason and size")
 	c.need(s.Teams != nil && len(s.Teams) <= maxTeams, "teams is not a list of at most 64 teams")
 	seen := map[paths.TeamID]bool{}
 	for _, t := range s.Teams {

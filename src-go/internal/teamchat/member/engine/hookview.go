@@ -197,11 +197,12 @@ func (e *Engine) tellTeams() {
 	e.cfg.OnTeams(slices.Clone(teams))
 }
 
-// SetUnusable takes session.json's hook-stdin count (15a major 3), which the link counts, for
-// status.json and status; the render count is the engine's own and is not taken.
+// SetUnusable takes session.json's hook-stdin count (15a major 3) and its last unusable hook
+// input (issue 394), which the link records, for status.json and status; the render count is
+// the engine's own and is not taken.
 func (e *Engine) SetUnusable(ctx context.Context, u state.Unusable) error {
 	return e.do(ctx, func() {
-		e.unusable.HookStdin = u.HookStdin
+		e.unusable.HookStdin, e.unusable.HookLast = u.HookStdin, u.HookLast
 		e.publish()
 	})
 }

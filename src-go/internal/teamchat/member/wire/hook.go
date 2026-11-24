@@ -99,17 +99,21 @@ func checkHookArgs(op string, a HookArgs) string {
 	return ""
 }
 
-// checkPayload is the payload's rules: ok, or unusable with its reason and no payload field.
+// checkPayload is the payload's rules: ok, or unusable with its reason, the bytes read and no
+// payload field.
 func checkPayload(a HookArgs) string {
+	unusable := a.Payload == PayloadUnusable
 	switch {
-	case a.Payload != PayloadOK && a.Payload != PayloadUnusable:
+	case a.Payload != PayloadOK && !unusable:
 		return "payload is not ok or unusable"
-	case (a.Payload == PayloadUnusable) != (a.Unusable != nil):
-		return "unusable is not given exactly for an unusable payload"
-	case a.Unusable == nil:
+	case unusable != (a.Unusable != nil) || unusable != (a.UnusableBytes != nil):
+		return "unusable and unusable_bytes are not given exactly for an unusable payload"
+	case !unusable:
 		return ""
 	case *a.Unusable != UnusableSize && *a.Unusable != UnusableUTF8 && *a.Unusable != UnusableJSON:
 		return "unusable is not size utf8 or json"
+	case *a.UnusableBytes < 0 || *a.UnusableBytes > MaxHookStdin+1:
+		return "unusable_bytes is not a size the hook can read"
 	case a.SessionID != nil || a.TranscriptPath != nil || a.Source != nil || a.StopHookFalse || a.Reason != nil:
 		return "an unusable payload has fields"
 	}

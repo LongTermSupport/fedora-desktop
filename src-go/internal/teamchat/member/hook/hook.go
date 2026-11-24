@@ -43,7 +43,7 @@ const (
 
 const (
 	// maxStdin bounds the payload (B 2.8).
-	maxStdin = 1 << 20
+	maxStdin = wire.MaxHookStdin
 	// maxAnswer bounds one line from the link.
 	maxAnswer = 1 << 20
 )
@@ -134,13 +134,15 @@ func say(e cli.Env, a hooktext.Answer) term.ExitCode {
 }
 
 // payload is the args op's stdin gives: its fields when it is one JSON object within the
-// bound, else unusable with the first reason that holds. A field that is not a string within
-// its bound is absent, not unusable; a stdin that fails to read is json, as nothing whole
-// was read. Claude Code always writes and closes the payload, so the read has no bound; a
-// payload that has not ended after a second is said on stderr (internal/stdinread).
+// bound, else unusable with the first reason that holds and the bytes read (issue 394). A
+// field that is not a string within its bound is absent, not unusable; a stdin that fails to
+// read is json, as nothing whole was read, and 0 bytes, as stdinread keeps nothing of a failed
+// read. Claude Code always writes and closes the payload, so the read has no bound; a payload
+// that has not ended after a second is said on stderr (internal/stdinread).
 func payload(e cli.Env, clk stdinread.Clock, op string) wire.HookArgs {
+	var data []byte
 	unusable := func(why string) wire.HookArgs {
-		return wire.HookArgs{Payload: wire.PayloadUnusable, Unusable: &why}
+		return wire.HookArgs{Payload: wire.PayloadUnusable, Unusable: &why, UnusableBytes: new(int64(len(data)))}
 	}
 	if e.Stdin == nil {
 		return unusable(wire.UnusableJSON)

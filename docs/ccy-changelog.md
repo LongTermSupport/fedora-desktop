@@ -17,10 +17,11 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.26 — container 2.84.69
+## 3.124.27 — container 2.84.70
 
 A teamchat hook input that could not be used now names the hook it came from (issue #394). The
-image is rebuilt for its `teamchat`.
+image is rebuilt for its `teamchat`. (3.124.26 and container 2.84.69 carried only this change's
+tests and were never deployed.)
 
 - **link.log** says `link: a hook's input was unusable at <event> (<reason>, <n> bytes); <count> so far`, where `<event>` is Claude Code's hook event (`SessionStart`, `UserPromptSubmit`,
   `Stop`, `SessionEnd`) and `<n>` the bytes the hook read: a size, never the content.

@@ -130,7 +130,9 @@ func (e *Engine) buildStatus() state.Status {
 	for _, id := range slices.SortedFunc(maps.Keys(e.refused), compareTeams) {
 		rows = append(rows, state.StatusTeam{Team: id, Down: true, Delivery: state.DeliveryNone, Colour: teamColour(id, nil)})
 	}
-	return state.Status{Run: e.cfg.Run, Desired: e.desired, UnusableHookStdin: e.unusable.HookStdin, Teams: rows}
+	return state.Status{
+		Run: e.cfg.Run, Desired: e.desired, UnusableHookStdin: e.unusable.HookStdin, UnusableHookLast: e.unusable.HookLast, Teams: rows,
+	}
 }
 
 func sameState(a, b wire.State) bool {

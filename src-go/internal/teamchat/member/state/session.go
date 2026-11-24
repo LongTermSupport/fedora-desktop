@@ -90,6 +90,22 @@ type UnusableHook struct {
 	Bytes  int64  `json:"bytes"`
 }
 
+var (
+	unusableReasons = []string{UnusableSize, UnusableUTF8, UnusableJSON}
+	hookEvents      = []string{HookSessionStart, HookPrompt, HookStop, HookSessionEnd}
+)
+
+// validLast is whether last, the last unusable hook input beside count of them, is null exactly
+// when count is 0, and otherwise one of the four events, the three reasons and a size the hook
+// can read.
+func validLast(count int64, last *UnusableHook) bool {
+	if last == nil {
+		return count == 0
+	}
+	return count > 0 && slices.Contains(hookEvents, last.Event) && slices.Contains(unusableReasons, last.Reason) &&
+		last.Bytes >= 0 && last.Bytes <= MaxHookStdin+1
+}
+
 // Started is whether the session has had its first SessionStart.
 func (s Session) Started() bool { return s.SessionID != nil }
 
@@ -136,6 +152,8 @@ func (s Session) check(c *rules) {
 	}
 	s.Told.checkNotKnown(c)
 	c.need(s.Unusable.HookStdin >= 0 && s.Unusable.Render >= 0, "an unusable count is negative")
+	c.need(validLast(s.Unusable.HookStdin, s.Unusable.HookLast),
+		"unusable.hook_last is not null exactly when hook_stdin is 0, or not a hook event, reason and size")
 }
 
 // checkNotKnown holds not_known to a list of distinct teams that are not told a role, within

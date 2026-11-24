@@ -141,13 +141,14 @@ func (s *Session) Update(edit func(*state.Session) bool) error {
 	return s.writeLocked(next)
 }
 
-// CountUnusable counts one hook payload that was not usable (B 2.8) in session.json, and is the
-// counts written.
-func (s *Session) CountUnusable() (state.Unusable, error) {
+// CountUnusable counts one hook payload that was not usable (B 2.8) in session.json and records
+// it as the last one, in the same write, and is the counts written.
+func (s *Session) CountUnusable(last state.UnusableHook) (state.Unusable, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	next := s.file
 	next.Unusable.HookStdin++
+	next.Unusable.HookLast = &last
 	if err := s.writeLocked(next); err != nil {
 		return s.file.Unusable, err
 	}

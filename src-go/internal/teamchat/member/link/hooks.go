@@ -24,8 +24,8 @@ const repeatEvery = 10 * time.Minute
 
 // The events Claude Code names the two hooks that take context.
 const (
-	eventSessionStart = "SessionStart"
-	eventPrompt       = "UserPromptSubmit"
+	eventSessionStart = state.HookSessionStart
+	eventPrompt       = state.HookPrompt
 )
 
 // hookMemory is what the hooks keep in memory for the link's life: one op at a time, and the
@@ -63,18 +63,33 @@ func (l *link) serveHook(ctx context.Context, req wire.Request, peer int) hookRe
 	defer l.hooks.mu.Unlock()
 	usable := a.Payload == wire.PayloadOK
 	if !usable {
-		l.countUnusable(ctx, *a.Unusable)
+		l.countUnusable(ctx, req.Op, *a.Unusable, *a.UnusableBytes)
 	}
 	return hookReply{line: l.answerHook(ctx, req.Op, a, usable, peer).Line, answered: true}
 }
 
-// countUnusable is B 2.8's count of a payload that was not usable: session.json, one line, and
-// the engine for status and status.json.
-func (l *link) countUnusable(ctx context.Context, why string) {
-	u, err := l.session.CountUnusable()
-	l.logf("link: a hook's input was unusable (%s); %d so far", why, u.HookStdin)
+// countUnusable is B 2.8's count of a payload that was not usable, named by its hook's event,
+// reason and size (issue 394): session.json, one line, and the engine for status and
+// status.json.
+func (l *link) countUnusable(ctx context.Context, op, why string, n int64) {
+	last := state.UnusableHook{Event: hookEvent(op), Reason: why, Bytes: n}
+	u, err := l.session.CountUnusable(last)
+	l.logf("link: a hook's input was unusable at %s (%s, %d bytes); %d so far", last.Event, why, n, u.HookStdin)
 	l.logErr("count an unusable hook input", err)
 	l.logErr("tell the engine the unusable counts", l.eng.SetUnusable(ctx, u))
+}
+
+// hookEvent is Claude Code's name for a hook op's event.
+func hookEvent(op string) string {
+	switch op {
+	case wire.OpHookSessionStart:
+		return state.HookSessionStart
+	case wire.OpHookPrompt:
+		return state.HookPrompt
+	case wire.OpHookStop:
+		return state.HookStop
+	}
+	return state.HookSessionEnd
 }
 
 func factsOf(op string, a wire.HookArgs, peer int) Facts {
