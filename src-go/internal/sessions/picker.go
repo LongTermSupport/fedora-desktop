@@ -287,7 +287,8 @@ func (a *App) startHere(st *pickState) step {
 // confirmEnd ends a session and everything in it, after the picker's yes/no (no is the default
 // row). An ended session is not a session to restore: its record goes with it, since a
 // kill-session never lets the pane's trampoline remove it. A session that ended since the list
-// was drawn is just as ended.
+// was drawn is just as ended. The record is found by reading the registry, since its file need
+// not be named after the session (fedora-desktop#398).
 func (a *App) confirmEnd(ctx context.Context, name string) step {
 	// Destructive: the question starts on no key typed before it drew (ui.Drain).
 	end := a.Picker.Destructive()
@@ -310,7 +311,7 @@ func (a *App) confirmEnd(ctx context.Context, name string) step {
 	}
 	store, err := registry.Locate(a.Getenv)
 	if err == nil {
-		err = store.Remove(name)
+		err = store.RemoveSession(name)
 	}
 	if err != nil {
 		a.failErr(err)

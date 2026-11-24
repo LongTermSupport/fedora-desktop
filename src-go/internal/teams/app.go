@@ -422,7 +422,7 @@ func newLaunch(h *host.Host, membershipInit *membership.Init, sys *system.Cmd) *
 			if err != nil {
 				return err
 			}
-			return store.Remove(session)
+			return store.RemoveSession(session)
 		},
 		CC: teamchatlaunch.HostCC, Foreground: execx.OS{},
 	}

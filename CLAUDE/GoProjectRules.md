@@ -92,6 +92,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_screen_state_compared`   | what Claude's input box shows judged by `==` or `!=` against one `screen.State`, so every other screen, one the reader does not know included, takes the opposite verdict                                                      | `ccy-sessions` set-going: a `/compact` held by Claude Code for review taken as submitted (fedora-desktop#288)                                                                                                           |
 | `project_tmux_gone_text`          | tmux's "not there" answer read by a loose match on a fragment, which another program in front of tmux (lxc-attach, runuser, env) also prints                                                                                   | `ccy-teams shutdown`: a guest server lxc-attach never reached read as empty, "no session running", exit 0 (Plan 00257 B.13 review)                                                                                      |
 | `project_conversation_record`     | a host reader naming a session's conversation record's path outside `conversation.Locate`, so it knows one system's record only                                                                                                | `conversation.read`: joined v1's `SessionDir` and `File`, so no host reader found a v2 session's conversation (Plan 00209 Task 5.1)                                                                                     |
+| `project_record_file_by_name`     | a session record's file found by the record's name (`Store.Remove`, or `<registry dir>/<name>` built) rather than by the reading that found it, so a record whose file is named otherwise is left behind or named wrongly      | `ccy-sessions` picker: End removed `<registry>/<name>`, and the restore's refusals named it (fedora-desktop#398, after #396)                                                                                            |
 | `project_floor_by_time`           | an event-ordering floor in teamchat's member tree held as a millisecond alone, or a wall-clock since bound cut by `<=` or `>`, so the events sharing its millisecond are dropped                                               | `teamsync` qtake and relays: an owner's answer posted in the millisecond of the post before it was skipped as below the questions floor (Plan 00209 R0 step 7)                                                          |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
@@ -3743,3 +3744,66 @@ boundary millisecond (drop by `ts < since`).
   `state.Before(sent)`, and the restore export keeps since's millisecond. The original:
   `teamsync` `TestAnAnswerInTheQuestionsMillisecondIsDeliveredAndRelayed`, red at the defence
   commit (the answer neither delivered nor relayed), green after.
+
+### project_record_file_by_name
+
+**What it is about.** The ccy session registry holds one file per session record. Its writer
+names the file after the record's `name=`, but nothing holds a record to that: a record edited or
+renamed by hand lives in a file of another name. The registry's reading (`Store.ReadAll`) carries
+the file each record was read from (`Reading.Files`, fedora-desktop#396).
+
+**Why it exists.** fedora-desktop#398, after #396: ending a session in the `ccy-sessions` picker
+removed `<registry>/<name>`, so a record in a file of another name survived as a stale record
+that failed every later restore; the restore's and `declare`'s refusals said "the record is kept
+at" a file that was not it; and the restore handed the trampoline, which removes a session's
+record when it ends, the same wrong file.
+
+**What it flags**, in the non-test files of every package but `internal/registry`: a use of
+`registry.Store.Remove` (the name-keyed removal: a call, a method value, a method expression); a
+path built in the registry directory, by `filepath.Join` or `path.Join` with two or more elements
+whose first is the directory, or by a `+` whose leftmost operand is. The directory is a call of
+`Store.Dir` or of the package's `Dir`, or a variable, package variable or struct field assigned
+one (`:=`, `=`, `var`, a struct literal), followed through further assignments to a fixed point.
+Every file in the registry directory is read as a record, so no other path belongs there.
+
+**Scope, examined.** Wider rule considered: every name-keyed lookup of a record (`Store.Get`,
+`SetRestore`, `SetTeams`, `registry.ReadStop`), so that a session's record is only ever found by
+scanning the records' `name=`. Not built: `Get` is itself a reading (it reads the file named after
+the name, and its caller knows that file), the launcher and `ccy-teams` hold only a session's name
+and the writer's naming is the key they share with the bash library, and a miss there is a loud
+"no record", not a wrong file. The stop file (`registry.StopFile`) is keyed by the record file's
+name on the trampoline's side and by the session's name on verify-restore's; that is the same
+mismatch one file over, and is referred to the owner (it needs the manifest to carry the file).
+
+**Not caught:** the directory passed as a parameter and joined in the callee; a path built by
+`fmt.Sprintf` or `strings.Join`.
+
+**How to fix:** read the registry and use the file each record carries: `Reading.FilesOf` for the
+files answering to a session's name, `Store.Find` for the one record of a session and its file;
+remove with `Store.RemoveFile`, or `Store.RemoveSession` for every record of an ended session.
+
+- Red, fixture: `testdata/recordfile/src/fix`: `internal/badrecordfile` (the picker's `Remove`,
+  `Remove` as a method value and a method expression, the restore's join of `registry.Dir`'s
+  result and `rec.Name`, the declare join of `store.Dir()`, the directory in a field set by a
+  literal (`path.Join`) and by an assignment (`+`), in a package variable, and relayed through two
+  locals: 9 findings), its test (clean), `internal/goodrecordfile` (the file the reading carries,
+  `RemoveFile`, the directory alone, its parent, a one-element join, another package's `Remove`
+  and `Dir`, the writer: clean), and the registry itself (clean). With the analyzer reporting
+  nothing the test missed all 18 diagnostics (the package judged with and without its tests).
+- Red, real tree (the defence commit, the driver as `go vet -vettool`): 9 findings:
+  `sessclose.go:920` (End's `Remove`), `sessions/picker.go:313` (End's `Remove`),
+  `teams/app.go:425` (the `ccy --teams` launch's `Forget`), `sessions/declare.go:133`,
+  `sessions/restore.go:306` and `:510` (the joins), `teams/restart/jobs.go:300` (the restarted
+  session's trampoline file), `teams/board/collect.go:311` and `teams/hot/list.go:368` (an
+  unreadable record's file, rebuilt from `List`'s names). The independent search made before the
+  rule ran (every `Remove(`, `Join(` and `+` of a registry directory, and every holder of
+  `registry.Dir`, `Locate` and a `Registry()` store in `src-go`) found the same 9.
+- Green, the fix commit: 0 findings. The name-keyed `Store.Remove` is deleted (no caller was
+  left); an ended session's records go by `Store.RemoveSession` (the files `Reading.FilesOf`
+  names), the restore and its check take `Reading.Files`, restart takes `Store.Find`'s file,
+  declare names only a record that is there, and `Listing.UnreadableFiles` carries paths. The
+  original: `sessions` `TestEndingASessionRemovesTheFileItsRecordWasReadFrom`,
+  `TestARestoreRefusalNamesTheFileTheRecordWasReadFrom`,
+  `TestARestoredSessionIsHandedTheFileItsRecordWasReadFrom` and
+  `TestADeclareRefusalNamesOnlyARecordThatIsThere` (each a record whose file is named otherwise
+  than its `name=`), red at the test commit, green after.

@@ -2,7 +2,6 @@ package sessions
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
@@ -43,7 +42,7 @@ func (a *App) forget(ctx context.Context, args []string) term.ExitCode {
 		a.failErr(err)
 		return term.ExitFailure
 	}
-	files := recordFiles(reading, name)
+	files := reading.FilesOf(name)
 	switch {
 	case len(files) == 0:
 		return a.usageError((&noRecordError{names: []string{name}}).Error())
@@ -70,21 +69,4 @@ func (a *App) forget(ctx context.Context, args []string) term.ExitCode {
 	}
 	a.out(name + " FORGOTTEN\n")
 	return term.ExitOK
-}
-
-// recordFiles is every registry file that answers to name, as the restore names records: a
-// readable record by its name=, an unreadable one by its file's name.
-func recordFiles(reading registry.Reading, name string) []string {
-	var files []string
-	for i, rec := range reading.Records {
-		if rec.Name == name {
-			files = append(files, reading.Files[i])
-		}
-	}
-	for _, p := range reading.Problems {
-		if filepath.Base(p.File) == name {
-			files = append(files, p.File)
-		}
-	}
-	return files
 }

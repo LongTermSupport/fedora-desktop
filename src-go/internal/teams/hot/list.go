@@ -362,13 +362,9 @@ func readableRecords(store *registry.Store) ([]registry.Record, error) {
 	if err != nil {
 		return nil, fmt.Errorf("the session records: %w", err)
 	}
-	if len(listing.Unreadable) > 0 {
-		paths := make([]string, 0, len(listing.Unreadable))
-		for _, name := range listing.Unreadable {
-			paths = append(paths, filepath.Join(store.Dir(), name))
-		}
+	if len(listing.UnreadableFiles) > 0 {
 		return nil, fmt.Errorf("the session record %s could not be read, so whether its session carries the agent team bus "+
-			"cannot be told; fix or remove it", strings.Join(paths, ", "))
+			"cannot be told; fix or remove it", strings.Join(listing.UnreadableFiles, ", "))
 	}
 	return listing.Records, nil
 }

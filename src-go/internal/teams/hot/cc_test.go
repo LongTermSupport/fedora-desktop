@@ -117,7 +117,7 @@ func TestACCSessionNotRunningOrUnnamedCannotBeChanged(t *testing.T) {
 		t.Fatalf("not running: exit %d:\n%s", code, r.ErrOut.String())
 	}
 	r.m.pane = 4242
-	if err := r.store.Remove(ccSession); err != nil {
+	if err := r.store.RemoveSession(ccSession); err != nil {
 		t.Fatal(err)
 	}
 	if code := r.run(t, "add", ccSession, "alpha", "--yes"); code != exitConfig ||

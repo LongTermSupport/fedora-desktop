@@ -72,11 +72,11 @@ type Record struct {
 	FreshIfNoConversation bool
 }
 
-// Listing is every record in the registry: the readable ones in name order, and the names of
+// Listing is every record in the registry: the readable ones in name order, and the files of
 // the ones that could not be read, so a caller can say what it is missing.
 type Listing struct {
-	Records    []Record
-	Unreadable []string
+	Records         []Record
+	UnreadableFiles []string
 }
 
 // Store is a registry directory.
@@ -306,15 +306,6 @@ func (s *Store) SetCCTeams(name, seats string) error {
 	return s.Write(rec)
 }
 
-// Remove deletes a session's record. An absent record is not an error: the session may have
-// been started before the registry existed.
-func (s *Store) Remove(name string) error {
-	if err := validName(name); err != nil {
-		return err
-	}
-	return fsx.RemoveIfPresent(filepath.Join(s.dir, name))
-}
-
 // List reads every record. Files matching *.tmp.* are writes in flight and are ignored. An
 // absent registry directory is an empty registry.
 func (s *Store) List() (Listing, error) {
@@ -330,9 +321,10 @@ func (s *Store) List() (Listing, error) {
 		if strings.Contains(e.Name(), ".tmp.") {
 			continue
 		}
-		rec, readErr := ReadFile(filepath.Join(s.dir, e.Name()))
+		file := filepath.Join(s.dir, e.Name())
+		rec, readErr := ReadFile(file)
 		if readErr != nil {
-			list.Unreadable = append(list.Unreadable, e.Name())
+			list.UnreadableFiles = append(list.UnreadableFiles, file)
 			continue
 		}
 		list.Records = append(list.Records, rec)
