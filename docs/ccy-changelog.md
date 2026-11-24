@@ -17,6 +17,58 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.38 — container 2.84.76
+
+A teamchat seat of a team whose server is gone for good can now be released, on the owner's word,
+and a run with nothing to release there says so (issue #386). A session record whose file is not named after its `name=` (one edited or renamed
+by hand) is acted on through the file it was read from (issue #398, after #396), and the daily
+Claude Code update check says when the image's Claude Code is newer than the newest screen
+capture (issue #397). `ccy-sessions`, `ccy-teams` and the `claude-yolo` front are rebuilt on the
+host, and the image is rebuilt for its copy of the seat store. (3.124.32 to 3.124.37 and
+containers 2.84.73 to 2.84.75 were steps on the branches, including an automatic abandonment
+that was withdrawn, and were never deployed.)
+
+- **`ccy-teams seats abandon <team> [<member>...] --reason "<text>" [--allow-known-team <team>]`.**
+  Run in the checkout the seats were taken in. It releases the team's held seats (or the members
+  named) without a logout and without contacting any server: the session's copy of the seat and
+  the pool's `held/` go to quarantine as a release moves them, and `released.json` records
+  `abandoned` with the reason, the caller and the time. One line per seat on stdout.
+
+- **Its refusals**: no or empty `--reason` (64); nothing of the team held in this checkout's
+  pool, as when run from another directory or for a mistyped team (78, naming the team and the
+  pool); a team with a status record on this machine, one a session's `desired.json` lists, or a
+  source that cannot be read, unless `--allow-known-team` repeats the team (78, naming the file);
+  a seat whose member link of that team is running, or whose seat lock cannot be looked at (75).
+  A pool that cannot be read is exit 1. A session once launched with the team keeps it listed
+  until relaunched, so after a purge or rename the override is the expected route; a session
+  directory with no `desired.json` lists nothing. The check is per team: a session's live seat
+  of another team neither blocks it nor is touched.
+
+- A release (a session's end, the seat sweep) is unchanged: only a logout the server confirms,
+  or a token it no longer knows, ends it; every other failure is retried.
+
+- **Ending a session** (the `ccy-sessions` picker's End, `ccy --stop`'s hard stop, a
+  `ccy --teams` launch that forgets its record) removes every record answering to the session,
+  each by its own file, and never another session's record that happens to sit in the file
+  named after it. Before, the record survived as a stale record the next restore failed on.
+
+- **A restored or restarted session's trampoline** removes the file its record was read from
+  when the session ends. Its stop file stays named after the session (issue #401), where
+  `verify-restore` and `ccy-teams restart` read why an unattended launch stopped.
+
+- **The refusals** of `restore`, `restore --check` and `declare` name the file the record was
+  read from. A `declare` refused before any record exists names no file, since none is kept.
+
+- **ccy-teams** names an unreadable record by its file.
+
+- **The daily Claude Code update check** now reports when the image's Claude Code is newer than
+  the newest screen capture the idle checks were tested on (issue #397). A newer Claude Code may
+  draw a layout no capture shows, as #391's did, so the check says on stderr to take a mid-turn
+  and an idle capture (`tmux capture-pane -p -e`), redact them keeping the layout and every
+  escape, and add them as goldens named for the version. It is a report: the update check
+  carries on as before. The captures are built into the front, so the comparison needs no
+  checkout and no network; versions compare numerically per component.
+
 ## 3.124.31 — container 2.84.72
 
 A teamchat hook input that could not be used now names the hook it came from (issue #394), and

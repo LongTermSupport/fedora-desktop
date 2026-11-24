@@ -375,7 +375,7 @@ func TestToggleRestoreReportsARecordThatIsGone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Remove("ccy-proj"); err != nil {
+	if err := store.RemoveSession("ccy-proj"); err != nil {
 		t.Fatal(err)
 	}
 	h.Script.Fzf = []string{"|YES"}

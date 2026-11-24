@@ -377,7 +377,7 @@ func TestASessionWithoutTheBusIsWatchedOnItsPane(t *testing.T) {
 // C5: a session with no record is watched on its pane too.
 func TestASessionWithNoRecordIsWatchedOnItsPane(t *testing.T) {
 	w := newWorld(t, "ccy-proj")
-	if err := w.store.Remove("ccy-proj"); err != nil {
+	if err := w.store.RemoveSession("ccy-proj"); err != nil {
 		t.Fatal(err)
 	}
 	w.find("ccy-proj").noBoundary = true

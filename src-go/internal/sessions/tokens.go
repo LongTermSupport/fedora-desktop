@@ -94,7 +94,7 @@ func (a *App) tokenRefusal(ctx context.Context, rec registry.Record, file string
 	if rec.Prefix != prefixCcy || !found {
 		return restorePlan{}
 	}
-	kept := " (the record is kept at " + file + ")."
+	kept := keptAt(file)
 	launch, found := a.Tokens.LaunchFile(token)
 	if !found {
 		return restorePlan{why: whyTokenMissing, sentence: "its --token " + token +

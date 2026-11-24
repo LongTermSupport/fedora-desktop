@@ -68,6 +68,22 @@
 # by its hook event, reason and byte count (never its content) in link.log, session.json,
 # status.json and the status line, so the next one seen after a restore says which hook it was.
 # The image is rebuilt once more for its teamchat; sessions started after the rebuild show it.
+# #398 (ccy 3.124.38): a session record whose file is not named after its name= (edited or
+# renamed by hand) is acted on through the file it was read from: ending a session (the
+# ccy-sessions picker, ccy --stop) removes it instead of leaving a stale record, a restored or
+# restarted session's trampoline removes that file, and the refusals name it. ccy-sessions and
+# ccy-teams are rebuilt; the image is unchanged.
+# #397 (ccy 3.124.38): the claude-yolo front is rebuilt so ccy's daily Claude Code update check
+# says when the image's Claude Code is newer than every screen capture, and how to capture it.
+# #386 (ccy 3.124.38, container 2.84.76): ccy-teams is rebuilt with the new verb
+# ccy-teams seats abandon <team> [<member>...] --reason "<text>", which releases the held seats
+# of a team whose server is gone for good (purged or renamed) without a logout, recording the
+# abandonment in each seat's released.json. Nothing is released by the run itself: a seat
+# release is unchanged, so the dead seats stay held until the owner runs the verb from the
+# checkout they were taken in (run elsewhere, it refuses, naming the pool it looked in). A
+# session once launched with the team keeps it listed in its desired.json, so the verb names
+# that file and --allow-known-team <team> is the expected route. The image is rebuilt for its
+# copy of the seat store.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that

@@ -917,7 +917,7 @@ func (c *Closer) hardStop(ctx context.Context, j *job, note string) {
 	}
 	store, err := c.Registry()
 	if err == nil {
-		err = store.Remove(j.Name)
+		err = store.RemoveSession(j.Name)
 	}
 	if err != nil {
 		j.done(Failed, "its tmux session was killed, but its session record could not be removed: "+err.Error())

@@ -199,9 +199,13 @@ func TestResumeIDAndSupervisedGolden(t *testing.T) {
 }
 
 func TestTrampolineIsByteIdenticalToBashForPlainPaths(t *testing.T) {
-	for _, path := range []string{"/home/u/.local/state/ccy/sessions/ccy-proj", "/x/y_z-1.2/ccy@a+b:c=e%f"} {
-		got := Trampoline(path, "ccy")
-		want := bashWithArgs(t, `ccy_registry_trampoline "$1" "$2"`, path, "ccy")
+	for _, c := range []struct{ path, name string }{
+		{"/home/u/.local/state/ccy/sessions/ccy-proj", "ccy-proj"},
+		{"/x/y_z-1.2/ccy@a+b:c=e%f", "ccy@a+b:c=e%f"},
+		{"/home/u/.local/state/ccy/sessions/renamed-proj", "ccy-proj"},
+	} {
+		got := Trampoline(c.path, c.name, "ccy")
+		want := bashWithArgs(t, `ccy_registry_trampoline "$1" "$2" "$3"`, c.path, c.name, "ccy")
 		if got != want {
 			t.Errorf("go %q, bash %q", got, want)
 		}
@@ -216,7 +220,7 @@ func TestTrampolineBehaviour(t *testing.T) {
 			t.Fatal(err)
 		}
 		res, err := execx.OS{}.Run(context.Background(), execx.Cmd{
-			Name: "bash", Args: append([]string{"-c", Trampoline(rec, "ccy"), "ccy-tmux"}, cmd...),
+			Name: "bash", Args: append([]string{"-c", Trampoline(rec, filepath.Base(rec), "ccy"), "ccy-tmux"}, cmd...),
 			Stdin: strings.NewReader("\n"),
 		})
 		code := 0
@@ -240,7 +244,7 @@ func TestTrampolineBehaviour(t *testing.T) {
 	if _, code := run(filepath.Join(dir, "ccy odd's \"name\" $x"), "true"); code != 0 {
 		t.Fatalf("odd name: %d", code)
 	}
-	if got := Trampoline("", "ccy"); !strings.Contains(got, "rm -f -- ''") {
+	if got := Trampoline("", "ccy-x", "ccy"); !strings.Contains(got, "rm -f -- ''") {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -273,7 +277,7 @@ func TestTrampolineKeepsTheRecordOnAnUnattendedStop(t *testing.T) {
 			t.Fatal(err)
 		}
 		res, err := execx.OS{}.Run(context.Background(), execx.Cmd{
-			Name: "bash", Args: []string{"-c", Trampoline(rec, "ccy"), "ccy-tmux", "sh", "-c", writeStop(c.status)},
+			Name: "bash", Args: []string{"-c", Trampoline(rec, name, "ccy"), "ccy-tmux", "sh", "-c", writeStop(c.status)},
 			Stdin: strings.NewReader("\n"),
 		})
 		if exitErr, ok := errors.AsType[*execx.ExitError](err); !ok || exitErr.Code != c.status {
@@ -296,12 +300,46 @@ func TestTrampolineKeepsTheRecordOnAnUnattendedStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := (execx.OS{}).Run(context.Background(), execx.Cmd{
-		Name: "bash", Args: []string{"-c", Trampoline(rec, "ccy"), "ccy-tmux", "true"}, Stdin: strings.NewReader("\n"),
+		Name: "bash", Args: []string{"-c", Trampoline(rec, "ccy-again", "ccy"), "ccy-tmux", "true"}, Stdin: strings.NewReader("\n"),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, found, err := ReadStop(regdir, "ccy-again"); found || err != nil {
 		t.Fatalf("an earlier stop survived the next start: %v %v", found, err)
+	}
+}
+
+// fedora-desktop#401: a record in a file named otherwise than its name= keeps its stop file under
+// the session's name, where ReadStop looks: the earlier stop is cleared and the new one written
+// there, and nothing is written under the file's name.
+func TestTrampolineKeysTheStopFileByTheSessionsNameNotTheRecordsFile(t *testing.T) {
+	regdir := filepath.Join(t.TempDir(), "sessions")
+	for _, dir := range []string{regdir, filepath.Join(filepath.Dir(regdir), stoppedDir)} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := filepath.Join(regdir, "renamed-proj")
+	if err := os.WriteFile(rec, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(StopFile(regdir, "ccy-proj"), []byte("token-select old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	launcher := `printf 'token-used-up the token has no usage left\n' >"$` + StopEnv + `"; exit ` + strconv.Itoa(ExitUnattendedStop)
+	_, err := execx.OS{}.Run(context.Background(), execx.Cmd{
+		Name: "bash", Args: []string{"-c", Trampoline(rec, "ccy-proj", "ccy"), "ccy-tmux", "sh", "-c", launcher},
+		Stdin: strings.NewReader("\n"),
+	})
+	if exitErr, ok := errors.AsType[*execx.ExitError](err); !ok || exitErr.Code != ExitUnattendedStop {
+		t.Fatalf("the trampoline ended with %v", err)
+	}
+	stop, found, err := ReadStop(regdir, "ccy-proj")
+	if err != nil || !found || stop.Reason != "token-used-up" {
+		t.Fatalf("stop %+v %v %v", stop, found, err)
+	}
+	if _, err := os.Stat(StopFile(regdir, "renamed-proj")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a stop file was written under the record file's name: %v", err)
 	}
 }
 
@@ -358,7 +396,7 @@ func TestTrampolineShowsAHostilePrefixLiterally(t *testing.T) {
 			t.Fatal(err)
 		}
 		res, err := execx.OS{}.Run(context.Background(), execx.Cmd{
-			Name: "bash", Args: []string{"-c", Trampoline(rec, prefix), "ccy-tmux", "sh", "-c", "exit 3"},
+			Name: "bash", Args: []string{"-c", Trampoline(rec, "rec", prefix), "ccy-tmux", "sh", "-c", "exit 3"},
 			Stdin: strings.NewReader("\n"),
 		})
 		if exitErr, ok := errors.AsType[*execx.ExitError](err); !ok || exitErr.Code != 3 {
@@ -432,8 +470,8 @@ func TestARecordThatIsNotARegularFileIsAProblemNeverOpened(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(list.Unreadable, []string{"ccy-pipe"}) {
-		t.Fatalf("unreadable %v", list.Unreadable)
+	if !slices.Equal(list.UnreadableFiles, []string{pipe}) {
+		t.Fatalf("unreadable %v", list.UnreadableFiles)
 	}
 	if opened() {
 		t.Fatal("the pipe was opened")

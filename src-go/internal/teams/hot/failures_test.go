@@ -165,7 +165,7 @@ func TestAChangeSaysWhyTheSessionCannotBeChanged(t *testing.T) {
 	}{
 		{"no runtime directory", func(r *rig) { r.Env["XDG_RUNTIME_DIR"] = "run" }, "XDG_RUNTIME_DIR is not an absolute path"},
 		{"no record", func(r *rig) {
-			if err := r.store.Remove(session); err != nil {
+			if err := r.store.RemoveSession(session); err != nil {
 				t.Fatal(err)
 			}
 		}, "only a session ccy-sessions knows"},

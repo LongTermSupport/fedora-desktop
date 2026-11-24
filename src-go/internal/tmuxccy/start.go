@@ -14,7 +14,8 @@ import (
 
 // StartSpec is a session to start detached: its name, working directory, the command its pane
 // runs (the launcher and its arguments, including any `env VAR=value` in front), and the
-// registry record its trampoline removes when the launcher returns, with the launcher prefix
+// registry record its trampoline removes when the launcher returns (the file it was read from;
+// the stop file stays keyed by Name), with the launcher prefix
 // (ccy or cc) its hold line names. Pid is the process the scope's unit name carries; 0 means
 // this process.
 type StartSpec struct {
@@ -79,7 +80,7 @@ func (t *Tmux) StartDetached(ctx context.Context, spec StartSpec) error {
 		"--description", "CCY tmux session " + spec.Name,
 		"--", tmuxBinary, "-L", t.socket(),
 		"new-session", "-d", "-s", spec.Name, "-c", spec.Dir, "--",
-		"bash", "-c", registry.Trampoline(spec.RecordPath, spec.Prefix), "ccy-tmux",
+		"bash", "-c", registry.Trampoline(spec.RecordPath, spec.Name, spec.Prefix), "ccy-tmux",
 	}, spec.Command, []string{";", "set-hook", "-g", "client-attached", SingleAttachHookFor(t.socket())})})
 	if err != nil {
 		return fmt.Errorf("could not start session '%s': %s: %w", spec.Name, strings.TrimSpace(out), err)

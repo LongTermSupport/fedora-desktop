@@ -55,7 +55,10 @@ type job struct {
 	name, dir, seat, handle string
 	seats                   []seatRef
 	rec                     registry.Record
-	action                  action
+	// file is the registry file rec was read from, which the restarted session's trampoline
+	// removes when it ends; it need not be named after the session (fedora-desktop#398).
+	file   string
+	action action
 
 	// id is the conversation a start resumes (none when fresh), args the launcher's arguments.
 	id   string
@@ -193,7 +196,7 @@ func seatsOf(snap *board.Snapshot, name, team string) []seatRef {
 func (r *Restart) prepare(j *job, team string, live bool) {
 	store, err := r.Registry()
 	if err == nil {
-		j.rec, err = store.Get(j.name)
+		j.rec, j.file, err = store.Find(j.name)
 	}
 	if err != nil {
 		j.done(resultFailed, "its session record could not be read: "+err.Error())
@@ -291,13 +294,8 @@ func (r *Restart) askToRestart(ctx context.Context, j *job) {
 
 // start starts the stopped session on ccy's tmux, as ccy-sessions restore does.
 func (r *Restart) start(ctx context.Context, j *job) {
-	store, err := r.Registry()
-	if err != nil {
-		j.done(resultFailed, err.Error())
-		return
-	}
 	command := append([]string{"env", "CCY_SESSION_RESTORE=1", j.rec.Launcher}, j.args...)
-	spec := tmuxccy.StartSpec{Name: j.name, Dir: j.rec.Dir, Command: command, RecordPath: filepath.Join(store.Dir(), j.name), Prefix: j.rec.Prefix}
+	spec := tmuxccy.StartSpec{Name: j.name, Dir: j.rec.Dir, Command: command, RecordPath: j.file, Prefix: j.rec.Prefix}
 	if err := r.Tmux.StartDetached(ctx, spec); err != nil {
 		j.done(resultFailed, "could not start it: "+err.Error())
 	}
