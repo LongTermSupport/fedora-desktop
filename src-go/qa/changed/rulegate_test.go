@@ -2,6 +2,7 @@ package changed
 
 import (
 	"context"
+	"encoding/json"
 	"maps"
 	"os"
 	"path/filepath"
@@ -29,84 +30,32 @@ func ruleGateRules() map[string]string {
 	return rules
 }
 
-// ruleReads is a test-side reading of a rule file, independent of the code it judges: whether
-// some rule of the file reads a path, by that rule's own paths.include and paths.exclude.
+// ruleReads is whether some rule of the rule file reads a path, by the same matcher qa-changed
+// plans with (semgrepreport.ParseScope). It is not an independent oracle: that the matcher agrees
+// with semgrep is TestTheRuleGateReaderAgreesWithRealSemgrep's to prove.
 func ruleReads(t *testing.T, root, ruleFile string) func(string) bool {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(root, ruleFile))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var doc struct {
-		Rules []struct {
-			Paths struct {
-				Include []string `yaml:"include"`
-				Exclude []string `yaml:"exclude"`
-			} `yaml:"paths"`
-		} `yaml:"rules"`
+	scope, err := semgrepreport.ParseScope(ruleFile, data)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		t.Fatalf("%s: %v", ruleFile, err)
-	}
-	if len(doc.Rules) == 0 {
-		t.Fatalf("%s holds no rule", ruleFile)
-	}
-	type scope struct{ include, exclude semgrepreport.Excludes }
-	scopes := make([]scope, 0, len(doc.Rules))
-	for _, r := range doc.Rules {
-		include, err := semgrepreport.CompileExcludes(r.Paths.Include)
-		if err != nil {
-			t.Fatal(err)
-		}
-		exclude, err := semgrepreport.CompileExcludes(r.Paths.Exclude)
-		if err != nil {
-			t.Fatal(err)
-		}
-		scopes = append(scopes, scope{include, exclude})
-	}
-	return func(rel string) bool {
-		return slices.ContainsFunc(scopes, func(s scope) bool {
-			return (len(s.include) == 0 || s.include.Matches(rel)) && !s.exclude.Matches(rel)
-		})
-	}
+	return scope.Reads
 }
 
-func TestRuleReadsKeepsAFileOneRuleOfSeveralStillReads(t *testing.T) {
-	root := t.TempDir()
-	writeFile(t, root, ".semgrep/two.yml", `rules:
-  - id: a
-    paths:
-      exclude: ['docs/**']
-  - id: b
-    paths:
-      exclude: ['docs/**', 'notes/**']
-  - id: c
-    paths:
-      include: ['notes/**', 'docs/**']
-      exclude: ['notes/**']
-`)
-	reads := ruleReads(t, root, ".semgrep/two.yml")
-	for rel, want := range map[string]bool{"docs/a.md": true, "notes/a.md": true, "src/a.go": true} {
-		if got := reads(rel); got != want {
-			t.Errorf("reads(%s) = %v, want %v", rel, got, want)
-		}
-	}
-	writeFile(t, root, ".semgrep/one.yml", "rules:\n  - id: a\n    paths:\n      exclude: ['docs/**']\n  - id: b\n    paths:\n      include: ['src/**']\n")
-	reads = ruleReads(t, root, ".semgrep/one.yml")
-	for rel, want := range map[string]bool{"docs/a.md": false, "src/a.go": true, "x.md": true} {
-		if got := reads(rel); got != want {
-			t.Errorf("one rule file: reads(%s) = %v, want %v", rel, got, want)
-		}
-	}
-}
-
-// rule-gate-reads-nothing (issue #403): no file of the tree, changed alone, plans a semgrep rule
-// gate whose rule file reads none of it. Such a plan hands semgrep only files its rules exclude,
-// semgrep scans nothing, and the gate's fail-closed guard ("semgrep scanned no file") makes the
-// change one that can never pass, as a plan-only commit could not. A file that is part of the
-// gate itself runs it whole and is not judged; a file scripts/qa-trees.tsv keeps out of every
-// gate is never handed to semgrep at all. Every routing row is swept through the files it
-// routes today, so a row added later is held as soon as it routes a file of the tree.
+// rule-gate-reads-nothing (issue #403): no file of the tree, changed alone, plans a rule-file
+// check whose rule file reads none of it, as the planner's own matcher judges. For the eight
+// ghscopes gates this holds by construction in a local run (dropUnreadRuleGates uses the same
+// matcher), so this sweep cannot go red for them; what it can catch is a check not covered by the
+// drop: the per-file bash-conventions `semgrep` check, or a gate added to gateCheck without a
+// spec in ruleGateSpecs. Whether the matcher agrees with semgrep itself, which is what keeps a
+// dropped gate safe, is proven against the real engine by
+// TestTheRuleGateReaderAgreesWithRealSemgrep. A file that is part of the gate itself runs it
+// whole and is not judged; a file scripts/qa-trees.tsv keeps out of every gate is never handed to
+// semgrep at all.
 func TestNoRealFilePlansARuleGateWhoseRuleReadsNoneOfIt(t *testing.T) {
 	root, err := filepath.Abs("../../..")
 	if err != nil {
@@ -170,7 +119,12 @@ func seedRuleGates(t *testing.T, root string) {
 // real rule files of the semgrep gates.
 func planOf(t *testing.T, files map[string]string) string {
 	t.Helper()
-	w := newRunWorld(t)
+	return planIn(t, newRunWorld(t), files)
+}
+
+// planIn is planOf in a given run world (one whose environment a test has set).
+func planIn(t *testing.T, w *runWorld, files map[string]string) string {
+	t.Helper()
 	args := []string{"--plan", "--files"}
 	for _, rel := range slices.Sorted(maps.Keys(files)) {
 		writeFile(t, w.root, rel, files[rel])
@@ -196,6 +150,35 @@ func TestAPlanOnlyChangePlansNoRuleGateWhoseRuleExcludesIt(t *testing.T) {
 		if !strings.Contains(out, "note: "+id+": not needed: nothing for this rule to scan") {
 			t.Errorf("no note says why %s is not run:\n%s", id, out)
 		}
+	}
+}
+
+// CI's diff run plans exactly what it did before issue #403: the drop is a local run's only, and
+// CI runs these gates whole (semgrepGate), so a plan-only change still plans both gates there.
+func TestCIStillPlansTheRuleGatesForAPlanOnlyChange(t *testing.T) {
+	w := newRunWorld(t)
+	w.env["CI"] = "true"
+	out := planIn(t, w, map[string]string{
+		"CLAUDE/Plan/00001-x/PLAN.md": "# plan\n",
+		"CLAUDE/Plan/README.md":       "# plans\n",
+	})
+	for _, id := range []string{"place-issued-token", "gh-poll"} {
+		if !slices.Contains(lines(out), "check "+id) {
+			t.Errorf("CI does not plan %s for a plan-only change:\n%s", id, out)
+		}
+		if strings.Contains(out, id+": not needed") {
+			t.Errorf("CI drops %s:\n%s", id, out)
+		}
+	}
+}
+
+// Every semgrep gate qa-changed runs has the engine spec its drop reads, and no spec names a check
+// that is not a gate: a gate missing here would never be dropped, a stray spec never consulted.
+func TestEveryRuleGateHasItsSpec(t *testing.T) {
+	gates := slices.Sorted(maps.Values(gateCheck))
+	specs := slices.Sorted(maps.Keys(ruleGateSpecs))
+	if !slices.Equal(gates, specs) {
+		t.Fatalf("gateCheck checks %v, ruleGateSpecs %v", gates, specs)
 	}
 }
 
@@ -255,4 +238,149 @@ func ourRegularFiles(t *testing.T, root string) []string {
 		}
 	}
 	return out
+}
+
+// samplesPerPattern bounds how many real files, each from its own directory, stand for one glob.
+const samplesPerPattern = 6
+
+// rulePatterns is every distinct paths.include and paths.exclude glob of a rule file.
+func rulePatterns(t *testing.T, root, ruleFile string) []string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(root, ruleFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Rules []struct {
+			Paths struct {
+				Include []string `yaml:"include"`
+				Exclude []string `yaml:"exclude"`
+			} `yaml:"paths"`
+		} `yaml:"rules"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("%s: %v", ruleFile, err)
+	}
+	var out []string
+	for _, r := range doc.Rules {
+		out = append(out, r.Paths.Include...)
+		out = append(out, r.Paths.Exclude...)
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// sampleFiles is, for each glob, up to samplesPerPattern of the files it matches, each from its
+// own directory, plus up to samplesPerPattern files no glob matches: a representative set of real
+// tree paths for every pattern the rule file holds.
+func sampleFiles(t *testing.T, files, patterns []string) []string {
+	t.Helper()
+	var out []string
+	pick := func(matches func(string) bool) {
+		dirs := map[string]bool{}
+		for _, rel := range files {
+			if len(dirs) == samplesPerPattern {
+				return
+			}
+			if dir := filepath.Dir(rel); matches(rel) && !dirs[dir] {
+				dirs[dir] = true
+				out = append(out, rel)
+			}
+		}
+	}
+	all, err := semgrepreport.CompileExcludes(patterns)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range patterns {
+		one, err := semgrepreport.CompileExcludes([]string{p})
+		if err != nil {
+			t.Fatal(err)
+		}
+		before := len(out)
+		pick(one.Matches)
+		if len(out) == before {
+			t.Logf("%s matches no published file; no real file stands for it", p)
+		}
+	}
+	pick(func(rel string) bool { return !all.Matches(rel) })
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// semgrepScanned is the set of files real semgrep scans when given the rule file and the files by
+// name from the repository root, as the gate hands them (ghscopes scan).
+func semgrepScanned(t *testing.T, root, ruleFile string, files []string) map[string]bool {
+	t.Helper()
+	argv := append([]string{"semgrep", "--config", filepath.Join(root, ruleFile), "--json", "--quiet", "--metrics=off", semgrepreport.TimeoutFlag, "--max-target-bytes=0"}, files...)
+	res, err := proc.OS{}.Run(context.Background(), proc.Cmd{Argv: argv, Dir: root})
+	if err != nil || res.Code >= 2 || res.TimedOut || res.Leftover {
+		t.Fatalf("semgrep over %s: %v exit %d\n%s", ruleFile, err, res.Code, res.Stderr)
+	}
+	var rep struct {
+		Paths *struct {
+			Scanned []string `json:"scanned"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal([]byte(res.Stdout), &rep); err != nil || rep.Paths == nil {
+		t.Fatalf("semgrep over %s: no paths in its report: %v", ruleFile, err)
+	}
+	scanned := map[string]bool{}
+	for _, p := range rep.Paths.Scanned {
+		scanned[strings.TrimPrefix(p, "./")] = true
+	}
+	return scanned
+}
+
+// readButJudgedUnread is every file semgrep scanned that reads says is not read: a file whose
+// change alone would drop a gate that should have run.
+func readButJudgedUnread(files []string, scanned map[string]bool, reads func(string) (bool, error)) ([]string, error) {
+	var out []string
+	for _, rel := range files {
+		r, err := reads(rel)
+		if err != nil {
+			return nil, err
+		}
+		if scanned[rel] && !r {
+			out = append(out, rel)
+		}
+	}
+	return out, nil
+}
+
+// The safety of the drop (dropUnreadRuleGates) is that Reader.Reads never says "not read" of a
+// file semgrep would scan. For each gate's real rule file, real semgrep is handed a sample of real
+// tree paths standing for every include and exclude glob of the file, and every file it scans
+// must be one the reader says it reads. A machine without semgrep fails here; CI installs it
+// (.github/workflows/qa.yml, "Install QA tooling"). The control (a reader that reads nothing)
+// shows the comparison can go red.
+func TestTheRuleGateReaderAgreesWithRealSemgrep(t *testing.T) {
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := ourRegularFiles(t, root)
+	for _, id := range slices.Sorted(maps.Keys(ruleGateSpecs)) {
+		reader, err := ruleGateSpecs[id].Reader(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ruleFile := reader.RuleFile()
+		sample := sampleFiles(t, files, rulePatterns(t, root, ruleFile))
+		scanned := semgrepScanned(t, root, ruleFile, sample)
+		wrong, err := readButJudgedUnread(sample, scanned, reader.Reads)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(wrong) > 0 {
+			t.Errorf("%s: semgrep scans %d file(s) the reader says %s does not read, so a change of them alone drops a gate that should run: %v", id, len(wrong), ruleFile, wrong)
+		}
+		control, err := readButJudgedUnread(sample, scanned, func(string) (bool, error) { return false, nil })
+		if err != nil || len(control) == 0 {
+			t.Errorf("%s: a reader that reads nothing is not caught (semgrep scanned none of %d sampled files): %v", id, len(sample), err)
+		}
+		if len(scanned) == len(sample) {
+			t.Errorf("%s: semgrep scanned every sampled file, so no exclude of %s was exercised", id, ruleFile)
+		}
+	}
 }

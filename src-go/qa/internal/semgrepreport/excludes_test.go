@@ -67,7 +67,7 @@ func TestRuleExcludesAreReadFromTheRuleNode(t *testing.T) {
 }
 
 // A rule file reads a path when one of its rules reads it: a file one rule excludes is still read
-// by a sibling that does not, and a rule with paths.include reads only what that list names.
+// by a sibling that does not.
 func TestScopeReadsWhatSomeRuleReads(t *testing.T) {
 	scope, err := ParseScope("r.yml", []byte(`rules:
   - id: a
@@ -75,18 +75,35 @@ func TestScopeReadsWhatSomeRuleReads(t *testing.T) {
       exclude: &shared ['docs/**', 'CLAUDE/Plan/**/*.md']
   - id: b
     paths:
-      include: ['notes/**', 'docs/**']
-      exclude: *shared
+      exclude: ['notes/**', 'docs/**']
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for rel, want := range map[string]bool{
-		"docs/a.md": false, "CLAUDE/Plan/00001-x/PLAN.md": false,
-		"notes/a.md": true, "src/a.go": true, "CLAUDE/Plan/00001-x/run.bash": true,
+		"docs/a.md": false, "CLAUDE/Plan/00001-x/PLAN.md": true, "notes/a.md": true,
+		"src/a.go": true, "CLAUDE/Plan/00001-x/run.bash": true,
 	} {
 		if got := scope.Reads(rel); got != want {
 			t.Errorf("Reads(%s) = %v, want %v", rel, got, want)
+		}
+	}
+}
+
+// A rule with any paths.include reads every file, whatever its lists say: no real-semgrep test
+// proves include matching, and a bare (`docs`) or trailing-slash (`docs/`) directory pattern is one
+// the glob matcher would not match against `docs/a.md`, where semgrep would. Judging such a file
+// "not read" would drop a gate that should run, so the error is made in the safe direction.
+func TestScopeOfARuleWithAnIncludeReadsEverything(t *testing.T) {
+	for _, include := range []string{"['docs']", "['docs/']", "['src/**']"} {
+		scope, err := ParseScope("r.yml", []byte("rules:\n  - id: a\n    paths:\n      include: "+include+"\n      exclude: ['docs/b.md']\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, rel := range []string{"docs/a.md", "docs/b.md", "x.md", "deep/docs/c.md"} {
+			if !scope.Reads(rel) {
+				t.Errorf("include %s: Reads(%s) = false, want true", include, rel)
+			}
 		}
 	}
 }
