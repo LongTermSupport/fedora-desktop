@@ -871,8 +871,15 @@ func TestRestoreUsageMistakes(t *testing.T) {
 		{[]string{"restore", "--now"}, "unknown restore option '--now'."},
 		// Spec bug 9.12: an empty word is a usage error here, not a late failure in a library.
 		{[]string{"restore", ""}, "unknown restore option ''."},
-		{[]string{"restore", "--dry-run", "x"}, "unexpected argument 'x'."},
+		{[]string{"restore", "--dry-run", "--dry-run"}, "unexpected argument '--dry-run'."},
+		{[]string{"restore", "ccy-a", "--now"}, "unknown restore option '--now'."},
+		{[]string{"restore", "ccy-a", ""}, "unknown restore option ''."},
 		{[]string{"restore", "--check", "--dry-run"}, "unexpected argument '--dry-run'."},
+		// --check judges every record by design: it takes no names.
+		{[]string{"restore", "--check", "ccy-a"}, "unexpected argument 'ccy-a'."},
+		// fedora-desktop#396: a name with no record is a mistake in the call, caught before anything starts.
+		{[]string{"restore", "ccy-ghost"}, "no session record named 'ccy-ghost'."},
+		{[]string{"restore", "--dry-run", "ccy-ghost", "ccy-other"}, "no session record named 'ccy-ghost', 'ccy-other'."},
 	}
 	for _, c := range cases {
 		h := newHarness(t)
