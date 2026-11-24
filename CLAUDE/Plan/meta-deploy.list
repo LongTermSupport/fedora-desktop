@@ -46,13 +46,6 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Rollback insurance, run once before the new teamchat: the new member program writes a seat
-# store the old one cannot read (sync.floor_ids), so this copies each of the owner's seat stores
-# (ccy and host cc seats; not LXC guests') to a new 0700 directory under the XDG state home,
-# with a manifest and the old kit digest, printing each source and copy. It reads and copies
-# only. A rollback puts them back with store-restore.bash <dir> after the old program is
-# deployed again. It fails if a store was already written by the new program.
-00209-agent-bus-v2-in-go/store-backup.bash
 # Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that
 # is running, the session units are present, not enabled and not linked in
 # multi-user.target.wants. A stopped container is reported offline and skipped. It then ASKS,
