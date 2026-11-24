@@ -11,7 +11,7 @@ func written(p state.Pending, now int64) state.Ledger {
 // proven builds the entry as an element of a slice, and through a pointer.
 func proven(p state.Pending, now int64) ([]state.Ledger, *state.Ledger) {
 	list := []state.Ledger{{ID: p.ID, Item: p.Item, AtMS: now, Verb: p.Verb}} // want `a ledger entry built field by field \(project_ledger_built_by_hand\)`
-	return list, &state.Ledger{ID: p.ID} // want `a ledger entry built field by field \(project_ledger_built_by_hand\)`
+	return list, &state.Ledger{ID: p.ID}                                      // want `a ledger entry built field by field \(project_ledger_built_by_hand\)`
 }
 
 // positional builds it without keys.

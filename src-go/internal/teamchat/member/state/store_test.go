@@ -58,6 +58,27 @@ func sampleStore(t *testing.T) Store {
 	return s
 }
 
+// fedora-desktop#392: an entry LedgerOf builds from a pending item keeps every field the ledger
+// holds, a ping's verb among them, and the store carrying it is written; the same entry
+// without the verb is refused.
+func TestLedgerOfKeepsAPingsVerb(t *testing.T) {
+	s := sampleStore(t)
+	ping := s.Pending[2]
+	got := LedgerOf(ping, 30)
+	want := Ledger{ID: ping.ID, Room: ping.Room, Item: ping.Item, From: ping.From, AtMS: 30, Verb: ping.Verb}
+	if got.ID != want.ID || got.Room != want.Room || got.Item != want.Item || got.From != want.From || got.AtMS != want.AtMS || got.Verb == nil || *got.Verb != *want.Verb || got.Thread != nil {
+		t.Fatalf("LedgerOf = %+v, want %+v", got, want)
+	}
+	s.AddLedger(got)
+	if _, err := s.encode(); err != nil {
+		t.Fatalf("a store holding LedgerOf's entry does not encode: %v", err)
+	}
+	s.Ledger[len(s.Ledger)-1].Verb = nil
+	if _, err := s.encode(); err == nil || !strings.Contains(err.Error(), "a ledger entry is not well formed") {
+		t.Fatalf("a ping's entry without its verb encoded: %v", err)
+	}
+}
+
 func TestStoreRoundTrip(t *testing.T) {
 	s := sampleStore(t)
 	data, err := s.encode()

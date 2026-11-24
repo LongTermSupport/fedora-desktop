@@ -17,6 +17,22 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.19 — container 2.84.66
+
+A seat no longer wedges its store after a ping is delivered over the socket (issue #392). The
+image is rebuilt for the `teamchat` it carries.
+
+- **A ping delivered over the socket is ledgered with its verb.** The written-yes write after
+  the user line and the proof's write built the ledger entry without the ping's verb, which the
+  store requires (n3d-D30), so every write that settled the delivery was refused. The link
+  retried it every proof round: high CPU, a fast-growing `link.log`, and the item left pending
+  and `written: unknown`. Every entry is now built by one constructor, `state.LedgerOf`, and
+  the project rule `project_ledger_built_by_hand` holds that.
+- **A wedged seat recovers with no hand edit.** The refused write never reached disk, and the
+  item kept its verb in `pending`. When the session is relaunched on the rebuilt image, the item
+  is returned to pending as a repeat, so the session sees that ping once more, and the fixed
+  link then ledgers it.
+
 ## 3.124.18 — container 2.84.65
 
 No launch fails falsely on a lost process-substitution child (issues #321, #322). The image is

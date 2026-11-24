@@ -642,6 +642,13 @@ func (s *Store) AddGateKey(k GateKey) error {
 	return grow(&s.Outbox.Gate.Recent, k, capGateKeys, "gate keys")
 }
 
+// LedgerOf is the ledger entry of pending item p delivered at atMS: every field of p the ledger
+// keeps, a ping's verb among them (n3d-D30). It is the one way an entry is built outside this
+// package (project_ledger_built_by_hand), so no caller can drop a field the check requires.
+func LedgerOf(p Pending, atMS int64) Ledger {
+	return Ledger{ID: p.ID, Room: p.Room, Item: p.Item, From: p.From, AtMS: atMS, Verb: p.Verb}
+}
+
 // AddLedger records a delivered item; the oldest is dropped past the cap.
 func (s *Store) AddLedger(l Ledger) { s.Ledger = roll(s.Ledger, l, capLedger) }
 

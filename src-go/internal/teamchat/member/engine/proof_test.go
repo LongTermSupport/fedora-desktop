@@ -189,6 +189,54 @@ func TestAnUnknownEntryProvenGoesIntoTheLedger(t *testing.T) {
 	}
 }
 
+// pingLedgered fails unless team a's ledger holds the ping n with its verb and nothing is left
+// pending (fedora-desktop#392: an entry without it made every write that settled it refused).
+func pingLedgered(t *testing.T, s state.Store, n int) {
+	t.Helper()
+	if len(s.Pending) != 0 || len(s.Ledger) != 1 || s.Ledger[0].ID != evID(n) {
+		t.Fatalf("after the delivery: %+v", s)
+	}
+	if v := s.Ledger[0].Verb; v == nil || *v != proto.VerbHalt {
+		t.Fatalf("the ping's ledger entry has verb %v, want %q", v, proto.VerbHalt)
+	}
+}
+
+// haltPing is the coordinator's `halt` ping n to this seat, which a delivery renders as it is
+// (a `check` is the probe's alone, and a ref needs the forge's trust verdict).
+func haltPing(id paths.TeamID, n int) team.Item {
+	it := kindItem(id, n, records.KindPing)
+	it.Verdict.Content.Ping = proto.Ping{Verb: proto.VerbHalt, To: []string{agent(id, 1)}}
+	return it
+}
+
+// fedora-desktop#392: a ping delivered over the socket and written in full is ledgered with its
+// verb at the written-yes write, and the proof then settles it.
+func TestASocketDeliveredPingIsLedgeredWithItsVerb(t *testing.T) {
+	pw := newProofWorld(t)
+	a := tid(t, "alpha")
+	pw.live(a)
+	text := pw.deliver(a, true, haltPing(a, 1))
+	pw.tr.Record(text, faketranscript.Idle, 0)
+	pw.settled(a)
+	pingLedgered(t, pw.store(a), 1)
+}
+
+// fedora-desktop#392: a ping whose user line was cut (written unknown) and that the transcript
+// shows is ledgered with its verb at the proof.
+func TestAnUnknownPingProvenIsLedgeredWithItsVerb(t *testing.T) {
+	pw := newProofWorld(t)
+	a := tid(t, "alpha")
+	pw.live(a)
+	pw.persist(a, haltPing(a, 1))
+	pw.dial.then(dialStep{write: fmt.Errorf("%w: 10 of 400 bytes", inbox.ErrPartial)})
+	pw.facts(false)
+	ev := pw.next()
+	pw.until(func() bool { return writtenOf(pw.e.teams[a].store, nonceOf(t, ev.text)) == state.WrittenUnknown })
+	pw.tr.Record(ev.text, faketranscript.Busy, 0)
+	pw.settled(a)
+	pingLedgered(t, pw.store(a), 1)
+}
+
 // P8, busy then recorded: a session in one tool call for 10 minutes writes nothing, then
 // records the queued delivery: proven, never missing, and recv never shows its items.
 func TestBusyThenRecorded(t *testing.T) {

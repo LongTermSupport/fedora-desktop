@@ -184,7 +184,7 @@ func storedItem(s *state.Store, id string) (state.Ledger, bool) {
 }
 
 func ledgerOfPending(p state.Pending) state.Ledger {
-	return state.Ledger{ID: p.ID, Room: p.Room, Item: p.Item, From: p.From, AtMS: p.SentMS, Verb: p.Verb}
+	return state.LedgerOf(p, p.SentMS)
 }
 
 // fetched is id judged again by its team (Team.Refetch, off the state goroutine): 23 for none

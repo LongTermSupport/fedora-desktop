@@ -1823,8 +1823,11 @@ every field of the item the ledger keeps.
   judged).
 - Red, real tree: four findings, `engine/deliverloop.go`, `engine/proof.go` (`ledgerOf`),
   `engine/recv.go` (`Ack`) and `engine/reply.go`.
-- Green: each calls `state.LedgerOf`; the engine tests that settle a socket-delivered ping by
-  the written-yes write and by the proof were red with the verb dropped and are green.
+- Green: each calls `state.LedgerOf` (`proof.go`'s `ledgerOf` and `reply.go`'s
+  `ledgerOfPending` are now one-line calls to it). `TestASocketDeliveredPingIsLedgeredWithItsVerb`
+  (the written-yes write) and `TestAnUnknownPingProvenIsLedgeredWithItsVerb` (the proof) never
+  settle on the unfixed engine and pass on the fix; `state`'s `TestLedgerOfKeepsAPingsVerb`
+  holds the constructor and the store's refusal of an entry without the verb.
 - Considered and not built: a rule over every store record built outside the store (pending,
   pings, sends). Only the ledger is built from another record in the engine; the others are
   built from the wire, where the field set is the message's.

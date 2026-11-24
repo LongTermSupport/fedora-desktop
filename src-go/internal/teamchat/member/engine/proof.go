@@ -484,7 +484,7 @@ func (e *Engine) prove(s *state.Store, a state.Awaiting, wall int64) []state.Pen
 }
 
 func ledgerOf(p state.Pending, wall int64) state.Ledger {
-	return state.Ledger{ID: p.ID, Room: p.Room, Item: p.Item, From: p.From, AtMS: wall}
+	return state.LedgerOf(p, wall)
 }
 
 // receipt queues p's read receipt when it is HUMAN (DV5); a full queue loses the receipt, never

@@ -491,7 +491,7 @@ func (e *Engine) delivered(j *job, d dial) {
 		s.Awaiting[i].Written = state.WrittenYes
 		for _, p := range s.Pending {
 			if slices.Contains(ids, p.ID) {
-				s.AddLedger(state.Ledger{ID: p.ID, Room: p.Room, Item: p.Item, From: p.From, AtMS: now})
+				s.AddLedger(state.LedgerOf(p, now))
 			}
 		}
 		return true, nil
