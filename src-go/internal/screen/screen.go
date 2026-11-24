@@ -169,18 +169,27 @@ var rulePrefix = strings.Repeat("─", 10)
 // interrupt is what Claude's spinner shows while a turn or a compaction runs.
 const interrupt = "esc to interrupt"
 
+// spinner is Claude's working line: a glyph, words ending in "…", then the elapsed time in
+// parentheses ("✽ Hyperspacing… (19s · ↓ 735 tokens)", "✻ Pondering… (2m 4s)").
+var spinner = regexp.MustCompile(`^\s*[^\s\p{L}\p{N}]\s+[\p{L}][\p{L} ]*…\s+\((\d+h\s*)?(\d+m\s*)?\d+s\b`)
+
+// spinnerWindow is how many lines above the box's top rule a spinner line still counts.
+const spinnerWindow = 12
+
 // ClaudeState says what Claude's input box shows on a pane. The screen is capture-pane -p -e
 // output (plain text works too, without the placeholder test). The box is a line beginning
 // with the prompt arrow framed by rule lines above and below; the same arrow marks the cursor
 // in selection dialogs, which are not framed, so only a framed one counts. Busy is "esc to
-// interrupt" in the four nearest non-blank lines above the box; the conversation can quote the
-// phrase, so only the status area counts.
+// interrupt" in the four nearest non-blank lines above the box or anywhere below its closing
+// rule (the mode line), or a spinner line within the 12 lines above the box; the conversation
+// can quote the phrase, so only the status areas count. Busy overrides Ready and Typed. Each
+// layout Claude Code has drawn has a capture in testdata (fedora-desktop#391).
 func ClaudeState(screen string) State {
 	rawLines, plain, i := inputBox(screen)
 	switch {
 	case i < 0:
 		return NotDrawn
-	case busyAbove(plain, i):
+	case busyAbove(plain, i), busyBelow(plain, i), spinnerAbove(plain, i):
 		return Busy
 	case inputLineEmpty(rawLines[i]):
 		return Ready
@@ -249,6 +258,31 @@ func busyAbove(plain []string, i int) bool {
 		}
 		seen++
 		if strings.Contains(plain[k], interrupt) {
+			return true
+		}
+	}
+	return false
+}
+
+// busyBelow is the hint in a line below the rule that closes the box on line i: the mode line.
+func busyBelow(plain []string, i int) bool {
+	closed := false
+	for _, line := range plain[i+1:] {
+		if !closed {
+			closed = strings.HasPrefix(line, rulePrefix)
+			continue
+		}
+		if strings.Contains(line, interrupt) {
+			return true
+		}
+	}
+	return false
+}
+
+// spinnerAbove is a spinner line within spinnerWindow lines above the rule over line i.
+func spinnerAbove(plain []string, i int) bool {
+	for k := i - 2; k >= 0 && k >= i-1-spinnerWindow; k-- {
+		if spinner.MatchString(plain[k]) {
 			return true
 		}
 	}
