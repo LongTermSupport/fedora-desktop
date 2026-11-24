@@ -80,16 +80,18 @@ func TestAFindRaceRuleWithoutExcludesNamesItsRuleFile(t *testing.T) {
 	wantIn(t, "stderr", got.stderr, "ERROR: .semgrep/find-race.yml declares no paths.exclude list")
 }
 
-// archPinWorld is a repository holding the arch-pin rule and fixture instead of gh-scopes'.
+// archPinWorld is a repository holding the arch-pin rule and fixture instead of gh-scopes', and
+// the image Dockerfile inside .claude/ccy that the arch-pin spec still scans.
 func archPinWorld(t *testing.T, files map[string]string) *world {
 	t.Helper()
 	rules := strings.NewReplacer("gh-scope-outside-ssot", ArchPin.ruleName,
 		".semgrep/gh-scopes.*", ".semgrep/arch-pin.*").Replace(rulesText)
 	all := map[string]string{
-		ruleFile:            "",
-		fixtureFile:         "",
-		ArchPin.ruleFile:    rules,
-		ArchPin.fixtureFile: "# fixture\n# ruleid: " + ArchPin.ruleName + "\n",
+		ruleFile:                 "",
+		fixtureFile:              "",
+		ArchPin.ruleFile:         rules,
+		ArchPin.fixtureFile:      "# fixture\n# ruleid: " + ArchPin.ruleName + "\n",
+		".claude/ccy/Dockerfile": "FROM x\n",
 	}
 	maps.Copy(all, files)
 	return newWorld(t, all)
@@ -105,6 +107,9 @@ func TestTheArchPinSpecRunsItsOwnRuleAndFixture(t *testing.T) {
 	}
 	if !slices.Contains(w.run.scanArgv, filepath.Join(w.root, ".semgrep/arch-pin.yml")) {
 		t.Fatalf("the scan did not use the arch-pin rule: %v", w.run.scanArgv)
+	}
+	if !slices.Contains(handed(w.run.scanArgv), ".claude/ccy/Dockerfile") {
+		t.Fatalf("the arch-pin scan left out the image Dockerfile: %v", w.run.scanArgv)
 	}
 }
 

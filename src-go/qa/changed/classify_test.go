@@ -310,12 +310,17 @@ func TestTheArchPinGateRunsForTheFilesItGuards(t *testing.T) {
 	if p := w.classify([]string{"docs/x.md"}); p.has("arch-pin") {
 		t.Errorf("prose runs arch-pin: %v", keys(p))
 	}
-	// B65: .claude/ccy/ is a tree scripts/qa-trees.tsv keeps out of every gate, so the gate reads
-	// none of its Dockerfile, and a change of it alone has nothing for the rule to scan. (A fresh
-	// world: the loop above wrote over the rule file.)
+	// .claude/ccy/ is a tree scripts/qa-trees.tsv keeps out of every gate, but the gate still
+	// reads this project's image Dockerfile in it (issue #408), so a change of it alone plans the
+	// gate, and a change of anything else there does not (B65). (A fresh world: the loop above
+	// wrote over the rule file.)
 	w = newWorld(t)
 	w.touch(".claude/ccy/Dockerfile", "FROM x")
-	if p := w.classify([]string{".claude/ccy/Dockerfile"}); p.has("arch-pin") {
+	if p := w.classify([]string{".claude/ccy/Dockerfile"}); !p.has("arch-pin") {
+		t.Errorf("the image Dockerfile the gate still reads does not plan arch-pin: %v", keys(p))
+	}
+	w.touch(".claude/ccy/claude-supervise.py", "URL = 'x86_64'")
+	if p := w.classify([]string{".claude/ccy/claude-supervise.py"}); p.has("arch-pin") {
 		t.Errorf("a file the gate never reads plans arch-pin: %v", keys(p))
 	}
 	if p := w.classify(nil, "playbooks/imports/gone.yml"); !p.has("arch-pin") {

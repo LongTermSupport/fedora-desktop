@@ -67,6 +67,12 @@ type Spec struct {
 	// issue #217, accept the narrowing or keep the coverage; pending). Each still drops its own
 	// rule and fixture by its paths.exclude. TestOnlySemgrepIsStillScanned holds the list.
 	stillScans []string
+	// stillScansFiles names single published files inside an excluded row of
+	// scripts/qa-trees.tsv that this gate reads all the same, leaving the rest of the row out.
+	// Only .claude/ccy/Dockerfile, this project's own image, for arch-pin (issue #408). One the
+	// table does not keep out, or that git does not publish, is exit 2;
+	// TestOnlyTheCCYDockerfileIsAStillScannedFile holds the list.
+	stillScansFiles []string
 }
 
 // semgrepTree is the rule and fixture tree of scripts/qa-trees.tsv, the one row a gate may still
@@ -104,6 +110,8 @@ var ArchPin = Spec{
 	finding:     "fix a download, package or image to one CPU architecture",
 	usage:       archPinUsageText,
 	stillScans:  []string{semgrepTree},
+	// This project's own image Dockerfile: the rest of .claude/ccy stays out.
+	stillScansFiles: []string{".claude/ccy/Dockerfile"},
 }
 
 // ArgvLeak is the secret-in-argv gate (issue #220). Its fixture is YAML so that the rule

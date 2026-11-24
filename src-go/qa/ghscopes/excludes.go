@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"slices"
 
 	"go.yaml.in/yaml/v3"
 
@@ -20,15 +21,17 @@ type excludes = semgrepreport.Excludes
 // handed to semgrep, and the files the rule's own excludes drop, which semgrep drops itself. The
 // table is the one list of trees that are not ours; a rule's excludes name only what is
 // particular to that rule (qa-trees-drift, issue #217). The rows the spec still scans
-// (Spec.stillScans) are taken out of the table first.
+// (Spec.stillScans) are taken out of the table first, and the single files it still scans
+// (Spec.stillScansFiles, alsoReads) are read although their row stays.
 //
 // reads is what each rule of the file reads (its paths.include and paths.exclude, rule by rule):
 // a named run hands semgrep only the files some rule reads.
 type scope struct {
-	repo  fs.FS
-	trees qatrees.Table
-	rule  excludes
-	reads semgrepreport.Scope
+	repo      fs.FS
+	trees     qatrees.Table
+	rule      excludes
+	reads     semgrepreport.Scope
+	alsoReads []string
 }
 
 // loadScope reads the trees table and the rule's excludes.
@@ -56,6 +59,9 @@ func (s Spec) readScope(root string) (scope, error) {
 	if err != nil {
 		return scope{}, err
 	}
+	if err := s.checkStillScannedFiles(repo, trees); err != nil {
+		return scope{}, err
+	}
 	data, err := fs.ReadFile(repo, s.ruleFile)
 	if err != nil {
 		return scope{}, fmt.Errorf("cannot read %s: %w", s.ruleFile, err)
@@ -64,11 +70,31 @@ func (s Spec) readScope(root string) (scope, error) {
 	if err != nil {
 		return scope{}, err
 	}
-	return scope{repo: repo, trees: trees, reads: reads}, nil
+	return scope{repo: repo, trees: trees, reads: reads, alsoReads: s.stillScansFiles}, nil
 }
 
-// notOurs is whether the trees table keeps the published file rel out of every gate.
+// checkStillScannedFiles refuses a file the spec still scans that the table does not keep out: a
+// stale exception would hide that the row it meant has gone. That the file is there and published
+// is the whole-tree run's check (handOver); a run over changed files may name it deleted.
+func (s Spec) checkStillScannedFiles(repo fs.FS, trees qatrees.Table) error {
+	for _, rel := range s.stillScansFiles {
+		out, err := trees.ExcludesFile(repo, rel)
+		if err != nil {
+			return err
+		}
+		if !out {
+			return fmt.Errorf("%s still scans %s, which %s does not keep out of the gates", s.short, rel, qatrees.File)
+		}
+	}
+	return nil
+}
+
+// notOurs is whether the trees table keeps the published file rel out of every gate, but for a
+// file the spec still scans.
 func (s scope) notOurs(rel string) (bool, error) {
+	if slices.Contains(s.alsoReads, rel) {
+		return false, nil
+	}
 	return s.trees.ExcludesFile(s.repo, rel)
 }
 

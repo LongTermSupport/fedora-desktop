@@ -258,10 +258,7 @@ expect_lacks "bash-limits: untouched by markdown" "$plan" "check bash-limits"
 
 echo
 echo "== the files the arch-pin rule guards -> the arch-pin gate =="
-# Not .claude/ccy/Dockerfile: scripts/qa-trees.tsv keeps .claude/ccy out of every gate, so the
-# gate never reads it and a local plan does not run it there (issue 403); the coverage question
-# is the owner's (issue 408).
-for changed in files/var/local/claude-yolo/Dockerfile playbooks/imports/play-python.yml tasks/build-go-command.yml vars/fedora-version.yml files/var/local/docker-in-lxc .github/workflows/qa.yml .semgrep/arch-pin.yml; do
+for changed in files/var/local/claude-yolo/Dockerfile .claude/ccy/Dockerfile playbooks/imports/play-python.yml tasks/build-go-command.yml vars/fedora-version.yml files/var/local/docker-in-lxc .github/workflows/qa.yml .semgrep/arch-pin.yml; do
     plan="$(plan_for "$changed")"
     expect_has "arch-pin: $changed runs the gate" "$plan" "check arch-pin"
 done

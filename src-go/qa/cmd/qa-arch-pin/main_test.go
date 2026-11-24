@@ -73,12 +73,16 @@ func TestTheRealEngineFindsThePinnedDownloadAndPassesTheSelectedOne(t *testing.T
 		// Daemon-deployed: the trees table keeps them out of every gate (qa-trees-drift).
 		".claude/ccy/claude-supervise.py": "URL = 'https://example.com/tool-x86_64.tgz'\n",
 		".claude/init.sh":                 "#!/bin/bash\ncurl -O https://example.com/tool-x86_64.tgz\n",
+		// This project's image, which the gate still reads inside that tree (issue #408).
+		".claude/ccy/Dockerfile": pinnedDownload,
 	})
-	if code != ghscopes.ExitFailed || !strings.Contains(stdout, "pinned/Dockerfile:2  arch-pinned-artefact") || !strings.Contains(stdout, "passed: 2 failed: 1") || strings.Contains(stdout, ".claude/") {
+	if code != ghscopes.ExitFailed || !strings.Contains(stdout, "pinned/Dockerfile:2  arch-pinned-artefact") ||
+		!strings.Contains(stdout, ".claude/ccy/Dockerfile:2  arch-pinned-artefact") || !strings.Contains(stdout, "passed: 2 failed: 2") ||
+		strings.Contains(stdout, "claude-supervise") || strings.Contains(stdout, "init.sh") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
-	code, stdout, stderr = realRun(t, map[string]string{"clean/Dockerfile": selectedDownload})
-	if code != ghscopes.ExitOK || !strings.Contains(stdout, "passed: 2 failed: 0") {
+	code, stdout, stderr = realRun(t, map[string]string{"clean/Dockerfile": selectedDownload, ".claude/ccy/Dockerfile": selectedDownload})
+	if code != ghscopes.ExitOK || !strings.Contains(stdout, "passed: 3 failed: 0") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 }
