@@ -21,34 +21,89 @@ type excludes = semgrepreport.Excludes
 // table is the one list of trees that are not ours; a rule's excludes name only what is
 // particular to that rule (qa-trees-drift, issue #217). The rows the spec still scans
 // (Spec.stillScans) are taken out of the table first.
+//
+// reads is what each rule of the file reads (its paths.include and paths.exclude, rule by rule):
+// a named run hands semgrep only the files some rule reads.
 type scope struct {
 	repo  fs.FS
 	trees qatrees.Table
 	rule  excludes
+	reads semgrepreport.Scope
 }
 
 // loadScope reads the trees table and the rule's excludes.
 func (g *gate) loadScope() (scope, error) {
-	repo := os.DirFS(g.root)
-	table, err := qatrees.Load(repo)
-	if err != nil {
-		return scope{}, err
-	}
-	trees, err := table.Without(g.spec.stillScans...)
-	if err != nil {
-		return scope{}, err
-	}
 	rule, err := g.readRule()
 	if err != nil {
 		return scope{}, err
 	}
-	return scope{repo: repo, trees: trees, rule: rule}, nil
+	s, err := g.spec.readScope(g.root)
+	if err != nil {
+		return scope{}, err
+	}
+	s.rule = rule
+	return s, nil
+}
+
+// readScope reads the trees table, less the rows the spec still scans, and the rule file's scope.
+func (s Spec) readScope(root string) (scope, error) {
+	repo := os.DirFS(root)
+	table, err := qatrees.Load(repo)
+	if err != nil {
+		return scope{}, err
+	}
+	trees, err := table.Without(s.stillScans...)
+	if err != nil {
+		return scope{}, err
+	}
+	data, err := fs.ReadFile(repo, s.ruleFile)
+	if err != nil {
+		return scope{}, fmt.Errorf("cannot read %s: %w", s.ruleFile, err)
+	}
+	reads, err := semgrepreport.ParseScope(s.ruleFile, data)
+	if err != nil {
+		return scope{}, err
+	}
+	return scope{repo: repo, trees: trees, reads: reads}, nil
 }
 
 // notOurs is whether the trees table keeps the published file rel out of every gate.
 func (s scope) notOurs(rel string) (bool, error) {
 	return s.trees.ExcludesFile(s.repo, rel)
 }
+
+// readsFile is whether the gate reads the file rel: the trees table leaves it in and some rule of
+// the rule file reads it.
+func (s scope) readsFile(rel string) (bool, error) {
+	notOurs, err := s.notOurs(rel)
+	if err != nil || notOurs {
+		return false, err
+	}
+	return s.reads.Reads(rel), nil
+}
+
+// Reader answers, for a caller that plans a run of the gate over changed files (qa-changed),
+// which of them the gate would read: a run named only files it does not read has nothing to
+// scan, so it need not be planned (issue #403).
+type Reader struct {
+	spec  Spec
+	scope scope
+}
+
+// Reader reads the trees table and the rule file under the repository root.
+func (s Spec) Reader(root string) (Reader, error) {
+	sc, err := s.readScope(root)
+	if err != nil {
+		return Reader{}, err
+	}
+	return Reader{spec: s, scope: sc}, nil
+}
+
+// Reads is whether the gate reads the existing repository-relative file rel.
+func (r Reader) Reads(rel string) (bool, error) { return r.scope.readsFile(rel) }
+
+// RuleFile is the gate's rule file, relative to the repository root.
+func (r Reader) RuleFile() string { return r.spec.ruleFile }
 
 // readRule checks the rule and fixture are regular files and reads the rule's excludes.
 func (g *gate) readRule() (excludes, error) {

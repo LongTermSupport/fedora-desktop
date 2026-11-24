@@ -90,11 +90,11 @@ func (g *gate) handOver(ctx context.Context, within scope) ([]string, error) {
 		case err != nil:
 			return nil, fmt.Errorf("cannot look at %s: %w", rel, err)
 		case info.Mode().IsRegular():
-			notOurs, treesErr := within.notOurs(rel)
-			if treesErr != nil {
-				return nil, treesErr
+			ours, scopeErr := g.wanted(within, rel)
+			if scopeErr != nil {
+				return nil, scopeErr
 			}
-			if !notOurs {
+			if ours {
 				files = append(files, rel)
 			}
 		}
@@ -104,6 +104,18 @@ func (g *gate) handOver(ctx context.Context, within scope) ([]string, error) {
 	}
 	slices.Sort(files)
 	return slices.Compact(files), nil
+}
+
+// wanted is whether a listed file is handed to semgrep. The whole-tree run hands every file the
+// trees table leaves in, and semgrep drops what the rule excludes itself; a narrowed run also
+// leaves out a named file no rule of the file reads, so a run named only such files scans
+// nothing and passes saying so, instead of handing semgrep nothing it reads (issue #403).
+func (g *gate) wanted(within scope, rel string) (bool, error) {
+	if g.narrowed {
+		return within.readsFile(rel)
+	}
+	notOurs, err := within.notOurs(rel)
+	return !notOurs, err
 }
 
 // report is the part of semgrep's JSON that matters.

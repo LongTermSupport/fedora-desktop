@@ -3697,6 +3697,24 @@ judge exactly what they did before; `CI=1 ./scripts/qa-changed.bash` reproduces 
   gate itself (a file under `.semgrep/` or `src-go/qa/`, the gate's wrapper,
   `scripts/lib/go-tool.bash`, `scripts/qa-trees.tsv`) runs it whole, because the rule must be
   re-applied to every file.
+
+**A semgrep rule gate is planned only for a change it reads** (issue #403, local and CI alike).
+A routing row can send a file to one of these gates when the gate's own rule excludes that file:
+`CLAUDE/*` and `*.md` route plan prose to `place-issued-token` and `gh-poll`, whose rules leave
+out `CLAUDE/Plan/**/*.md`. A run over only such files would give semgrep nothing it reads, and
+the gate's fail-closed guard ("semgrep scanned no file") would refuse it, so no plan-only commit
+could pass. So qa-changed asks each planned gate (`ghscopes.Spec.Reader`) whether it reads any
+changed file that still exists: the trees table, then the rule file's own `paths.include` and
+`paths.exclude`, rule by rule (a file one rule excludes is still read when a sibling rule is
+not). When it reads none, the check is dropped and the plan says
+`note: <check>: not needed: nothing for this rule to scan`. A change to the gate itself still
+runs it, a change of deletions alone is planned as before, and a narrowed gate run also leaves
+out a named file no rule reads. A zero-file scan for any other reason still fails closed. The
+real-tree test `TestNoRealFilePlansARuleGateWhoseRuleReadsNoneOfIt`
+(`src-go/qa/changed/rulegate_test.go`) sweeps every published file through the routing table,
+alone, and fails if one plans a gate (or the per-file `semgrep` check) whose rule reads none of it.
+Narrowing a rule's own `paths.exclude` to make a file reach a gate is still the owner's decision.
+
 - **A command suite whose inputs passed before is skipped.** A suite picked only because its Go
   command's build closure changed (`builds from …`; the `ccy-*` suites of
   `scripts/go-binary-suites.tsv`) is not run again when a pass was recorded over the same inputs:

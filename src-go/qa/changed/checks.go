@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/ghscopes"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/js"
@@ -219,6 +220,57 @@ func (s *session) semgrepGate(ctx context.Context, wrapper string) (checkResult,
 func gateSource(wrapper, rel string) bool {
 	return strings.HasPrefix(rel, ".semgrep/") || strings.HasPrefix(rel, "src-go/qa/") ||
 		rel == "scripts/"+wrapper || rel == "scripts/lib/go-tool.bash" || rel == "scripts/qa-trees.tsv"
+}
+
+// ruleGateSpecs is the engine spec of each semgrep gate's check (gateCheck).
+var ruleGateSpecs = map[string]ghscopes.Spec{
+	"gh-scopes":          ghscopes.GHScopes,
+	"find-race":          ghscopes.FindRace,
+	"arch-pin":           ghscopes.ArchPin,
+	"argv-leak":          ghscopes.ArgvLeak,
+	"place-issued-token": ghscopes.PlaceIssuedToken,
+	"boot-hold":          ghscopes.BootHold,
+	"gh-poll":            ghscopes.GHPoll,
+	"secret-screen":      ghscopes.SecretScreen,
+}
+
+// dropUnreadRuleGates takes out of the plan each semgrep gate that would read none of the changed
+// files: every one is a file its rule file excludes (paths.exclude, rule by rule) or one
+// scripts/qa-trees.tsv keeps out of every gate. A run over them has nothing for the rule to scan
+// (issue #403: a plan-only change routed to a gate whose rule leaves out plan prose). A deleted
+// file has nothing left to scan and does not count; a change of deletions alone is planned as
+// before. A change to the gate itself (gateSource) still runs it; any other zero-file scan still
+// fails closed in the gate.
+func (s *session) dropUnreadRuleGates() error {
+	changed := slices.Concat(s.plan.existing, s.plan.deleted)
+	for _, d := range checkDefs {
+		spec, isRuleGate := ruleGateSpecs[d.id]
+		if !isRuleGate || s.plan.checks[d.id] == nil || len(s.plan.existing) == 0 {
+			continue
+		}
+		wrapper := "qa-" + d.id + ".bash"
+		if slices.ContainsFunc(changed, func(f string) bool { return gateSource(wrapper, f) }) {
+			continue
+		}
+		reader, err := spec.Reader(s.root)
+		if err != nil {
+			return fmt.Errorf("cannot tell which files the %s check reads: %w", d.id, err)
+		}
+		reads := false
+		for _, rel := range s.plan.existing {
+			if reads, err = reader.Reads(rel); err != nil || reads {
+				break
+			}
+		}
+		if err != nil {
+			return fmt.Errorf("cannot tell whether the %s check reads a changed file: %w", d.id, err)
+		}
+		if !reads {
+			delete(s.plan.checks, d.id)
+			s.plan.notes = append(s.plan.notes, fmt.Sprintf("%s: not needed: nothing for this rule to scan (%s and %s leave out every changed file)", d.id, reader.RuleFile(), "scripts/qa-trees.tsv"))
+		}
+	}
+	return nil
 }
 
 // ciEnabled is whether the CI environment variable says this run is CI: set, and neither

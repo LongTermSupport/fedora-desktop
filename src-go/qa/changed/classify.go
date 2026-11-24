@@ -186,7 +186,7 @@ func (s *session) classify(ctx context.Context, files collected) error {
 			}
 		}
 	}
-	return nil
+	return s.dropUnreadRuleGates()
 }
 
 // applies is whether a rule is evaluated for the file: a deleted file has no content to test.

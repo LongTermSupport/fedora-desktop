@@ -152,18 +152,25 @@ func TestNoRealFilePlansARuleGateWhoseRuleReadsNoneOfIt(t *testing.T) {
 	}
 }
 
-// planOf is the plan lines of a --plan run over the named files, in a run world that holds the
-// real rule files of the semgrep gates.
-func planOf(t *testing.T, files map[string]string) string {
+// seedRuleGates writes into a test repository what planning a semgrep gate reads there: the real
+// rule file of each gate and the real trees table (a world may then override either).
+func seedRuleGates(t *testing.T, root string) {
 	t.Helper()
-	w := newRunWorld(t)
 	for _, ruleFile := range ruleGateRules() {
 		body, err := os.ReadFile(filepath.Join("../../..", ruleFile))
 		if err != nil {
 			t.Fatal(err)
 		}
-		writeFile(t, w.root, ruleFile, string(body))
+		writeFile(t, root, ruleFile, string(body))
 	}
+	writeFile(t, root, "scripts/qa-trees.tsv", readReal(t, "qa-trees.tsv"))
+}
+
+// planOf is the plan lines of a --plan run over the named files, in a run world that holds the
+// real rule files of the semgrep gates.
+func planOf(t *testing.T, files map[string]string) string {
+	t.Helper()
+	w := newRunWorld(t)
 	args := []string{"--plan", "--files"}
 	for _, rel := range slices.Sorted(maps.Keys(files)) {
 		writeFile(t, w.root, rel, files[rel])

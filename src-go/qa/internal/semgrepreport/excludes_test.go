@@ -66,6 +66,56 @@ func TestRuleExcludesAreReadFromTheRuleNode(t *testing.T) {
 	}
 }
 
+// A rule file reads a path when one of its rules reads it: a file one rule excludes is still read
+// by a sibling that does not, and a rule with paths.include reads only what that list names.
+func TestScopeReadsWhatSomeRuleReads(t *testing.T) {
+	scope, err := ParseScope("r.yml", []byte(`rules:
+  - id: a
+    paths:
+      exclude: &shared ['docs/**', 'CLAUDE/Plan/**/*.md']
+  - id: b
+    paths:
+      include: ['notes/**', 'docs/**']
+      exclude: *shared
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rel, want := range map[string]bool{
+		"docs/a.md": false, "CLAUDE/Plan/00001-x/PLAN.md": false,
+		"notes/a.md": true, "src/a.go": true, "CLAUDE/Plan/00001-x/run.bash": true,
+	} {
+		if got := scope.Reads(rel); got != want {
+			t.Errorf("Reads(%s) = %v, want %v", rel, got, want)
+		}
+	}
+}
+
+func TestScopeOfARuleWithNoPathsReadsEverything(t *testing.T) {
+	scope, err := ParseScope("r.yml", []byte("rules:\n  - id: a\n    paths:\n      exclude: ['docs/**']\n  - id: b\n    pattern: x\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !scope.Reads("docs/a.md") {
+		t.Error("a rule with no paths reads every file, yet docs/a.md is not read")
+	}
+}
+
+// A rule file that does not decode, or holds no rule, is refused: an empty scope would read
+// nothing and every file would look excluded.
+func TestScopeRefusesWhatItCannotRead(t *testing.T) {
+	for name, text := range map[string]string{
+		"not yaml":     "rules: [",
+		"no rules":     "rules: []\n",
+		"bad exclude":  "rules:\n  - id: a\n    paths:\n      exclude: x\n",
+		"no rules key": "other: 1\n",
+	} {
+		if _, err := ParseScope("r.yml", []byte(text)); err == nil {
+			t.Errorf("%s: no error", name)
+		}
+	}
+}
+
 // ruleNode is the YAML text decoded as one node, as a rule file's rules list holds each rule.
 func ruleNode(t *testing.T, text string) *yaml.Node {
 	t.Helper()

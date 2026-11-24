@@ -156,6 +156,7 @@ func compareToGolden(t *testing.T, name string, want, got goldenRecord, dev devi
 func replay(t *testing.T, world map[string]string, sc goldenScenario) goldenRecord {
 	t.Helper()
 	root := t.TempDir()
+	seedRuleGates(t, root)
 	for rel, text := range world {
 		writeFile(t, root, rel, text)
 	}

@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: scripts/test-teams.bash\ncheck shellcheck: scripts/test-teams.bash\ncheck shell-directives: scripts/test-teams.bash\ncheck semgrep: scripts/test-teams.bash\ncheck ready-wait-files: scripts/test-teams.bash\ncheck bash-limits\ncheck argv-leak\ncheck gh-poll\ncheck secret-screen\ncheck hidden-bindings\ncheck lxc-attach-streams\ncheck gitleaks\nsuite scripts/test-teams.bash: the suite itself changed\n✓ toolchain: QA tool versions match .qa-versions\n✓ bash-syntax: 1 file(s)\n✓ shellcheck: 1 file(s)\n✓ shell-directives: 1 file(s)\n✓ semgrep: 1 file(s)\n✓ ready-wait-files: 1 file(s)\n✓ bash-limits: whole gate (tooling is Go; allowlist ratchet)\n✓ argv-leak: secret-in-argv rules, whole gate\n✓ gh-poll: github-poll-too-often rule, whole gate\n✓ secret-screen: secret-on-normal-screen rules, whole gate\n✓ hidden-bindings: whole gate (no action reachable only by a key)\n✓ lxc-attach-streams: whole gate (no command reaching lxc-attach has a standard stream on a file)\n✓ gitleaks: whole gate (no secret gitleaks finds in what a commit would carry)\n✗ suite test-teams.bash: (the suite itself changed)\n✗ qa-changed FAILED: suite test-teams.bash\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: scripts/test-teams.bash\ncheck shellcheck: scripts/test-teams.bash\ncheck shell-directives: scripts/test-teams.bash\ncheck semgrep: scripts/test-teams.bash\ncheck ready-wait-files: scripts/test-teams.bash\ncheck bash-limits\ncheck argv-leak\ncheck gh-poll\ncheck hidden-bindings\ncheck lxc-attach-streams\ncheck gitleaks\nsuite scripts/test-teams.bash: the suite itself changed\nnote: secret-screen: not needed: nothing for this rule to scan (.semgrep/secret-screen.yml and scripts/qa-trees.tsv leave out every changed file)\n✓ toolchain: QA tool versions match .qa-versions\n✓ bash-syntax: 1 file(s)\n✓ shellcheck: 1 file(s)\n✓ shell-directives: 1 file(s)\n✓ semgrep: 1 file(s)\n✓ ready-wait-files: 1 file(s)\n✓ bash-limits: whole gate (tooling is Go; allowlist ratchet)\n✓ argv-leak: secret-in-argv rules, whole gate\n✓ gh-poll: github-poll-too-often rule, whole gate\n✓ hidden-bindings: whole gate (no action reachable only by a key)\n✓ lxc-attach-streams: whole gate (no command reaching lxc-attach has a standard stream on a file)\n✓ gitleaks: whole gate (no secret gitleaks finds in what a commit would carry)\n✗ suite test-teams.bash: (the suite itself changed)\n✗ qa-changed FAILED: suite test-teams.bash\n",
  "stderr": "the suite exited 0 but its count line reports failed cases: 2 failed\npassed: 9 failed: 2\n",
  "status": 1,
  "log": [
@@ -11,7 +11,6 @@
   "gate:qa-bash-limits.bash json=",
   "gate:qa-argv-leak.bash json=",
   "gate:qa-gh-poll.bash json=",
-  "gate:qa-secret-screen.bash json=",
   "gate:qa-hidden-bindings.bash json=",
   "gate:qa-lxc-attach-streams.bash json=",
   "gate:qa-gitleaks.bash json=",

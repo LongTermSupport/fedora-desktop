@@ -37,6 +37,61 @@ func (e Excludes) Matches(path string) bool {
 	return false
 }
 
+// Scope is which files a rule file reads: each rule's own paths.include and paths.exclude. A rule
+// file of several rules reads a file when any one of them does, so a file one rule excludes is
+// still read when a sibling rule does not exclude it.
+type Scope struct {
+	rules []ruleScope
+}
+
+// ruleScope is one rule's paths: an empty include reads every file the excludes leave.
+type ruleScope struct {
+	include, exclude Excludes
+}
+
+// ParseScope reads the paths of every rule of the rule file named name. A file that does not
+// decode, or holds no rule, is an error: an empty scope would read nothing, so every file would
+// look excluded.
+func ParseScope(name string, data []byte) (Scope, error) {
+	var doc struct {
+		Rules []struct {
+			Paths struct {
+				Include []string `yaml:"include"`
+				Exclude []string `yaml:"exclude"`
+			} `yaml:"paths"`
+		} `yaml:"rules"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return Scope{}, fmt.Errorf("cannot decode %s: %w", name, err)
+	}
+	if len(doc.Rules) == 0 {
+		return Scope{}, fmt.Errorf("%s holds no rule", name)
+	}
+	var s Scope
+	for _, r := range doc.Rules {
+		include, err := CompileExcludes(r.Paths.Include)
+		if err != nil {
+			return Scope{}, fmt.Errorf("in %s: %w", name, err)
+		}
+		exclude, err := CompileExcludes(r.Paths.Exclude)
+		if err != nil {
+			return Scope{}, fmt.Errorf("in %s: %w", name, err)
+		}
+		s.rules = append(s.rules, ruleScope{include: include, exclude: exclude})
+	}
+	return s, nil
+}
+
+// Reads is whether some rule of the file reads the repository-relative path.
+func (s Scope) Reads(path string) bool {
+	for _, r := range s.rules {
+		if (len(r.include) == 0 || r.include.Matches(path)) && !r.exclude.Matches(path) {
+			return true
+		}
+	}
+	return false
+}
+
 // RuleExcludes is the paths.exclude list of one rule, read from the rule's YAML mapping. A rule
 // without one has none; a paths or exclude of any other shape is refused, so a list written wrong
 // is never read as no excludes.

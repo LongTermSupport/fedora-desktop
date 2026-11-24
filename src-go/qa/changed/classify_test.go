@@ -36,7 +36,7 @@ func newWorld(t *testing.T) *world {
 	t.Helper()
 	root := t.TempDir()
 	writeFile(t, root, "scripts/qa-routing.tsv", readReal(t, "qa-routing.tsv"))
-	writeFile(t, root, "scripts/qa-trees.tsv", readReal(t, "qa-trees.tsv"))
+	seedRuleGates(t, root)
 	writeFile(t, root, "scripts/bash-limits.allowlist", "# header\nfiles/home/.local/bin/listed-tool\t10\t1\t10\t-\n")
 	return &world{t: t, root: root, runner: &scriptedRunner{replies: map[string]proc.Result{}}}
 }
@@ -284,7 +284,7 @@ func TestSrcGoRoutingIncludingTheLintConfigAndTheNestedModule(t *testing.T) {
 func TestTheArchPinGateRunsForTheFilesItGuards(t *testing.T) {
 	w := newWorld(t)
 	for _, f := range []string{
-		"files/var/local/claude-yolo/Dockerfile", ".claude/ccy/Dockerfile", "playbooks/imports/play-x.yml", "tasks/x.yml",
+		"files/var/local/claude-yolo/Dockerfile", "playbooks/imports/play-x.yml", "tasks/x.yml",
 		"vars/x.yml", "files/home/.local/bin/tool", ".github/workflows/qa.yml", "fedora-install/build-iso.bash",
 		"helpers/vmtest/freshness_gate.py", "src-go/internal/vmtest/fetch.go", "src-go/cmd/vmtest/main.go",
 		".semgrep/arch-pin.yml", ".semgrep/arch-pin.fixture",
@@ -303,6 +303,14 @@ func TestTheArchPinGateRunsForTheFilesItGuards(t *testing.T) {
 	w.touch("docs/x.md", "# x")
 	if p := w.classify([]string{"docs/x.md"}); p.has("arch-pin") {
 		t.Errorf("prose runs arch-pin: %v", keys(p))
+	}
+	// B65: .claude/ccy/ is a tree scripts/qa-trees.tsv keeps out of every gate, so the gate reads
+	// none of its Dockerfile, and a change of it alone has nothing for the rule to scan. (A fresh
+	// world: the loop above wrote over the rule file.)
+	w = newWorld(t)
+	w.touch(".claude/ccy/Dockerfile", "FROM x")
+	if p := w.classify([]string{".claude/ccy/Dockerfile"}); p.has("arch-pin") {
+		t.Errorf("a file the gate never reads plans arch-pin: %v", keys(p))
 	}
 	if p := w.classify(nil, "playbooks/imports/gone.yml"); !p.has("arch-pin") {
 		t.Errorf("a deleted play must run the gate: %v", keys(p))

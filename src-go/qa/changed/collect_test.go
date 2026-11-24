@@ -40,6 +40,7 @@ func scratchRepo(t *testing.T) string {
 	writeFile(t, dir, ".gitignore", "ignored.bash\n")
 	writeFile(t, dir, "kept.bash", "#!/usr/bin/bash\n:\n")
 	writeFile(t, dir, "gone.bash", "#!/usr/bin/bash\n:\n")
+	seedRuleGates(t, dir)
 	gitIn(t, dir, "add", "-A")
 	gitIn(t, dir, "commit", "-q", "-m", "base")
 	return dir
