@@ -2,6 +2,9 @@ package teams
 
 import (
 	"bytes"
+	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -177,6 +180,56 @@ func TestSeatResumeExplicitID(t *testing.T) {
 	wantSays(t, got.stderr, "rebinding dev1@team-a")
 }
 
+// 4b: a repair wins over a stale relaunch: a relaunch of the session's own conversation is
+// refused when a seat it holds was pointed elsewhere by --set after the session's record.
+func TestSeatResumeRelaunchYieldsToANewerRepair(t *testing.T) {
+	checkout := t.TempDir()
+	plantV1Seat(t, checkout, "ccy-proj", "dev1", "team-a", seatConvID)
+	plantV1Seat(t, checkout, "ccy-other", "ops", "team-a", otherConvID)
+	set, _, setErr := seatConversation(checkout)
+	if code := set.Run([]string{"dev1@team-a", "--set", otherConvID}); code != term.ExitOK {
+		t.Fatalf("--set: exit %d: %s", code, setErr.String())
+	}
+	r, out, errOut := seatResume(checkout)
+	code := r.Run([]string{"dev1@team-a", flagRelaunch, "2", "--", "--resume", seatConvID})
+	if code != term.ExitUsage || out.Len() != 0 {
+		t.Fatalf("relaunch: exit %d, stdout %q, stderr %q", code, out.String(), errOut.String())
+	}
+	wantSays(t, errOut.String(), "dev1@team-a", otherConvID, "    ccy --teams dev1@team-a\n")
+	// A relaunch whose own record is newer than the repair resumes as before.
+	record := filepath.Join(checkout, ".claude/ccy/pingbus/sessions/ccy-proj/conversation.json")
+	if err := os.WriteFile(record, []byte(`{"v":1,"session":"ccy-proj","session_id":"`+seatConvID+
+		`","source":"resume","written_ms":1799000000000}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, _, errOut = seatResume(checkout)
+	if code := r.Run([]string{"dev1@team-a", flagRelaunch, "2", "--", "--resume", seatConvID}); code != term.ExitOK {
+		t.Errorf("a newer relaunch: exit %d: %s", code, errOut.String())
+	}
+}
+
+// A launch saves each held seat's pointer (the plain lookup does not), so the seat keeps its
+// conversation when the launch reuses its session's folder.
+func TestSeatResumeLaunchSavesThePointer(t *testing.T) {
+	checkout := t.TempDir()
+	plantV1Seat(t, checkout, "ccy-proj", "dev1", "team-a", seatConvID)
+	pointer := filepath.Join(checkout, ".claude/ccy/seat-conversations", "dev1@team-a"+".json")
+	look, _, lookErr := seatConversation(checkout)
+	if code := look.Run([]string{"dev1@team-a"}); code != term.ExitOK {
+		t.Fatalf("lookup: exit %d: %s", code, lookErr.String())
+	}
+	if _, err := os.Lstat(pointer); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a plain lookup wrote the pointer: %v", err)
+	}
+	r, _, errOut := seatResume(checkout)
+	if code := r.Run([]string{"qa@team-b", "0", "--"}); code != term.ExitUsage {
+		t.Fatalf("qa@team-b: exit %d: %s", code, errOut.String())
+	}
+	if data, err := os.ReadFile(pointer); err != nil || !strings.Contains(string(data), seatConvID) {
+		t.Errorf("the launch did not save dev1@team-a's pointer: %s, %v", data, err)
+	}
+}
+
 // E8 e: --session-id is an explicit choice of conversation, left as it is.
 func TestSeatResumeSessionIDIsLeftAlone(t *testing.T) {
 	for _, words := range [][]string{{"--session-id", otherConvID}, {"--session-id=" + otherConvID}} {
@@ -205,7 +258,7 @@ func TestSeatResumeUsage(t *testing.T) {
 		{"dev1@team-a", "0", "x"},
 	} {
 		r, out, errOut := seatResume(t.TempDir())
-		if code := r.Run(args); code != term.ExitUsage || out.Len() != 0 || !strings.Contains(errOut.String(), "internal seat-resume <seats>") {
+		if code := r.Run(args); code != term.ExitUsage || out.Len() != 0 || !strings.Contains(errOut.String(), "internal seat-resume <seats> [--relaunch] <before> -- <claude arguments...>") {
 			t.Errorf("%q: exit %d, stdout %q, stderr %q", args, code, out.String(), errOut.String())
 		}
 	}

@@ -370,7 +370,7 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 		"internal restart-args <session>, internal claim-container-name <project> <suffix> <owner-pid>, " +
 		"internal go-cache <project> [z], internal launch-args <session> <checkout> <seats> <Z or empty> -- <mounts...>, " +
 		"internal seat-check <list> [--resolved], internal seat-take <list> [--no-prompt], " +
-		"internal seat-resume <seats> [--fresh] [--rebind] [--relaunch] -- <claude args...>, " +
+		"internal seat-resume <seats> [--relaunch] <before> -- <claude args...>, " +
 		"internal bus-disconnected <status> <pingbus> <pingbus arguments>, " +
 		"or internal cc-run <tmp> <checkout> <session or empty> <cc pid> <seats> <true|false> -- <claude args...>.")
 }

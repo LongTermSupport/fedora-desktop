@@ -5,7 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
 // indexPath is a seat's pointer file, spelt here independently of the code.
@@ -26,13 +29,13 @@ func (w *world) transcriptFor(sessionID string) {
 	write(w.t, filepath.Join(w.checkout, ".claude/ccy/projects/-workspace", sessionID+".jsonl"), "{}\n")
 }
 
-// E2: a lookup writes each held seat's pointer, whole, so the seat keeps its conversation when
-// its session's folder is later reused by a launch of other seats.
+// E2: a launch's lookup (SaveSeats) writes each held seat's pointer, whole, so the seat keeps its
+// conversation when its session's folder is later reused by a launch of other seats.
 func TestSeatKeepsItsConversationWhenItsSessionFolderIsReused(t *testing.T) {
 	w := newWorld(t)
 	w.v1Session("ccy-proj", id, "1791000000000", "dev1@alpha")
-	if got, err := w.forSeats("qa@beta"); err == nil {
-		t.Fatalf("qa@beta resolved to %+v with no record", got)
+	if _, err := SaveSeats(w.checkout, "qa@beta", w.where()); err != nil {
+		t.Fatal(err)
 	}
 	data, err := os.ReadFile(w.indexPath("dev1@alpha"))
 	if err != nil {
@@ -156,6 +159,126 @@ func TestTheAgreedConversationWithNoTranscriptIsRefused(t *testing.T) {
 		filepath.Join(w.checkout, ".claude/ccy/projects/-workspace", thirdID+".jsonl"))
 	if !errors.Is(err, ErrNoSeatConversation) {
 		t.Errorf("refusal %v is not ErrNoSeatConversation", err)
+	}
+}
+
+// A plain lookup (ccy-teams seats conversation without --set) only reads: it writes no pointer.
+func TestALookupWritesNoPointer(t *testing.T) {
+	w := newWorld(t)
+	w.v1Session("ccy-proj", id, "1791000000000", "dev1@alpha")
+	got, err := w.forSeats("dev1@alpha")
+	if err != nil || got.ID != id {
+		t.Fatalf("ForSeats = %+v, %v; want %s", got, err, id)
+	}
+	if _, err := os.Lstat(w.indexPath("dev1@alpha")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a lookup wrote a pointer: %v", err)
+	}
+}
+
+// 4a: SaveSeats reads, compares and writes each pointer under the index's lock, so a --set
+// written before the lock is taken is read and kept, never overwritten by an older record.
+func TestSaveSeatsComparesUnderTheIndexLock(t *testing.T) {
+	w := newWorld(t)
+	w.v1Session("ccy-proj", id, "1791000000000", "dev1@alpha")
+	w.transcriptFor(otherID)
+	locked := false
+	indexLocked = func(lockPath string) {
+		f, err := os.OpenFile(lockPath, os.O_RDWR, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := f.Close(); err != nil {
+				t.Error(err)
+			}
+		}()
+		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); !errors.Is(err, syscall.EWOULDBLOCK) {
+			t.Errorf("the index lock is not held while the pointers are compared: %v", err)
+		}
+		locked = true
+		w.pointer("dev1@alpha", otherID, "", "set", "1795000000000")
+	}
+	t.Cleanup(func() { indexLocked = nil })
+	got, err := SaveSeats(w.checkout, "dev1@alpha", w.where())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !locked || len(got.Pointers) != 1 || got.Pointers[0].ID != otherID || !got.Pointers[0].SetByHand() {
+		t.Errorf("SaveSeats = %+v (locked %v), want the --set pointer %s kept", got, locked, otherID)
+	}
+	data, err := os.ReadFile(w.indexPath("dev1@alpha"))
+	if err != nil || !strings.Contains(string(data), otherID) {
+		t.Errorf("the --set pointer was overwritten: %s, %v", data, err)
+	}
+}
+
+// 3: a lookup reads only what concerns the named seats: an unreadable report, desired
+// membership, control folder or pointer of anything else is ignored.
+func TestAnUnrelatedUnreadableRecordIsIgnored(t *testing.T) {
+	w := newWorld(t)
+	w.v1Session("ccy-proj", id, "1791000000000", "dev1@alpha")
+	write(t, filepath.Join(w.checkout, ".claude/ccy/pingbus/sessions/ccy-proj-2/applied.json"), "{")
+	write(t, w.indexPath("qa@beta"), "{")
+	got, err := SaveSeats(w.checkout, "dev1@alpha", w.where())
+	if err != nil || len(got.Pointers) != 1 || got.Pointers[0].ID != id {
+		t.Fatalf("SaveSeats = %+v, %v; want %s despite unrelated unreadable files", got, err, id)
+	}
+	if s, err := got.Resolve(); err != nil || s.ID != id {
+		t.Errorf("Resolve = %+v, %v", s, err)
+	}
+}
+
+// 3, teamchat: a control folder that is not a session's and another session's unreadable
+// desired membership are ignored.
+func TestAnUnrelatedUnreadableTeamchatRecordIsIgnored(t *testing.T) {
+	w := newWorld(t)
+	w.v2Session("ccy-proj", id, 1791000000000, "1@beta")
+	if err := os.MkdirAll(filepath.Join(w.store.Root(), "control", "Not A Session"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	w.v2Session("ccy-proj-2", otherID, 1792000000000, "2@beta")
+	name, err := paths.ParseSessionName("ccy-proj-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, w.store.DesiredFile(name), "{")
+	if got, err := w.forSeats("1@beta"); err != nil || got.ID != id {
+		t.Errorf("ForSeats = %+v, %v; want %s despite unrelated unreadable files", got, err, id)
+	}
+}
+
+// 3: the conversation record of a session holding a named seat that cannot be read is refused,
+// naming the file.
+func TestARelevantUnreadableRecordIsRefusedNamingIt(t *testing.T) {
+	w := newWorld(t)
+	w.v1Session("ccy-proj", id, "1791000000000", "dev1@alpha")
+	write(t, w.v1Path("ccy-proj"), "{")
+	got, err := w.forSeats("dev1@alpha")
+	mustRefuse(t, got, err, w.v1Path("ccy-proj"), "ccy-proj")
+}
+
+// 5: when the newest session to hold a seat gave no usable record, the older pointer is not
+// resumed in its place: the launch is refused naming that session.
+func TestTheNewestRecordUnusableIsRefused(t *testing.T) {
+	w := newWorld(t)
+	w.v1Session("ccy-proj", id, "1791000000000", "dev1@alpha")
+	if _, err := SaveSeats(w.checkout, "dev1@alpha", w.where()); err != nil {
+		t.Fatal(err)
+	}
+	write(t, w.v1Path("ccy-proj-2"), recordedAt("ccy-proj-2", thirdID, "1792000000000"))
+	write(t, filepath.Join(w.checkout, ".claude/ccy/pingbus/sessions/ccy-proj-2/applied.json"), applied(t, "dev1@alpha"))
+	got, err := w.forSeats("dev1@alpha")
+	mustRefuse(t, got, err, "ccy-proj-2", thirdID, "no older one is resumed")
+	if !errors.Is(err, ErrNoSeatConversation) {
+		t.Errorf("refusal %v is not ErrNoSeatConversation", err)
+	}
+	// A repair newer than the unusable record is resumed.
+	w.transcriptFor(otherID)
+	if err := SetSeats(w.checkout, "dev1@alpha", otherID, w.where(), 1793000000000); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := w.forSeats("dev1@alpha"); err != nil || got.ID != otherID {
+		t.Errorf("after --set: %+v, %v; want %s", got, err, otherID)
 	}
 }
 

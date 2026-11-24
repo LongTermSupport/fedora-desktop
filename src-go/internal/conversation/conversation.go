@@ -234,7 +234,8 @@ type entry struct {
 	writtenMS int64
 }
 
-// readRecorded is read with the record's written_ms.
+// readRecorded is read with the record's written_ms, which it also gives when the record names
+// a conversation with no transcript.
 func readRecorded(rec registry.Record, where Where) (entry, error) {
 	if !discover.LaunchedWithBus(rec) {
 		return entry{}, errors.New("it was launched without the agent team bus (ccy --no-bus, or a cc without --teams or --bus), so its conversation is not recorded")
@@ -259,7 +260,7 @@ func readRecorded(rec registry.Record, where Where) (entry, error) {
 		return entry{}, err
 	}
 	if _, err := transcript.For(dir, r.id); err != nil {
-		return entry{}, fmt.Errorf("the recorded conversation %s (%s) has no transcript (%w): %w", r.id, loc.Path, errNoTranscript, err)
+		return entry{writtenMS: r.writtenMS}, fmt.Errorf("the recorded conversation %s (%s) has no transcript (%w): %w", r.id, loc.Path, errNoTranscript, err)
 	}
 	return r, nil
 }

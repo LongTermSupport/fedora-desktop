@@ -22,8 +22,8 @@ const (
 	flagRelaunch = "--relaunch"
 )
 
-// SeatResume is `ccy-teams internal seat-resume <seats> [--fresh] [--rebind] [--relaunch] --
-// <claude args...>` (issue 417): which conversation a ccy launch that takes seats starts in.
+// SeatResume is `ccy-teams internal seat-resume <seats> [--relaunch] <before> -- <claude
+// args...>` (issue 417): which conversation a ccy launch that takes seats starts in.
 // The launcher runs it right after the seat check, before any prompt, and appends
 // `--resume <id>` to claude's arguments when it prints an id. Exit 64 refuses the launch.
 //
@@ -33,7 +33,10 @@ const (
 //   - a bare --resume or -r (Claude Code's picker, ruling Q70), or one whose value is not a
 //     session id, and --session-id: left as they are; --rebind is refused with them.
 //   - --resume <id>: left as it is when no named seat has a pointer or every pointer is that id;
-//     another id is refused unless --rebind or --relaunch.
+//     another id is refused unless --rebind or --relaunch, and a relaunch is refused too when
+//     that pointer is a repair (--set) newer than the session's record: the repair wins.
+//   - every lookup here saves the pointers it moves (conversation.SaveSeats), because the
+//     launch may reuse a session folder whose records the pointers are taken from.
 //   - none of these: the conversation the seats agree on (conversation.ForSeats) is printed;
 //     when none can be named the case is given with both ways on, the repair
 //     (`ccy-teams seats conversation <seats> --set <id>`) and `ccy --teams <seats> --fresh`.
@@ -50,7 +53,8 @@ type selection struct {
 }
 
 const seatResumeUsage = "ccy-teams internal seat-resume: usage: ccy-teams internal seat-resume <seats> " +
-	"[--fresh] [--rebind] [--relaunch] -- <claude arguments...>. See ccy-teams --help."
+	"[--relaunch] <before> -- <claude arguments...>, <before> being how many of claude's arguments " +
+	"came before the launcher's --; it prints, NUL separated, the new count and claude's arguments. See ccy-teams --help."
 
 // Run is the command over its arguments (after `internal seat-resume`): `<seats> [--relaunch]
 // <before> -- <args...>`, args being the launcher's arguments for claude of which the first
@@ -160,32 +164,39 @@ func (r *SeatResume) chosen(list string, sel selection, fresh, rebind, relaunch 
 	case rebind && sel.id == "":
 		return say(r.Stderr, term.ExitUsage, "ccy: --rebind goes with --resume <id>: it points the seats at that conversation. Drop it, or name the conversation.")
 	case sel.id != "" && !sel.picker && !sel.sessionID:
-		return r.explicit(list, sel.id, rebind || relaunch)
+		return r.explicit(list, sel.id, rebind, relaunch)
 	}
 	return term.ExitOK
 }
 
 // explicit is --resume <id>: refused when a named seat points at another conversation, unless
-// rebinding.
-func (r *SeatResume) explicit(list, id string, rebinding bool) term.ExitCode {
+// rebinding or relaunching; a relaunch is refused too when that pointer is a repair (--set)
+// newer than the session's record, which the lookup's harvest has already compared.
+func (r *SeatResume) explicit(list, id string, rebinding, relaunch bool) term.ExitCode {
 	wd, err := r.Getwd()
 	if err != nil {
 		return say(r.Stderr, term.ExitFailure, "ccy-teams internal seat-resume: the working directory: "+err.Error())
 	}
-	seats, err := conversation.LookupSeats(wd, list, conversation.Here(r.Getenv))
+	seats, err := conversation.SaveSeats(wd, list, conversation.Here(r.Getenv))
 	if err != nil {
 		return say(r.Stderr, term.ExitUsage, "ccy: the conversation recorded for "+list+" cannot be read: "+err.Error())
 	}
-	var other []conversation.SeatPointer
+	var other, repaired []conversation.SeatPointer
 	for _, p := range seats.Pointers {
 		if p.ID != id {
 			other = append(other, p)
+			if p.SetByHand() {
+				repaired = append(repaired, p)
+			}
 		}
 	}
 	switch {
 	case len(other) == 0:
 		return term.ExitOK
-	case rebinding:
+	case relaunch && len(repaired) > 0:
+		return say(r.Stderr, term.ExitUsage, "ccy refuses to relaunch "+list+" in its old conversation "+id+": a seat was pointed at another one by hand after the session recorded it, and the repair wins:\n"+
+			conversation.Describe(repaired)+"\n  Launch the seats in the conversation they point at:\n    ccy --teams "+list)
+	case rebinding || relaunch:
 		return say(r.Stderr, term.ExitOK, "ccy: rebinding "+list+" to the conversation "+id+"; until now:\n"+conversation.Describe(other))
 	}
 	return say(r.Stderr, term.ExitUsage, "ccy refuses --resume "+id+" for "+list+": the seats' record names another conversation, "+
@@ -201,7 +212,11 @@ func (r *SeatResume) recorded(list string) (string, term.ExitCode) {
 	if err != nil {
 		return "", say(r.Stderr, term.ExitFailure, "ccy-teams internal seat-resume: the working directory: "+err.Error())
 	}
-	got, err := conversation.ForSeats(wd, list, conversation.Here(r.Getenv))
+	seats, err := conversation.SaveSeats(wd, list, conversation.Here(r.Getenv))
+	var got conversation.Seated
+	if err == nil {
+		got, err = seats.Resolve()
+	}
 	if err != nil {
 		return "", say(r.Stderr, term.ExitUsage, "ccy: no conversation of "+list+" can be resumed: "+err.Error()+"\n"+
 			"  Repair the record, pointing the seats at the right conversation (its transcript must be in this checkout):\n"+

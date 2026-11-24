@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
@@ -45,6 +46,34 @@ type pointerV1 struct {
 	Session   string `json:"session"`
 	Source    string `json:"source"`
 	WrittenMS *int64 `json:"written_ms"`
+}
+
+// SetByHand is whether the pointer is a repair (`ccy-teams seats conversation --set`).
+func (p SeatPointer) SetByHand() bool { return p.Source == sourceSet }
+
+// indexLocked, when set (tests only), is called with the lock file's path once the index lock is
+// held, before any pointer is read.
+var indexLocked func(lockPath string)
+
+// withIndexLock runs fn holding the checkout's seat index lock (flock(2) on its .lock file), so
+// a pointer is read, compared and written by one writer at a time.
+func withIndexLock(checkout string, fn func() error) error {
+	dir := filepath.Join(checkout, seatIndexDir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("could not make %s: %w", dir, err)
+	}
+	path := filepath.Join(dir, ".lock")
+	f, err := os.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return fmt.Errorf("could not open the seat index lock %s: %w", path, err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return errors.Join(fmt.Errorf("could not lock %s: %w", path, err), f.Close())
+	}
+	if indexLocked != nil {
+		indexLocked(path)
+	}
+	return errors.Join(fn(), f.Close())
 }
 
 func pointerPath(checkout, seat string) string {
@@ -116,11 +145,13 @@ func SetSeats(checkout, list, id string, where Where, nowMS int64) error {
 	if _, err := transcript.For(dir, id); err != nil {
 		return fmt.Errorf("the conversation %s has no transcript in this checkout, so it cannot be resumed here: %w", id, err)
 	}
-	for _, s := range seats {
-		p := SeatPointer{Seat: s.Seat + "@" + s.Team, ID: id, Source: sourceSet, WrittenMS: nowMS}
-		if err := writePointer(checkout, p); err != nil {
-			return err
+	return withIndexLock(checkout, func() error {
+		for _, s := range seats {
+			p := SeatPointer{Seat: s.Seat + "@" + s.Team, ID: id, Source: sourceSet, WrittenMS: nowMS}
+			if err := writePointer(checkout, p); err != nil {
+				return err
+			}
 		}
-	}
-	return nil
+		return nil
+	})
 }

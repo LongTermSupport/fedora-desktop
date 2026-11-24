@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.125.1 — container 2.84.78
+## 3.125.2 — container 2.84.78
 
 **Behaviour change:** a plain `ccy --teams <seats>` now resumes the conversation recorded for
 those seats, with no id typed, where it used to start a new one (issue #417). A launch that

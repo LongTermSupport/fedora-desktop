@@ -196,20 +196,32 @@ func TestForSeatsTakesTheNewerOfTwoSessionsThatHeldTheSeat(t *testing.T) {
 	}
 }
 
-// The seats of a session that took them together (recorded too) share its conversation; a
-// launch of either alone, or both, resumes it.
-func TestForSeatsResolvesAConversationTwoSeatsShare(t *testing.T) {
+// 5: one conversation recorded by two sessions that hold seats right now would have two
+// sessions resume one transcript: refused, naming both.
+func TestForSeatsRefusesOneConversationOfTwoHoldingSessions(t *testing.T) {
 	w := newWorld(t)
 	w.v1Session("ccy-proj", id, "1792000000000", "1@alpha")
 	w.v1Session("ccy-proj-3", id, "1791000000000", "3@other")
 	w.v1Session("ccy-proj-4", thirdID, "1793000000000")
 	for _, list := range []string{"1@alpha", "3@other", "1@alpha,3@other"} {
 		got, err := w.forSeats(list)
+		mustRefuse(t, got, err, id, "ccy-proj (seats 1@alpha)", "ccy-proj-3 (seats 3@other)")
+	}
+}
+
+// 5: a session whose seat a newer session holds is gone; the conversation both recorded is the
+// newer session's, and resolves.
+func TestForSeatsResolvesAConversationOfAGoneSession(t *testing.T) {
+	w := newWorld(t)
+	w.v1Session("ccy-proj", id, "1792000000000", "1@alpha")
+	w.v1Session("ccy-proj-3", id, "1793000000000", "1@alpha", "3@other")
+	for _, list := range []string{"1@alpha", "3@other", "1@alpha,3@other"} {
+		got, err := w.forSeats(list)
 		if err != nil {
 			t.Fatalf("%s: %v", list, err)
 		}
-		if got.ID != id {
-			t.Errorf("%s: ForSeats = %+v, want %s", list, got, id)
+		if got.ID != id || got.Session != "ccy-proj-3" {
+			t.Errorf("%s: ForSeats = %+v, want %s of ccy-proj-3", list, got, id)
 		}
 	}
 }

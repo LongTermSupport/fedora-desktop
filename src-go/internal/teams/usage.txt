@@ -359,16 +359,20 @@ Usage:
                                    agent-bus seat check or take for an agent-bus list; for a
                                    teamchat list, check prints the canonical <seat>@<team> list
                                    and take does nothing (launch-args took the seats)
-  ccy-teams internal seat-resume <seats> [--fresh] [--rebind] [--relaunch] -- <claude args...>
-                                   print the conversation id a seated ccy launch resumes, or
-                                   nothing when claude's arguments choose (a bare --resume, the
-                                   picker; --session-id; --resume <id>, refused (64) when a seat
-                                   points at another conversation unless --rebind, or
-                                   --relaunch for a restore or relaunch) or --fresh starts a new
+  ccy-teams internal seat-resume <seats> [--relaunch] <before> -- <claude args...>
+                                   claude's arguments for a seated ccy launch, <before> of them
+                                   before the launcher's --: prints, NUL separated, the new
+                                   count before it and the arguments, ccy's --fresh and
+                                   --rebind taken out and --resume <id> added when the seats'
+                                   recorded conversation is resumed. Left as they are when they
+                                   choose (a bare --resume, the picker; --session-id; --resume
+                                   <id>, refused (64) when a seat points at another conversation
+                                   unless --rebind, or --relaunch for a restore or relaunch,
+                                   which a newer --set repair refuses) or --fresh starts a new
                                    one. -c/--continue is refused (64), naming the plain launch.
                                    With no conversation to resume: exit 64, the case, the repair
-                                   (seats conversation <seats> --set <id>) and --fresh. ccy calls
-                                   it after the seat check
+                                   (seats conversation <seats> --set <id>) and --fresh. It saves
+                                   the seats' pointers; ccy calls it after the seat check
   ccy-teams internal bus-disconnected <status> <pingbus> seat disconnected --root <dir> --session <name> --since <ms>
                                    ccy's exit: pingbus for an agent-bus root. For a teamchat
                                    session, by the container's exit status: 75 (a relaunch)
