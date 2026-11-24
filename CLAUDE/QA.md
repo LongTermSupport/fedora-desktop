@@ -1225,8 +1225,8 @@ whether the gates read it. Each gate's real-engine test (`TestTheRealEngineReads
 in its command package) finds its rule's hit in every named file and none in the supervisor.
 The gate's `Reader` shares the same scope, so `qa-changed` never drops a gate it planned for a
 change to one of these files. Which gates it plans is `scripts/qa-routing.tsv`: `check arch-pin`
-for the Dockerfile; no row routes the config files, so the whole-tree runs of `qa-all` and CI
-judge them.
+for the Dockerfile, and every semgrep rule gate for a change to one of the config files
+(`TestTheSemgrepGatesRunForTheCCYConfigTheyStillRead`).
 
 **Why it exists.** A second list of trees that are not ours drifts from the first. The semgrep
 rules of the ghscopes engine carried their own `paths.exclude`, and bash-limits its own
