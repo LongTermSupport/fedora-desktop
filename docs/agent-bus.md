@@ -613,7 +613,10 @@ new seat, numbered with the lowest number no seat or active member of the same
 chosen `<seat>@<team>` into the launch's arguments, so a restart or a restore comes back in
 the same seat. Choosing a held seat leads to the re-attach offer for the session that holds
 it ([ccy.md](ccy.md#sessions-survive-the-terminal)). A launch with nobody to answer
-(headless, no terminal, a restore, a restart) must name the seat. Team names are
+(headless, no terminal, a restore, a restart) must name the seat. On a teamchat (v2) team a
+launch also needs a session record, which only a launch at a terminal outside ccy's tmux writes;
+a headless or terminal-less launch is refused (78) unless the session was declared with
+`ccy-sessions declare` and started with `ccy-sessions restore`. Team names are
 lower-case. `--teams LongTermSupport` is answered with `longtermsupport` and
 `long-term-support`.
 
@@ -791,8 +794,11 @@ sudo; the chooser lists the checkout's teamchat teams and the consent names the 
 handle. `ccy-teams internal cc-run` runs the session under `teamchat run --kind host` with the
 seat store's directories for that session, so `ccy --stop`, `ccy-sessions` restore and a team
 restart read its conversation from the seat store, and its end releases the seats (a killed
-pane keeps them until the seat sweep finds the session gone). It must be started inside ccy's
-tmux, which names the session; a list on both systems, and `cc --bus`, stay agent-bus only.
+pane keeps them until the seat sweep finds the session gone). It must be started at a terminal
+outside ccy's tmux: cc then moves itself into a tmux session ccy manages, which names the
+session and writes its session record. A cc started with no terminal, or inside ccy's tmux in a
+session no record names, has no record, and its take is refused (78), because the seat sweep releases the seat of a session
+with no record. A list on both systems, and `cc --bus`, stay agent-bus only.
 Design: Plan 00209 `DESIGN-host-cc-v2.md`.
 
 It runs as you, with no dedicated agent user, so it can reach what you can, including the

@@ -253,7 +253,7 @@ func deepMerge(a, b []byte) (json.RawMessage, error) {
 // ccRunTeamchat is H1's line, run as a child.
 func (v *Verbs) ccRunTeamchat(ctx context.Context, l ccLaunch) (term.ExitCode, error) {
 	if l.session == "" {
-		return 0, fmt.Errorf("%w: cc outside ccy's tmux has none, and the seat sweep could judge its seats over while it runs; start cc in a tmux session ccy manages", ErrNoSession)
+		return 0, fmt.Errorf("%w: cc outside ccy's tmux has none, and the seat sweep could judge its seats over while it runs; start cc at a terminal outside ccy's tmux, which moves it into a ccy tmux session and writes its session record", ErrNoSession)
 	}
 	name, err := paths.ParseSessionName(l.session)
 	if err != nil {

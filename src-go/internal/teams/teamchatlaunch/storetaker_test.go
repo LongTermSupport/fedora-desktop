@@ -93,11 +93,20 @@ func (w storeWorld) heldBy(t *testing.T, s seat.Seat) bool {
 	return err == nil
 }
 
+// sessionSeat makes the session's seat directory of the team, as a finished take leaves it.
+func (w storeWorld) sessionSeat(t *testing.T, session paths.SessionName, s seat.Seat) {
+	t.Helper()
+	if err := os.MkdirAll(w.paths.SessionSeat(session, s.Team).Dir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A relaunch or a restore launches the session again on the seats it still holds: those are
 // kept as they are, not taken again (which would refuse them as held by a restorable session).
 func TestStoreTakerKeepsTheSeatsTheSessionHolds(t *testing.T) {
 	w := newStoreWorld(t)
 	s1 := mustSession(t, "s1")
+	w.sessionSeat(t, s1, w.held)
 	if err := w.taker.TakeAll(t.Context(), nil); err != nil {
 		t.Fatalf("nothing to take: %v", err)
 	}
@@ -113,10 +122,22 @@ func TestStoreTakerKeepsTheSeatsTheSessionHolds(t *testing.T) {
 	}
 }
 
+// A held/ naming the session with no seat directory and no live keeper is the session's own take
+// that stopped part way (X10): it holds nothing, so the launch takes the seat again through the
+// store rather than keeping it. This pool has no credential, so reaching the take is ErrIncomplete.
+func TestStoreTakerTakesAgainTheSessionsUnfinishedTake(t *testing.T) {
+	w := newStoreWorld(t)
+	err := w.taker.TakeAll(t.Context(), []seat.Take{{Seat: w.held, Session: mustSession(t, "s1"), State: seat.StateNoRoster}})
+	if !errors.Is(err, seat.ErrIncomplete) {
+		t.Fatalf("the session's unfinished take was kept, not taken again: %v", err)
+	}
+}
+
 // A take that fails releases nothing it did not take: the session's own seat stays held.
 func TestStoreTakerRefusesWhatThePoolDoesNotHave(t *testing.T) {
 	w := newStoreWorld(t)
 	s1 := mustSession(t, "s1")
+	w.sessionSeat(t, s1, w.held)
 	err := w.taker.TakeAll(t.Context(), []seat.Take{
 		{Seat: w.held, Session: s1, State: seat.StateNoRoster}, {Seat: w.other, Session: s1, State: seat.StateNoRoster},
 	})

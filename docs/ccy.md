@@ -1460,7 +1460,10 @@ is not a yes): a headless launch, a launch with no terminal and a restore take t
 keys and network but never the saved team, and the summary shows their team as none. A restore
 takes `--teams` from the session's own registry record instead, so a restored team session
 keeps its team and a session launched without one restores without one. A seat that is new joins as a worker. A launch with nobody to answer (headless, no terminal, a
-restore, a restart) must name the seat, and is refused (64) otherwise. Just before the container starts, `agent-bus seat take` creates any seat that does
+restore, a restart) must name the seat, and is refused (64) otherwise. On a teamchat (v2) team
+a headless or terminal-less launch is refused (78) unless the session was declared with
+`ccy-sessions declare` and started with `ccy-sessions restore`: the seat sweep releases the seat
+of a session with no record, and only a launch at a terminal writes one. Just before the container starts, `agent-bus seat take` creates any seat that does
 not exist yet (one `sudo agent-bus add-member`; a headless launch, a restore or a restart
 uses only sudo's cached credential) and refuses a seat another session holds (75). The
 seats go into the session's desired membership (below); its entrypoint claims every seat,
@@ -1489,7 +1492,8 @@ team. A plain session and a `--no-bus` one both accept no inbound; they differ b
 the plugin (its hooks end in the shell), the status line wrapper and, later, the seat keeper
 process. A `ccy`
 run in a plain terminal has no session name: without `--teams` it carries no kit, and with
-`--teams` its membership is named after its container and cannot be changed while it runs. `agent-bus` comes from `play-agent-bus.yml`. Seats, their
+`--teams` its membership is named after its container and cannot be changed while it runs (on
+a teamchat team it is refused, 78, having no session record). `agent-bus` comes from `play-agent-bus.yml`. Seats, their
 names and their reuse are in [agent-bus.md](agent-bus.md); the protocol is in
 [agent-bus-protocol.md](agent-bus-protocol.md).
 

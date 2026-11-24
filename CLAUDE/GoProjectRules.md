@@ -1899,7 +1899,9 @@ ST0) asks the session record and refuses a session with none (`ErrNoRecord`).
 
 - Red, fixture: `testdata/src/seathold/bad/internal/teamchat/seat` (the originating `Take`
   with no record asked, a holding made by another method, and one that asks only after it
-  holds); `seathold/good/...` (a `Take` that asks first) clean.
+  holds); `seathold/late/...` (a `Take` that asks only after it holds);
+  `seathold/good/...` (a `Take` that asks first) clean. The rule checks order only: a `Take`
+  that asks and ignores the answer is review's to catch.
 - Red, real tree: one finding, `internal/teamchat/seat/take.go` (`Take`) at the F44 tip before
   the fix.
 - Green: `Take` asks `Sessions.Restorable` first and returns `ErrNoRecord` for a session with
