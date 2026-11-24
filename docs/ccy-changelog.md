@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.29 — container 2.84.68
+
+`ccy-sessions verify-restore` says why a restored session is still `SETTING-GOING` (issue
+#395). Host only: `ccy-sessions` is rebuilt by `play-claude-yolo.yml`; the image is unchanged
+from 3.124.21.
+
+- **A session still waiting to be set going is explained.** For each session that
+  `set-going` has not yet typed into, verify-restore says on stderr whether a
+  `ccy-sessions set-going` is running to do it, or that none is and `ccy-sessions set-going`
+  is the command to run once the boot's own set-going unit has ended. Skipping set-going is no longer the advice: since 3.124.23 (#391) it
+  sees a running turn in the newer Claude Code layout and does not type into it.
+
 ## 3.124.25 — container 2.84.68
 
 One stale session record no longer fails every restore on the host (issue #396). Host only:

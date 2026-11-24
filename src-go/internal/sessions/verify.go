@@ -87,12 +87,48 @@ func (a *App) verifyRestore(ctx context.Context, args []string) term.ExitCode {
 	a.out(strings.Join(states, "\n") + "\n")
 	if !allOK(states) {
 		a.sayf("Not every restored session is running and past its prompts; attach with ccy-sessions to answer or look.\n")
+		if err = a.sayAwaitingSetGoing(store, states); err != nil {
+			return a.failed(err)
+		}
 		if slices.ContainsFunc(states, func(s string) bool { return strings.Contains(s, " "+string(restore.StateNotStarted)+" ") }) {
 			a.sayf("A session NOT-STARTED was never started by this boot's restore; journalctl --user -u ccy-sessions-restore -b --no-pager | cat says why, and its record is kept.\n")
 		}
 		return term.ExitFailure
 	}
 	return term.ExitOK
+}
+
+// sayAwaitingSetGoing says, for each session still SETTING-GOING whose entry set-going has not
+// touched, whether a set-going is running to type into it or none is, so a restore whose
+// set-going never ran is not failed without a word of why (issue #395).
+func (a *App) sayAwaitingSetGoing(store *restore.Store, states []string) error {
+	m, err := store.Read()
+	if err != nil {
+		a.failErr(err)
+		return errReported
+	}
+	var waiting []string
+	for _, e := range m.Entries {
+		if e.Going == restore.GoingPending && slices.Contains(states, e.Name+" "+string(restore.StateSettingGoing)) {
+			waiting = append(waiting, e.Name)
+		}
+	}
+	if len(waiting) == 0 {
+		return nil
+	}
+	running, err := store.SetGoingRunning()
+	if err != nil {
+		a.failErr(err)
+		return errReported
+	}
+	for _, name := range waiting {
+		if running {
+			a.sayf("%s is still waiting to be set going; a ccy-sessions set-going is running and is to do it.\n", name)
+			continue
+		}
+		a.sayf("%s is still waiting to be set going, and no ccy-sessions set-going is running to do it: once journalctl --user -u ccy-sessions-set-going -b --no-pager | cat shows this boot's has ended or never started, run ccy-sessions set-going.\n", name)
+	}
+	return nil
 }
 
 // settledStates looks again until the restore has settled: every session OK, or none still

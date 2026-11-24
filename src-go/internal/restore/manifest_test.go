@@ -486,6 +486,43 @@ func TestSetGoingLock(t *testing.T) {
 	}
 }
 
+func TestSetGoingRunningIsWhetherASetGoingHoldsItsLock(t *testing.T) {
+	s := newStore(t)
+	if running, err := s.SetGoingRunning(); err != nil || running {
+		t.Fatalf("no lock file yet: %v %v", running, err)
+	}
+	release, err := s.LockSetGoing(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if running, probeErr := s.SetGoingRunning(); probeErr != nil || !running {
+		t.Fatalf("held: %v %v", running, probeErr)
+	}
+	if err = release(); err != nil {
+		t.Fatal(err)
+	}
+	if running, probeErr := s.SetGoingRunning(); probeErr != nil || running {
+		t.Fatalf("released: %v %v", running, probeErr)
+	}
+	again, err := s.LockSetGoing(0)
+	if err != nil {
+		t.Fatalf("the probe must not keep the lock: %v", err)
+	}
+	if err = again(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSetGoingRunningCannotOpenTheLock(t *testing.T) {
+	s := newStore(t)
+	if err := os.MkdirAll(s.Path+".set-going.lock", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetGoingRunning(); err == nil || !strings.Contains(err.Error(), "could not open set-going's lock") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestSetGoingLockCreatesTheStateDirectoryAThisBootWithNoRestoreLacks(t *testing.T) {
 	s := &Store{Path: filepath.Join(t.TempDir(), "state", "last-restore")}
 	release, err := s.LockSetGoing(0)

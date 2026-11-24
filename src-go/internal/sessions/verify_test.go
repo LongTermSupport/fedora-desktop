@@ -307,6 +307,52 @@ func TestVerifyRestoreReportsWhatSetGoingLeftAlone(t *testing.T) {
 	}
 }
 
+func TestVerifyRestoreSaysWhetherASetGoingIsComingForASessionStillWaiting(t *testing.T) {
+	h := verifyHost(t)
+	writeEntries(t, h, kept("ccy-a", "ccy", "/srv/a"), pending("cc-c", "cc", "/srv/a"))
+	h.sessions("ccy-a 0 /srv/a", "cc-c 0 /srv/a")
+	showScreen(h, "ccy-a", "claude is running\n")
+	showScreen(h, "cc-c", "claude is running\n")
+	report, code := verifyReport(h)
+	if code != 1 || report != "ccy-a OK|cc-c SETTING-GOING" {
+		t.Fatalf("%d %q", code, report)
+	}
+	notRun := "cc-c is still waiting to be set going, and no ccy-sessions set-going is running to do it: once journalctl --user -u ccy-sessions-set-going -b --no-pager | cat shows this boot's has ended or never started, run ccy-sessions set-going."
+	if !strings.Contains(h.stderr(), notRun) {
+		t.Fatalf("no set-going running: stderr %q", h.stderr())
+	}
+
+	release, err := manifestStore(t, h).LockSetGoing(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if releaseErr := release(); releaseErr != nil {
+			t.Error(releaseErr)
+		}
+	})
+	report, code = verifyReport(h)
+	if code != 1 || report != "ccy-a OK|cc-c SETTING-GOING" {
+		t.Fatalf("%d %q", code, report)
+	}
+	running := "cc-c is still waiting to be set going; a ccy-sessions set-going is running and is to do it"
+	if !strings.Contains(h.stderr(), running) || strings.Contains(h.stderr(), notRun) {
+		t.Fatalf("a set-going running: stderr %q", h.stderr())
+	}
+}
+
+func TestVerifyRestoreSaysNothingOfSetGoingForASessionTypedInto(t *testing.T) {
+	h := verifyHost(t)
+	e := kept("ccy-a", "ccy", "/srv/a")
+	e.Going, e.Detail = restore.GoingUntouched, "busy-before-set-going"
+	writeEntries(t, h, e)
+	h.sessions("ccy-a 0 /srv/a")
+	showScreen(h, "ccy-a", "claude is running\n")
+	if _, code := verifyReport(h); code != 1 || strings.Contains(h.stderr(), "waiting to be set going") {
+		t.Fatalf("%d stderr %q", code, h.stderr())
+	}
+}
+
 func TestVerifyRestoreIsAFailureWhenAProbeFails(t *testing.T) {
 	// A screen that cannot be read fails the whole report: "could not look" is not "dead".
 	h := verifyHost(t)
