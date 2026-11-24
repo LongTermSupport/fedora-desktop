@@ -164,6 +164,28 @@ func TestRemoveDeclaredKeepsDataAfterBackup(t *testing.T) {
 	}
 }
 
+// Issue 417: a team taken down forgets its seats' conversation pointers, so a team recreated
+// under the name resumes nothing of the old one; a failure to forget them is the run's failure.
+func TestRemoveForgetsTheTeamsSeatConversations(t *testing.T) {
+	r := removeRig(t)
+	var forgot []string
+	r.ops.ForgetTeam = func(team string) error {
+		forgot = append(forgot, team)
+		return nil
+	}
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 0 {
+		t.Fatalf("code %d: %s", code, r.said())
+	}
+	if !slices.Equal(forgot, []string{"alpha"}) || !strings.Contains(r.said(), "conversation pointers are removed") {
+		t.Errorf("forgot %q, said %q", forgot, r.said())
+	}
+	r = removeRig(t)
+	r.ops.ForgetTeam = func(string) error { return errors.New("cannot remove x") }
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 1 || !strings.Contains(r.said(), "cannot remove x") {
+		t.Errorf("a failed forget: code %d, said %q", code, r.said())
+	}
+}
+
 func TestRemoveTakesTheTeamsLiveSessionsOffItFirst(t *testing.T) {
 	r := removeRig(t)
 	in := []string{"ccy-a", "ccy-b"}

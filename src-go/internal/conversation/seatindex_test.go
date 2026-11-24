@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
@@ -279,6 +280,54 @@ func TestTheNewestRecordUnusableIsRefused(t *testing.T) {
 	}
 	if got, err := w.forSeats("dev1@alpha"); err != nil || got.ID != otherID {
 		t.Errorf("after --set: %+v, %v; want %s", got, err, otherID)
+	}
+}
+
+// 6: a team taken down loses its seats' pointers in every checkout the session registry names,
+// so a team recreated under the name resumes nothing of the old one; other teams' stay.
+func TestForgetTeamRemovesItsPointersInEveryCheckout(t *testing.T) {
+	w := newWorld(t)
+	other := t.TempDir()
+	state := t.TempDir()
+	reg := registry.New(filepath.Join(state, "sessions"))
+	if err := os.MkdirAll(reg.Dir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, dir := range map[string]string{"ccy-p": w.checkout, "ccy-q": other} {
+		if err := reg.Write(registry.Record{
+			Name: name, Dir: dir, Launcher: "/usr/local/bin/ccy", Prefix: "ccy", Restore: true,
+			Args: []string{"--teams", "dev1@alpha"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ow := &world{t: t, checkout: other}
+	for _, x := range []*world{w, ow} {
+		x.pointer("dev1@alpha", id, "", "set", "1")
+		x.pointer("qa@alpha", id, "", "set", "1")
+		x.pointer("dev1@beta", id, "", "set", "1")
+	}
+	getenv := func(k string) string {
+		if k == "CCY_STATE_DIR" {
+			return state
+		}
+		return ""
+	}
+	if err := ForgetTeam(getenv, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	for _, x := range []*world{w, ow} {
+		for _, gone := range []string{"dev1@alpha", "qa@alpha"} {
+			if _, err := os.Lstat(x.indexPath(gone)); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("%s in %s survived: %v", gone, x.checkout, err)
+			}
+		}
+		if _, err := os.Lstat(x.indexPath("dev1@beta")); err != nil {
+			t.Errorf("another team's pointer was removed: %v", err)
+		}
+	}
+	if err := ForgetTeam(getenv, "../x"); err == nil {
+		t.Error("ForgetTeam accepted a team name that is not one")
 	}
 }
 

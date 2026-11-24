@@ -33,6 +33,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/placeissued"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -174,6 +175,7 @@ func Wire(h *host.Host) *App {
 	list.Settings = settings.New(h, kit, o.ApplyTeams, o.Locked, s.ChangeRole)
 	session := hot.New(h, kit, s.Roles)
 	o.SessionsIn, o.TakeOut = session.SessionsIn, session.TakeOut
+	o.ForgetTeam = func(team string) error { return conversation.ForgetTeam(h.Getenv, team) }
 	list.Session = session
 	chosen := chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams, o.Locked)
 	chosen.Probe = pick.Probe

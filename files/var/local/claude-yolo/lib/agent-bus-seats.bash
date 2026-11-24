@@ -59,7 +59,10 @@ ccy_seats_check() {
 # -c/--continue, a --resume <id> the seats' record does not name (without --rebind) and no
 # conversation to resume are refused (64), naming the plain launch, the repair and --fresh. A
 # restore, a team restart and the supervisor's relaunch, which resume the session's own
-# conversation, add --relaunch.
+# conversation, add --relaunch. A person who sets CCY_SESSION_RESTORE by hand gets it too, before
+# the launcher validates that variable; that grants nothing new, since --relaunch only lets a
+# --resume <id> rebind the seats as the --rebind anyone may type does, and a newer --set repair
+# still refuses it.
 #   status 0   CLAUDE_ARGS (and CLAUDE_ARGS_BEFORE_SEPARATOR) are what claude gets
 #   otherwise  ccy_seats_check's code, 64, or seat-resume's own code; the reason on stderr
 ccy_seats_launch() {

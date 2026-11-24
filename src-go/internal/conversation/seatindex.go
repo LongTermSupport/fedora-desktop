@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
@@ -119,6 +120,59 @@ func writePointer(checkout string, p SeatPointer) error {
 		return fmt.Errorf("could not encode the pointer of %s: %w", p.Seat, err)
 	}
 	return fsx.WriteAtomic(path, "seat conversation pointer", append(data, '\n'), 0o600)
+}
+
+// ForgetTeam removes the pointer of every seat of team in every checkout the session registry
+// (getenv's) names, each under its index lock: what a team taken down does, so a team later
+// recreated under the name resumes nothing of the old one. A checkout no record names keeps its
+// pointers. An unreadable record is skipped (a record names a checkout, not the team).
+func ForgetTeam(getenv func(string) string, team string) error {
+	if _, _, err := parseList("x@" + team); err != nil {
+		return fmt.Errorf("%q is not a team name: %w", team, err)
+	}
+	store, err := registry.Locate(getenv)
+	if err != nil {
+		return err
+	}
+	list, err := store.List()
+	if err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, rec := range list.Records {
+		checkout, err := checkoutOf(rec)
+		if err != nil || seen[checkout] {
+			continue
+		}
+		seen[checkout] = true
+		if err := forgetIn(checkout, team); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// forgetIn removes the pointers of team's seats in one checkout.
+func forgetIn(checkout, team string) error {
+	dir := filepath.Join(checkout, seatIndexDir)
+	if _, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return withIndexLock(checkout, func() error {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return fmt.Errorf("could not list %s: %w", dir, err)
+		}
+		for _, e := range entries {
+			if !strings.HasSuffix(e.Name(), "@"+team+".json") {
+				continue
+			}
+			if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+				return fmt.Errorf("could not remove %s: %w", filepath.Join(dir, e.Name()), err)
+			}
+		}
+		return nil
+	})
 }
 
 // transcriptDir is where this checkout's ccy conversations keep their transcripts.

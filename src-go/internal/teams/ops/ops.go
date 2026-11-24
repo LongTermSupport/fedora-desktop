@@ -77,6 +77,9 @@ type Ops struct {
 	// TakeOut takes one off it while it runs (ccy-teams session remove), saying each step;
 	// whether it did.
 	SessionsIn func(ctx context.Context, team string) ([]string, error)
+	// ForgetTeam, when set, removes the team's seat conversation pointers in every checkout
+	// (conversation.ForgetTeam) once the team is down (issue 417).
+	ForgetTeam func(team string) error
 	TakeOut    func(ctx context.Context, session, team string) bool
 
 	// PlayLock takes the host's play lock, the one every play run shares; PlayLockWait bounds
