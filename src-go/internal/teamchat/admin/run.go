@@ -166,7 +166,7 @@ func buildTable() []verb {
 	group(ClassRoot, "lxc", "apply", "restart", "start")
 	group(ClassRoot, "check")
 	group(ClassRoot, "migrate", "preflight", "stage", "fence", "fence-status", "capture", "carry", "commit",
-		"accept", "archive", "archive-check", "unfence", "rollback")
+		"accept", "archive", "archive-check", "unfence", "rollback", "export", "export-verify")
 	group(ClassRoot, "footprint")
 	table = append(table, verb{name: "ctl-child", class: ClassCtl, run: ctlChild})
 	group(ClassOther, "declare", "check")

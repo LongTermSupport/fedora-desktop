@@ -88,7 +88,7 @@ func TestTheVerbTableOnACarriedTeam(t *testing.T) {
 				form := strings.Join(append([]string{name}, extra...), " ")
 				got := w.runAs(class, args...)
 				refused := got.code == ExitRefused && strings.Contains(got.stderr, record) && strings.Contains(got.stderr, g.way)
-				admitted := g.admits[form] || class != ClassRoot
+				admitted := g.admits[form] || class != ClassRoot || namesV1Team[name]
 				if admitted == refused {
 					t.Errorf("%s: %s = %+v, admitted %v", state, form, got, admitted)
 				}
@@ -125,7 +125,7 @@ func TestTheVerbTableOnADrillImport(t *testing.T) {
 		for name, class := range specVerbs() {
 			got := w.runAs(class, append(strings.Fields(name), "--team", "alpha")...)
 			refused := got.code == ExitRefused && strings.Contains(got.stderr, never)
-			if want := kind == carry.KindDrill && !admitted[name] && class == ClassRoot; refused != want {
+			if want := kind == carry.KindDrill && !admitted[name] && !namesV1Team[name] && class == ClassRoot; refused != want {
 				t.Errorf("%s: %s = %+v, refusal wanted %v", kind, name, got, want)
 			}
 			if !refused && strings.Contains(got.stderr, never) {

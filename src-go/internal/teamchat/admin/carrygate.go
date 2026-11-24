@@ -15,12 +15,13 @@ const flagDrill = "drill"
 // carryGate is SG1: before a verb runs, the carry records of the team its --team names are
 // read, and while any is present the verb refuses (70), naming the record and the one way on,
 // unless every present record admits it. Then SG2: a drill import refuses every verb but its
-// check and its removal. A run with no --team, or a --team that is not a team
+// check and its removal. A verb whose --team names a v1 team (namesV1Team) is not judged here:
+// the records are a v2 team's. A run with no --team, or a --team that is not a team
 // id (the verb's own usage says so), is not judged here. The lock's guard (SG3) judges again
 // once a verb holds the lock.
 func carryGate(e Env, name string, args []string) error {
 	team, ok := namedTeam(args)
-	if !ok {
+	if !ok || namesV1Team[name] {
 		return nil
 	}
 	sys, err := e.wired()

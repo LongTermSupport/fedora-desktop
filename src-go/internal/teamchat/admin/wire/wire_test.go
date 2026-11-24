@@ -16,6 +16,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
+	v1 "github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/migrate/v1"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
@@ -109,6 +110,25 @@ func TestRestoreIsUnproven(t *testing.T) {
 	sys := build(t, &fakeMachine{root: t.TempDir()})
 	if engine, err := sys.Restore(); engine != nil || !errors.Is(err, restore.ErrUnproven) {
 		t.Fatalf("Restore = %v, %v", engine, err)
+	}
+}
+
+// Plan 00178: the v1 history export runs over the host's root, root as the owner of root's files,
+// the account database and the loopback client; building it reads nothing.
+func TestHistoryExportIsTheHosts(t *testing.T) {
+	f := &fakeMachine{root: t.TempDir(), owner: 7}
+	sys := build(t, f)
+	seam, err := sys.HistoryExport()
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, ok := seam.(v1.Exporter)
+	if !ok || x.Deps.Root != f.root || x.Deps.RootUID != 7 || x.Deps.HTTP == nil || x.Deps.Now == nil || x.Deps.Chown == nil || f.n != (counts{}) {
+		t.Fatalf("%T %+v %+v", seam, x.Deps, f.n)
+	}
+	acct, found, err := x.Deps.Lookup(paths.CtlUser)
+	if err != nil || !found || acct != (v1.Account{UID: 990, GID: 985}) || f.n.users != 1 {
+		t.Fatalf("%+v %v %v", acct, found, err)
 	}
 }
 

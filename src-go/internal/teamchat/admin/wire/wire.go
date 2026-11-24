@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"sync"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/hostnet"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
+	v1 "github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/migrate/v1"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
@@ -156,6 +158,13 @@ func (m machine) system(digest string) (*admin.System, error) {
 		Backup:     backups,
 		// X33: team rotate-ca replaces the CA, the leaf and the LXC record as apply writes files.
 		RotateWrite: state.WriteFile,
+		// Plan 00178: the v1 history export reads v1 as root over loopback (SPEC-v1-export E2, E7).
+		HistoryExport: func() (admin.HistoryExport, error) {
+			return v1.Exporter{Deps: v1.Deps{
+				Root: root, RootUID: int(stateOwnerUID), Lookup: m.account,
+				HTTP: matrix.LoopbackClient(v1.RequestLimit), Now: clock.Now, Chown: (*os.File).Chown,
+			}}, nil
+		},
 	}
 	sys.Restore = func() (admin.Restorer, error) {
 		if !m.restoreProven {
@@ -329,6 +338,12 @@ func (u restoreUnits) State(ctx context.Context, unit string) (restore.UnitState
 }
 
 func (u restoreUnits) Stop(ctx context.Context, unit string) error { return u.m.Stop(ctx, unit) }
+
+// account is a local account's ids as the v1 history export takes them.
+func (m machine) account(name string) (v1.Account, bool, error) {
+	u, found, err := m.lookupUser(name)
+	return v1.Account{UID: u.UID, GID: u.GID}, found, err
+}
 
 // systemClock is the wall clock: host.Clock and health.Clock.
 type systemClock struct{}

@@ -192,7 +192,7 @@ Use these Unicode icons in plan documents:
 
 - [00192-bash-line-in-the-sand-go-for-tooling](00192-bash-line-in-the-sand-go-for-tooling/) - In Progress (high priority). No more tooling in bash: the limits in `CLAUDE.md`, a Go gate with a ratchet allowlist, project DBF rules for `src-go/`, and the bash (then standalone Python) tools rewritten in Go, one feature branch per programme
 
-- [00178-agent-team-history-export](00178-agent-team-history-export/) - Not Started (low priority). Export an agent team's room history to JSON and Markdown for archiving, from `ccy-teams`
+- [00178-agent-team-history-export](00178-agent-team-history-export/) - In Progress (before v1's retirement). Export each v1 team's room history to JSON and Markdown with a verifiable digest: `teamchat-admin migrate export` and `export-verify`
 
 - [00177-ccy-teams-human-friendly](00177-ccy-teams-human-friendly/) - In Progress; the host agent's re-tests are left. `ccy-teams` made human friendly: honest failures (a refused sudo is not "no teams"), an offer to create a team when there is none, clear prompts, colour
 
