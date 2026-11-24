@@ -55,6 +55,8 @@ type System struct {
 	Carry func() (Carrier, error)
 	// RotateWrite replaces each file `team rotate-ca` replaces: state.WriteFile on a host.
 	RotateWrite host.FileWriter
+	// HistoryExport is the v1 history export of `migrate export` and `migrate export-verify`.
+	HistoryExport func() (HistoryExport, error)
 }
 
 // Child asks the teamchat-ctl child one request (CC1); its start is the seam's (n2a-D6).
@@ -113,7 +115,8 @@ func rootRuns() map[string]func(context.Context, Env, []string) term.ExitCode {
 		"backup": backupVerb, "backups": backupsVerb, "restore": restoreVerb,
 		"units list": unitsList, "units print": unitsPrint,
 		"human password": humanVerb(apply.OpHumanPassword), "human logout": humanVerb(apply.OpHumanLogout),
-		"human devices": humanVerb(apply.OpHumanDevices),
+		"human devices":   humanVerb(apply.OpHumanDevices),
+		verbMigrateExport: migrateExport, verbMigrateExportVerify: migrateExportVerify,
 	}
 	for _, op := range []string{apply.OpMemberAdd, apply.OpMemberReturn, apply.OpMemberReissue, apply.OpMemberPark, apply.OpMemberRetire, apply.OpMemberSet} {
 		runs["member "+strings.TrimPrefix(op, "member.")] = memberVerb(op)

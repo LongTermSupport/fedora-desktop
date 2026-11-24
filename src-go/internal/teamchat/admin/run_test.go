@@ -102,7 +102,7 @@ func specVerbs() map[string]Class {
 	}
 	add(ClassRoot, "lxc", "apply", "restart", "start")
 	add(ClassRoot, "migrate", "preflight", "stage", "fence", "fence-status", "capture", "carry", "commit",
-		"accept", "archive", "archive-check", "unfence", "rollback")
+		"accept", "archive", "archive-check", "unfence", "rollback", "export", "export-verify")
 	add(ClassCtl, "ctl-child")
 	add(ClassOther, "declare", "check")
 	add(ClassOther, "element", "check", "apply")
@@ -159,7 +159,10 @@ func wantBare(t *testing.T, name string, caller Class, got outcome) {
 }
 
 // flagsFirst are the built verbs that read their flags before their seams (SPEC-n2h HV4).
-var flagsFirst = map[string]bool{"human password": true, "human logout": true, "human devices": true}
+var flagsFirst = map[string]bool{
+	"human password": true, "human logout": true, "human devices": true,
+	"migrate export": true, "migrate export-verify": true,
+}
 
 // unbuilt is what a verb this build lacks says, or one built whose seams are not wired.
 func unbuilt(name string) string {

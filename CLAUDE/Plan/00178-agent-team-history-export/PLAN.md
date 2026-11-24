@@ -49,8 +49,9 @@ the admin token, and the event shapes.
   no cap, the JSONL and state writers, the `history.md` renderer over every v1 event shape, the
   digest, the atomic record directory and the verify step, each against a fake homeserver and
   a temporary tree.
-- [ ] ⬜ **Task 1.3**: The two `teamchat-admin migrate` verbs, with the human copy. The
-  `teamchat-keeps-off-v1` gate stays green: v1 names appear only in `migrate/v1`.
+- [x] ✅ **Task 1.3**: The two `teamchat-admin migrate` verbs, with the human copy. The
+  `teamchat-keeps-off-v1` gate stays green: v1 names appear only in `migrate/v1`. The carry gate
+  does not judge them: their `--team` names a v1 team, not a v2 one.
 - [ ] ⬜ **Task 1.4**: A plan script, `export.bash`, run through meta-deploy. It exports and
   verifies every v1 team on the host that is declared present, and names the absent ones. Then
   the `qa-reviewer` agent on the branch.
