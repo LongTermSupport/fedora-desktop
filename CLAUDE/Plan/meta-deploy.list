@@ -87,6 +87,10 @@
 # #404 (ccy 3.124.39): ccy-teams is rebuilt so seats abandon's known-team check reads only the
 # session folders under the seat store's control/: the launcher's disconnect.log there no
 # longer refuses every run, so --allow-known-team is needed only where a session lists the team.
+# #409 (ccy 3.124.40): ccy --teams <seats> --continue is still refused, but the refusal prints
+# ccy --resume <id> --teams <seats> with the id the seat's session recorded, or, with none, the
+# bare ccy --resume picker; ccy-teams is rebuilt with ccy-teams seats conversation <seats>,
+# which prints that id. The image is unchanged.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that

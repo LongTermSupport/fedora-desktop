@@ -32,14 +32,16 @@
 # terminal), a team named alone is kept for the chooser; otherwise it is refused (64). A launch
 # that takes seats with claude's -c/--continue is refused (64, the owner's ruling Q67): it
 # resumes the checkout's newest conversation, which in a team checkout may be another seat's.
-# The arguments are never rewritten; the refusal names `ccy --resume`. Changes nothing and
-# runs no sudo.
+# The arguments are never rewritten; the refusal names `ccy --resume <id>` with the id the
+# seat's session recorded (`ccy-teams seats conversation`, issue 409), or, when none can be
+# named, a bare `ccy --resume` (Claude Code's picker; the SessionStart hook records the
+# conversation picked, owner's ruling Q70). Changes nothing and runs no sudo.
 #   status 0   the list is usable here; its canonical form printed
 #   otherwise  ccy-teams' or agent-bus's own code (64 usage, 78 a team not running here or
 #              agent-bus missing for an agent-bus list), 64 for --continue, or 78 when no
 #              single list was printed; the reason on stderr
 ccy_seats_check() {
-    local list="${1?ccy_seats_check requires a list}" canonical rc=0 arg
+    local list="${1?ccy_seats_check requires a list}" canonical rc=0 arg id
     local attended="${2:?ccy_seats_check requires true or false}"
     shift 2
     local check=(ccy-teams internal seat-check "$list")
@@ -57,9 +59,14 @@ ccy_seats_check() {
     fi
     for arg in "$@"; do
         [ "$arg" = --continue ] || [ "$arg" = -c ] || continue
-        print_error "ccy refuses --continue in a team seat: it resumes this checkout's newest conversation, which may be another seat's. Resume the seat's own conversation instead:
-    ccy --resume <conversation id> --teams $canonical
-  The id is the name (without .jsonl) of the seat's last transcript under .claude/ccy/projects/-workspace/ in this checkout, or ask the team's coordinator."
+        print_error "ccy refuses --continue in a team seat: it resumes this checkout's newest conversation, which may be another seat's."
+        if id=$(ccy-teams seats conversation "$canonical"); then
+            printf '%s\n' "  Resume the conversation this seat's session recorded:" "    ccy --resume $id --teams $canonical" >&2
+        else
+            printf '%s\n' "  No recorded conversation of the seat can be named (ccy-teams seats conversation $canonical; the reason is above)." \
+                "  Choose it in Claude Code's picker instead; the seat records the conversation you pick:" \
+                "    ccy --resume --teams $canonical" >&2
+        fi
         return 64
     done
     printf '%s\n' "$canonical"
