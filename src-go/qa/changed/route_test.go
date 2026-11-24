@@ -177,6 +177,47 @@ func TestLoadRoutingRefusesOneCheckWithTwoRels(t *testing.T) {
 	}
 }
 
+// A sweep that judges files of one kind is a test module the kind's row names: unit-tests:<module>
+// runs that module for any file the row matches, whatever the file is.
+func TestLoadRoutingReadsNamedTestModules(t *testing.T) {
+	body := "also\tCLAUDE/Plan/*.bash\tplan-tests,unit-tests:tests.helpers.a.test_b,unit-tests:tests.helpers.test_c\t-\n" +
+		"first\t@py\truff,unit-tests\tcovered\n"
+	r, err := loadRouting(writeFile(t, t.TempDir(), "r.tsv", body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(r.also[0].checks, []string{"plan-tests"}) {
+		t.Fatalf("checks: %v", r.also[0].checks)
+	}
+	if !reflect.DeepEqual(r.also[0].modules, []string{"tests.helpers.a.test_b", "tests.helpers.test_c"}) {
+		t.Fatalf("modules: %v", r.also[0].modules)
+	}
+	if len(r.first[0].modules) != 0 || !reflect.DeepEqual(r.first[0].checks, []string{"ruff", "unit-tests"}) {
+		t.Fatalf("a plain unit-tests names no module: %+v", r.first[0])
+	}
+}
+
+func TestLoadRoutingRefusesABadNamedTestModule(t *testing.T) {
+	cases := map[string]string{
+		"empty module":        "also\t*.bash\tunit-tests:\t-\n",
+		"not under tests":     "also\t*.bash\tunit-tests:helpers.a.test_b\t-\n",
+		"not a test module":   "also\t*.bash\tunit-tests:tests.helpers.a.b\t-\n",
+		"empty segment":       "also\t*.bash\tunit-tests:tests..test_b\t-\n",
+		"path not module":     "also\t*.bash\tunit-tests:tests/helpers/test_b.py\t-\n",
+		"segment not an id":   "also\t*.bash\tunit-tests:tests.1x.test_b\t-\n",
+		"module twice":        "also\t*.bash\tunit-tests:tests.test_b,unit-tests:tests.test_b\t-\n",
+		"other check, module": "also\t*.bash\tbash-limits:tests.test_b\t-\n",
+		"post row module":     "post\tany:@sh\tunit-tests:tests.test_b\t-\n",
+		"rel on module row":   "also\t*.bash\tunit-tests:tests.test_b\trel:x\n",
+	}
+	for name, body := range cases {
+		path := writeFile(t, t.TempDir(), "r.tsv", "# ok\n"+body)
+		if _, err := loadRouting(path); err == nil || !strings.Contains(err.Error(), ":2:") {
+			t.Errorf("%s: want an error naming line 2, got %v", name, err)
+		}
+	}
+}
+
 func TestLoadTreesReadsBothLists(t *testing.T) {
 	path := writeFile(t, t.TempDir(), "t.tsv", "# c\nshell\t.git\nshell\tuntracked\npython\t.git\npython\t__pycache__\n")
 	trees, err := loadTrees(path)

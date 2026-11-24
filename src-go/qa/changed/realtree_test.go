@@ -624,3 +624,66 @@ func TestEveryRealActivePlanScriptRunsThePlanScriptLoggingCheck(t *testing.T) {
 		}
 	}
 }
+
+// Every test module a row of the real routing table names is a file of the tree, so a renamed or
+// moved sweep fails here rather than as an import error on someone else's commit.
+func TestEveryRealNamedTestModuleExists(t *testing.T) {
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := loadRouting(filepath.Join(realScripts, "qa-routing.tsv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	named := 0
+	for _, rl := range slices.Concat(r.also, r.first) {
+		for _, m := range rl.modules {
+			named++
+			if _, err := os.Stat(filepath.Join(root, strings.ReplaceAll(m, ".", "/")+".py")); err != nil {
+				t.Errorf("routing line %d names test module %s, which is not a file: %v", rl.line, m, err)
+			}
+		}
+	}
+	if named == 0 {
+		t.Fatal("the real routing names no test module; the checker sweeps are unrouted")
+	}
+}
+
+// Every active plan checker of the tree (its Python and shell), read from the tree, runs the
+// checker-copies-cited-constant sweep against the repository's own routing table (issue 406).
+func TestEveryRealActivePlanCheckerRunsTheCitedConstantSweep(t *testing.T) {
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sweep = "tests.helpers.plan_acceptance.test_cited_constant_copy_rule"
+	active := regexp.MustCompile(`^CLAUDE/Plan/[0-9]+-[^/]+/.*\.(bash|sh|py)$`)
+	var inputs []string
+	for _, rel := range publishedUnder(t, root, "CLAUDE/Plan") {
+		if active.MatchString(rel) {
+			inputs = append(inputs, rel)
+		}
+	}
+	if len(inputs) < 10 {
+		t.Fatalf("found only %d inputs; the tree walk matched nothing: %v", len(inputs), inputs)
+	}
+	s := &session{
+		env:     Env{Getenv: noEnv, Umask: keepUmask, Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
+		root:    root,
+		scripts: filepath.Join(root, "scripts"),
+		opts:    options{base: "HEAD"},
+	}
+	if err := s.load(); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range inputs {
+		s.plan = &plan{checks: map[string]*checkPlan{}, covered: map[string]bool{}}
+		if err := s.classify(context.Background(), collected{existing: []string{rel}}); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Contains(s.plan.items("unit-tests"), sweep) {
+			t.Errorf("%s does not run %s: %v", rel, sweep, s.plan.items("unit-tests"))
+		}
+	}
+}

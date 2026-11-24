@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -88,6 +89,9 @@ type rule struct {
 	// that can change every Go result, which runs the whole gate.
 	goPackages []string
 	goFull     bool
+	// modules are the test modules the row names (unit-tests:<module>): a sweep that judges every
+	// file of a kind, run for any file the row matches, whatever the file is.
+	modules []string
 }
 
 // postRule adds checks after every file is classified, when any of the named kinds was seen.
@@ -129,7 +133,11 @@ func loadRouting(path string) (*routing, error) {
 func (r *routing) checkRels() error {
 	seen := map[string]string{}
 	for _, rl := range slices.Concat(r.also, r.first) {
-		for _, id := range rl.checks {
+		ids := rl.checks
+		if len(rl.modules) > 0 {
+			ids = append(slices.Clone(ids), unitTestsID)
+		}
+		for _, id := range ids {
 			if prev, ok := seen[id]; ok && prev != rl.rel {
 				return fmt.Errorf("check %s has rel %q here and %q in an earlier rule: one check has one rel", id, rl.rel, prev)
 			}
@@ -209,15 +217,7 @@ func (r *routing) add(rw row) error {
 		return err
 	}
 	rl := rule{line: rw.line, m: m}
-	if checkField == "@yaml" {
-		if phase != "first" {
-			return errors.New("@yaml belongs to a first rule")
-		}
-		rl.yaml = true
-	} else if rl.checks, err = parseChecks(checkField); err != nil {
-		return err
-	}
-	if err := rl.parseFlags(flagField); err != nil {
+	if err := rl.parseChecksAndFlags(phase, checkField, flagField); err != nil {
 		return err
 	}
 	if err := rl.parseGoPackages(rw.fields[routeColumns:]); err != nil {
@@ -231,6 +231,29 @@ func (r *routing) add(rw row) error {
 	return nil
 }
 
+// parseChecksAndFlags reads an also or first row's checks column (@yaml, or check ids and named
+// test modules) and its flags column.
+func (rl *rule) parseChecksAndFlags(phase, checkField, flagField string) error {
+	if checkField == "@yaml" {
+		if phase != "first" {
+			return errors.New("@yaml belongs to a first rule")
+		}
+		rl.yaml = true
+	} else {
+		var err error
+		if rl.checks, rl.modules, err = parseChecks(checkField); err != nil {
+			return err
+		}
+	}
+	if err := rl.parseFlags(flagField); err != nil {
+		return err
+	}
+	if len(rl.modules) > 0 && rl.rel != "" {
+		return errors.New("a row naming test modules has no rel: a module is not a path")
+	}
+	return nil
+}
+
 func (r *routing) addPost(line int, condField, checkField string) error {
 	var anyOf []string
 	for cond := range strings.SplitSeq(condField, ",") {
@@ -240,26 +263,47 @@ func (r *routing) addPost(line int, condField, checkField string) error {
 		}
 		anyOf = append(anyOf, kind)
 	}
-	checks, err := parseChecks(checkField)
+	checks, modules, err := parseChecks(checkField)
 	if err != nil {
 		return err
+	}
+	if len(modules) > 0 {
+		return errors.New("a post row names no test module")
 	}
 	r.post = append(r.post, postRule{line: line, anyOf: anyOf, checks: checks})
 	return nil
 }
 
-// parseChecks reads a comma-separated list of check ids; "-" is none.
-func parseChecks(field string) ([]string, error) {
+// unitTestsID is the check that runs Python test modules; unit-tests:<module> names one.
+const unitTestsID = "unit-tests"
+
+// testModule is a dotted test module under tests/ whose last segment is a test_ file.
+var testModule = regexp.MustCompile(`^tests(\.[A-Za-z_][A-Za-z0-9_]*)*\.test_[A-Za-z0-9_]+$`)
+
+// parseChecks reads a comma-separated list of check ids, "-" being none, and the test modules
+// the list names as unit-tests:<module>.
+func parseChecks(field string) (ids, modules []string, err error) {
 	if field == "-" {
-		return nil, nil
+		return nil, nil, nil
 	}
-	ids := strings.Split(field, ",")
-	for _, id := range ids {
-		if !isCheckID(id) {
-			return nil, fmt.Errorf("unknown check %q", id)
+	for entry := range strings.SplitSeq(field, ",") {
+		id, module, named := strings.Cut(entry, ":")
+		switch {
+		case named && id != unitTestsID:
+			return nil, nil, fmt.Errorf("check %q takes no module (only %s:<module> names one)", entry, unitTestsID)
+		case named && !testModule.MatchString(module):
+			return nil, nil, fmt.Errorf("%q names no test module (tests.<package>.test_<name>, dotted)", entry)
+		case named && slices.Contains(modules, module):
+			return nil, nil, fmt.Errorf("test module %q is named twice", module)
+		case named:
+			modules = append(modules, module)
+		case !isCheckID(id):
+			return nil, nil, fmt.Errorf("unknown check %q", id)
+		default:
+			ids = append(ids, id)
 		}
 	}
-	return ids, nil
+	return ids, modules, nil
 }
 
 func (rl *rule) parseFlags(field string) error {

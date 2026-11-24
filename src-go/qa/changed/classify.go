@@ -263,6 +263,12 @@ func (s *session) apply(ctx context.Context, r rule, rel string, deleted bool) e
 			s.plan.add(id, rel, r.rel)
 		}
 	}
+	if !deleted {
+		for _, m := range r.modules {
+			added = true
+			s.plan.add(unitTestsID, m, "")
+		}
+	}
 	if r.yaml {
 		classify := s.classifyYAML
 		if deleted {
