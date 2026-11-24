@@ -75,7 +75,8 @@ func (a Announcer) Disconnected(_ context.Context, n seat.Notice) (seat.Outcome,
 // StoreTaker takes a launch's seats from the real seat store, under one allocation lock; a take
 // that fails releases the seats taken before it, so a refused launch holds nothing. A seat the
 // launch's session already holds (a relaunch, a restore: its record and seat directory kept) is
-// kept as it is and not taken again.
+// kept as it is and not taken again; a held/ naming the session whose take stopped part way
+// (seat.Store.TakeFinished false) is taken again.
 type StoreTaker struct {
 	Open func() (*seat.Store, error)
 }
@@ -98,7 +99,13 @@ func (s StoreTaker) TakeAll(ctx context.Context, takes []seat.Take) (err error) 
 	var taken []seat.Take
 	for _, t := range takes {
 		if heldBy(holdings, t) {
-			continue
+			var finished bool
+			if finished, err = store.TakeFinished(t); err != nil {
+				break
+			}
+			if finished {
+				continue
+			}
 		}
 		if _, err = store.Take(ctx, alloc, t); err != nil {
 			err = fmt.Errorf("take seat %s of team %s: %w", t.Seat.Name, t.Seat.Team, err)

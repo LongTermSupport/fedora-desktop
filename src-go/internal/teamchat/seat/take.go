@@ -222,7 +222,7 @@ func (s *Store) clearHeld(ctx context.Context, t Take, pool paths.PoolSeat) erro
 		return err
 	}
 	if held && rec.Session == t.Session {
-		held, err = s.ownTakeFinished(t)
+		held, err = s.TakeFinished(t)
 		if err != nil {
 			return err
 		}
@@ -239,11 +239,12 @@ func (s *Store) clearHeld(ctx context.Context, t Take, pool paths.PoolSeat) erro
 	return err
 }
 
-// ownTakeFinished is whether a held/ naming the taking session itself is a holding that session
+// TakeFinished is whether a held/ naming the taking session itself is a holding that session
 // has: its keeper holds the seat lock, or its seat directory for the team is there. Neither is
 // the session's own take that stopped after held/ was made (ST3, a homeserver that did not
-// answer), which holds nothing, so the session's next take releases it and goes on (X10).
-func (s *Store) ownTakeFinished(t Take) (bool, error) {
+// answer), which holds nothing, so the session's next take releases it and goes on (X10). A
+// launcher keeps a seat its session holds only when this is true.
+func (s *Store) TakeFinished(t Take) (bool, error) {
 	live, err := s.keeperLive(t.Session, t.Seat.Team)
 	if err != nil || live {
 		return live, err

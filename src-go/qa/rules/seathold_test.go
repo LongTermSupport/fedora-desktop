@@ -11,5 +11,6 @@ import (
 // before it holds is not, and a package other than seat is not judged.
 func TestSeatHoldUnrecorded(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), SeatHoldUnrecorded,
-		"seathold/bad/internal/teamchat/seat", "seathold/good/internal/teamchat/seat")
+		"seathold/bad/internal/teamchat/seat", "seathold/late/internal/teamchat/seat",
+		"seathold/good/internal/teamchat/seat")
 }

@@ -235,7 +235,6 @@ func TestTakeQuarantinesABrokenHeld(t *testing.T) {
 	}
 }
 
-// ST1: a seat held by a live or restorable session is ErrHeld.
 // ST0: a take for a session with no session record is ErrNoRecord, before anything is read or
 // made: the sweep releases a holding whose session is not restorable, so the seat would be
 // moved out from under the session a minute later (fedora-desktop#393). An unreadable record
@@ -268,6 +267,8 @@ func TestTakeRefusesASessionWithNoRecord(t *testing.T) {
 	}
 }
 
+// ST1: a seat held by a live or restorable session is ErrHeld; an unreadable record of the
+// holding session refuses the take without calling the seat held.
 func TestTakeRefusesAHeldSeat(t *testing.T) {
 	w := newWorld(t)
 	w.seed()
@@ -281,9 +282,10 @@ func TestTakeRefusesAHeldSeat(t *testing.T) {
 	if _, err := w.tryTake("s2", StateActive); !errors.Is(err, ErrHeld) {
 		t.Errorf("a seat held by a restorable session: %v", err)
 	}
-	w.sessions.fail(errors.New("unreadable record"))
-	if _, err := w.tryTake("s2", StateActive); err == nil || errors.Is(err, ErrHeld) {
-		t.Errorf("an unreadable session record: %v", err)
+	w.sessions.failFor("s1", errors.New("unreadable record"))
+	if _, err := w.tryTake("s2", StateActive); err == nil || errors.Is(err, ErrHeld) ||
+		!strings.Contains(err.Error(), "the record of session s1") {
+		t.Errorf("an unreadable record of the holding session: %v", err)
 	}
 }
 

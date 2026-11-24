@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.21 — container 2.84.68
+
+A session's own take that stopped part way is taken again at its next launch (issue #393). The
+image is rebuilt for the `teamchat` it carries.
+
+- **An unfinished take is not kept.** A launch kept any seat whose held/ named its session, so a
+  session whose take had stopped after held/ was made (a homeserver that did not answer) started
+  with no seat directory. A launch now keeps a seat only when the session's keeper holds it or
+  its seat directory is there; otherwise the take runs again, releasing the leftover first.
+
 ## 3.124.20 — container 2.84.67
 
 A teamchat seat is no longer taken for a session that has no ccy session record (issue #393).

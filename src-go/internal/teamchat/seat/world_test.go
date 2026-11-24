@@ -130,12 +130,24 @@ type sessions struct {
 	mu   sync.Mutex
 	live map[string]bool
 	err  error
+	// only, when set, is the one session whose record err breaks; empty breaks every record.
+	only string
 }
 
 func (s *sessions) Restorable(n paths.SessionName) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.live[n.String()], s.err
+	if s.err != nil && (s.only == "" || s.only == n.String()) {
+		return false, s.err
+	}
+	return s.live[n.String()], nil
+}
+
+// failFor breaks the record of session n alone, so a take for another session gets past ST0.
+func (s *sessions) failFor(n string, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.only, s.err = n, err
 }
 
 func (s *sessions) set(n string, restorable bool) {
@@ -171,7 +183,7 @@ func (s *sessions) during(n string) func() {
 func (s *sessions) fail(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.err = err
+	s.only, s.err = "", err
 }
 
 // announcer records each notice it is asked for and answers what the test set.
