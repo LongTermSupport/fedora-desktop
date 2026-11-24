@@ -291,6 +291,12 @@ func TestAnUnusablePayloadIsCounted(t *testing.T) {
 }
 
 // Issue 394: each hook op's unusable input is named by Claude Code's event for it.
+func TestAnOpThatIsNoHookHasNoEventName(t *testing.T) {
+	if got := hookEvent(wire.OpStatus); got != "" {
+		t.Fatalf("a non-hook op is named %q", got)
+	}
+}
+
 func TestAnUnusableInputNamesItsEvent(t *testing.T) {
 	for op, event := range map[string]string{
 		wire.OpHookSessionStart: state.HookSessionStart,

@@ -765,8 +765,9 @@ role last announced (2.10), and for each team where it is a worker the coordinat
 teams whose frame said the role and the coordinator are not known yet (a record not verified
 current, or a team that cannot reach its server): the session has them, so what is verified later
 is told as a role and a coordinator, never as a join, and a team is in `roles` or in `not_known`,
-not both. `coordinators`, `not_known` and `unusable.hook_last` are required keys; `v` stays 1 because v2 is deployed
-nowhere, so no file of the older shape exists. The store holds none of it, because what was told belongs to the
+not both. `coordinators`, `not_known` and `unusable.hook_last` are required keys; `v` stays 1 because the file lives in
+the run directory, which no run outlives and only the same kit's binaries read, so no reader
+meets a file of another shape. The store holds none of it, because what was told belongs to the
 session, and a new session is told afresh by its SessionStart frame. `unusable` counts the inputs
 the link could not use (2.8, 2.7.2), which `status` reports. `unusable.hook_last` is the last hook
 input that was not usable (issue 394): Claude Code's event (`SessionStart`, `UserPromptSubmit`,

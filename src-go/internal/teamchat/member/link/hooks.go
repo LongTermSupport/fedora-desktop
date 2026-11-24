@@ -79,7 +79,8 @@ func (l *link) countUnusable(ctx context.Context, op, why string, n int64) {
 	l.logErr("tell the engine the unusable counts", l.eng.SetUnusable(ctx, u))
 }
 
-// hookEvent is Claude Code's name for a hook op's event.
+// hookEvent is Claude Code's name for a hook op's event; "" for any other op, which
+// session.json's check refuses, so an op this does not know is never recorded as another.
 func hookEvent(op string) string {
 	switch op {
 	case wire.OpHookSessionStart:
@@ -88,8 +89,10 @@ func hookEvent(op string) string {
 		return state.HookPrompt
 	case wire.OpHookStop:
 		return state.HookStop
+	case wire.OpHookSessionEnd:
+		return state.HookSessionEnd
 	}
-	return state.HookSessionEnd
+	return ""
 }
 
 func factsOf(op string, a wire.HookArgs, peer int) Facts {
