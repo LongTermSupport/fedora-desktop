@@ -17,6 +17,26 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.25 — container 2.84.68
+
+One stale session record no longer fails every restore on the host (issue #396). Host only:
+`ccy-sessions` is rebuilt by `play-claude-yolo.yml`; the image is unchanged from 3.124.21.
+
+- **`ccy-sessions restore [--dry-run] [NAME...]`.** With names, only those records are
+  restored and judged, so a caller restoring one session gets that session's verdict; a name
+  with no record is a usage mistake (exit 64) and nothing starts; after `--` a name may start
+  with `-`. This boot's restore manifest keeps its entries for every session not named, so
+  `set-going` and `verify-restore` still see them. With no names, every record, as before.
+  `restore --check` still judges every record.
+- **A stale record is named as one.** A record with no conversation to resume that is not
+  marked `fresh-if-no-conversation` can never be restored; its message says so and how to
+  remove it.
+- **`ccy-sessions forget [--] NAME`** removes that one record (`<name> FORGOTTEN`): the file it
+  was read from, whatever that file is called. Refused while a live session has the name, or
+  when two records answer to it.
+- **`restore --dry-run` is a gate.** It prints `would fail <name>: <why>` on stdout for each
+  record that would fail, and exits 1 when there is one.
+
 ## 3.124.23 — container 2.84.68
 
 The host tools that wait for a session to be idle see a running turn in the newer Claude Code

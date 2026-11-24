@@ -440,6 +440,55 @@ func TestARecordThatIsNotARegularFileIsAProblemNeverOpened(t *testing.T) {
 	}
 }
 
+// fedora-desktop#396: a record's name= is not checked against its file's name, so ReadAll says
+// which file each record came from, and a caller that removes one removes that file.
+func TestReadAllNamesTheFileOfEachRecord(t *testing.T) {
+	s := newStore(t)
+	if err := s.Write(sample()); err != nil {
+		t.Fatal(err)
+	}
+	body := "ccy-session-record 1\nname=ccy-claimed\ndir=/d\nlauncher=/l\nprefix=ccy\nrestore=yes\n"
+	if err := os.WriteFile(filepath.Join(s.Dir(), "ccy-file"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{filepath.Join(s.Dir(), "ccy-file"), filepath.Join(s.Dir(), sample().Name)}
+	if len(got.Records) != 2 || got.Records[0].Name != "ccy-claimed" || !slices.Equal(got.Files, want) {
+		t.Fatalf("records %+v files %v", got.Records, got.Files)
+	}
+}
+
+// RemoveFile deletes one file of the registry by its path, and refuses a path that is not a
+// file directly in the registry directory.
+func TestRemoveFileRemovesOnlyAFileInTheRegistry(t *testing.T) {
+	s := newStore(t)
+	if err := s.Write(sample()); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(s.Dir(), sample().Name)
+	outside := filepath.Join(t.TempDir(), "other")
+	if err := os.WriteFile(outside, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{outside, s.Dir(), filepath.Join(s.Dir(), "sub", "x"), filepath.Join(s.Dir(), "..", "x")} {
+		if err := s.RemoveFile(bad); err == nil {
+			t.Fatalf("%s: want a refusal", bad)
+		}
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatalf("the file outside is kept: %v", err)
+	}
+	if err := s.RemoveFile(file); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("removed: %v", err)
+	}
+}
+
 func TestReadAllFailsWhenTheDirectoryCannotBeListed(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "sessions")
 	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {

@@ -71,8 +71,23 @@ Usage:
                                                   NOT-FINISHED or FAILED. Nothing is /exit'ed,
                                                   stopped or killed. The self-update cycle
                                                   runs it before its reboot
-  ccy-sessions restore [--dry-run]                start every session recorded as running
-                                                  at the last shutdown (the boot unit)
+  ccy-sessions restore [--dry-run] [--] [NAME...] start every session recorded as running
+                                                  at the last shutdown (the boot unit). With
+                                                  NAMEs, only those records are restored and
+                                                  judged, so another record cannot fail the
+                                                  run (a NAME with no record is a usage
+                                                  mistake; after --, a NAME may start with
+                                                  -), and this boot's restore manifest keeps
+                                                  its entries for every other session, for
+                                                  set-going and verify-restore. --dry-run
+                                                  starts nothing and
+                                                  prints one line on stdout for each record
+                                                  that would fail:
+                                                  "would fail <name>: <why>"; exit 1 if any.
+                                                  A record with no conversation to resume and
+                                                  not marked fresh-if-no-conversation is
+                                                  stale: no restore can start it, and its
+                                                  message says to forget it
   ccy-sessions restore --check                    start nothing: judge every record the next
                                                   boot's restore would start, live sessions
                                                   included, one line each on stdout:
@@ -161,6 +176,14 @@ Usage:
                                                   same record is there; nothing written) or
                                                   "<name> REPLACED". The name defaults to
                                                   ccy's for DIR. Run as the session's user
+  ccy-sessions forget [--] NAME                   remove session NAME's record, so no later
+                                                  restore tries it (the way out for a stale
+                                                  record): the file the record was read from,
+                                                  whatever its name. Refused (exit 1) while a
+                                                  live session has the name, or when two
+                                                  records answer to it; exit 64 for a name
+                                                  with no record. One line on stdout:
+                                                  "<name> FORGOTTEN"
   ccy-sessions -h|--help                          this text
 
 notify and reboot speak to each project through ITS OWN hooks-daemon CLI
