@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00264-runtime-ad-hoc-teams-on-a-bus-guest](00264-runtime-ad-hoc-teams-on-a-bus-guest/) - Not Started (design written; waiting on the owner's decisions). The owner's question Q61: create, approve and remove agent-bus teams at runtime on a bus guest with no play run, and what stays in IaC. Recommends a policy-bounded request spool, and a closing notice plus tombstone so members' seats release cleanly.
+
 - [00263-machine-qa-queue](00263-machine-qa-queue/) - In Progress (design done; waiting on the owner's decisions D1-D4). A machine-level QA queue, so that many agent sessions on one machine run at most N heavy QA jobs at once. Staged: N lock files mounted into each container and a CPU cap per container first, then the queue, with jobs run in cached checkouts. It is built as the standalone repository `LongTermSupport/agentic-qa-queue`; this plan tracks it until that repository exists.
 
 - [00262-split-tool-repos](00262-split-tool-repos/) - Proposed (awaiting owner decisions). The owner's question: split ccy, teamchat and the other tool projects into their own repositories with their own CI, fedora-desktop pinning their releases. The proposal measures where CI time goes (the Go gate is about half a full run; CI never restores a Go cache), recommends interim CI fixes first, then a Go base module, teamchat and ccy, only after Plan 00209's v2 cut-over and v1 removal.
