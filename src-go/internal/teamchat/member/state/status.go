@@ -27,12 +27,15 @@ var failures = []string{FailedUnauthorized, FailedForbidden, FailedTrust, Failed
 // Status is B 2.9's status.json, the team segment's cache, written by the link's state
 // goroutine alone.
 type Status struct {
-	V                 int          `json:"v"`
-	Run               paths.RunID  `json:"run"`
-	WrittenMS         int64        `json:"written_ms"`
-	Desired           string       `json:"desired"`
-	UnusableHookStdin int64        `json:"unusable_hook_stdin"`
-	Teams             []StatusTeam `json:"teams"`
+	V                 int         `json:"v"`
+	Run               paths.RunID `json:"run"`
+	WrittenMS         int64       `json:"written_ms"`
+	Desired           string      `json:"desired"`
+	UnusableHookStdin int64       `json:"unusable_hook_stdin"`
+	// UnusableHookLast is the last hook input that was not usable, null exactly when the
+	// count is 0.
+	UnusableHookLast *UnusableHook `json:"unusable_hook_last"`
+	Teams            []StatusTeam  `json:"teams"`
 }
 
 // StatusTeam is one held team's row: its role (null until the roster names one), the seat's

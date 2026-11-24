@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.26 — container 2.84.69
+
+A teamchat hook input that could not be used now names the hook it came from (issue #394). The
+image is rebuilt for its `teamchat`.
+
+- **link.log** says `link: a hook's input was unusable at <event> (<reason>, <n> bytes); <count> so far`, where `<event>` is Claude Code's hook event (`SessionStart`, `UserPromptSubmit`,
+  `Stop`, `SessionEnd`) and `<n>` the bytes the hook read: a size, never the content.
+- **session.json** keeps the latest as `unusable.hook_last` (event, reason, bytes), and
+  **status.json** carries it as `unusable_hook_last`.
+- **The status line** reads `teamchat hook input unusable: <n> (last: <event>, <reason>, <bytes> bytes)`.
+
 ## 3.124.25 — container 2.84.68
 
 One stale session record no longer fails every restore on the host (issue #396). Host only:

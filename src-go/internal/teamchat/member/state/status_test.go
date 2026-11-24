@@ -9,8 +9,31 @@ const (
 	statusTeam = `{"team":"alpha","role":"coordinator","duty":"coordinator","down":false,"failed":null,"delivery":"socket","pending":0,"missing":0,` +
 		`"member":"repo.1","handle":"repo.1+site.podman","colour":"#2dd4bf","stalled":false}`
 	statusDoc = `{"v":1,"run":"` + sampleRun + `","written_ms":1760000000000,"desired":"applied","unusable_hook_stdin":0,` +
-		`"teams":[` + statusTeam + `]}`
+		`"unusable_hook_last":null,"teams":[` + statusTeam + `]}`
+	statusHookLast = `"unusable_hook_stdin":3,"unusable_hook_last":{"event":"Stop","reason":"size","bytes":1048577}`
 )
+
+// unusable_hook_last is null exactly when unusable_hook_stdin is 0, and holds one of the four
+// events, the three reasons and a size the hook can read.
+func TestStatusHookLast(t *testing.T) {
+	last := edit(t, statusDoc, `"unusable_hook_stdin":0,"unusable_hook_last":null`, statusHookLast)
+	accepts(t, DecodeStatus, last, edit(t, last, `"Stop"`, `"SessionStart"`), edit(t, last, `"bytes":1048577`, `"bytes":0`))
+	s, err := DecodeStatus([]byte(last))
+	if err != nil || s.UnusableHookLast == nil || *s.UnusableHookLast != (UnusableHook{Event: HookStop, Reason: UnusableSize, Bytes: MaxHookStdin + 1}) {
+		t.Fatalf("unusable_hook_last = %+v, %v", s.UnusableHookLast, err)
+	}
+	refusesAll(t, statusFile, last, DecodeStatus, []refusal{
+		{`"Stop"`, `"SECRET"`, CodeSchema},
+		{`"reason":"size"`, `"reason":"SECRET"`, CodeSchema},
+		{`"bytes":1048577`, `"bytes":1048578`, CodeSchema},
+		{`"bytes":1048577`, `"bytes":-1`, CodeSchema},
+		{`"unusable_hook_stdin":3`, `"unusable_hook_stdin":0`, CodeSchema},
+	})
+	refusesAll(t, statusFile, statusDoc, DecodeStatus, []refusal{
+		{`"unusable_hook_stdin":0`, `"unusable_hook_stdin":1`, CodeSchema},
+		{`"unusable_hook_last":null,`, ``, CodeSchema},
+	})
+}
 
 func TestDecodeStatus(t *testing.T) {
 	none := edit(t, statusDoc, `[`+statusTeam+`]`, `[]`)
@@ -77,7 +100,8 @@ func TestStatusCap(t *testing.T) {
 		`"member":"` + strings.Repeat("r", 48) + `.` + strings.Repeat("s", 12) + `","handle":"` + strings.Repeat("r", 48) + `.` +
 		strings.Repeat("s", 12) + `+` + strings.Repeat("t", 63) + `.podman","colour":"#2dd4bf","stalled":true}`
 	doc := edit(t, statusDoc, `[`+statusTeam+`]`, `[`+teamsJSON(maxTeams, team)+`]`)
-	doc = edit(t, doc, `"unusable_hook_stdin":0`, `"unusable_hook_stdin":9007199254740991`)
+	doc = edit(t, doc, `"unusable_hook_stdin":0,"unusable_hook_last":null`,
+		`"unusable_hook_stdin":9007199254740991,"unusable_hook_last":{"event":"UserPromptSubmit","reason":"utf8","bytes":1048577}`)
 	if len(doc) > MaxStatus/2 {
 		t.Fatalf("the largest status.json is %d bytes", len(doc))
 	}

@@ -238,6 +238,9 @@ func (w *world) statusAt(writtenMS int64, desired string, unusable int64, teams 
 		teams = []state.StatusTeam{}
 	}
 	st := state.Status{Run: id, WrittenMS: writtenMS, Desired: desired, UnusableHookStdin: unusable, Teams: teams}
+	if unusable > 0 {
+		st.UnusableHookLast = &lastUnusable
+	}
 	if err := state.Write(w.root, w.run.Status(), st); err != nil {
 		w.t.Fatal(err)
 	}
@@ -814,10 +817,14 @@ func TestNotAnswering(t *testing.T) {
 	}
 }
 
-// Membership refused and unusable hook input are red with or without teams, the link up or not.
+// lastUnusable is the last unusable hook input status.json names beside a count above 0.
+var lastUnusable = state.UnusableHook{Event: state.HookPrompt, Reason: state.UnusableJSON, Bytes: 0}
+
+// Membership refused and unusable hook input are red with or without teams, the link up or not;
+// the unusable note names the last input's event, reason and size (issue 394).
 func TestRedNotes(t *testing.T) {
 	refused := redRow("teamchat membership refused")
-	unusable := redRow("teamchat hook input unusable: 3")
+	unusable := redRow("teamchat hook input unusable: 3 (last: UserPromptSubmit, json, 0 bytes)")
 	piece := span(colour.Auto("alpha"), "👥 alpha: fedora-desktop.2 (c)")
 	for _, tc := range []struct {
 		name  string

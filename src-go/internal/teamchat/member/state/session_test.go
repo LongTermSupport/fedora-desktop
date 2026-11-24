@@ -10,12 +10,44 @@ const (
 		`"transcript":"` + sampleTranscript + `","socket":"` + sampleSocket + `","claude":{"pid":4242,"start_ticks":99},` +
 		`"end_reason":null,"stop_guard":{"pending_digest":null,"failure_ms":null,"no_waker_ms":null},` +
 		`"told":{"generation":3,"roles":{"alpha":"worker"},"coordinators":{"alpha":"` + sampleCoordinator + `"},"not_known":[]},` +
-		`"frame_told":true,"unusable":{"hook_stdin":0,"render":0}}`
+		`"frame_told":true,"unusable":{"hook_stdin":0,"render":0,"hook_last":null}}`
 	sessionFresh = `{"v":1,"run":"` + sampleRun + `","session_id":null,"source":null,"transcript":null,"socket":null,` +
 		`"claude":null,"end_reason":null,"stop_guard":{"pending_digest":null,"failure_ms":null,"no_waker_ms":null},` +
-		`"told":{"generation":0,"roles":{},"coordinators":{},"not_known":[]},"frame_told":false,"unusable":{"hook_stdin":0,"render":0}}`
+		`"told":{"generation":0,"roles":{},"coordinators":{},"not_known":[]},"frame_told":false,"unusable":{"hook_stdin":0,"render":0,"hook_last":null}}`
 	sampleCoordinator = "repo.2+host.podman"
+	// sampleHookLast is a last unusable hook input, with the count it goes with.
+	sampleHookLast = `"hook_stdin":2,"render":0,"hook_last":{"event":"UserPromptSubmit","reason":"json","bytes":0}`
 )
+
+// The last unusable hook input is null until the first, then each of the four events, the
+// three reasons and every size the hook can read; anything else is refused.
+func TestSessionHookLast(t *testing.T) {
+	last := edit(t, sessionStarted, `"hook_stdin":0,"render":0,"hook_last":null`, sampleHookLast)
+	for _, event := range []string{HookSessionStart, HookPrompt, HookStop, HookSessionEnd} {
+		accepts(t, DecodeSession, edit(t, last, `"UserPromptSubmit"`, `"`+event+`"`))
+	}
+	for _, reason := range []string{UnusableSize, UnusableUTF8, UnusableJSON} {
+		accepts(t, DecodeSession, edit(t, last, `"reason":"json"`, `"reason":"`+reason+`"`))
+	}
+	accepts(t, DecodeSession, edit(t, last, `"bytes":0`, `"bytes":1048577`), edit(t, sessionFresh, `"hook_stdin":0,"render":0,"hook_last":null`, sampleHookLast))
+	s, err := DecodeSession([]byte(last))
+	if err != nil || s.Unusable.HookLast == nil || *s.Unusable.HookLast != (UnusableHook{Event: HookPrompt, Reason: UnusableJSON}) {
+		t.Fatalf("hook_last = %+v, %v", s.Unusable.HookLast, err)
+	}
+	refusesAll(t, sessionFile, last, DecodeSession, []refusal{
+		{`"UserPromptSubmit"`, `"SECRET"`, CodeSchema},
+		{`"UserPromptSubmit"`, `"user-prompt-submit"`, CodeSchema},
+		{`"reason":"json"`, `"reason":"SECRET"`, CodeSchema},
+		{`"bytes":0`, `"bytes":-1`, CodeSchema},
+		{`"bytes":0`, `"bytes":1048578`, CodeSchema},
+		{`,"bytes":0`, ``, CodeSchema},
+		{`"hook_stdin":2`, `"hook_stdin":0`, CodeSchema},
+		{`"hook_last":{"event":"UserPromptSubmit","reason":"json","bytes":0}`, `"hook_last":null`, CodeSchema},
+	})
+	refusesAll(t, sessionFile, sessionStarted, DecodeSession, []refusal{
+		{`,"hook_last":null`, ``, CodeSchema},
+	})
+}
 
 func TestDecodeSession(t *testing.T) {
 	ended := edit(t, sessionStarted, `"end_reason":null`, `"end_reason":"logout"`)
@@ -74,7 +106,7 @@ func TestDecodeSession(t *testing.T) {
 		{`"frame_told":true`, `"frame_told":null`, CodeSchema},
 		{`"hook_stdin":0`, `"hook_stdin":-1`, CodeSchema},
 		{`"render":0`, `"render":-1`, CodeSchema},
-		{`"unusable":{"hook_stdin":0,"render":0}`, `"unusable":null`, CodeSchema},
+		{`"unusable":{"hook_stdin":0,"render":0,"hook_last":null}`, `"unusable":null`, CodeSchema},
 	})
 	refusesAll(t, sessionFile, sessionFresh, DecodeSession, []refusal{
 		{`"claude":null`, `"claude":{"pid":1,"start_ticks":1}`, CodeSchema},
@@ -98,7 +130,8 @@ func TestSessionCap(t *testing.T) {
 		`"pending_digest":"`+strings.Repeat("a", 64)+`","failure_ms":253402300799999,"no_waker_ms":253402300799999`)
 	doc = edit(t, doc, `"end_reason":null`, `"end_reason":"logout"`)
 	doc = edit(t, doc, `"generation":3`, `"generation":9007199254740991`)
-	doc = edit(t, doc, `"hook_stdin":0,"render":0`, `"hook_stdin":9007199254740991,"render":9007199254740991`)
+	doc = edit(t, doc, `"hook_stdin":0,"render":0,"hook_last":null`,
+		`"hook_stdin":9007199254740991,"render":9007199254740991,"hook_last":{"event":"UserPromptSubmit","reason":"utf8","bytes":1048577}`)
 	if len(transcript) != maxTranscriptPath || len(socket) != maxSocketPath || len(doc) > MaxSession {
 		t.Fatalf("the largest session.json is %d bytes, over %d", len(doc), MaxSession)
 	}

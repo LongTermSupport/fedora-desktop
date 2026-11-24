@@ -525,11 +525,15 @@ func TestThePayload(t *testing.T) {
 		w.hook("user-prompt-submit")
 		args := l.request(t).args
 		if tc.want == "" {
-			if args.Payload != wire.PayloadOK || args.Unusable != nil || args.SessionID == nil || *args.SessionID != "abc" {
+			if args.Payload != wire.PayloadOK || args.Unusable != nil || args.UnusableBytes != nil || args.SessionID == nil || *args.SessionID != "abc" {
 				t.Fatalf("%d bytes: %v", len(tc.stdin), args)
 			}
 		} else if args.Payload != wire.PayloadUnusable || args.Unusable == nil || *args.Unusable != tc.want || args.SessionID != nil {
 			t.Fatalf("%.40q: %v", tc.stdin, args)
+		}
+		// The bytes read, never past the one byte over the bound the read stops at.
+		if read := int64(min(len(tc.stdin), maxStdin+1)); tc.want != "" && (args.UnusableBytes == nil || *args.UnusableBytes != read) {
+			t.Fatalf("%.40q: unusable bytes %v, want %d", tc.stdin, args.UnusableBytes, read)
 		}
 		if args.Socket == nil || *args.Socket != socket || args.Token == nil || *args.Token != token {
 			t.Fatalf("%.40q: the inbox variables are lost: %v", tc.stdin, args)
@@ -537,13 +541,16 @@ func TestThePayload(t *testing.T) {
 	}
 }
 
-// A stdin that fails to read is unusable json: nothing whole was read.
+// A stdin that fails to read is unusable json: nothing whole was read, and the read keeps
+// nothing of a failed read, so its size is 0 bytes; no stdin is 0 bytes too.
 func TestAStdinThatFails(t *testing.T) {
 	clk := clock.NewFake(boot0, 0)
-	if got := payload(cli.Env{Stdin: failingReader{}}, clk, wire.OpHookPrompt); got.Payload != wire.PayloadUnusable || *got.Unusable != wire.UnusableJSON {
+	if got := payload(cli.Env{Stdin: failingReader{}}, clk, wire.OpHookPrompt); got.Payload != wire.PayloadUnusable || *got.Unusable != wire.UnusableJSON ||
+		got.UnusableBytes == nil || *got.UnusableBytes != 0 {
 		t.Fatalf("%v", got)
 	}
-	if got := payload(cli.Env{}, clk, wire.OpHookPrompt); got.Payload != wire.PayloadUnusable || *got.Unusable != wire.UnusableJSON {
+	if got := payload(cli.Env{}, clk, wire.OpHookPrompt); got.Payload != wire.PayloadUnusable || *got.Unusable != wire.UnusableJSON ||
+		got.UnusableBytes == nil || *got.UnusableBytes != 0 {
 		t.Fatalf("no stdin: %v", got)
 	}
 }

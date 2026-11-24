@@ -255,17 +255,28 @@ func TestBadHookArgsAreRefused(t *testing.T) {
 // answered as an event with no payload; the count survives a restart.
 func TestAnUnusablePayloadIsCounted(t *testing.T) {
 	w := newHookWorld(t)
-	reason := wire.UnusableJSON
-	bad := wire.HookArgs{Payload: wire.PayloadUnusable, Unusable: &reason}
-	if got := w.hookWith(wire.OpHookStop, bad); got != "{}" {
+	bad := func(reason string, n int64) wire.HookArgs {
+		return wire.HookArgs{Payload: wire.PayloadUnusable, Unusable: &reason, UnusableBytes: &n}
+	}
+	if got := w.hookWith(wire.OpHookStop, bad(wire.UnusableJSON, 17)); got != "{}" {
 		t.Fatalf("answer %q", got)
 	}
-	w.hookWith(wire.OpHookPrompt, bad)
-	if got := w.sessionFile().Unusable.HookStdin; got != 2 {
-		t.Fatalf("hook_stdin %d", got)
+	w.hookWith(wire.OpHookPrompt, bad(wire.UnusableSize, wire.MaxHookStdin+1))
+	got := w.sessionFile().Unusable
+	if got.HookStdin != 2 {
+		t.Fatalf("hook_stdin %d", got.HookStdin)
 	}
-	if !strings.Contains(w.log.String(), "unusable (json)") {
-		t.Fatalf("link.log %q", w.log.String())
+	// Issue 394: the last one is named by its event, reason and size, in session.json and the log.
+	if got.HookLast == nil || *got.HookLast != (state.UnusableHook{Event: state.HookPrompt, Reason: wire.UnusableSize, Bytes: wire.MaxHookStdin + 1}) {
+		t.Fatalf("hook_last %+v", got.HookLast)
+	}
+	for _, line := range []string{
+		"link: a hook's input was unusable at Stop (json, 17 bytes); 1 so far",
+		"link: a hook's input was unusable at UserPromptSubmit (size, 1048577 bytes); 2 so far",
+	} {
+		if !strings.Contains(w.log.String(), line) {
+			t.Fatalf("link.log lacks %q: %q", line, w.log.String())
+		}
 	}
 	if s := w.status(); !strings.Contains(s, `"hook_stdin":2`) {
 		t.Fatalf("status %q", s)
@@ -274,8 +285,28 @@ func TestAnUnusablePayloadIsCounted(t *testing.T) {
 	// TestARestartedLinkDeliversOnTheToken shows).
 	again, err := newSession(sessionDeps{runRoot: w.root, stateRoot: w.root, layout: w.layout, run: w.run, clock: w.clk, log: w.log})
 	check(t, err)
-	if got := again.Unusable().HookStdin; got != 2 {
-		t.Fatalf("hook_stdin after a restart %d", got)
+	if back := again.Unusable(); back.HookStdin != 2 || back.HookLast == nil || back.HookLast.Event != state.HookPrompt {
+		t.Fatalf("unusable after a restart %+v", back)
+	}
+}
+
+// Issue 394: each hook op's unusable input is named by Claude Code's event for it.
+func TestAnUnusableInputNamesItsEvent(t *testing.T) {
+	for op, event := range map[string]string{
+		wire.OpHookSessionStart: state.HookSessionStart,
+		wire.OpHookPrompt:       state.HookPrompt,
+		wire.OpHookStop:         state.HookStop,
+		wire.OpHookSessionEnd:   state.HookSessionEnd,
+	} {
+		w := newHookWorld(t)
+		reason, n := wire.UnusableUTF8, int64(3)
+		w.hookWith(op, wire.HookArgs{Payload: wire.PayloadUnusable, Unusable: &reason, UnusableBytes: &n})
+		if last := w.sessionFile().Unusable.HookLast; last == nil || last.Event != event {
+			t.Fatalf("%s: hook_last %+v", op, last)
+		}
+		if line := "unusable at " + event + " (utf8, 3 bytes); 1 so far"; !strings.Contains(w.log.String(), line) {
+			t.Fatalf("%s: link.log lacks %q: %q", op, line, w.log.String())
+		}
 	}
 }
 

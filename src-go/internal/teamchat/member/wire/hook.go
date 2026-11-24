@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
@@ -15,10 +16,13 @@ const (
 	PayloadOK       = "ok"
 	PayloadUnusable = "unusable"
 
-	UnusableSize = "size"
-	UnusableUTF8 = "utf8"
-	UnusableJSON = "json"
+	UnusableSize = state.UnusableSize
+	UnusableUTF8 = state.UnusableUTF8
+	UnusableJSON = state.UnusableJSON
 )
+
+// MaxHookStdin bounds a hook's payload; the hook reads one byte past it.
+const MaxHookStdin = state.MaxHookStdin
 
 // The byte bounds of a hook's fields; the hook sends a longer value as absent, so a request
 // always fits MaxRequest. The socket's is paths.InboxSocket's, the transcript's the codec's.
@@ -35,8 +39,11 @@ const (
 // socket variables. The token is a secret (B11): every formatter redacts it; only the wire
 // line carries it.
 type HookArgs struct {
-	Payload        string  `json:"payload"`
-	Unusable       *string `json:"unusable"`
+	Payload  string  `json:"payload"`
+	Unusable *string `json:"unusable"`
+	// UnusableBytes is how many bytes of an unusable payload the hook read, 0 to
+	// MaxHookStdin+1: a size, never content.
+	UnusableBytes  *int64  `json:"unusable_bytes"`
 	SessionID      *string `json:"session_id"`
 	TranscriptPath *string `json:"transcript_path"`
 	// Source is session-start's only.

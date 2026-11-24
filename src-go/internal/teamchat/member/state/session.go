@@ -55,10 +55,39 @@ type Told struct {
 	NotKnown     []paths.TeamID          `json:"not_known"`
 }
 
-// Unusable counts the inputs the link could not use (B 2.7.2, 2.8).
+// MaxHookStdin bounds a hook's payload (B 2.8); the hook reads one byte past it to know a
+// payload is over.
+const MaxHookStdin = 1 << 20
+
+// The reasons a hook's payload was unusable (B 2.8).
+const (
+	UnusableSize = "size"
+	UnusableUTF8 = "utf8"
+	UnusableJSON = "json"
+)
+
+// Claude Code's names for the plugin's four hook events (B 2.8).
+const (
+	HookSessionStart = "SessionStart"
+	HookPrompt       = "UserPromptSubmit"
+	HookStop         = "Stop"
+	HookSessionEnd   = "SessionEnd"
+)
+
+// Unusable counts the inputs the link could not use (B 2.7.2, 2.8), and the last hook input
+// that was not usable (null until the first).
 type Unusable struct {
-	HookStdin int64 `json:"hook_stdin"`
-	Render    int64 `json:"render"`
+	HookStdin int64         `json:"hook_stdin"`
+	Render    int64         `json:"render"`
+	HookLast  *UnusableHook `json:"hook_last"`
+}
+
+// UnusableHook is one hook input that was not usable (issue 394): Claude Code's event, the
+// reason, and how many bytes the hook read of it (a size, never its content).
+type UnusableHook struct {
+	Event  string `json:"event"`
+	Reason string `json:"reason"`
+	Bytes  int64  `json:"bytes"`
 }
 
 // Started is whether the session has had its first SessionStart.
