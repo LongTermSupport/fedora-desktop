@@ -206,12 +206,16 @@ func runAnsiblePause(ctx context.Context, s *session, _ *checkPlan) (checkResult
 // after --: an unchanged rule can only find something new in a file that changed, and semgrep
 // over the whole tree is the cost of the whole run. CI's diff run and qa-all still run it whole.
 func (s *session) semgrepGate(ctx context.Context, wrapper string) (checkResult, error) {
-	changed := slices.Concat(s.plan.existing, s.plan.deleted)
-	if s.ci || slices.ContainsFunc(changed, func(f string) bool { return gateSource(wrapper, f) }) {
+	if s.ci || s.gateChanged(wrapper) {
 		return s.script(ctx, nil, wrapper)
 	}
 	s.narrowed[wrapper] = len(s.plan.existing)
 	return s.scriptOver(ctx, wrapper, slices.Concat([]string{"--"}, s.plan.existing))
+}
+
+// gateChanged is whether a changed file, existing or deleted, is part of the gate the wrapper runs.
+func (s *session) gateChanged(wrapper string) bool {
+	return slices.ContainsFunc(slices.Concat(s.plan.existing, s.plan.deleted), func(f string) bool { return gateSource(wrapper, f) })
 }
 
 // gateSource is whether a changed file is part of a semgrep gate run by the wrapper: the rules and
@@ -241,15 +245,16 @@ var ruleGateSpecs = map[string]ghscopes.Spec{
 // file has nothing left to scan and does not count; a change of deletions alone is planned as
 // before. A change to the gate itself (gateSource) still runs it; any other zero-file scan still
 // fails closed in the gate.
+//
+// Only a local run drops: CI runs these gates whole (semgrepGate), where the rule always has
+// files to scan, so CI's diff run plans and runs exactly what it did before issue #403.
 func (s *session) dropUnreadRuleGates() error {
-	changed := slices.Concat(s.plan.existing, s.plan.deleted)
+	if s.ci || len(s.plan.existing) == 0 {
+		return nil
+	}
 	for _, d := range checkDefs {
 		spec, isRuleGate := ruleGateSpecs[d.id]
-		if !isRuleGate || s.plan.checks[d.id] == nil || len(s.plan.existing) == 0 {
-			continue
-		}
-		wrapper := "qa-" + d.id + ".bash"
-		if slices.ContainsFunc(changed, func(f string) bool { return gateSource(wrapper, f) }) {
+		if !isRuleGate || s.plan.checks[d.id] == nil || s.gateChanged("qa-"+d.id+".bash") {
 			continue
 		}
 		reader, err := spec.Reader(s.root)
