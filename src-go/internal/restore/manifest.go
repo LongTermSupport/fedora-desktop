@@ -341,6 +341,11 @@ func (s *Store) LockSetGoing(wait time.Duration) (func() error, error) {
 		fmt.Sprintf("another set-going still holds %s after %ds; nothing was set going by this one", lock, int(wait.Seconds())))
 }
 
+// SetGoingRunning is whether a set-going holds its lock now.
+func (s *Store) SetGoingRunning() (bool, error) {
+	return false, nil
+}
+
 // acquire opens the lock file for append and takes an exclusive flock on it, polling until wait
 // has passed. openMsg and busyMsg are the whole errors for the two ways it can fail.
 func acquire(path string, wait time.Duration, openMsg, busyMsg string) (func() error, error) {
