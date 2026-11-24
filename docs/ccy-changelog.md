@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.27 — container 2.84.68
+## 3.124.28 — container 2.84.68
 
 `ccy-sessions verify-restore` says why a restored session is still `SETTING-GOING` (issue
 #395). Host only: `ccy-sessions` is rebuilt by `play-claude-yolo.yml`; the image is unchanged

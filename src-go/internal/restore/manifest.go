@@ -341,9 +341,25 @@ func (s *Store) LockSetGoing(wait time.Duration) (func() error, error) {
 		fmt.Sprintf("another set-going still holds %s after %ds; nothing was set going by this one", lock, int(wait.Seconds())))
 }
 
-// SetGoingRunning is whether a set-going holds its lock now.
+// SetGoingRunning is whether a set-going holds its lock now: one try of the lock, released at
+// once when it is free. No lock file is no set-going ever started, so none is running.
 func (s *Store) SetGoingRunning() (bool, error) {
-	return false, nil
+	lock := s.Path + ".set-going.lock"
+	f, err := os.OpenFile(filepath.Clean(lock), os.O_APPEND|os.O_WRONLY, fileMode)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("could not open set-going's lock %s: %w", lock, err)
+	}
+	lockErr := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if errors.Is(lockErr, syscall.EWOULDBLOCK) {
+		return true, f.Close()
+	}
+	if lockErr != nil {
+		return false, errors.Join(fmt.Errorf("could not try set-going's lock %s: %w", lock, lockErr), f.Close())
+	}
+	return false, f.Close()
 }
 
 // acquire opens the lock file for append and takes an exclusive flock on it, polling until wait
