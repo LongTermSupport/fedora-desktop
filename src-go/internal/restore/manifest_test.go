@@ -316,6 +316,65 @@ func TestMergeStartsAfreshFromAnOtherBootOrAnUnreadableManifest(t *testing.T) {
 	}
 }
 
+// fedora-desktop#396: a restore of named sessions replaces only their entries. This boot's
+// entries for every other session stay as they are, in their places, so set-going and
+// verify-restore still see them; a named session the run wrote nothing for loses its entry, and
+// one the manifest did not hold is added at the end.
+func TestMergeNamedKeepsTheEntriesOfSessionsNotNamed(t *testing.T) {
+	s := newStore(t)
+	moved := entryA()
+	moved.Going = GoingContinue
+	named := Entry{Name: "ccy-n", Prefix: "ccy", Dir: "/n", Going: GoingNotStarted, Detail: "no-conversation"}
+	skipped := Entry{Name: "ccy-s", Prefix: "ccy", Dir: "/s", Going: GoingPending}
+	if err := s.Write([]Entry{moved, named, entryB(), skipped}); err != nil {
+		t.Fatal(err)
+	}
+	restarted := Entry{Name: "ccy-n", Prefix: "ccy", Dir: "/n", Supervised: true, Going: GoingPending}
+	added := Entry{Name: "ccy-new", Prefix: "ccy", Dir: "/new", Going: GoingPending}
+	if err := s.MergeNamed([]string{"ccy-n", "ccy-s", "ccy-new"}, []Entry{added, restarted}, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []Entry{moved, restarted, entryB(), added}; !slices.Equal(got.Entries, want) {
+		t.Fatalf("got %+v", got.Entries)
+	}
+	// A keep for a named session still takes the entry held for it.
+	keep := Entry{Name: "cc-b", Prefix: "cc", Dir: "/x", Going: GoingKeep}
+	if err = s.MergeNamed([]string{"cc-b"}, []Entry{keep}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = s.Read(); err != nil || !slices.Equal(got.Entries, []Entry{moved, restarted, entryB(), added}) {
+		t.Fatalf("got %+v, %v", got.Entries, err)
+	}
+	// From another boot nothing is held: only the run's entries are written.
+	if err = os.WriteFile(s.BootIDFile, []byte("boot-two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.MergeNamed([]string{"ccy-n"}, []Entry{restarted}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = s.Read(); err != nil || !slices.Equal(got.Entries, []Entry{restarted}) {
+		t.Fatalf("got %+v, %v", got.Entries, err)
+	}
+}
+
+// With no names, MergeNamed is Merge: every entry is replaced.
+func TestMergeNamedWithNoNamesReplacesEveryEntry(t *testing.T) {
+	s := newStore(t)
+	if err := s.Write([]Entry{entryA(), entryB()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MergeNamed(nil, []Entry{entryB()}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.Read(); err != nil || !slices.Equal(got.Entries, []Entry{entryB()}) {
+		t.Fatalf("got %+v, %v", got.Entries, err)
+	}
+}
+
 func TestMergeFailsWithoutABootID(t *testing.T) {
 	s := newStore(t)
 	s.BootIDFile = filepath.Join(t.TempDir(), "absent")

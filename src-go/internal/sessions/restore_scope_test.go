@@ -1,11 +1,13 @@
 package sessions
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
@@ -37,6 +39,18 @@ func recordFile(t *testing.T, h *harness, name string) string {
 // neighbour cannot fail the restore of a session that started.
 func TestRestoreOfNamedSessionsJudgesOnlyThoseRecords(t *testing.T) {
 	h := staleHost(t)
+	// This boot's restore already ran: its entries for two other sessions, one set going.
+	regdir, err := registry.Dir(h.app.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	others := []restore.Entry{
+		{Name: "ccy-x", Prefix: "ccy", Dir: "/x", Supervised: true, Going: restore.GoingContinue, At: time.Unix(123, 0), Detail: "5000", Transcript: "/t"},
+		{Name: "cc-y", Prefix: "cc", Dir: "/y", Resume: "0a1b", Going: restore.GoingPending},
+	}
+	if err = restore.NewStore(regdir, h.env["CCY_BOOT_ID_FILE"]).Write(others); err != nil {
+		t.Fatal(err)
+	}
 	exitCodeIs(t, h.run("restore", "ccy-ok"), 0, h)
 	calls := startedSessions(h)
 	if len(calls) != 1 || !strings.Contains(strings.Join(calls[0].Args, " "), "-s ccy-ok ") {
@@ -44,8 +58,19 @@ func TestRestoreOfNamedSessionsJudgesOnlyThoseRecords(t *testing.T) {
 	}
 	contains(t, "scoped", h.stderr(), "ccy session restore: 1 started, 0 failed.\n")
 	lacks(t, "scoped", h.stderr(), "ccy-stale")
-	if got := goingOf(manifestOf(t, h)); !slices.Equal(got, []string{"ccy-ok pending "}) {
-		t.Fatalf("only the named session is in the manifest: %q", got)
+	// The other sessions' entries survive unchanged, so set-going and verify-restore still see
+	// them; the named session's entry is added.
+	m := manifestOf(t, h)
+	entry := func(e restore.Entry) string {
+		return fmt.Sprintf("%s %s %s %q %v %s %d %s %s", e.Name, e.Prefix, e.Dir, e.Resume, e.Supervised, e.Going, e.AtUnix(), e.Detail, e.Transcript)
+	}
+	got := make([]string, 0, len(m.Entries))
+	for _, e := range m.Entries {
+		got = append(got, entry(e))
+	}
+	ok := restore.Entry{Name: "ccy-ok", Prefix: "ccy", Dir: filepath.Join(h.root, "ok"), Resume: conversationOf("ccy-ok"), Supervised: true, Going: restore.GoingPending}
+	if want := []string{entry(others[0]), entry(others[1]), entry(ok)}; !slices.Equal(got, want) {
+		t.Fatalf("manifest\n%q\nwant\n%q", got, want)
 	}
 	if _, err := os.Stat(recordFile(t, h, "ccy-stale")); err != nil {
 		t.Fatalf("the record not named is left alone: %v", err)
@@ -60,6 +85,18 @@ func TestRestoreOfNamedSessionsJudgesOnlyThoseRecords(t *testing.T) {
 	h = staleHost(t)
 	exitCodeIs(t, h.run("restore"), 1, h)
 	contains(t, "every record", h.stderr(), "ccy session restore: 1 started, 1 failed.\n")
+}
+
+// After --, every word is a session name, even one that starts with '-'.
+func TestRestoreTakesANameThatStartsWithADashAfterDoubleDash(t *testing.T) {
+	h := staleHost(t)
+	record(t, h, registry.Record{Name: "-odd", Dir: realDir(t, h, "odd"), Launcher: "/launch/ccy", Prefix: "ccy", Restore: true})
+	exitCodeIs(t, h.run("restore", "--dry-run", "--", "-odd"), 0, h)
+	contains(t, "dash", h.stderr(), "would start -odd in ")
+	lacks(t, "dash", h.stderr(), "would start ccy-ok")
+	h = staleHost(t)
+	exitCodeIs(t, h.run("restore", "--", "--check"), 64, h)
+	contains(t, "dash", h.stderr(), "no session record named '--check'.")
 }
 
 // A name with no record is a usage error that names it, and nothing is started or written.
