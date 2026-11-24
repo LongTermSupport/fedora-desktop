@@ -480,7 +480,9 @@ func TestAResumedReleaseLeavesAnotherSeatsCopy(t *testing.T) {
 		t.Fatal("the release of A did not stop at step 4")
 	}
 	a := w.lock()
+	undo := w.sessions.during("s1")
 	takenB, err := w.store.Take(t.Context(), a, Take{Seat: seatB, Session: mustSession(t, "s1"), State: StateActive})
+	undo()
 	w.unlock(a)
 	if err != nil {
 		t.Fatalf("take of B: %v", err)
@@ -613,7 +615,9 @@ func TestADirectoryMadeAfterStepOneIsNotMoved(t *testing.T) {
 		done <- w.store.Release(context.Background(), Release{Seat: w.seat, Session: mustSession(t, "s1"), Leaving: true})
 	}()
 	<-g.waiting
+	undo := w.sessions.during("s1")
 	takenB, err := w.store.Take(t.Context(), a, Take{Seat: seatB, Session: mustSession(t, "s1"), State: StateActive})
+	undo()
 	w.unlock(a)
 	close(g.goOn)
 	if err != nil {

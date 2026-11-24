@@ -17,6 +17,10 @@ import (
 
 // The refusals of a take (C 3.7.3 take step 1).
 var (
+	// ErrNoRecord is a session with no session record (ST0). The sweep releases a holding whose
+	// session is not restorable, so a seat taken for it would be moved out from under the
+	// session a minute later (fedora-desktop#393).
+	ErrNoRecord = errors.New("seat: the session has no session record")
 	// ErrHeld is a seat whose held/ names a session that is live or restorable, or a session that
 	// has the team's seat directory already (n2c-D12): another pool seat cannot be taken into it
 	// either, so seat choice does not answer it by trying the next seat.
@@ -64,6 +68,13 @@ func (s *Store) Take(ctx context.Context, a *Alloc, t Take) (Taken, error) {
 	if !s.holds(a) {
 		return Taken{}, ErrNotLocked
 	}
+	recorded, err := s.sessions.Restorable(t.Session)
+	if err != nil {
+		return Taken{}, fmt.Errorf("seat: read the session record of %s: %w", t.Session, err)
+	}
+	if !recorded {
+		return Taken{}, fmt.Errorf("%w: %s", ErrNoRecord, t.Session)
+	}
 	pool := s.store.PoolSeat(s.checkout, t.Seat.Team, t.Seat.Name)
 	if err := s.checkState(ctx, t, pool); err != nil {
 		return Taken{}, err
@@ -75,7 +86,7 @@ func (s *Store) Take(ctx context.Context, a *Alloc, t Take) (Taken, error) {
 	if err = s.pinTaken(bundle); err != nil {
 		return Taken{}, err
 	}
-	if err = s.clearHeld(ctx, t.Seat, pool); err != nil {
+	if err = s.clearHeld(ctx, t, pool); err != nil {
 		return Taken{}, err
 	}
 	seat := s.store.SessionSeat(t.Session, t.Seat.Team)
@@ -126,7 +137,7 @@ func (s *Store) checkState(ctx context.Context, t Take, pool paths.PoolSeat) err
 	case StateNeedsReissue:
 		return fmt.Errorf("%w: %s is marked needs: reissue", ErrReissue, t.Seat.Name)
 	case StateRetired:
-		if err := s.clearHeld(ctx, t.Seat, pool); err != nil {
+		if err := s.clearHeld(ctx, t, pool); err != nil {
 			return err
 		}
 		if err := s.quarantine(t.Seat, pool.Dir(), s.credentialName(t.Seat)); err != nil {
@@ -197,7 +208,8 @@ func (s *Store) leftovers(seat Seat) ([]string, error) {
 // clearHeld is step 1's held/: none goes on; one with no complete held.json goes to
 // quarantine; one naming a live or restorable session is ErrHeld; one naming a session that
 // is over is released first, under the lock this take holds (n2c-D4).
-func (s *Store) clearHeld(ctx context.Context, seat Seat, pool paths.PoolSeat) error {
+func (s *Store) clearHeld(ctx context.Context, t Take, pool paths.PoolSeat) error {
+	seat := t.Seat
 	h, rec, err := s.heldRecord(ctx, seat, pool, alreadyLocked)
 	if err != nil || h == nil {
 		return err
@@ -209,6 +221,12 @@ func (s *Store) clearHeld(ctx context.Context, seat Seat, pool paths.PoolSeat) e
 	if err != nil {
 		return err
 	}
+	if held && rec.Session == t.Session {
+		held, err = s.ownTakeFinished(t)
+		if err != nil {
+			return err
+		}
+	}
 	if held {
 		return fmt.Errorf("%w: by session %s", ErrHeld, rec.Session)
 	}
@@ -219,6 +237,22 @@ func (s *Store) clearHeld(ctx context.Context, seat Seat, pool paths.PoolSeat) e
 		return nil
 	}
 	return err
+}
+
+// ownTakeFinished is whether a held/ naming the taking session itself is a holding that session
+// has: its keeper holds the seat lock, or its seat directory for the team is there. Neither is
+// the session's own take that stopped after held/ was made (ST3, a homeserver that did not
+// answer), which holds nothing, so the session's next take releases it and goes on (X10).
+func (s *Store) ownTakeFinished(t Take) (bool, error) {
+	live, err := s.keeperLive(t.Session, t.Seat.Team)
+	if err != nil || live {
+		return live, err
+	}
+	found, err := s.root.exists(s.store.SessionSeat(t.Session, t.Seat.Team).Dir())
+	if memberRefused(err) {
+		return true, nil
+	}
+	return found, err
 }
 
 // sessionHolds is whether a session holds its seat: its seat lock is held, or it is restorable.

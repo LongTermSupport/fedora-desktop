@@ -125,7 +125,7 @@ func codeOf(err error) term.ExitCode {
 		return term.ExitUsage
 	case errors.Is(err, seat.ErrHeld), errors.Is(err, seat.ErrBusy):
 		return term.ExitBusy
-	case errors.Is(err, system.ErrUndecided), errors.Is(err, ErrMount), errors.Is(err, ErrHostKit), errors.Is(err, ErrNoSession), errors.Is(err, seat.ErrReturn),
+	case errors.Is(err, system.ErrUndecided), errors.Is(err, ErrMount), errors.Is(err, ErrHostKit), errors.Is(err, ErrNoSession), errors.Is(err, seat.ErrNoRecord), errors.Is(err, seat.ErrReturn),
 		errors.Is(err, seat.ErrRetired), errors.Is(err, seat.ErrIncomplete), errors.Is(err, seat.ErrLeftover),
 		execx.IsNotInstalled(err):
 		return term.ExitConfig

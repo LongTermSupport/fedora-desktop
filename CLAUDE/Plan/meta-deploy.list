@@ -46,6 +46,15 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
+# Issue #393 (ccy 3.124.20, container 2.84.67): ccy-teams takes a teamchat seat only for a
+# session with a ccy session record. A ccy --teams (or cc --teams) launch from a pane already
+# on ccy's tmux, or with no terminal, has no record, so the seat sweep released its seat about a
+# minute after it started; such a launch now stops at once with exit 78, naming the starts that
+# write a record (ccy or cc at a terminal outside ccy's tmux, or ccy-sessions declare then
+# ccy-sessions restore). A session's retry of its own take that stopped part way (homeserver
+# down) now goes on instead of finding the seat held. The image is rebuilt once for its
+# teamchat. The check applies to launches after this run; a running session is unchanged.
+playbooks/imports/play-claude-yolo.yml
 # Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that
 # is running, the session units are present, not enabled and not linked in
 # multi-user.target.wants. A stopped container is reported offline and skipped. It then ASKS,
