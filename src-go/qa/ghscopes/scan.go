@@ -70,14 +70,11 @@ func (g *gate) proveAgainst(ctx context.Context, rel string) (ExitCode, error) {
 func (g *gate) handOver(ctx context.Context, within scope) ([]string, error) {
 	listed := g.named
 	if !g.narrowed {
-		res, err := g.runTool(ctx, gitTimeout, "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
-		if err == nil && res.Code != 0 {
-			err = fmt.Errorf("git exited %d: %s", res.Code, strings.TrimSpace(res.Stderr))
-		}
+		published, err := g.listPublished(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("cannot list the files git would publish under .: %w", err)
+			return nil, err
 		}
-		listed = strings.Split(res.Stdout, "\x00")
+		listed = published
 	}
 	var files []string
 	for _, rel := range listed {
@@ -99,11 +96,40 @@ func (g *gate) handOver(ctx context.Context, within scope) ([]string, error) {
 			}
 		}
 	}
-	if len(files) == 0 && !g.narrowed {
-		return nil, errors.New("git named no files to scan; nothing was checked")
+	if !g.narrowed {
+		if len(files) == 0 {
+			return nil, errors.New("git named no files to scan; nothing was checked")
+		}
+		if err := g.requireStillScanned(files); err != nil {
+			return nil, err
+		}
 	}
 	slices.Sort(files)
 	return slices.Compact(files), nil
+}
+
+// listPublished is what git would publish.
+func (g *gate) listPublished(ctx context.Context) ([]string, error) {
+	res, err := g.runTool(ctx, gitTimeout, "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	if err == nil && res.Code != 0 {
+		err = fmt.Errorf("git exited %d: %s", res.Code, strings.TrimSpace(res.Stderr))
+	}
+	if err != nil {
+		return nil, fmt.Errorf("cannot list the files git would publish under .: %w", err)
+	}
+	return strings.Split(res.Stdout, "\x00"), nil
+}
+
+// requireStillScanned is that the whole-tree run hands over every file the spec still scans
+// inside an excluded tree: an exception for a file git does not publish, or that is gone or not a
+// regular file, reads nothing and would pass unseen.
+func (g *gate) requireStillScanned(files []string) error {
+	for _, rel := range g.spec.stillScansFiles {
+		if !slices.Contains(files, rel) {
+			return fmt.Errorf("%s still scans %s, which is not a regular file git would publish", g.spec.short, rel)
+		}
+	}
+	return nil
 }
 
 // wanted is whether a listed file is handed to semgrep. The whole-tree run hands every file the

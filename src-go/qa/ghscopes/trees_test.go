@@ -113,10 +113,8 @@ func TestEveryGateLeavesOutWhatTheTreesTableExcludes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			opened, stillScanned := openedOf(excluded, handed, within.rule, spec.stillScans)
-			if len(spec.stillScans) > 0 && len(stillScanned) == 0 {
-				t.Errorf("%s declares it still scans %v but opens nothing there", spec.short, spec.stillScans)
-			}
+			opened, stillScanned := openedOf(excluded, handed, within.rule, spec.stillScans, spec.stillScansFiles)
+			wantStillScanned(t, spec, stillScanned)
 			if len(opened) > 0 {
 				t.Errorf("qa-trees-drift: %s opens %d file(s) scripts/qa-trees.tsv keeps out of every gate (see CLAUDE/QA.md \"qa-trees-drift\"):\n%s", spec.short, len(opened), indent(opened))
 			}
@@ -124,14 +122,28 @@ func TestEveryGateLeavesOutWhatTheTreesTableExcludes(t *testing.T) {
 	}
 }
 
+// wantStillScanned is that the gate really opens something in each row it still scans and every
+// file it still scans: an exception that reads nothing is a stale one.
+func wantStillScanned(t *testing.T, spec Spec, stillScanned []string) {
+	t.Helper()
+	if len(spec.stillScans) > 0 && !slices.ContainsFunc(stillScanned, func(rel string) bool { return inRow(rel, spec.stillScans) }) {
+		t.Errorf("%s declares it still scans %v but opens nothing there", spec.short, spec.stillScans)
+	}
+	for _, rel := range spec.stillScansFiles {
+		if !slices.Contains(stillScanned, rel) {
+			t.Errorf("%s declares it still scans %s but does not open it", spec.short, rel)
+		}
+	}
+}
+
 // openedOf splits the table-excluded files the gate hands to semgrep and its rule does not drop:
-// those in a row the spec still scans, and the rest, which are drift.
-func openedOf(excluded, handed []string, rule excludes, stillScans []string) ([]string, []string) {
+// those in a row or among the files the spec still scans, and the rest, which are drift.
+func openedOf(excluded, handed []string, rule excludes, stillScans, stillScansFiles []string) ([]string, []string) {
 	var opened, stillScanned []string
 	for _, rel := range excluded {
 		switch {
 		case !slices.Contains(handed, rel) || rule.Matches(rel):
-		case inRow(rel, stillScans):
+		case inRow(rel, stillScans) || slices.Contains(stillScansFiles, rel):
 			stillScanned = append(stillScanned, rel)
 		default:
 			opened = append(opened, rel)
@@ -161,6 +173,105 @@ func TestOnlySemgrepIsStillScanned(t *testing.T) {
 		if !slices.Equal(spec.stillScans, []string{".semgrep"}) {
 			t.Errorf("%s still scans %v, want [.semgrep]: the coverage it had before the table governed it", spec.short, spec.stillScans)
 		}
+	}
+}
+
+// The one file a gate still reads inside a tree the table keeps out is this project's own image
+// Dockerfile, for arch-pin alone (issue #408: Plan 00243 fixed arch-pinned-artefact findings in
+// it, and the .claude/ccy row took them out of the gate). The rest of .claude/ccy is the CCY
+// runtime tree and the daemon-deployed claude-supervise, which the owner ruled out of every gate,
+// so a second file named here fails this test rather than pass the drift test above.
+func TestOnlyTheCCYDockerfileIsAStillScannedFile(t *testing.T) {
+	for _, spec := range []Spec{GHScopes, FindRace, ArgvLeak, PlaceIssuedToken, BootHold, GHPoll, SecretScreen} {
+		if len(spec.stillScansFiles) > 0 {
+			t.Errorf("%s still scans the files %v; only arch-pin may name a file inside an excluded tree", spec.short, spec.stillScansFiles)
+		}
+	}
+	if !slices.Equal(ArchPin.stillScansFiles, []string{".claude/ccy/Dockerfile"}) {
+		t.Errorf("arch-pin still scans the files %v, want [.claude/ccy/Dockerfile]", ArchPin.stillScansFiles)
+	}
+}
+
+// stillScansWorld is a world with a file the table keeps out that a spec names all the same,
+// beside one in the same tree that it does not name.
+func stillScansWorld(t *testing.T) *world {
+	t.Helper()
+	return newWorld(t, map[string]string{
+		".claude/ccy/Dockerfile":          "FROM x\n",
+		".claude/ccy/claude-supervise.py": "x = 1\n",
+	})
+}
+
+// runSpec runs spec over the world with args.
+func runSpec(w *world, spec Spec, args ...string) result {
+	var stdout, stderr bytes.Buffer
+	code := spec.Main(args, Env{Stdout: &stdout, Stderr: &stderr, Cwd: w.root, Runner: w.run})
+	return result{code, stdout.String(), stderr.String()}
+}
+
+// A still-scanned file is handed to semgrep on the whole-tree run and on a run that names it,
+// and the gate's Reader says it reads it (qa-changed plans the gate for it); the rest of its tree
+// stays out.
+func TestAStillScannedFileIsReadAndTheRestOfItsTreeIsNot(t *testing.T) {
+	spec := GHScopes
+	spec.stillScansFiles = []string{".claude/ccy/Dockerfile"}
+
+	w := stillScansWorld(t)
+	wantExit(t, runSpec(w, spec), ExitOK)
+	files := handed(w.run.scanArgv)
+	if !slices.Contains(files, ".claude/ccy/Dockerfile") {
+		t.Errorf("the still-scanned file was not handed over: %v", files)
+	}
+	if slices.Contains(files, ".claude/ccy/claude-supervise.py") {
+		t.Errorf("the rest of its tree was handed over: %v", files)
+	}
+
+	w = stillScansWorld(t)
+	wantExit(t, runSpec(w, spec, "--", ".claude/ccy/Dockerfile", ".claude/ccy/claude-supervise.py"), ExitOK)
+	if files := handed(w.run.scanArgv); !slices.Equal(files, []string{".claude/ccy/Dockerfile"}) {
+		t.Errorf("a named run handed %v, want only the still-scanned file", files)
+	}
+
+	reader, err := spec.Reader(w.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rel, want := range map[string]bool{".claude/ccy/Dockerfile": true, ".claude/ccy/claude-supervise.py": false} {
+		got, readErr := reader.Reads(rel)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if got != want {
+			t.Errorf("Reader.Reads(%s) = %v, want %v", rel, got, want)
+		}
+	}
+}
+
+// A still-scanned file that is not inside a tree the table keeps out (a stale exception), that
+// is not on disk, or that git would not publish is exit 2, and nothing is scanned.
+func TestABadStillScannedFileIsExitTwo(t *testing.T) {
+	for name, tc := range map[string]struct {
+		file     string
+		unlisted bool
+	}{
+		"not excluded": {file: "a.txt"},
+		"missing":      {file: ".claude/ccy/gone"},
+		"unpublished":  {file: ".claude/ccy/Dockerfile", unlisted: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := stillScansWorld(t)
+			if tc.unlisted {
+				w.run.listed = slices.DeleteFunc(w.run.listed, func(rel string) bool { return rel == tc.file })
+			}
+			spec := GHScopes
+			spec.stillScansFiles = []string{tc.file}
+			got := runSpec(w, spec)
+			wantExit(t, got, ExitCannotRun)
+			wantIn(t, "stderr", got.stderr, "ERROR:", tc.file)
+			if w.run.scanArgv != nil {
+				t.Fatalf("semgrep scanned %v", w.run.scanArgv)
+			}
+		})
 	}
 }
 
