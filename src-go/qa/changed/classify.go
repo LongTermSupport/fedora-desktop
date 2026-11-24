@@ -41,6 +41,9 @@ type plan struct {
 	goPackages []string
 	goFull     []string
 	goNamed    map[string]bool
+	// commentsOnly are the changed files whose change is to their comments and blank lines alone
+	// (their rows are those at the base), routed by their comments rows only (issue #413).
+	commentsOnly []string
 }
 
 // addGo records what a routing row says the go check needs for a file outside src-go/.
@@ -197,7 +200,23 @@ func (s *session) applies(r rule, rel string, deleted bool) (bool, error) {
 	return r.m.matches(rel, s.probe, s.listed)
 }
 
+// classifyFile routes one file. A change to a file's comments and blank lines alone is routed by
+// its comments rows instead of its also and first rows (issue #413).
 func (s *session) classifyFile(ctx context.Context, rel string, deleted bool) error {
+	if !deleted {
+		rows, err := s.commentRows(ctx, rel)
+		if err != nil {
+			return err
+		}
+		if rows != nil {
+			for _, r := range rows {
+				if err := s.apply(ctx, r, rel, false); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}
 	if err := s.applyAlso(ctx, rel, deleted); err != nil {
 		return err
 	}
