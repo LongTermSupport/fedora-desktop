@@ -17,6 +17,30 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.40 — container 2.84.76
+
+`ccy --teams <seats> --continue` (or `-c`) is still refused (exit 64, owner's ruling Q67), but
+the refusal now names the right conversation (issue #409). `ccy-teams` is rebuilt on the host;
+the image is unchanged.
+
+- **The id the seat's session recorded.** The refusal prints the exact
+  `ccy --resume <id> --teams <seats>`, with the id recorded by the session of this checkout
+  that held every seat named: on agent-bus, the session whose keeper's `applied.json` shows
+  the seats held, and its `conversation.json`; on teamchat, the session whose `desired.json`
+  in the seat store names them, and its link's record. Both are read as `ccy-sessions restore`
+  reads them, transcript included. The old hint ("the seat's last transcript") is gone: the
+  newest transcript may be another seat's, the hazard Q67 refuses.
+- **New verb `ccy-teams seats conversation <seat>@<team>[,...]`**, run from the checkout,
+  prints that id alone on stdout. It refuses (exit 1) when no session held the seats, none
+  recorded a conversation, more than one did, or the id is recorded by another session too (a
+  stale record): each refusal names the sessions, their seats and when each record was
+  written, the newest marked but not chosen.
+- **No id: the picker.** When none can be named the refusal gives the reason and points at a
+  bare `ccy --resume --teams <seats>` (owner's ruling Q70), which reaches Claude Code as
+  `--resume` with nothing after it, so its own picker runs; the seat's SessionStart hook
+  records the conversation picked. The arguments are still never rewritten and nothing is
+  resumed on its own.
+
 ## 3.124.39 — container 2.84.76
 
 `ccy-teams seats abandon` no longer refuses every run because of a regular file under the seat

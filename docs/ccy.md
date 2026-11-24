@@ -1223,8 +1223,11 @@ are not given the limits.
 
 **Team seats and `--continue`.** A launch that takes team seats (`--teams`, or Quick Launch's
 saved team) refuses claude's `-c`/`--continue` with exit 64: it would resume the checkout's
-newest conversation, which may be another seat's. Use `ccy --resume <conversation id> --teams <seats>`; the id is the name of the seat's last transcript under `.claude/ccy/projects/-workspace/`,
-or ask the team's coordinator. ccy never rewrites the arguments.
+newest conversation, which may be another seat's. The refusal prints the exact
+`ccy --resume <id> --teams <seats>`, with the id recorded by the session that held those seats
+(`ccy-teams seats conversation <seats>` prints it). When none can be named (no record, or one id
+recorded by two sessions), it says why and points at a bare `ccy --resume --teams <seats>`:
+Claude Code's picker, whose choice the seat records. ccy never rewrites the arguments.
 
 The setting lives in `lib/container-limits.bash` (the Go copy, `src-go/internal/ccylimits`, is
 tested against it). The rules that hold every ccy run to the whole set:

@@ -288,6 +288,18 @@ Usage:
                                    cannot be read, unless --allow-known-team repeats the team
                                    (exit 78); a seat whose link of that team is running, or
                                    whose seat lock cannot be looked at (75)
+  ccy-teams seats conversation <seat>@<team>[,<seat>@<team>...]
+                                   print the conversation id recorded by the session of the
+                                   working directory's checkout that held every seat named
+                                   (agent-bus: its keeper's applied.json; teamchat: its
+                                   desired.json in the seat store), for
+                                   `ccy --resume <id> --teams <list>`; ccy's --continue refusal
+                                   runs it. Never the newest transcript. Refused, exit 1: no
+                                   session held the seats, none recorded a conversation, more
+                                   than one did, or another session records the same id (a
+                                   stale record). Each refusal names the sessions, their seats
+                                   and when each record was written, the newest marked but not
+                                   chosen
   ccy-teams seats units list
   ccy-teams seats units print <name>
                                    the two user units that run the sweep: each name and its

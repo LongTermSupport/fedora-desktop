@@ -60,7 +60,7 @@ func Here(getenv func(string) string) Where {
 type Location struct {
 	Path   string
 	System string
-	decode func(data []byte, session string) (string, error)
+	decode func(data []byte, session string) (entry, error)
 }
 
 // Locate is where the session of rec keeps its conversation record, by the system its teams are
@@ -224,42 +224,54 @@ func byHand(rec registry.Record, err error) error {
 }
 
 func read(rec registry.Record, where Where) (string, error) {
+	r, err := readRecorded(rec, where)
+	return r.id, err
+}
+
+// entry is what a session's record gives: the conversation id and when it was written.
+type entry struct {
+	id        string
+	writtenMS int64
+}
+
+// readRecorded is read with the record's written_ms.
+func readRecorded(rec registry.Record, where Where) (entry, error) {
 	if !discover.LaunchedWithBus(rec) {
-		return "", errors.New("it was launched without the agent team bus (ccy --no-bus, or a cc without --teams or --bus), so its conversation is not recorded")
+		return entry{}, errors.New("it was launched without the agent team bus (ccy --no-bus, or a cc without --teams or --bus), so its conversation is not recorded")
 	}
 	loc, err := Locate(rec, where.Getenv)
 	if err != nil {
-		return "", err
+		return entry{}, err
 	}
 	data, err := readFile(loc.Path)
 	if err != nil {
-		return "", err
+		return entry{}, err
 	}
-	id, err := loc.decode(data, rec.Name)
+	r, err := loc.decode(data, rec.Name)
 	if err != nil {
-		return "", fmt.Errorf("%s: %w", loc.Path, err)
+		return entry{}, fmt.Errorf("%s: %w", loc.Path, err)
 	}
-	if !registry.SessionID(id) {
-		return "", fmt.Errorf("%s holds %q, which is not a Claude session id", loc.Path, id)
+	if !registry.SessionID(r.id) {
+		return entry{}, fmt.Errorf("%s holds %q, which is not a Claude session id", loc.Path, r.id)
 	}
 	dir, err := transcript.Dir(rec.Prefix, rec.Dir, where.ClaudeHome)
 	if err != nil {
-		return "", err
+		return entry{}, err
 	}
-	if _, err := transcript.For(dir, id); err != nil {
-		return "", fmt.Errorf("the recorded conversation %s (%s) has no transcript (%w): %w", id, loc.Path, errNoTranscript, err)
+	if _, err := transcript.For(dir, r.id); err != nil {
+		return entry{}, fmt.Errorf("the recorded conversation %s (%s) has no transcript (%w): %w", r.id, loc.Path, errNoTranscript, err)
 	}
-	return id, nil
+	return r, nil
 }
 
 // decodeV2 is the id in a teamchat session's record. The record is in the session's own
 // directory, so the path is the name check.
-func decodeV2(data []byte, _ string) (string, error) {
+func decodeV2(data []byte, _ string) (entry, error) {
 	r, err := state.DecodeConversation(data)
 	if err != nil {
-		return "", fmt.Errorf("not the session's teamchat record: %w", errors.Join(err, errNotARecord))
+		return entry{}, fmt.Errorf("not the session's teamchat record: %w", errors.Join(err, errNotARecord))
 	}
-	return r.SessionID, nil
+	return entry{id: r.SessionID, writtenMS: r.WrittenMS}, nil
 }
 
 // checkoutOf is the checkout the session's hook wrote under: ccy's is its folder (mounted as
@@ -305,20 +317,20 @@ func readFile(path string) ([]byte, error) {
 }
 
 // decodeV1 is the id in the pingbus hook's record, which must name session.
-func decodeV1(data []byte, session string) (string, error) {
+func decodeV1(data []byte, session string) (entry, error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	var r recordV1
 	if err := dec.Decode(&r); err != nil || dec.More() {
-		return "", fmt.Errorf("not the SessionStart hook's record: %w", errors.Join(err, errNotARecord))
+		return entry{}, fmt.Errorf("not the SessionStart hook's record: %w", errors.Join(err, errNotARecord))
 	}
 	if r.V != 1 || r.WrittenMS == nil || *r.WrittenMS < 0 || !slices.Contains(sources, r.Source) {
-		return "", errors.New("not a version 1 record of the SessionStart hook")
+		return entry{}, errors.New("not a version 1 record of the SessionStart hook")
 	}
 	if r.Session != session {
-		return "", fmt.Errorf("names the session %q, not this one", r.Session)
+		return entry{}, fmt.Errorf("names the session %q, not this one", r.Session)
 	}
-	return r.SessionID, nil
+	return entry{id: r.SessionID, writtenMS: *r.WrittenMS}, nil
 }
 
 var errNotARecord = errors.New("not one version 1 record")

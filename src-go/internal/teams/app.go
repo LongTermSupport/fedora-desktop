@@ -104,6 +104,8 @@ type App struct {
 	Launch *teamchatlaunch.Verbs
 	// Sweep is `ccy-teams seats`, the owner's teamchat seat sweep and its user units.
 	Sweep *seatsweep.Cmd
+	// SeatConversation is `ccy-teams seats conversation`, the id a seat's session recorded.
+	SeatConversation *SeatConversation
 	// Interrupted makes the run's context: Ctrl-C cancels it instead of ending the process,
 	// so the sudo credential is still dropped (review L-A).
 	Interrupted func(context.Context) (context.Context, context.CancelFunc)
@@ -185,6 +187,9 @@ func Wire(h *host.Host) *App {
 		System:  sys,
 		Launch:  newLaunch(h, membershipInit, sys),
 		Sweep:   newSweep(h),
+		SeatConversation: &SeatConversation{
+			Stdout: h.Payload, Stderr: h.Stderr, Getenv: h.Getenv, Getwd: os.Getwd,
+		},
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
 		},
@@ -253,6 +258,9 @@ func (a *App) run(ctx context.Context, args []string) term.ExitCode {
 	case subSystem:
 		return a.System.Run(ctx, args[1:])
 	case subSeats:
+		if len(args) > 1 && args[1] == verbSeatConversation {
+			return a.SeatConversation.Run(args[2:])
+		}
 		return a.Sweep.Run(ctx, args[1:])
 	}
 	return a.dispatch(ctx, sub, args[min(1, len(args)):])
