@@ -890,11 +890,8 @@ ccy_registry_resume_id() {
             skip=false
             continue
         fi
-        if [[ "$word" == "--" ]]; then
-            after_dd=true
-            continue
-        fi
         case "$word" in
+        --) after_dd=true ;;
         --resume=*) id="${word#--resume=}" ;;
         --resume | -r)
             id=""

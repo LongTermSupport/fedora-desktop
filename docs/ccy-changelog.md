@@ -17,6 +17,11 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.43 — container 2.84.77
+
+3.124.42 and 3.124.43 are one change (issue #411): 3.124.43 brings the launcher library back
+under its bash size record.
+
 ## 3.124.42 — container 2.84.77
 
 A session launched with a bare `ccy --resume` (Claude Code's picker), such as
