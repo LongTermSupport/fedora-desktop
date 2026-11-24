@@ -227,13 +227,16 @@ func TestOnTeamsIsToldEachChange(t *testing.T) {
 
 // 15a major 3: the hook-stdin count reaches status.json and status's runtime record.
 func TestTheUnusableCountsReachStatus(t *testing.T) {
-	w := newWorldWith(t, state.DeliveryWait, func(c *Config) { c.Unusable = state.Unusable{HookStdin: 1, Render: 2} }, func(*Engine) {})
-	if got := w.status().UnusableHookStdin; got != 1 {
-		t.Fatalf("status.json unusable_hook_stdin %d at the start", got)
+	first := state.UnusableHook{Event: state.HookStop, Reason: state.UnusableJSON, Bytes: 7}
+	w := newWorldWith(t, state.DeliveryWait, func(c *Config) { c.Unusable = state.Unusable{HookStdin: 1, Render: 2, HookLast: &first} }, func(*Engine) {})
+	if got := w.status(); got.UnusableHookStdin != 1 || got.UnusableHookLast == nil || *got.UnusableHookLast != first {
+		t.Fatalf("status.json unusable_hook_stdin %d, last %+v at the start", got.UnusableHookStdin, got.UnusableHookLast)
 	}
-	check(t, w.e.SetUnusable(t.Context(), state.Unusable{HookStdin: 3, Render: 99}))
-	if got := w.status().UnusableHookStdin; got != 3 {
-		t.Fatalf("status.json unusable_hook_stdin %d", got)
+	// Issue 394: the last unusable hook input travels with its count.
+	last := state.UnusableHook{Event: state.HookPrompt, Reason: state.UnusableSize, Bytes: state.MaxHookStdin + 1}
+	check(t, w.e.SetUnusable(t.Context(), state.Unusable{HookStdin: 3, Render: 99, HookLast: &last}))
+	if got := w.status(); got.UnusableHookStdin != 3 || got.UnusableHookLast == nil || *got.UnusableHookLast != last {
+		t.Fatalf("status.json unusable_hook_stdin %d, last %+v", got.UnusableHookStdin, got.UnusableHookLast)
 	}
 	_, out := w.serve(t.Context(), wire.OpStatus, wire.TeamsArgs{})
 	rt, ok := out.recs[len(out.recs)-1].(records.Runtime)

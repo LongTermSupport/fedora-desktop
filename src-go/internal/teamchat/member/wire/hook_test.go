@@ -34,7 +34,7 @@ func encodeArgs(t *testing.T, a HookArgs) json.RawMessage {
 func TestHookArgsRoundTrip(t *testing.T) {
 	a := hookArgs()
 	raw := encodeArgs(t, a)
-	for _, key := range []string{`"payload":"ok"`, `"unusable":null`, `"stop_hook_false":false`, `"reason":null`, `"token":"` + hookToken + `"`} {
+	for _, key := range []string{`"payload":"ok"`, `"unusable":null`, `"unusable_bytes":null`, `"stop_hook_false":false`, `"reason":null`, `"token":"` + hookToken + `"`} {
 		if !strings.Contains(string(raw), key) {
 			t.Fatalf("%s lacks %s", raw, key)
 		}
@@ -52,9 +52,12 @@ func TestHookArgsRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, why := range []string{UnusableSize, UnusableUTF8, UnusableJSON} {
-		u := HookArgs{Payload: PayloadUnusable, Unusable: new(why), Socket: new("/s"), Token: new("t")}
-		if _, err := DecodeHookArgs(OpHookPrompt, encodeArgs(t, u)); err != nil {
-			t.Fatalf("%s: %v", why, err)
+		for _, n := range []int64{0, 1, MaxHookStdin + 1} {
+			u := HookArgs{Payload: PayloadUnusable, Unusable: new(why), UnusableBytes: new(n), Socket: new("/s"), Token: new("t")}
+			back, err := DecodeHookArgs(OpHookPrompt, encodeArgs(t, u))
+			if err != nil || *back.UnusableBytes != n {
+				t.Fatalf("%s, %d bytes: %v, %v", why, n, back, err)
+			}
 		}
 	}
 }
@@ -68,10 +71,14 @@ func TestDecodeHookArgsRefuses(t *testing.T) {
 	}{
 		"not a hook op":             {OpRecv, HookArgs{Payload: PayloadOK}},
 		"payload":                   {OpHookPrompt, HookArgs{Payload: "maybe"}},
-		"unusable without a reason": {OpHookPrompt, HookArgs{Payload: PayloadUnusable}},
-		"a reason outside the set":  {OpHookPrompt, HookArgs{Payload: PayloadUnusable, Unusable: new("big")}},
+		"unusable without a reason": {OpHookPrompt, HookArgs{Payload: PayloadUnusable, UnusableBytes: new(int64(0))}},
+		"a reason outside the set":  {OpHookPrompt, HookArgs{Payload: PayloadUnusable, Unusable: new("big"), UnusableBytes: new(int64(0))}},
 		"a reason on ok":            {OpHookPrompt, HookArgs{Payload: PayloadOK, Unusable: new(UnusableJSON)}},
-		"fields with unusable":      {OpHookPrompt, HookArgs{Payload: PayloadUnusable, Unusable: new(UnusableJSON), SessionID: new("x")}},
+		"fields with unusable":      {OpHookPrompt, HookArgs{Payload: PayloadUnusable, Unusable: new(UnusableJSON), UnusableBytes: new(int64(0)), SessionID: new("x")}},
+		"unusable without bytes":    {OpHookPrompt, HookArgs{Payload: PayloadUnusable, Unusable: new(UnusableJSON)}},
+		"bytes on ok":               {OpHookPrompt, HookArgs{Payload: PayloadOK, UnusableBytes: new(int64(0))}},
+		"negative bytes":            {OpHookPrompt, HookArgs{Payload: PayloadUnusable, Unusable: new(UnusableJSON), UnusableBytes: new(int64(-1))}},
+		"bytes past the read":       {OpHookPrompt, HookArgs{Payload: PayloadUnusable, Unusable: new(UnusableSize), UnusableBytes: new(int64(MaxHookStdin + 2))}},
 		"source off session-start":  {OpHookPrompt, HookArgs{Payload: PayloadOK, Source: new("startup")}},
 		"stop flag off stop":        {OpHookPrompt, HookArgs{Payload: PayloadOK, StopHookFalse: true}},
 		"reason off session-end":    {OpHookStop, HookArgs{Payload: PayloadOK, Reason: new("exit")}},

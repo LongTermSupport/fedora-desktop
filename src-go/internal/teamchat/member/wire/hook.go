@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
@@ -15,10 +16,13 @@ const (
 	PayloadOK       = "ok"
 	PayloadUnusable = "unusable"
 
-	UnusableSize = "size"
-	UnusableUTF8 = "utf8"
-	UnusableJSON = "json"
+	UnusableSize = state.UnusableSize
+	UnusableUTF8 = state.UnusableUTF8
+	UnusableJSON = state.UnusableJSON
 )
+
+// MaxHookStdin bounds a hook's payload; the hook reads one byte past it.
+const MaxHookStdin = state.MaxHookStdin
 
 // The byte bounds of a hook's fields; the hook sends a longer value as absent, so a request
 // always fits MaxRequest. The socket's is paths.InboxSocket's, the transcript's the codec's.
@@ -35,8 +39,11 @@ const (
 // socket variables. The token is a secret (B11): every formatter redacts it; only the wire
 // line carries it.
 type HookArgs struct {
-	Payload        string  `json:"payload"`
-	Unusable       *string `json:"unusable"`
+	Payload  string  `json:"payload"`
+	Unusable *string `json:"unusable"`
+	// UnusableBytes is how many bytes of an unusable payload the hook read, 0 to
+	// MaxHookStdin+1: a size, never content.
+	UnusableBytes  *int64  `json:"unusable_bytes"`
 	SessionID      *string `json:"session_id"`
 	TranscriptPath *string `json:"transcript_path"`
 	// Source is session-start's only.
@@ -92,17 +99,21 @@ func checkHookArgs(op string, a HookArgs) string {
 	return ""
 }
 
-// checkPayload is the payload's rules: ok, or unusable with its reason and no payload field.
+// checkPayload is the payload's rules: ok, or unusable with its reason, the bytes read and no
+// payload field.
 func checkPayload(a HookArgs) string {
+	unusable := a.Payload == PayloadUnusable
 	switch {
-	case a.Payload != PayloadOK && a.Payload != PayloadUnusable:
+	case a.Payload != PayloadOK && !unusable:
 		return "payload is not ok or unusable"
-	case (a.Payload == PayloadUnusable) != (a.Unusable != nil):
-		return "unusable is not given exactly for an unusable payload"
-	case a.Unusable == nil:
+	case unusable != (a.Unusable != nil) || unusable != (a.UnusableBytes != nil):
+		return "unusable and unusable_bytes are not given exactly for an unusable payload"
+	case !unusable:
 		return ""
 	case *a.Unusable != UnusableSize && *a.Unusable != UnusableUTF8 && *a.Unusable != UnusableJSON:
 		return "unusable is not size utf8 or json"
+	case *a.UnusableBytes < 0 || *a.UnusableBytes > MaxHookStdin+1:
+		return "unusable_bytes is not a size the hook can read"
 	case a.SessionID != nil || a.TranscriptPath != nil || a.Source != nil || a.StopHookFalse || a.Reason != nil:
 		return "an unusable payload has fields"
 	}

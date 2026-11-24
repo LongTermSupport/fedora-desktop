@@ -58,10 +58,12 @@ func (w *linkWorld) sync(n int) {
 func TestARestartedLinkDeliversOnTheToken(t *testing.T) {
 	w := newLinkWorld(t)
 	made := w.engineConfig()
-	w.startedSession(state.Unusable{HookStdin: 1, Render: 3})
+	last := state.UnusableHook{Event: state.HookStop, Reason: state.UnusableJSON, Bytes: 9}
+	w.startedSession(state.Unusable{HookStdin: 1, Render: 3, HookLast: &last})
 	w.ready()
 	c := <-made
-	if c.Inbox == nil || c.OnUnusable == nil || c.Unusable != (state.Unusable{HookStdin: 1, Render: 3}) {
+	u := c.Unusable
+	if c.Inbox == nil || c.OnUnusable == nil || u.HookStdin != 1 || u.Render != 3 || u.HookLast == nil || *u.HookLast != last {
 		t.Fatalf("engine config inbox %v, on unusable set %t, unusable %+v", c.Inbox, c.OnUnusable != nil, c.Unusable)
 	}
 	l := w.link()
@@ -109,14 +111,16 @@ func TestAWaitLaunchHasNoDialer(t *testing.T) {
 func TestTheRenderCountReachesSessionJSON(t *testing.T) {
 	w := newLinkWorld(t)
 	made := w.engineConfig()
-	before := w.startedSession(state.Unusable{HookStdin: 4, Render: 1})
+	last := state.UnusableHook{Event: state.HookPrompt, Reason: state.UnusableUTF8, Bytes: 5}
+	before := w.startedSession(state.Unusable{HookStdin: 4, Render: 1, HookLast: &last})
 	w.ready()
 	c := <-made
-	c.OnUnusable(state.Unusable{HookStdin: 4, Render: 2})
-	c.OnUnusable(state.Unusable{HookStdin: 4, Render: 3})
+	c.OnUnusable(state.Unusable{HookStdin: 4, Render: 2, HookLast: &last})
+	c.OnUnusable(state.Unusable{HookStdin: 4, Render: 3, HookLast: &last})
 	until(t, func() bool { return w.sessionFile().Unusable.Render == 3 })
 	got := w.sessionFile()
-	if got.Unusable.HookStdin != 4 || *got.SessionID != *before.SessionID || *got.Socket != *before.Socket {
+	if got.Unusable.HookStdin != 4 || got.Unusable.HookLast == nil || *got.Unusable.HookLast != last ||
+		*got.SessionID != *before.SessionID || *got.Socket != *before.Socket {
 		t.Fatalf("session.json %+v, want the facts kept beside the count", got)
 	}
 }

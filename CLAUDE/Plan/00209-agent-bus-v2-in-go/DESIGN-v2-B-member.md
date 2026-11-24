@@ -752,7 +752,7 @@ being the one on the seat's play line and board row (C 3.9.4). The next start th
  "stop_guard": {"pending_digest": "<64 hex>|null", "failure_ms": null, "no_waker_ms": null},
  "told": {"generation": 3, "roles": {"<team>": "worker"}, "coordinators": {"<team>": "<handle>|"}, "not_known": ["<team>"]},
  "frame_told": true,
- "unusable": {"hook_stdin": 0, "render": 0}}
+ "unusable": {"hook_stdin": 1, "render": 0, "hook_last": {"event": "UserPromptSubmit", "reason": "json", "bytes": 0}}}
 ```
 
 It is the one home of the session's facts (2.4.4): the session id, its source, the transcript path,
@@ -765,10 +765,14 @@ role last announced (2.10), and for each team where it is a worker the coordinat
 teams whose frame said the role and the coordinator are not known yet (a record not verified
 current, or a team that cannot reach its server): the session has them, so what is verified later
 is told as a role and a coordinator, never as a join, and a team is in `roles` or in `not_known`,
-not both. `coordinators` and `not_known` are required keys; `v` stays 1 because v2 is deployed
-nowhere, so no file of the older shape exists. The store holds none of it, because what was told belongs to the
+not both. `coordinators`, `not_known` and `unusable.hook_last` are required keys; `v` stays 1 because the file lives in
+the run directory, which no run outlives and only the same kit's binaries read, so no reader
+meets a file of another shape. The store holds none of it, because what was told belongs to the
 session, and a new session is told afresh by its SessionStart frame. `unusable` counts the inputs
-the link could not use (2.8, 2.7.2), which `status` reports. Until the first SessionStart,
+the link could not use (2.8, 2.7.2), which `status` reports. `unusable.hook_last` is the last hook
+input that was not usable (issue 394): Claude Code's event (`SessionStart`, `UserPromptSubmit`,
+`Stop`, `SessionEnd`), the reason (`size`, `utf8`, `json`) and the bytes the hook read of it, 0 to
+1 MiB + 1 (a size, never content); it is `null` exactly while `hook_stdin` is 0. Until the first SessionStart,
 `session_id`, `source`, `transcript`, `socket` and `claude` are all `null`; afterwards all are set.
 `source` is SessionStart's (`startup`, `resume`, `clear`, `compact`). `socket` is
 `cc-socks/<claude.pid>.sock`, at most 107 bytes. The file is at most 20 KiB.
@@ -1718,10 +1722,15 @@ request to the link (2.4.4) with the payload fields it uses (`session_id`, `tran
 answer: one JSON line, `{}` or Claude Code's `hookSpecificOutput`, `decision`/`reason` or
 `systemMessage` shapes (H6). The answer is built by the link from fixed templates filled with
 counts and grammar-checked names only (H14). Stdin that is too long, not UTF-8 or not a JSON object
-is sent as `"payload": "unusable"` with the reason from a closed set (`size`, `utf8`, `json`); the
-link counts it in `session.json` (`unusable.hook_stdin`), logs one line, shows the count in
-`status` and `status.json`, and answers as for an event with no payload, so a change in Claude
-Code's hook input is seen, not absorbed. The hook exits 0 always; a bad event argument is 64.
+is sent as `"payload": "unusable"` with the reason from a closed set (`size`, `utf8`, `json`) and
+`unusable_bytes`, the number of bytes the hook read (0 to 1 MiB + 1, since the read stops one byte
+past the bound; 0 when stdin could not be read, as the read keeps nothing of a failed read); the
+two are given exactly for an unusable payload. The link counts it in `session.json`
+(`unusable.hook_stdin`) and records it as `unusable.hook_last` (event, reason, bytes) in the same
+write, logs one line, `link: a hook's input was unusable at <event> (<reason>, <n> bytes); <count> so far`, where `<event>` is Claude Code's name for the op's hook, shows the count and the last one in
+`status.json`, the count in `status`, and answers as for an event with no payload, so a change in Claude
+Code's hook input is seen, not absorbed, and the hook it came from is named (issue 394). A byte
+count is a size: no byte of an unusable payload's content leaves the hook. The hook exits 0 always; a bad event argument is 64.
 
 **Hook texts name commands in B's form**: a member verb as `teamchat <verb>` with its flags as 2.2.1 spells them, and the recovery commands of 2.4.2 (`ccy-teams restart <session>`) as the owner's commands they are, so the 2.12 test that parses the texts checks every `teamchat` command against the binary.
 
@@ -1773,8 +1782,9 @@ value at 25 and below 30.
    gone keeper in a ccy or LXC session, `teamchat stopped: relaunch this session` for other kinds.
    With no team (`"teams": []`) and the link running: no segment (empty stays empty: with no inner line either, stdout is zero bytes, never a lone newline that would draw a blank row), except a red
    `teamchat membership refused` when `"desired"` is `"refused"` (2.3.3) and a red
-   `teamchat hook input unusable: <n>` when `unusable_hook_stdin` is above 0 (2.8), both shown with
-   teams too. Rows keep v1's rules (R26): an unknown role renders `(role?)`, and with no usable
+   `teamchat hook input unusable: <n> (last: <event>, <reason>, <bytes> bytes)` when
+   `unusable_hook_stdin` is above 0 (2.8; without `unusable_hook_last` the parenthesis is left
+   out), both shown with teams too. Rows keep v1's rules (R26): an unknown role renders `(role?)`, and with no usable
    `COLUMNS` the rows stay on one line.
 3. **Exit 0** always, except the cancel above.
 
@@ -1786,11 +1796,13 @@ on a change, and the status line does not judge its age.
 
 ```json
 {"v": 1, "run": "<16 hex>", "written_ms": 1760000000000, "desired": "applied", "unusable_hook_stdin": 0,
+ "unusable_hook_last": null,
  "teams": [{"team": "<team>", "role": "coordinator", "down": false, "failed": null, "delivery": "socket", "pending": 0, "missing": 0}]}
 ```
 
 `failed` is `null` or the permanent failure that stopped the team (B17): `unauthorized` (401),
-`forbidden` (403), `trust`, `bundle`.
+`forbidden` (403), `trust`, `bundle`. `unusable_hook_last` is `session.json`'s
+`unusable.hook_last` (2.3.3), `null` exactly when `unusable_hook_stdin` is 0.
 
 This file is the team segment's cache, separate from the hooks-daemon line, as Plan 00213 requires;
 it needs no TTL and no fingerprints because it is pushed on change instead of recomputed on render.

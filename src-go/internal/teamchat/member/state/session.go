@@ -55,10 +55,55 @@ type Told struct {
 	NotKnown     []paths.TeamID          `json:"not_known"`
 }
 
-// Unusable counts the inputs the link could not use (B 2.7.2, 2.8).
+// MaxHookStdin bounds a hook's payload (B 2.8); the hook reads one byte past it to know a
+// payload is over.
+const MaxHookStdin = 1 << 20
+
+// The reasons a hook's payload was unusable (B 2.8).
+const (
+	UnusableSize = "size"
+	UnusableUTF8 = "utf8"
+	UnusableJSON = "json"
+)
+
+// Claude Code's names for the plugin's four hook events (B 2.8).
+const (
+	HookSessionStart = "SessionStart"
+	HookPrompt       = "UserPromptSubmit"
+	HookStop         = "Stop"
+	HookSessionEnd   = "SessionEnd"
+)
+
+// Unusable counts the inputs the link could not use (B 2.7.2, 2.8), and the last hook input
+// that was not usable (null until the first).
 type Unusable struct {
-	HookStdin int64 `json:"hook_stdin"`
-	Render    int64 `json:"render"`
+	HookStdin int64         `json:"hook_stdin"`
+	Render    int64         `json:"render"`
+	HookLast  *UnusableHook `json:"hook_last"`
+}
+
+// UnusableHook is one hook input that was not usable (issue 394): Claude Code's event, the
+// reason, and how many bytes the hook read of it (a size, never its content).
+type UnusableHook struct {
+	Event  string `json:"event"`
+	Reason string `json:"reason"`
+	Bytes  int64  `json:"bytes"`
+}
+
+var (
+	unusableReasons = []string{UnusableSize, UnusableUTF8, UnusableJSON}
+	hookEvents      = []string{HookSessionStart, HookPrompt, HookStop, HookSessionEnd}
+)
+
+// validLast is whether last, the last unusable hook input beside count of them, is null exactly
+// when count is 0, and otherwise one of the four events, the three reasons and a size the hook
+// can read.
+func validLast(count int64, last *UnusableHook) bool {
+	if last == nil {
+		return count == 0
+	}
+	return count > 0 && slices.Contains(hookEvents, last.Event) && slices.Contains(unusableReasons, last.Reason) &&
+		last.Bytes >= 0 && last.Bytes <= MaxHookStdin+1
 }
 
 // Started is whether the session has had its first SessionStart.
@@ -107,6 +152,8 @@ func (s Session) check(c *rules) {
 	}
 	s.Told.checkNotKnown(c)
 	c.need(s.Unusable.HookStdin >= 0 && s.Unusable.Render >= 0, "an unusable count is negative")
+	c.need(validLast(s.Unusable.HookStdin, s.Unusable.HookLast),
+		"unusable.hook_last is not null exactly when hook_stdin is 0, or not a hook event, reason and size")
 }
 
 // checkNotKnown holds not_known to a list of distinct teams that are not told a role, within

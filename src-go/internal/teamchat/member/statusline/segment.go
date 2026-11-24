@@ -62,7 +62,11 @@ func segment(getenv func(string) string, clk clock.Clock) string {
 		ws.note("teamchat membership refused")
 	}
 	if ok && st.UnusableHookStdin > 0 {
-		ws.note("teamchat hook input unusable: " + strconv.FormatInt(st.UnusableHookStdin, 10))
+		text := "teamchat hook input unusable: " + strconv.FormatInt(st.UnusableHookStdin, 10)
+		if h := st.UnusableHookLast; h != nil {
+			text += " (last: " + h.Event + ", " + h.Reason + ", " + strconv.FormatInt(h.Bytes, 10) + " bytes)"
+		}
+		ws.note(text)
 	}
 	if len(ws) == 0 {
 		return ""

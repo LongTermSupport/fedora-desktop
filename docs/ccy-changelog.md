@@ -17,12 +17,19 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.29 — container 2.84.68
+## 3.124.30 — container 2.84.71
 
+A teamchat hook input that could not be used now names the hook it came from (issue #394), and
 `ccy-sessions verify-restore` says why a restored session is still `SETTING-GOING` (issue
-#395). Host only: `ccy-sessions` is rebuilt by `play-claude-yolo.yml`; the image is unchanged
-from 3.124.21.
+#395). The image is rebuilt for its `teamchat`; `ccy-sessions` is rebuilt on the host.
+(3.124.26 to 3.124.29 and containers 2.84.69 and 2.84.70 were steps on the two branches and
+were never deployed.)
 
+- **link.log** says `link: a hook's input was unusable at <event> (<reason>, <n> bytes); <count> so far`, where `<event>` is Claude Code's hook event (`SessionStart`, `UserPromptSubmit`,
+  `Stop`, `SessionEnd`) and `<n>` the bytes the hook read: a size, never the content.
+- **session.json** keeps the latest as `unusable.hook_last` (event, reason, bytes), and
+  **status.json** carries it as `unusable_hook_last`.
+- **The status line** reads `teamchat hook input unusable: <n> (last: <event>, <reason>, <bytes> bytes)`.
 - **A session still waiting to be set going is explained.** For each session that
   `set-going` has not yet typed into, verify-restore says on stderr whether a
   `ccy-sessions set-going` is running to do it, or that none is and `ccy-sessions set-going`
