@@ -388,6 +388,8 @@ func TestUsageTextNamesTheLauncherSubcommandsAndTheCoordinator(t *testing.T) {
 		"ccy-teams internal go-cache <project> [z]",
 		"ccy-teams internal launch-args <session> <checkout> <seats> <Z or empty> -- <mounts...>",
 		"ccy-teams internal seat-check <list> [--resolved]", "ccy-teams internal seat-take <list> [--no-prompt]",
+		"ccy-teams internal seat-resume <seats> [--fresh] [--rebind] [--relaunch] -- <claude args...>",
+		"ccy-teams seats conversation <seat>@<team>[,<seat>@<team>...] [--set <id>]",
 		"ccy-teams internal bus-disconnected <status> <pingbus> seat disconnected --root <dir> --session <name> --since <ms>",
 		"ccy-teams session add <session> <team>[/<seat>] [--role=worker|coordinator] [--demote-current] [--yes]",
 		"ccy-teams session remove <session> <team> [--coordinator=demote|hand-to=<seat>] [--park] [--yes]",

@@ -98,7 +98,7 @@ launch() {
 # start <seat> — a seated session in the checkout, and its seat claimed.
 start() {
     local seat="$1"
-    launch "${seat}" "${PLAN_REPO_ROOT}" --teams "${seat}@${TEAM}" || return 1
+    launch "${seat}" "${PLAN_REPO_ROOT}" --teams "${seat}@${TEAM}" --fresh || return 1
     poll "${seat}" "${READY_S}" "session ${seat}'s seat claimed" seat_ready "${seat}" || return 1
     printf '==> session %s: seat %s@%s claimed\n' "${seat}" "${seat}" "${TEAM}"
 }

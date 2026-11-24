@@ -288,18 +288,22 @@ Usage:
                                    cannot be read, unless --allow-known-team repeats the team
                                    (exit 78); a seat whose link of that team is running, or
                                    whose seat lock cannot be looked at (75)
-  ccy-teams seats conversation <seat>@<team>[,<seat>@<team>...]
-                                   print the conversation id recorded by the session of the
-                                   working directory's checkout that held every seat named
-                                   (agent-bus: its keeper's applied.json; teamchat: its
-                                   desired.json in the seat store), for
-                                   `ccy --resume <id> --teams <list>`; ccy's --continue refusal
-                                   runs it. Never the newest transcript. Refused, exit 1: no
-                                   session held the seats, none recorded a conversation, more
-                                   than one did, or another session records the same id (a
-                                   stale record). Each refusal names the sessions, their seats
-                                   and when each record was written, the newest marked but not
-                                   chosen
+  ccy-teams seats conversation <seat>@<team>[,<seat>@<team>...] [--set <id>]
+                                   print the conversation the seats named agree on, the one a
+                                   plain `ccy --teams <list>` resumes. Each seat of the working
+                                   directory's checkout points at one conversation, kept in
+                                   .claude/ccy/seat-conversations/<seat>@<team>.json and moved
+                                   on by every lookup to the newest record of a session that
+                                   held the seat (agent-bus: its keeper's applied.json;
+                                   teamchat: its desired.json in the seat store), transcript in
+                                   this checkout included. A named seat with no pointer goes
+                                   with the others. Never the newest transcript. Refused, exit
+                                   1: no seat has a pointer (no session held them, or none
+                                   recorded a conversation), the seats disagree (each named
+                                   with its id and record), or the agreed conversation has no
+                                   transcript here (the path expected). --set <id> is the
+                                   repair: it points every seat named at <id>, whose transcript
+                                   must be in this checkout, and prints it
   ccy-teams seats units list
   ccy-teams seats units print <name>
                                    the two user units that run the sweep: each name and its
@@ -355,6 +359,16 @@ Usage:
                                    agent-bus seat check or take for an agent-bus list; for a
                                    teamchat list, check prints the canonical <seat>@<team> list
                                    and take does nothing (launch-args took the seats)
+  ccy-teams internal seat-resume <seats> [--fresh] [--rebind] [--relaunch] -- <claude args...>
+                                   print the conversation id a seated ccy launch resumes, or
+                                   nothing when claude's arguments choose (a bare --resume, the
+                                   picker; --session-id; --resume <id>, refused (64) when a seat
+                                   points at another conversation unless --rebind, or
+                                   --relaunch for a restore or relaunch) or --fresh starts a new
+                                   one. -c/--continue is refused (64), naming the plain launch.
+                                   With no conversation to resume: exit 64, the case, the repair
+                                   (seats conversation <seats> --set <id>) and --fresh. ccy calls
+                                   it after the seat check
   ccy-teams internal bus-disconnected <status> <pingbus> seat disconnected --root <dir> --session <name> --since <ms>
                                    ccy's exit: pingbus for an agent-bus root. For a teamchat
                                    session, by the container's exit status: 75 (a relaunch)

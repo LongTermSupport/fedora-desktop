@@ -172,7 +172,11 @@ mapfile -t positional_flags < <(grep -oE '1" ==? "-[a-z0-9-]+' "$LAUNCHER" | gre
 # --opencode and -oc (Plan 00215): its patterns are the third parse site.
 mapfile -t choice_flags < <(grep -oE '^    -[^)]+\)' "$REPO_ROOT/files/var/local/claude-yolo/lib/agent-choice.bash" | grep -oE -- '-{1,2}[a-z][a-z0-9-]*' | LC_ALL=C sort -u)
 check "the agent choice's flags were found" "--opencode -oc" "${choice_flags[*]}"
-mapfile -t parsed_flags < <(printf '%s\n' "${loop_flags[@]}" "${positional_flags[@]}" "${choice_flags[@]}" | LC_ALL=C sort -u)
+# ccy's words for a seat's conversation (issue 417) reach the end of the parse as claude's and are
+# taken out by lib/agent-bus-seats.bash's ccy_seats_launch: the fourth parse site.
+mapfile -t seat_flags < <(grep -oE '"[$]word" != --[a-z-]+' "$REPO_ROOT/files/var/local/claude-yolo/lib/agent-bus-seats.bash" | grep -oE -- '--[a-z-]+$' | LC_ALL=C sort -u)
+check "the seat conversation words were found" "--fresh --rebind" "${seat_flags[*]}"
+mapfile -t parsed_flags < <(printf '%s\n' "${loop_flags[@]}" "${positional_flags[@]}" "${choice_flags[@]}" "${seat_flags[@]}" | LC_ALL=C sort -u)
 # A parse site that stopped matching would shrink the population and still pass, so each
 # bucket is floored and printed.
 printf '  COVERAGE: %s flags from the argument loop, %s from the positional checks\n' \

@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -119,33 +120,57 @@ func TestForSeatsIsTheRecordOfTheSessionThatHeldTheSeat(t *testing.T) {
 	}
 }
 
-// A list of several seats is the one session that held them all.
-func TestForSeatsOfAListIsTheSessionHoldingEveryOne(t *testing.T) {
+// E3: a subset or a superset of a session's seats resolves when every named seat with a pointer
+// agrees; a named seat with none is allowed beside one that has one, and reported.
+func TestForSeatsOfASubsetOrSupersetIsTheSeatsAgreedConversation(t *testing.T) {
 	w := newWorld(t)
 	w.v1Session("ccy-proj", id, "1791000000000", "dev1@alpha", "qa@beta-team")
-	w.v1Session("ccy-proj-2", otherID, "1792000000000", "dev1@other")
-	got, err := w.forSeats("dev1@alpha, qa@beta-team")
+	for _, list := range []string{"dev1@alpha, qa@beta-team", "dev1@alpha", "qa@beta-team"} {
+		got, err := w.forSeats(list)
+		if err != nil {
+			t.Fatalf("%s: %v", list, err)
+		}
+		if got.ID != id || len(got.Unrecorded) != 0 {
+			t.Errorf("%s: ForSeats = %+v, want %s", list, got, id)
+		}
+	}
+	got, err := w.forSeats("dev1@alpha,ops@gamma")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ID != id {
-		t.Errorf("ForSeats = %+v, want %s", got, id)
+	if got.ID != id || len(got.Unrecorded) != 1 || got.Unrecorded[0] != "ops@gamma" {
+		t.Errorf("superset: ForSeats = %+v, want %s with ops@gamma unrecorded", got, id)
 	}
-	got, err = w.forSeats("dev1@alpha,dev1@other")
-	mustRefuse(t, got, err, "no session record", "dev1@alpha,dev1@other")
 }
 
+// E4 (c): named seats whose pointers disagree are the ambiguous case, each seat named.
+func TestForSeatsRefusesSeatsThatDisagree(t *testing.T) {
+	w := newWorld(t)
+	w.v1Session("ccy-proj", id, "1791000000000", "dev1@alpha")
+	w.v1Session("ccy-proj-2", otherID, "1792000000000", "dev1@other")
+	got, err := w.forSeats("dev1@alpha,dev1@other")
+	mustRefuse(t, got, err, "disagree", "dev1@alpha: conversation "+id+", recorded by session ccy-proj",
+		"dev1@other: conversation "+otherID+", recorded by session ccy-proj-2")
+	if errors.Is(err, ErrNoSeatConversation) {
+		t.Errorf("a disagreement is not no conversation: %v", err)
+	}
+	if !errors.Is(err, ErrSeatsDisagree) {
+		t.Errorf("refusal %v is not ErrSeatsDisagree", err)
+	}
+}
+
+// E4 (a): no named seat has a record and no session held any.
 func TestForSeatsRefusesASeatNoSessionHeld(t *testing.T) {
 	w := newWorld(t)
 	w.v1Session("ccy-proj", id, "1791000000000", "dev1@alpha")
 	got, err := w.forSeats("dev9@alpha")
-	mustRefuse(t, got, err, "no session record in "+w.checkout+" holds dev9@alpha")
+	mustRefuse(t, got, err, "no conversation is recorded for dev9@alpha in "+w.checkout+": no session held")
 	if !errors.Is(err, ErrNoSeatConversation) {
 		t.Errorf("refusal %v is not ErrNoSeatConversation", err)
 	}
 }
 
-// A session that held the seat but recorded nothing is said so, with its reason.
+// E4 (b): a session that held the seat but recorded nothing is said so, with its reason.
 func TestForSeatsRefusesASessionWithNoRecord(t *testing.T) {
 	w := newWorld(t)
 	w.v1Session("ccy-proj", "", "", "dev1@alpha")
@@ -156,48 +181,37 @@ func TestForSeatsRefusesASessionWithNoRecord(t *testing.T) {
 	}
 }
 
-// Two sessions that each held the seat with their own conversation: which is the seat's is not
-// chosen; both are named, the newest record marked.
-func TestForSeatsRefusesTwoSessionsThatHeldTheSeat(t *testing.T) {
+// One seat held by two sessions in turn (a seat is held by one session at a time): the seat's
+// pointer is the newer record.
+func TestForSeatsTakesTheNewerOfTwoSessionsThatHeldTheSeat(t *testing.T) {
 	w := newWorld(t)
 	w.v1Session("ccy-proj", id, "1791000000000", "dev1@alpha")
 	w.v1Session("ccy-proj-2", otherID, "1792000000000", "dev1@alpha")
 	got, err := w.forSeats("dev1@alpha")
-	mustRefuse(t, got, err, "more than one session", "ccy-proj (seats", "ccy-proj-2 (seats", id, otherID,
-		otherID+", recorded 2026-10-14T17:46:40Z (the newest)")
-	if strings.Contains(err.Error(), id+", recorded 2026-10-03T04:00:00Z (the newest)") {
-		t.Errorf("the older record is marked newest: %v", err)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if errors.Is(err, ErrNoSeatConversation) {
-		t.Errorf("two candidates are not no conversation: %v", err)
+	if got.ID != otherID || got.Session != "ccy-proj-2" {
+		t.Errorf("ForSeats = %+v, want %s of ccy-proj-2", got, otherID)
 	}
 }
 
-// The live failure: two sessions recorded the same conversation (one record stale). The id is
-// flagged, never printed as the answer, and every session recording it is named with its seats.
-func TestForSeatsRefusesAConversationRecordedByTwoSessions(t *testing.T) {
+// The seats of a session that took them together (recorded too) share its conversation; a
+// launch of either alone, or both, resumes it.
+func TestForSeatsResolvesAConversationTwoSeatsShare(t *testing.T) {
 	w := newWorld(t)
 	w.v1Session("ccy-proj", id, "1792000000000", "1@alpha")
-	w.v1Session("ccy-proj-3", id, "1791000000000", "3@alpha")
+	w.v1Session("ccy-proj-3", id, "1791000000000", "3@other")
 	w.v1Session("ccy-proj-4", thirdID, "1793000000000")
-	got, err := w.forSeats("1@alpha")
-	mustRefuse(t, got, err, "recorded by more than one session", id,
-		"ccy-proj (seats 1@alpha", "ccy-proj-3 (seats 3@alpha", "(the newest)", "not chosen for you")
-	if strings.Contains(err.Error(), "ccy-proj-4") {
-		t.Errorf("a session recording another conversation is named: %v", err)
+	for _, list := range []string{"1@alpha", "3@other", "1@alpha,3@other"} {
+		got, err := w.forSeats(list)
+		if err != nil {
+			t.Fatalf("%s: %v", list, err)
+		}
+		if got.ID != id {
+			t.Errorf("%s: ForSeats = %+v, want %s", list, got, id)
+		}
 	}
-	if errors.Is(err, ErrNoSeatConversation) {
-		t.Errorf("a duplicate is not no conversation: %v", err)
-	}
-}
-
-// A session with no keeper's report still counts for the duplicate check: its record names the id.
-func TestForSeatsDuplicateIsFoundInASessionWithNoReport(t *testing.T) {
-	w := newWorld(t)
-	w.v1Session("ccy-proj", id, "1792000000000", "1@alpha")
-	w.v1Session("ccy-proj-9", id, "1791000000000")
-	got, err := w.forSeats("1@alpha")
-	mustRefuse(t, got, err, "recorded by more than one session", "ccy-proj-9 (no seats)")
 }
 
 func TestForSeatsReadsATeamchatSessionFromTheSeatStore(t *testing.T) {
@@ -213,12 +227,22 @@ func TestForSeatsReadsATeamchatSessionFromTheSeatStore(t *testing.T) {
 	}
 }
 
-func TestForSeatsRefusesATeamchatConversationRecordedTwice(t *testing.T) {
+// The seat store is the owner's for every checkout: a session whose conversation has no
+// transcript in this checkout is another checkout's, and never this seat's pointer.
+func TestForSeatsIgnoresATeamchatSessionOfAnotherCheckout(t *testing.T) {
 	w := newWorld(t)
 	w.v2Session("ccy-proj", id, 1791000000000, "1@beta")
-	w.v2Session("ccy-proj-2", id, 1792000000000, "2@beta")
+	w.v2Session("ccy-other", otherID, 1792000000000, "1@beta")
+	if err := os.Remove(filepath.Join(w.checkout, ".claude/ccy/projects/-workspace", otherID+".jsonl")); err != nil {
+		t.Fatal(err)
+	}
 	got, err := w.forSeats("1@beta")
-	mustRefuse(t, got, err, "recorded by more than one session", "ccy-proj (seats 1@beta", "ccy-proj-2 (seats 2@beta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != id {
+		t.Errorf("ForSeats = %+v, want %s", got, id)
+	}
 }
 
 func TestForSeatsRefusesAMalformedList(t *testing.T) {

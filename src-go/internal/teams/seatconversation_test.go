@@ -48,7 +48,53 @@ func seatConversation(checkout string) (*SeatConversation, *bytes.Buffer, *bytes
 			return ""
 		},
 		Getwd: func() (string, error) { return checkout, nil },
+		NowMS: func() int64 { return 1795000000000 },
 	}, &out, &errOut
+}
+
+// Issue 417 E7: --set points the seats at a conversation of this checkout, which the next lookup
+// gives, over the session's older record; the id is printed.
+func TestSeatConversationSetRepairsThePointer(t *testing.T) {
+	checkout := t.TempDir()
+	plantV1Seat(t, checkout, "ccy-proj-2", "dev1", "team-a", seatConvID)
+	const other = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	writeFile(t, filepath.Join(checkout, ".claude/ccy/projects/-workspace", other+".jsonl"), "{}\n")
+	c, out, errOut := seatConversation(checkout)
+	if code := c.Run([]string{"dev1@team-a,qa@team-b", "--set", other}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	if out.String() != other+"\n" || !strings.Contains(errOut.String(), "dev1@team-a,qa@team-b now resume "+other) {
+		t.Fatalf("stdout %q stderr %q", out.String(), errOut.String())
+	}
+	c, out, errOut = seatConversation(checkout)
+	if code := c.Run([]string{"qa@team-b"}); code != term.ExitOK || out.String() != other+"\n" {
+		t.Fatalf("after --set: exit %d, stdout %q stderr %q", code, out.String(), errOut.String())
+	}
+}
+
+// E7: an id with no transcript here is refused, exit 1, and nothing is written.
+func TestSeatConversationSetRefusesAConversationNotHere(t *testing.T) {
+	checkout := t.TempDir()
+	c, out, errOut := seatConversation(checkout)
+	if code := c.Run([]string{"dev1@team-a", "--set", seatConvID}); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if out.Len() != 0 || !strings.Contains(errOut.String(), "no transcript in this checkout") {
+		t.Fatalf("stdout %q stderr %q", out.String(), errOut.String())
+	}
+	if _, err := os.Stat(filepath.Join(checkout, ".claude/ccy/seat-conversations")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a refused --set wrote: %v", err)
+	}
+}
+
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // Issue 409: the recorded id of the seat's session, alone on stdout, for the launcher's refusal.
@@ -78,7 +124,7 @@ func TestSeatConversationRefusesASeatWithNoRecord(t *testing.T) {
 }
 
 func TestSeatConversationUsage(t *testing.T) {
-	for _, args := range [][]string{nil, {"a@b", "c@d"}} {
+	for _, args := range [][]string{nil, {"a@b", "c@d"}, {"a@b", "--set"}, {"a@b", "--set", seatConvID, "x"}, {"a@b", "--set", ""}} {
 		c, out, errOut := seatConversation(t.TempDir())
 		if code := c.Run(args); code != term.ExitUsage || out.Len() != 0 || !strings.Contains(errOut.String(), "seats conversation <seat>@<team>") {
 			t.Fatalf("%q: exit %d, stdout %q stderr %q", args, code, out.String(), errOut.String())

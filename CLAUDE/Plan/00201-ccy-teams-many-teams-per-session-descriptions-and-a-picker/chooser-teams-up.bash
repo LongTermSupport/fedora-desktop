@@ -136,7 +136,7 @@ cat <<EOF | tee -a "${REPORT}"
 
 Drive the seat chooser in this checkout (in tmux, or any terminal):
 
-  cd ${PLAN_REPO_ROOT} && CCY_TEAMS_HOST_VARS=${HOST_VARS_FILE} ${CCY_LAUNCHER} --teams --no-restore
+  cd ${PLAN_REPO_ROOT} && CCY_TEAMS_HOST_VARS=${HOST_VARS_FILE} ${CCY_LAUNCHER} --teams --fresh --no-restore
 
 (--no-restore: a session left running across a reboot is not brought back into teams the
 teardown has purged.)

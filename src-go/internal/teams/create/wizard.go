@@ -1155,8 +1155,10 @@ func (c *Wizard) offerJoin(ctx context.Context, team, here string) error {
 	if err != nil || !yes {
 		return err
 	}
-	c.term.Printf("Starting ccy --teams %s in %s.\n", team, shown)
-	if err = c.ExecLauncher(top, []string{c.Launcher, ccyenv.FlagTeams, team}); err != nil {
+	// --fresh: a seat of a team just made has no conversation, and a plain seated launch resumes
+	// the seat's recorded one (issue 417).
+	c.term.Printf("Starting ccy --teams %s --fresh in %s.\n", team, shown)
+	if err = c.ExecLauncher(top, []string{c.Launcher, ccyenv.FlagTeams, team, "--fresh"}); err != nil {
 		return fmt.Errorf("start ccy --teams %s: %w", team, err)
 	}
 	return nil

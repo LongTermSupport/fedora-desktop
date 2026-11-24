@@ -3,14 +3,14 @@
 ✓ Creating .claude/ccy/.gitignore for security
 === stderr
 ✓ Writing .claude/ccy/ccy.env.local.dist (version 3); commit it
-[0;31mERROR:[0m ccy refuses --continue in a team seat: it resumes this checkout's newest conversation, which may be another seat's.
-ccy-teams seats conversation: no recorded conversation: no session record in {checkout} holds dev1@team-a
-  No recorded conversation of the seat can be named (ccy-teams seats conversation dev1@team-a; the reason is above).
-  Choose it in Claude Code's picker instead; the seat records the conversation you pick:
-    ccy --resume --teams dev1@team-a
+ccy: no conversation of dev1@team-a can be resumed: no recorded conversation: no conversation is recorded for dev1@team-a in {checkout}: no session held these seats, and none was set by hand
+  Repair the record, pointing the seats at the right conversation (its transcript must be in this checkout):
+    ccy-teams seats conversation dev1@team-a --set <id>
+  or start a new conversation on purpose:
+    ccy --teams dev1@team-a --fresh
 === calls
 ccy-teams internal seat-check dev1@team-a --resolved
-ccy-teams seats conversation dev1@team-a
+ccy-teams internal seat-resume dev1@team-a 0 --
 === files
 dir  home/.claude-tokens 0700
 dir  home/.claude-tokens/ccy 0700

@@ -23,6 +23,10 @@ const (
 	// ccy's --opencode and its short spelling (Plan 00215).
 	flagOpencode      = "--opencode"
 	flagOpencodeShort = "-oc"
+	// ccy's choice of a seated launch's conversation (issue 417): a plain `ccy --teams` resumes
+	// the seats' recorded one, --fresh starts a new one, --rebind lets --resume <id> move them.
+	flagFresh  = "--fresh"
+	flagRebind = "--rebind"
 )
 
 // Class is what a restore does with one word of a recorded launch.
@@ -45,7 +49,7 @@ const (
 // The four flag groups are one list with the launcher's parser: a value-taking flag consumes the
 // NEXT word whatever it is.
 var (
-	dropFlags      = []string{"--rebuild", "--create-token", "--list-tokens", "--token-usage", "--custom", "--custom-docker", "--top", "--prevent", "--debug", "--headless", "--disable-custom-docker", "--ssh-agent", flagNoRestore, "--list-containers", "--stop-containers", "--help", "--version", "-h", "-v", "--build-lock", "--read-launch-config", "--check-token", "--check-network", "--claude-versions", "--remove-network", "--stop", "--secret-screen"}
+	dropFlags      = []string{"--rebuild", "--create-token", "--list-tokens", "--token-usage", "--custom", "--custom-docker", "--top", "--prevent", "--debug", "--headless", "--disable-custom-docker", "--ssh-agent", flagNoRestore, "--list-containers", "--stop-containers", "--help", "--version", "-h", "-v", "--build-lock", "--read-launch-config", "--check-token", "--check-network", "--claude-versions", "--remove-network", "--stop", "--secret-screen", flagFresh, flagRebind}
 	dropValueFlags = []string{"--update-token", "--export-token", "--connect", "--disconnect", "--prompt", "--run-for", "--until", flagCompose}
 	keepValueFlags = []string{"--token", "--ssh-key", "--network", "--engine", "--max-age", "--teams"}
 	keepFlags      = []string{"--no-ssh", "--github-443", "--no-network", flagSupervise, flagNoSupervise, "--no-bus", flagOpencode, flagOpencodeShort}
@@ -97,7 +101,7 @@ func ResumeArgs(compose, prefix string, args []string, id string) ([]string, err
 	if !SessionID(id) {
 		return nil, fmt.Errorf("refusing to resume '%s': it is not a Claude session id", id)
 	}
-	out, err := FreshArgs(compose, prefix, args)
+	out, err := startArgs(compose, prefix, args, false)
 	if err != nil {
 		return nil, err
 	}
@@ -107,8 +111,16 @@ func ResumeArgs(compose, prefix string, args []string, id string) ([]string, err
 // FreshArgs is ResumeArgs without the resume: the arguments a restore starts a record marked
 // fresh-if-no-conversation with when no conversation is recorded (Plan 00135 Phase 13). Every
 // conversation selector is removed, so the session starts a new conversation, never the newest
-// in the folder.
+// in the folder. A seated ccy launch (--teams before any `--`) gets --fresh, as a plain one
+// resumes the seats' recorded conversation (issue 417).
 func FreshArgs(compose, prefix string, args []string) ([]string, error) {
+	return startArgs(compose, prefix, args, true)
+}
+
+// startArgs is the recorded set, every conversation selector and ccy's own conversation choice
+// (--fresh, --rebind) removed, with ccy's compose and supervise flags, and --fresh for a fresh
+// seated start.
+func startArgs(compose, prefix string, args []string, fresh bool) ([]string, error) {
 	if prefix == "" {
 		return nil, errors.New("restore arguments need a launcher prefix")
 	}
@@ -123,6 +135,9 @@ func FreshArgs(compose, prefix string, args []string) ([]string, error) {
 	args = withoutSelectors(prefix, args)
 	if prefix == prefixCCY && !recordedSupervise(args) {
 		ccyFlags = append(ccyFlags, flagSupervise)
+	}
+	if prefix == prefixCCY && fresh && seated(args) {
+		ccyFlags = append(ccyFlags, flagFresh)
 	}
 	out := make([]string, 0, len(args)+len(ccyFlags)+2)
 	afterDD := false
@@ -160,6 +175,8 @@ func withoutSelectors(prefix string, args []string) []string {
 		case w == "--" && !afterDD:
 			afterDD = true
 			out = append(out, w)
+			continue
+		case prefix == prefixCCY && !afterDD && (w == flagFresh || w == flagRebind):
 			continue
 		case prefix == prefixCCY && !afterDD && takesValue(w):
 			keepNext = true
@@ -216,6 +233,19 @@ func composeArgs(outcome string) ([]string, error) {
 		return []string{flagCompose, "skip"}, nil
 	}
 	return nil, fmt.Errorf("compose outcome '%s' is not one of %s", outcome, strings.Join(composeOutcomes, " "))
+}
+
+// seated says whether the recorded words name seats (--teams) before any `--`.
+func seated(args []string) bool {
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		if a == "--teams" || strings.HasPrefix(a, "--teams=") {
+			return true
+		}
+	}
+	return false
 }
 
 // recordedSupervise says whether the recorded words already carry a supervise choice before
