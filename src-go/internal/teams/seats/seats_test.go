@@ -128,10 +128,10 @@ func TestNewSessionOffersFreeSeatsAndANewOneAndExecsTheLauncherInTheTop(t *testi
 		t.Fatalf("rows %q", h.Script.Rows[0])
 	}
 	if len(h.Execs) != 1 || h.Execs[0].Dir != h.Checkout() || h.Execs[0].Path != "/x/launcher" ||
-		!slices.Equal(h.Execs[0].Argv, []string{"/x/launcher", "--teams", "3@alpha"}) {
+		!slices.Equal(h.Execs[0].Argv, []string{"/x/launcher", "--teams", "3@alpha", "--fresh"}) {
 		t.Fatalf("execs %+v", h.Execs)
 	}
-	if !strings.Contains(h.ErrOut.String(), "Starting ccy --teams 3@alpha in "+h.Checkout()+".\n") {
+	if !strings.Contains(h.ErrOut.String(), "Starting ccy --teams 3@alpha --fresh in "+h.Checkout()+".\n") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 	header := h.HeaderOf(0)
@@ -145,6 +145,7 @@ func TestNewSessionOffersFreeSeatsAndANewOneAndExecsTheLauncherInTheTop(t *testi
 func TestNewSessionTakesAFreeSeat(t *testing.T) {
 	h := newSessionHarness(t)
 	h.Script.Fzf = []string{"|free"}
+	h.s.Recorded = func(dir, refs string) (bool, error) { return dir == h.Checkout() && refs == "dev@alpha", nil }
 	snap := h.pass(t)
 	if _, err := h.s.NewSession(context.Background(), snap, "alpha"); err != nil && !strings.Contains(err.Error(), "exit") {
 		t.Fatal(err)

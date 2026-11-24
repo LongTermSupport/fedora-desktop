@@ -256,7 +256,7 @@ m3_start() {
     exec {fd}<>"${fifo}" || return 1
     m2_adopt "${M3_NAME}" "${fd}" "$(m3_ev session)"
     command="$(printf '%q ' env "CCY_TEAMS_HOST_VARS=${M3_HOST_VARS}" "${M2_LAUNCHER}" --headless --no-restore \
-        --no-supervise --teams "1@${M3_TEAM_A}" --prompt "Plan 00203 M3 acceptance" -- --input-format stream-json \
+        --no-supervise --teams "1@${M3_TEAM_A}" --fresh --prompt "Plan 00203 M3 acceptance" -- --input-format stream-json \
         --output-format stream-json --verbose --model haiku)" || return 1
     command+="$(printf '<%q >%q 2>%q' "${fifo}" "${M3_EV}/session.out" "${M3_EV}/session.err")" || return 1
     command+="; echo \"\$?\" >$(printf '%q' "$(m3_ev session.status)")"

@@ -331,6 +331,19 @@ func TestForgetTeamRemovesItsPointersInEveryCheckout(t *testing.T) {
 	}
 }
 
+// Recorded tells a first launch (nothing recorded, nothing unusable) from one with a record.
+func TestRecordedTellsAFirstLaunch(t *testing.T) {
+	w := newWorld(t)
+	w.v1Session("ccy-proj", id, "1791000000000", "dev1@alpha")
+	w.v1Session("ccy-proj-2", "", "", "qa@alpha")
+	for list, want := range map[string]bool{"dev1@alpha": true, "qa@alpha": true, "ops@alpha": false} {
+		got, err := LookupSeats(w.checkout, list, w.where())
+		if err != nil || got.Recorded() != want {
+			t.Errorf("%s: Recorded %v, %v; want %v", list, got.Recorded(), err, want)
+		}
+	}
+}
+
 // Lookup gives each named seat's pointer, also when they disagree (the --resume check).
 func TestLookupGivesEachSeatsPointer(t *testing.T) {
 	w := newWorld(t)

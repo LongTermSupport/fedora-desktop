@@ -1439,6 +1439,7 @@ login, which the container sets up at start; it reads no credential variable.
 ```bash
 ccy --teams                                  # choose teams from a list, with descriptions (Tab marks several)
 ccy --teams dev-team                         # choose the seat
+ccy --teams dev-team --fresh                 # a first launch: a seat with no conversation recorded
 ccy --teams dev1@dev-team,qa2@other-team    # name the seats; quote a list written with spaces
 ```
 

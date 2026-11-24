@@ -287,7 +287,7 @@ func TestNextSteps(t *testing.T) {
 	want := "Team beta is up. Later, in ccy-teams:\n" +
 		"  Sign in      Enter on your name under the team, then choose Sign in: it sets a password and shows it.\n" +
 		"  Element      Enter on the team, then choose Open in Element.\n" +
-		"  Agents       in a checkout of example-org/proj or example-org/legacy, run ccy --teams beta\n" +
+		"  Agents       in a checkout of example-org/proj or example-org/legacy, run ccy --teams beta --fresh\n" +
 		"               (ccy-teams run there offers it; Enter on the team, then Start a ccy session, does it too).\n"
 	if got != want {
 		t.Fatalf("got %q", got)

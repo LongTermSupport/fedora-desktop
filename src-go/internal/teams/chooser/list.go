@@ -152,7 +152,7 @@ func (c *Chooser) created(ctx context.Context, repo string) ([]entry, term.ExitC
 	at := slices.IndexFunc(entries, func(e entry) bool { return e.Team == team })
 	if at < 0 || entries[at].Standing != declare.StandingCovers {
 		c.say("ccy-teams: team " + team + " was created but does not cover " + repo + ", so nothing was started. " +
-			"Run ccy --teams again to choose it and add the repository, or name it: ccy --teams " + team + ".")
+			"Run ccy --teams again to choose it and add the repository, or name it: ccy --teams " + team + " --fresh.")
 		return nil, term.ExitFailure, false
 	}
 	return entries[at : at+1], term.ExitOK, false

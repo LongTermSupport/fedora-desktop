@@ -100,7 +100,11 @@ launch does not start.
    It then goes on as `ccy --teams <team>` (no seat), which shows this
    checkout's seats in the team and launches a session into the one you choose: the lowest
    free seat, or a new one, and then asks whether the seat is the team's coordinator (see below;
-   no sudo unless you change it). ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat instead. ccy remembers the seats: "use the previous
+   no sudo unless you change it). ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat instead.
+   A plain launch resumes the conversation recorded for its seats, so a seat with none recorded
+   here (a new seat, or a team's first session) is refused (exit 64, naming the way on): the first
+   launch says `--fresh`, as in `ccy --teams <team> --fresh`, and the seat chosen goes with it.
+   Start a ccy session in `ccy-teams` adds `--fresh` itself for a seat with no record. ccy remembers the seats: "use the previous
    configuration" at the Quick Launch prompt launches into them again (and records them in that
    session's own record, which is all a reboot restore reads: a restore never gives a session
    a team it was not launched into), and an explicit `--teams` overrides them. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team

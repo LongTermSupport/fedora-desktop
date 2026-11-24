@@ -38,7 +38,7 @@
 #
 # The team is --team=<team>, else the team of this checkout's first seat (`agent-bus seat list`):
 # a team that covers this checkout and whose homeserver runs here. With none, COULD NOT
-# ESTABLISH (exit 2): launch one seated session here first (ccy --teams).
+# ESTABLISH (exit 2): launch one seated session here first (ccy --teams <seat>@<team> --fresh).
 #
 # RUN ON THE HOST, as the desktop user (through meta-deploy.bash):
 #   ./CLAUDE/Plan/00232-ccy-network-policy-per-container/acceptance.bash [--team=<team>] [--image=<ref>]
@@ -145,7 +145,7 @@ if [[ -z "${team}" ]]; then
     team="$(seat_cmd list | awk -F '\t' -v a="${SEAT_A}" -v b="${SEAT_B}" '$1 == "SEAT" && $3 != a && $3 != b { print $2; exit }')"
 fi
 if [[ -z "${team}" ]]; then
-    printf 'COULD NOT ESTABLISH: this checkout has no seat in any team; launch one seated session here (ccy --teams), or give --team=<team>\n' >&2
+    printf 'COULD NOT ESTABLISH: this checkout has no seat in any team; launch one seated session here (ccy --teams <seat>@<team> --fresh), or give --team=<team>\n' >&2
     exit 2
 fi
 readonly TEAM="${team}"

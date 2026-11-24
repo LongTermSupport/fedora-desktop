@@ -14,6 +14,8 @@ const (
 	Workspace = "/workspace"
 	// FlagTeams is the ccy launcher's flag that names the teams (and seats) a session joins.
 	FlagTeams = "--teams"
+	// FlagFresh is the ccy launcher's word that starts a seated launch in a new conversation.
+	FlagFresh = "--fresh"
 )
 
 // Missing is the refusal a tool prints when CCY cannot be used here, ending in a newline, or ""

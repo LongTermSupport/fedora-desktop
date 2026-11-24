@@ -14,6 +14,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
@@ -43,6 +44,9 @@ type Seats struct {
 	// Exec replaces this process with the launcher, in dir.
 	Exec     func(path string, argv []string, dir string) error
 	Launcher string
+	// Recorded is whether any of the seats refs names has a conversation recorded in dir, or a
+	// session that held one (conversation.LookupSeats); a launch of seats with none starts fresh.
+	Recorded func(dir, refs string) (bool, error)
 	// Roles makes a role change once it is agreed: live, and in a declared member's entry.
 	Roles *roles.Setter
 }
@@ -52,18 +56,28 @@ func New(h *host.Host, kit *flow.Kit, o *ops.Ops) *Seats {
 	return &Seats{
 		Kit: kit, Ops: o, Tmux: h.Tmux, Checkouts: h.Checkouts, Bus: h.Bus, Systemd: h.Systemd, Registry: h.Registry,
 		Here: h.Here, Exec: h.Exec, Launcher: h.Launcher,
+		Recorded: func(dir, refs string) (bool, error) {
+			found, err := conversation.LookupSeats(dir, refs, conversation.Here(h.Getenv))
+			return found.Recorded(), err
+		},
 		Roles: roles.New(h, kit, func(ctx context.Context, teams ...string) error { return o.ApplyTeams(ctx, teams) }, o.Locked),
 	}
 }
 
-// StartCcy replaces this process with the launcher, run in top with the given seat refs.
-// With no refs it is a bare `ccy --teams`, which lists the teams and lets the person choose.
+// StartCcy replaces this process with the launcher, run in top with the given seat refs, and
+// --fresh when none of them has a conversation recorded there (a first launch: a plain one would
+// be refused, issue 417). With no refs it is a bare `ccy --teams`, which lists the teams and lets
+// the person choose. A record that cannot be read is the launch's to refuse, naming it.
 func (s *Seats) StartCcy(top, refs string) error {
 	argv := []string{s.Launcher, ccyenv.FlagTeams}
 	said := "Starting ccy --teams"
 	if refs != "" {
 		argv = append(argv, refs)
 		said += " " + refs
+		if recorded, err := s.Recorded(top, refs); err == nil && !recorded {
+			argv = append(argv, ccyenv.FlagFresh)
+			said += " " + ccyenv.FlagFresh
+		}
 	}
 	s.Kit.Tell(said + " in " + s.Kit.Abbrev(top) + ".")
 	if err := s.Exec(s.Launcher, argv, top); err != nil {

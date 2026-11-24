@@ -422,7 +422,7 @@ func (h HostVars) NextSteps(team string) (string, error) {
 	text := fmt.Sprintf("Team %s is up. Later, in ccy-teams:\n", team) +
 		"  Sign in      Enter on your name under the team, then choose Sign in: it sets a password and shows it.\n" +
 		"  Element      Enter on the team, then choose Open in Element.\n" +
-		fmt.Sprintf("  Agents       in a checkout of %s, run ccy --teams %s\n", scope, team) +
+		fmt.Sprintf("  Agents       in a checkout of %s, run ccy --teams %s --fresh\n", scope, team) +
 		"               (ccy-teams run there offers it; Enter on the team, then Start a ccy session, does it too).\n"
 	return text, printable(text)
 }

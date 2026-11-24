@@ -447,7 +447,7 @@ func TestACreatedTeamThatDoesNotCoverTheCheckoutFailsFast(t *testing.T) {
 	r.created = "fresh"
 	r.Script.Fzf = []string{"|+ Create a team"}
 	exit(t, r.run("--type=podman"), term.ExitFailure, r)
-	contains(t, "stderr", r.stderr(), "fresh", "does not cover "+repo, "nothing was started")
+	contains(t, "stderr", r.stderr(), "fresh", "does not cover "+repo, "nothing was started", "name it: ccy --teams fresh --fresh.")
 	if r.seatsAsked != nil {
 		t.Fatalf("seats %v", r.seatsAsked)
 	}

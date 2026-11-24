@@ -318,6 +318,10 @@ func (s Seats) Resolve() (Seated, error) {
 	return Seated{Session: agreed.Session, ID: agreed.ID, Unrecorded: s.Unrecorded}, nil
 }
 
+// Recorded is whether a named seat has a pointer, or a session that held one gave a record
+// that cannot be used: false is a first launch, with nothing to resume or refuse.
+func (s Seats) Recorded() bool { return len(s.Pointers) > 0 || len(s.unusable) > 0 }
+
 // Describe is a line per pointer: its seat, its conversation, where it came from and when.
 func Describe(pointers []SeatPointer) string {
 	lines := make([]string, 0, len(pointers))
