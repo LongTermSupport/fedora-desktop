@@ -3685,9 +3685,9 @@ difference is a numbered bug of that plan's `SPEC-qa-changed.md` section 10 pinn
 unmodified against the wrapper or, with `QA_CHANGED_BIN=<built binary>`, against the binary.
 
 **A local run is lean; CI runs everything.** When the `CI` environment variable is unset, `false`
-or `0` (a developer's machine), two things run less than the table above says. CI (GitHub sets
-`CI=true`) runs both in full, so CI's diff run and the full `qa-all.bash` on a protected branch
-judge exactly what they did before; `CI=1 ./scripts/qa-changed.bash` reproduces CI locally.
+or `0` (a developer's machine), three things run less than the table above says. CI (GitHub sets
+`CI=true`) runs all three in full, so CI's diff run and the full `qa-all.bash` on a protected
+branch judge exactly what they did before; `CI=1 ./scripts/qa-changed.bash` reproduces CI locally.
 
 - **The semgrep rule gates scan the changed files only.** The eight gates of the `ghscopes`
   engine (`arch-pin`, `argv-leak`, `boot-hold`, `gh-poll`, `place-issued-token`, `secret-screen`,
@@ -3697,6 +3697,27 @@ judge exactly what they did before; `CI=1 ./scripts/qa-changed.bash` reproduces 
   gate itself (a file under `.semgrep/` or `src-go/qa/`, the gate's wrapper,
   `scripts/lib/go-tool.bash`, `scripts/qa-trees.tsv`) runs it whole, because the rule must be
   re-applied to every file.
+- **A semgrep rule gate is planned only for a change it reads** (issue #403). A routing row can
+  send a file to one of these gates when the gate's own rule excludes that file: `CLAUDE/*` and
+  `*.md` route plan prose to `place-issued-token` and `gh-poll`, whose rules leave out
+  `CLAUDE/Plan/**/*.md`. A narrowed run over only such files would give semgrep nothing it reads,
+  and the gate's fail-closed guard ("semgrep scanned no file") would refuse it, so no plan-only
+  commit could pass. So a local run asks each planned gate (`ghscopes.Spec.Reader`) whether it
+  reads any changed file that still exists: the trees table, then each rule's own `paths.exclude`
+  (a file one rule excludes is still read when a sibling rule is not; a rule with any
+  `paths.include` counts as reading every file, the safe direction, since no test proves include
+  matching). When it reads none, the check is dropped and the plan says
+  `note: <check>: not needed: nothing for this rule to scan`. A change to the gate itself still
+  runs it, a change of deletions alone is planned as before, and a narrowed gate run also leaves
+  out a named file no rule reads. A zero-file scan for any other reason still fails closed. CI
+  plans these gates as before and runs them whole. The drop is only as safe as the reader's
+  agreement with semgrep: `TestTheRuleGateReaderAgreesWithRealSemgrep`
+  (`src-go/qa/changed/rulegate_test.go`) hands real semgrep each gate's rule file and real tree
+  files standing for every one of its globs, and fails if semgrep scans a file the reader says is
+  not read. The sweep `TestNoRealFilePlansARuleGateWhoseRuleReadsNoneOfIt` uses the planner's own
+  matcher, so it holds the per-file `semgrep` check and a gate missing from the drop, not the
+  matcher. Narrowing a rule's own `paths.exclude` to make a file reach a gate is still the
+  owner's decision.
 - **A command suite whose inputs passed before is skipped.** A suite picked only because its Go
   command's build closure changed (`builds from …`; the `ccy-*` suites of
   `scripts/go-binary-suites.tsv`) is not run again when a pass was recorded over the same inputs:

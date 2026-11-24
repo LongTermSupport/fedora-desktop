@@ -37,6 +37,63 @@ func (e Excludes) Matches(path string) bool {
 	return false
 }
 
+// Scope is which files a rule file reads: each rule's own paths.exclude. A rule file of several
+// rules reads a file when any one of them does, so a file one rule excludes is still read when a
+// sibling rule does not exclude it.
+//
+// A rule with any paths.include reads every file. A caller drops work for a file judged unread
+// (qa-changed drops the gate), so a wrong "unread" is the dangerous error, and include matching
+// is unproven against semgrep: a bare (`docs`) or trailing-slash (`docs/`) directory pattern is
+// one globRegexp does not match against `docs/a.md`, where semgrep does. Until a real-semgrep test
+// proves include matching, such a rule is judged to read everything, which only keeps a gate.
+type Scope struct {
+	rules    []Excludes
+	readsAll bool
+}
+
+// ParseScope reads the paths of every rule of the rule file named name. A file that does not
+// decode, or holds no rule, is an error: an empty scope would read nothing, so every file would
+// look excluded.
+func ParseScope(name string, data []byte) (Scope, error) {
+	var doc struct {
+		Rules []struct {
+			Paths struct {
+				Include []string `yaml:"include"`
+				Exclude []string `yaml:"exclude"`
+			} `yaml:"paths"`
+		} `yaml:"rules"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return Scope{}, fmt.Errorf("cannot decode %s: %w", name, err)
+	}
+	if len(doc.Rules) == 0 {
+		return Scope{}, fmt.Errorf("%s holds no rule", name)
+	}
+	var s Scope
+	for _, r := range doc.Rules {
+		exclude, err := CompileExcludes(r.Paths.Exclude)
+		if err != nil {
+			return Scope{}, fmt.Errorf("in %s: %w", name, err)
+		}
+		s.rules = append(s.rules, exclude)
+		s.readsAll = s.readsAll || len(r.Paths.Include) > 0
+	}
+	return s, nil
+}
+
+// Reads is whether some rule of the file reads the repository-relative path.
+func (s Scope) Reads(path string) bool {
+	if s.readsAll {
+		return true
+	}
+	for _, exclude := range s.rules {
+		if !exclude.Matches(path) {
+			return true
+		}
+	}
+	return false
+}
+
 // RuleExcludes is the paths.exclude list of one rule, read from the rule's YAML mapping. A rule
 // without one has none; a paths or exclude of any other shape is refused, so a list written wrong
 // is never read as no excludes.
