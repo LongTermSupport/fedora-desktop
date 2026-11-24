@@ -125,14 +125,19 @@ func TestALineHeldForReviewIsStillTyped(t *testing.T) {
 
 // Newer Claude Code puts "esc to interrupt" in the mode line below the box, and its spinner line
 // above the box carries no hint (fedora-desktop#391). A pane mid-turn is Busy by either, and
-// Busy overrides Typed; an idle pane whose conversation quotes both is not. These captures are
-// built from the lines the issue quotes, one per layout, so a layout change fails a test.
+// Busy overrides Typed; an idle pane whose conversation quotes both is not. The *-cc-<version>
+// files are real tmux captures (capture-pane -p -e) of that Claude Code version, redacted to
+// placeholders with layout and escapes kept: the idle one's placeholder was replaced by text,
+// so it reads Typed. The others are built from single lines to pin one form each.
 func TestClaudeStateSeesANewLayoutTurn(t *testing.T) {
 	cases := map[string]State{
+		"mid-turn-cc-2.1.331.txt":   Busy,
+		"idle-cc-2.1.331.txt":       Typed,
 		"mid-turn-hint-below.txt":   Busy,
 		"mid-turn-spinner-only.txt": Busy,
 		"mid-turn-typed-ahead.txt":  Busy,
 		"idle-new-layout.txt":       Ready,
+		"idle-spinner-quoted.txt":   Ready,
 	}
 	for name, want := range cases {
 		raw, err := os.ReadFile(filepath.Clean(filepath.Join("testdata", name)))

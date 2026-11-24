@@ -169,9 +169,11 @@ var rulePrefix = strings.Repeat("─", 10)
 // interrupt is what Claude's spinner shows while a turn or a compaction runs.
 const interrupt = "esc to interrupt"
 
-// spinner is Claude's working line: a glyph, words ending in "…", then the elapsed time in
-// parentheses ("✽ Hyperspacing… (19s · ↓ 735 tokens)", "✻ Pondering… (2m 4s)").
-var spinner = regexp.MustCompile(`^\s*[^\s\p{L}\p{N}]\s+[\p{L}][\p{L} ]*…\s+\((\d+h\s*)?(\d+m\s*)?\d+s\b`)
+// spinner is Claude's working line: a spinner glyph at column 0, words ending in "…", then the
+// elapsed time in parentheses ("✢ Finagling… (19s · ↓ 1.0k tokens)", "✻ Pondering… (2m 4s)").
+// Conversation lines are indented or start with "●", so a quoted one does not match; the
+// finished line ("✻ Cooked for 25s") has no "…".
+var spinner = regexp.MustCompile(`^[·✢✳✶✻✽*]\s+\p{L}[\p{L} ]*…\s+\((\d+h\s*)?(\d+m\s*)?\d+s\b`)
 
 // spinnerWindow is how many lines above the box's top rule a spinner line still counts.
 const spinnerWindow = 12
@@ -182,8 +184,9 @@ const spinnerWindow = 12
 // in selection dialogs, which are not framed, so only a framed one counts. Busy is "esc to
 // interrupt" in the four nearest non-blank lines above the box or anywhere below its closing
 // rule (the mode line), or a spinner line within the 12 lines above the box; the conversation
-// can quote the phrase, so only the status areas count. Busy overrides Ready and Typed. Each
-// layout Claude Code has drawn has a capture in testdata (fedora-desktop#391).
+// can quote the phrase, so only the status areas count. Busy overrides Ready and Typed. The
+// newer layout has real captures in testdata named for their Claude Code version
+// (fedora-desktop#391).
 func ClaudeState(screen string) State {
 	rawLines, plain, i := inputBox(screen)
 	switch {

@@ -49,8 +49,8 @@
 # Issue #391: the host tools that wait for a Claude Code session to be idle (ccy-sessions
 # set-going and wind-down, ccy --stop, the team restarts) now see a turn running in the newer
 # Claude Code screen layout, whose interrupt hint is in the mode line below the input box, so
-# they no longer type into a running turn. It rebuilds the host Go tools (ccy-sessions,
-# ccy-teams); no container image change.
+# they no longer type into a running turn. It rebuilds the host Go tools that read the screen
+# (ccy-sessions, ccy-teams, the claude-yolo front, ccy-token-usable); no container image change.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that
