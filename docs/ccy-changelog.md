@@ -17,11 +17,12 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.32 — container 2.84.72
+## 3.124.33 — container 2.84.72
 
 A session record whose file is not named after its `name=` (one edited or renamed by hand) is
 acted on through the file it was read from (issue #398, after #396). `ccy-sessions` and
-`ccy-teams` are rebuilt on the host; the image is unchanged.
+`ccy-teams` are rebuilt on the host; the image is unchanged. (3.124.32 was a step on the
+branch and was never deployed.)
 
 - **Ending a session** (the `ccy-sessions` picker's End, `ccy --stop`'s hard stop, a
   `ccy --teams` launch that forgets its record) removes every record answering to the session,

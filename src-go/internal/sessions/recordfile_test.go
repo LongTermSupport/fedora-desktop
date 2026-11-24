@@ -1,13 +1,17 @@
 package sessions
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/shellword"
 )
 
@@ -106,4 +110,57 @@ func TestADeclareRefusalNamesOnlyARecordThatIsThere(t *testing.T) {
 	file := moveRecord(t, recordOnly(t, h, registry.Record{Name: "ccy-proj", Dir: dir, Launcher: "/l", Prefix: "ccy", Compose: "started", Restore: true}), "renamed-proj")
 	exitCodeIs(t, h.run("declare", "--replace", "--fresh-if-no-conversation", dir, "--", "--no-ssh"), 1, h)
 	contains(t, "renamed", h.stderr(), "(the record is kept at "+file+").")
+}
+
+// trampolineOf is the `bash -c` string the restore gave the session's tmux pane.
+func trampolineOf(t *testing.T, start execx.Cmd) string {
+	t.Helper()
+	for i := range len(start.Args) - 2 {
+		if start.Args[i] == "bash" && start.Args[i+1] == "-c" {
+			return start.Args[i+2]
+		}
+	}
+	t.Fatalf("no trampoline in %v", start.Args)
+	return ""
+}
+
+// fedora-desktop#401: the stop file is the session's, whatever file its record is in. A restored
+// session whose record is in a file named otherwise than its name=, and whose launcher stops where
+// nobody could answer, writes its reason where verify-restore reads it, and its start clears the
+// reason an earlier start left there.
+func TestARenamedRecordsStopFileIsTheSessions(t *testing.T) {
+	h := newHarness(t)
+	restoreHost(h)
+	a := realDir(t, h, "a")
+	file := moveRecord(t, record(t, h, registry.Record{Name: "ccy-a", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true}), "renamed-a")
+	writeStop(t, h, "ccy-a", "token-select an earlier start stopped here\n")
+	exitCodeIs(t, h.run("restore"), 0, h)
+	calls := startedSessions(h)
+	if len(calls) != 1 {
+		t.Fatalf("started %v", calls)
+	}
+	launcher := `printf 'token-used-up the token has no usage left\n' >"$` + registry.StopEnv + `"; exit ` + strconv.Itoa(registry.ExitUnattendedStop)
+	_, err := execx.OS{}.Run(context.Background(), execx.Cmd{
+		Name: "bash", Args: []string{"-c", trampolineOf(t, calls[0]), "ccy-tmux", "sh", "-c", launcher},
+		Stdin: strings.NewReader("\n"),
+	})
+	if exitErr, ok := errors.AsType[*execx.ExitError](err); !ok || exitErr.Code != registry.ExitUnattendedStop {
+		t.Fatalf("the trampoline ended with %v", err)
+	}
+	if !exists(file) {
+		t.Fatal("an unattended stop removed the record")
+	}
+
+	h.env["CCY_SESSIONS_POLL_SECONDS"] = "0"
+	writeEntries(t, h, kept("ccy-a", "ccy", a))
+	h.sessions("ccy-a 0 " + a)
+	h.tmuxOut("list-panes", "ccy-a 100\n")
+	h.fake.On([]string{"ps"}, execx.Result{Stdout: []byte("100 1 bash -c trampoline\n")})
+	showScreen(h, "ccy-a", "\nccy "+screen.UnattendedStopText+" "+screen.EndedText+"\n")
+	report, code := verifyReport(h)
+	if code != 1 {
+		t.Fatalf("exit %d", code)
+	}
+	contains(t, "report", report, "ccy-a NOT-STARTED token-used-up")
+	contains(t, "why", h.stderr(), "ccy-a did not start: the token has no usage left\n")
 }
