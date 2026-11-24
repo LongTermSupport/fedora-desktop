@@ -510,7 +510,8 @@ input within two minutes of the keys being typed (`continue-not-started`). It ex
 until the restore has settled: nothing `STARTING` or `SETTING-GOING`, and the same answer
 twice running. It also stops when the time runs out. For a session still `SETTING-GOING`
 that set-going has not typed into, it says on stderr whether a `ccy-sessions set-going` is
-running to do it, or that none is and `ccy-sessions set-going` is the command to run.
+running to do it, or that none is and `ccy-sessions set-going` is the command to run once the
+boot's own `ccy-sessions-set-going` unit has ended.
 
 | Situation at boot                         | What restore does                                                                                                                 |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |

@@ -317,7 +317,7 @@ func TestVerifyRestoreSaysWhetherASetGoingIsComingForASessionStillWaiting(t *tes
 	if code != 1 || report != "ccy-a OK|cc-c SETTING-GOING" {
 		t.Fatalf("%d %q", code, report)
 	}
-	notRun := "cc-c is still waiting to be set going, and no ccy-sessions set-going is running to do it: run ccy-sessions set-going"
+	notRun := "cc-c is still waiting to be set going, and no ccy-sessions set-going is running to do it: once journalctl --user -u ccy-sessions-set-going -b --no-pager | cat shows this boot's has ended or never started, run ccy-sessions set-going."
 	if !strings.Contains(h.stderr(), notRun) {
 		t.Fatalf("no set-going running: stderr %q", h.stderr())
 	}

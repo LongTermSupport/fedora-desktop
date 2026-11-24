@@ -126,7 +126,7 @@ func (a *App) sayAwaitingSetGoing(store *restore.Store, states []string) error {
 			a.sayf("%s is still waiting to be set going; a ccy-sessions set-going is running and is to do it.\n", name)
 			continue
 		}
-		a.sayf("%s is still waiting to be set going, and no ccy-sessions set-going is running to do it: run ccy-sessions set-going (journalctl --user -u ccy-sessions-set-going -b --no-pager | cat says whether this boot's ran).\n", name)
+		a.sayf("%s is still waiting to be set going, and no ccy-sessions set-going is running to do it: once journalctl --user -u ccy-sessions-set-going -b --no-pager | cat shows this boot's has ended or never started, run ccy-sessions set-going.\n", name)
 	}
 	return nil
 }
