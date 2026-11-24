@@ -215,9 +215,11 @@ const (
 // selectorWord is one word read as a conversation selector: what it is, and for --resume=<id>
 // (resumes) the id it names.
 type selectorWord struct {
-	kind    selector
-	resumes bool
-	id      string
+	kind      selector
+	resumes   bool
+	continues bool
+	session   bool
+	id        string
 }
 
 // selectorOf is the one reader of claude's conversation selectors (rule project_selector_parse).
@@ -226,12 +228,14 @@ func selectorOf(w string) selectorWord {
 		return selectorWord{kind: selectorAlone, resumes: true, id: id}
 	}
 	switch {
-	case w == "-c", w == "--continue", strings.HasPrefix(w, "--session-id="):
-		return selectorWord{kind: selectorAlone}
+	case w == "-c", w == "--continue":
+		return selectorWord{kind: selectorAlone, continues: true}
+	case strings.HasPrefix(w, "--session-id="):
+		return selectorWord{kind: selectorAlone, session: true}
 	case w == "-r", w == "--resume":
-		return selectorWord{kind: selectorMaybeValue}
+		return selectorWord{kind: selectorMaybeValue, resumes: true}
 	case w == "--session-id":
-		return selectorWord{kind: selectorWithValue}
+		return selectorWord{kind: selectorWithValue, session: true}
 	}
 	return selectorWord{kind: selectorNone}
 }
@@ -240,6 +244,51 @@ func selectorOf(w string) selectorWord {
 // flag, since a bare one opens the picker (fedora-desktop#411).
 func selectorValue(next string) bool {
 	return !strings.HasPrefix(next, "-")
+}
+
+// Selectors is what claude's arguments choose about the conversation: -c or --continue, a
+// --session-id, Claude Code's picker (a bare --resume or -r, or one whose value is not a session
+// id), and the id a --resume names.
+type Selectors struct {
+	Continues, Picker, SessionID bool
+	ID                           string
+}
+
+// ReadSelectors reads claude's conversation selectors in args (claude's words only) through
+// selectorOf; a value a selector takes is consumed with it.
+func ReadSelectors(args []string) Selectors {
+	var s Selectors
+	for i := 0; i < len(args); i++ {
+		w := selectorOf(args[i])
+		switch w.kind {
+		case selectorNone:
+			continue
+		case selectorWithValue:
+			i++
+		case selectorMaybeValue:
+			if i+1 < len(args) && selectorValue(args[i+1]) {
+				i++
+				w.id = args[i]
+			}
+		case selectorAlone:
+		}
+		s.Continues = s.Continues || w.continues
+		s.SessionID = s.SessionID || w.session
+		if w.resumes {
+			s.choose(w.id)
+		}
+	}
+	return s
+}
+
+// choose takes a --resume value: a session id names the conversation; anything else (nothing, or
+// a search) is Claude Code's picker.
+func (s *Selectors) choose(value string) {
+	if SessionID(value) {
+		s.ID = value
+		return
+	}
+	s.Picker = true
 }
 
 // composeArgs is the --compose flag a compose outcome maps to.

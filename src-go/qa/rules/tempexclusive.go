@@ -107,19 +107,24 @@ type tempPass struct {
 
 func runTempNotExclusive(pass *analysis.Pass) {
 	t := &tempPass{pass: pass, local: map[*types.Func][]int{}}
-	var decls []*ast.FuncDecl
+	t.settle(funcDecls(pass))
+	for fn, params := range t.local {
+		pass.ExportObjectFact(fn, &tempCreatesParamFact{Params: params})
+	}
 	for _, f := range pass.Files {
-		for _, d := range f.Decls {
-			if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil {
-				decls = append(decls, fd)
-			}
+		if !isTestFile(pass, f) {
+			t.checkFile(f)
 		}
 	}
-	// A helper of the package can call another: settle them to a fixed point.
+}
+
+// settle finds the package's helpers that create a parameter's path: a helper can call another,
+// so they are settled to a fixed point.
+func (t *tempPass) settle(decls []*ast.FuncDecl) {
 	for changed := true; changed; {
 		changed = false
 		for _, fd := range decls {
-			fn, ok := pass.TypesInfo.Defs[fd.Name].(*types.Func)
+			fn, ok := t.pass.TypesInfo.Defs[fd.Name].(*types.Func)
 			if !ok {
 				continue
 			}
@@ -128,25 +133,21 @@ func runTempNotExclusive(pass *analysis.Pass) {
 			}
 		}
 	}
-	for fn, params := range t.local {
-		pass.ExportObjectFact(fn, &tempCreatesParamFact{Params: params})
-	}
-	for _, f := range pass.Files {
-		if isTestFile(pass, f) {
-			continue
-		}
-		ast.Inspect(f, func(n ast.Node) bool {
-			switch fn := n.(type) {
-			case *ast.FuncDecl:
-				if fn.Body != nil {
-					t.checkBody(fn.Body)
-				}
-			case *ast.FuncLit:
+}
+
+// checkFile checks the body of every function and function literal of f.
+func (t *tempPass) checkFile(f *ast.File) {
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch fn := n.(type) {
+		case *ast.FuncDecl:
+			if fn.Body != nil {
 				t.checkBody(fn.Body)
 			}
-			return true
-		})
-	}
+		case *ast.FuncLit:
+			t.checkBody(fn.Body)
+		}
+		return true
+	})
 }
 
 // createdParams is the indexes of fd's parameters whose path its body creates without O_EXCL.
@@ -268,51 +269,63 @@ func (t *tempPass) childWrites(body *ast.BlockStmt, lit *ast.CompositeLit) []tem
 // argExprs is every expression an argument list holds: a slice literal's elements, an append's
 // arguments, and for a local slice, what the body assigns it.
 func argExprs(pass *analysis.Pass, body *ast.BlockStmt, e ast.Expr) []ast.Expr {
-	var out []ast.Expr
-	seen := map[types.Object]bool{}
-	var walk func(ast.Expr)
-	walk = func(e ast.Expr) {
-		switch e := ast.Unparen(e).(type) {
-		case *ast.CompositeLit:
-			for _, el := range e.Elts {
-				walk(el)
-			}
-		case *ast.CallExpr:
-			if id, ok := e.Fun.(*ast.Ident); ok && id.Name == "append" {
-				for _, a := range e.Args {
-					walk(a)
-				}
-				return
-			}
-			out = append(out, e)
-		case *ast.Ident:
-			out = append(out, e)
-			v, ok := pass.TypesInfo.ObjectOf(e).(*types.Var)
-			if !ok || seen[v] {
-				return
-			}
-			if _, isSlice := v.Type().Underlying().(*types.Slice); !isSlice {
-				return
-			}
-			seen[v] = true
-			ast.Inspect(body, func(n ast.Node) bool {
-				as, isAssign := n.(*ast.AssignStmt)
-				if !isAssign || len(as.Lhs) != len(as.Rhs) {
-					return true
-				}
-				for i, l := range as.Lhs {
-					if id, isIdent := l.(*ast.Ident); isIdent && pass.TypesInfo.ObjectOf(id) == v {
-						walk(as.Rhs[i])
-					}
-				}
-				return true
-			})
-		default:
-			out = append(out, e)
+	w := &argWalk{pass: pass, body: body, seen: map[types.Object]bool{}}
+	w.walk(e)
+	return w.out
+}
+
+// argWalk gathers argExprs' expressions.
+type argWalk struct {
+	pass *analysis.Pass
+	body *ast.BlockStmt
+	seen map[types.Object]bool
+	out  []ast.Expr
+}
+
+func (w *argWalk) walk(e ast.Expr) {
+	switch e := ast.Unparen(e).(type) {
+	case *ast.CompositeLit:
+		for _, el := range e.Elts {
+			w.walk(el)
 		}
+	case *ast.CallExpr:
+		if id, ok := e.Fun.(*ast.Ident); ok && id.Name == "append" {
+			for _, a := range e.Args {
+				w.walk(a)
+			}
+			return
+		}
+		w.out = append(w.out, e)
+	case *ast.Ident:
+		w.out = append(w.out, e)
+		w.assigned(e)
+	default:
+		w.out = append(w.out, e)
 	}
-	walk(e)
-	return out
+}
+
+// assigned walks what the body assigns a local slice variable id names, once per variable.
+func (w *argWalk) assigned(id *ast.Ident) {
+	v, ok := w.pass.TypesInfo.ObjectOf(id).(*types.Var)
+	if !ok || w.seen[v] {
+		return
+	}
+	if _, isSlice := v.Type().Underlying().(*types.Slice); !isSlice {
+		return
+	}
+	w.seen[v] = true
+	ast.Inspect(w.body, func(n ast.Node) bool {
+		as, isAssign := n.(*ast.AssignStmt)
+		if !isAssign || len(as.Lhs) != len(as.Rhs) {
+			return true
+		}
+		for i, l := range as.Lhs {
+			if lid, isIdent := l.(*ast.Ident); isIdent && w.pass.TypesInfo.ObjectOf(lid) == v {
+				w.walk(as.Rhs[i])
+			}
+		}
+		return true
+	})
 }
 
 // checkBody reports each create in body made without O_EXCL whose path the body moves after it

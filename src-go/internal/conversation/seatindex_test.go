@@ -293,9 +293,9 @@ func TestForgetTeamRemovesItsPointersInEveryCheckout(t *testing.T) {
 	if err := os.MkdirAll(reg.Dir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for name, dir := range map[string]string{"ccy-p": w.checkout, "ccy-q": other} {
+	for i, dir := range []string{w.checkout, other} {
 		if err := reg.Write(registry.Record{
-			Name: name, Dir: dir, Launcher: "/usr/local/bin/ccy", Prefix: "ccy", Restore: true,
+			Name: []string{"ccy-p", "ccy-q"}[i], Dir: dir, Launcher: "/usr/local/bin/ccy", Prefix: "ccy", Restore: true,
 			Args: []string{"--teams", "dev1@alpha"},
 		}); err != nil {
 			t.Fatal(err)

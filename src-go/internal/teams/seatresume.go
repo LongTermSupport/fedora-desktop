@@ -46,12 +46,6 @@ type SeatResume struct {
 	Getwd          func() (string, error)
 }
 
-// selection is what claude's arguments choose about the conversation.
-type selection struct {
-	continues, picker, sessionID bool
-	id                           string
-}
-
 const seatResumeUsage = "ccy-teams internal seat-resume: usage: ccy-teams internal seat-resume <seats> " +
 	"[--relaunch] <before> -- <claude arguments...>, <before> being how many of claude's arguments " +
 	"came before the launcher's --; it prints, NUL separated, the new count and claude's arguments. See ccy-teams --help."
@@ -88,7 +82,7 @@ func (r *SeatResume) Run(args []string) term.ExitCode {
 		}
 		before--
 	}
-	id, code := r.decide(list, selectionOf(kept), fresh, rebind, relaunch)
+	id, code := r.decide(list, registry.ReadSelectors(kept), fresh, rebind, relaunch)
 	if code != term.ExitOK {
 		return code
 	}
@@ -105,66 +99,32 @@ func (r *SeatResume) Run(args []string) term.ExitCode {
 	return term.ExitOK
 }
 
-// selectionOf reads claude's conversation selectors.
-func selectionOf(claude []string) selection {
-	var sel selection
-	for i := 0; i < len(claude); i++ {
-		w := claude[i]
-		switch {
-		case w == "-c", w == "--continue":
-			sel.continues = true
-		case w == "--session-id", strings.HasPrefix(w, "--session-id="):
-			sel.sessionID = true
-		case strings.HasPrefix(w, "--resume="):
-			sel.choose(strings.TrimPrefix(w, "--resume="))
-		case w == "--resume", w == "-r":
-			value := ""
-			if i+1 < len(claude) && !strings.HasPrefix(claude[i+1], "-") {
-				i++
-				value = claude[i]
-			}
-			sel.choose(value)
-		}
-	}
-	return sel
-}
-
-// choose takes a --resume value: a session id names the conversation; anything else (nothing, or
-// a search) is Claude Code's picker.
-func (s *selection) choose(value string) {
-	if registry.SessionID(value) {
-		s.id = value
-		return
-	}
-	s.picker = true
-}
-
 // decide is the id to resume ("" for none) and the exit code.
-func (r *SeatResume) decide(list string, sel selection, fresh, rebind, relaunch bool) (string, term.ExitCode) {
-	if sel.continues || fresh || rebind && sel.id == "" || sel.picker || sel.sessionID || sel.id != "" {
+func (r *SeatResume) decide(list string, sel registry.Selectors, fresh, rebind, relaunch bool) (string, term.ExitCode) {
+	if sel.Continues || fresh || rebind && sel.ID == "" || sel.Picker || sel.SessionID || sel.ID != "" {
 		return "", r.chosen(list, sel, fresh, rebind, relaunch)
 	}
 	return r.recorded(list)
 }
 
 // chosen is a launch whose arguments choose the conversation themselves.
-func (r *SeatResume) chosen(list string, sel selection, fresh, rebind, relaunch bool) term.ExitCode {
+func (r *SeatResume) chosen(list string, sel registry.Selectors, fresh, rebind, relaunch bool) term.ExitCode {
 	plain := "    ccy --teams " + list
 	freshCmd := "    ccy --teams " + list + " --fresh"
 	switch {
-	case sel.continues:
+	case sel.Continues:
 		return say(r.Stderr, term.ExitUsage, "ccy refuses --continue in a team seat: it resumes this checkout's newest conversation, which may be another seat's.\n"+
 			"  The plain launch resumes the conversation recorded for these seats:\n"+plain+"\n"+
 			"  or start a new one:\n"+freshCmd)
-	case fresh && (sel.id != "" || sel.picker || sel.sessionID || rebind):
+	case fresh && (sel.ID != "" || sel.Picker || sel.SessionID || rebind):
 		return say(r.Stderr, term.ExitUsage, "ccy: --fresh starts a new conversation, so it cannot be given with --resume, --session-id or --rebind. Drop one.")
 	case fresh:
 		return say(r.Stderr, term.ExitOK, "ccy: --fresh: starting a new conversation for "+list+
 			"; the conversation recorded for these seats is not resumed, and the new one is recorded as theirs once it starts.")
-	case rebind && sel.id == "":
+	case rebind && sel.ID == "":
 		return say(r.Stderr, term.ExitUsage, "ccy: --rebind goes with --resume <id>: it points the seats at that conversation. Drop it, or name the conversation.")
-	case sel.id != "" && !sel.picker && !sel.sessionID:
-		return r.explicit(list, sel.id, rebind, relaunch)
+	case sel.ID != "" && !sel.Picker && !sel.SessionID:
+		return r.explicit(list, sel.ID, rebind, relaunch)
 	}
 	return term.ExitOK
 }

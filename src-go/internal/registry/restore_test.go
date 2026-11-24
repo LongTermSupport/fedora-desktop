@@ -143,6 +143,34 @@ func TestFlagClassAgreesWithBash(t *testing.T) {
 	}
 }
 
+// ReadSelectors is what claude's arguments choose about the conversation, read by selectorOf
+// (issue 417's seat-resume asks it).
+func TestReadSelectors(t *testing.T) {
+	const id = "0f1e2d3c-4b5a-4968-8776-655443322110"
+	for _, c := range []struct {
+		args []string
+		want Selectors
+	}{
+		{nil, Selectors{}},
+		{[]string{"--model", "x"}, Selectors{}},
+		{[]string{"-c"}, Selectors{Continues: true}},
+		{[]string{"--model", "x", "--continue"}, Selectors{Continues: true}},
+		{[]string{"--session-id", id}, Selectors{SessionID: true}},
+		{[]string{"--session-id=" + id}, Selectors{SessionID: true}},
+		{[]string{"--resume", id}, Selectors{ID: id}},
+		{[]string{"--resume=" + id}, Selectors{ID: id}},
+		{[]string{"-r", id}, Selectors{ID: id}},
+		{[]string{"--resume"}, Selectors{Picker: true}},
+		{[]string{"-r", "--model", "x"}, Selectors{Picker: true}},
+		{[]string{"--resume", "a search"}, Selectors{Picker: true}},
+		{[]string{"--resume="}, Selectors{Picker: true}},
+	} {
+		if got := ReadSelectors(c.args); got != c.want {
+			t.Errorf("ReadSelectors(%q) = %+v, want %+v", c.args, got, c.want)
+		}
+	}
+}
+
 func TestResumeIDAndSupervisedGolden(t *testing.T) {
 	idCases := []struct {
 		args []string
