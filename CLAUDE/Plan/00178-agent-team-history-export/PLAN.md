@@ -43,8 +43,8 @@ the admin token, and the event shapes.
 
 ### Phase 1: Build
 
-- [ ] 🔄 **Task 1.1**: The spec, SPEC-v1-export.md (E1-E21), written from v1's code.
-- [ ] ⬜ **Task 1.2**: `src-go/internal/teamchat/migrate/v1`, test first. It covers the file
+- [x] ✅ **Task 1.1**: The spec, SPEC-v1-export.md (E1-E21), written from v1's code.
+- [x] ✅ **Task 1.2**: `src-go/internal/teamchat/migrate/v1`, test first. It covers the file
   checks, the loopback client (GET only, no proxy, no redirect), paging to the first event with
   no cap, the JSONL and state writers, the `history.md` renderer over every v1 event shape, the
   digest, the atomic record directory and the verify step, each against a fake homeserver and

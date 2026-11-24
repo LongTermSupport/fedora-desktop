@@ -77,7 +77,9 @@ teamchat-admin migrate export-verify --team <v1-team> [--export <stamp>]
 ### What it writes
 
 - **E12** The record goes in a new directory,
-  `/var/lib/teamchat-admin/v1-export/<team>/<UTC stamp>/`. The stamp is
+  `/var/lib/teamchat-admin/_v1-export/<team>/<UTC stamp>/`. The leading underscore keeps it out
+  of every walk of the state root that parses team ids (as `_carry` and `_lxc` are): `v1-export`
+  is itself a valid v2 team id. The stamp is
   `YYYYMMDDTHHMMSSZ` from the injected clock. The directory is root's, mode 0700, and its files
   are mode 0600. It is built under a temporary name beside the final one and renamed into place
   only when every file is written and synced. A failure leaves no directory under the final
