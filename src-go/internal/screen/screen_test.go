@@ -123,6 +123,46 @@ func TestALineHeldForReviewIsStillTyped(t *testing.T) {
 	}
 }
 
+// Newer Claude Code puts "esc to interrupt" in the mode line below the box, and its spinner line
+// above the box carries no hint (fedora-desktop#391). A pane mid-turn is Busy by either, and
+// Busy overrides Typed; an idle pane whose conversation quotes both is not. These captures are
+// built from the lines the issue quotes, one per layout, so a layout change fails a test.
+func TestClaudeStateSeesANewLayoutTurn(t *testing.T) {
+	cases := map[string]State{
+		"mid-turn-hint-below.txt":   Busy,
+		"mid-turn-spinner-only.txt": Busy,
+		"mid-turn-typed-ahead.txt":  Busy,
+		"idle-new-layout.txt":       Ready,
+	}
+	for name, want := range cases {
+		raw, err := os.ReadFile(filepath.Clean(filepath.Join("testdata", name)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := ClaudeState(string(raw)); got != want {
+			t.Errorf("%s: got %q, want %q", name, got, want)
+		}
+	}
+}
+
+// A spinner line counts only within the 12 lines above the box; further up it is conversation.
+func TestASpinnerFarAboveTheBoxIsNotBusy(t *testing.T) {
+	rule := strings.Repeat("─", 40)
+	lines := []string{"✽ Hyperspacing… (19s · ↓ 735 tokens)"}
+	for range 12 {
+		lines = append(lines, "● an answer line")
+	}
+	lines = append(lines, rule, "❯ ", rule, "  ⏵⏵ bypass permissions on")
+	if got := ClaudeState(strings.Join(lines, "\n")); got != Ready {
+		t.Errorf("a spinner 13 lines up: got %q", got)
+	}
+	near := append([]string{}, lines[1:]...)
+	near = append([]string{"✽ Hyperspacing… (1m 4s · ↓ 735 tokens)"}, near[1:]...)
+	if got := ClaudeState(strings.Join(near, "\n")); got != Busy {
+		t.Errorf("a spinner 12 lines up: got %q", got)
+	}
+}
+
 // AboveTheBox is the nearest line above the box with something on it, as shown: Claude Code's
 // notice when it holds a line, which a caller names when it gives up.
 func TestAboveTheBoxIsTheNearestShownLine(t *testing.T) {
