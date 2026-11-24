@@ -100,14 +100,10 @@ func (s *Store) releaseHeld(ctx context.Context, r Release, locked locker, pool 
 			return err
 		}
 	}
-	abandoned, err := s.retire(ctx, h, pool)
-	if err != nil {
+	if err = s.retire(ctx, h, pool); err != nil {
 		return err
 	}
-	if err = locked(ctx, func() error { return s.finish(r.Seat, pool, rec.Claim, abandoned) }); err != nil {
-		return err
-	}
-	if err = s.logAbandoned(r.Seat, abandoned); err != nil || !copied.kept {
+	if err = locked(ctx, func() error { return s.finish(r.Seat, pool, rec.Claim) }); err != nil || !copied.kept {
 		return err
 	}
 	return fmt.Errorf("%w: %s", ErrCopyKept, seat.Dir())
@@ -416,73 +412,34 @@ func runOf(lock lockProbe) (paths.RunID, bool) {
 }
 
 // retire is step 4: the credential's Retire with the holding h's token; one with no token has
-// nothing to retire. A failed Retire is the release's error, unless the holding is abandoned:
-// then retire answers why, and the release finishes without the logout (issue 386).
-func (s *Store) retire(ctx context.Context, h *dir, pool paths.PoolSeat) (string, error) {
+// nothing to retire.
+func (s *Store) retire(ctx context.Context, h *dir, pool paths.PoolSeat) error {
 	data, err := h.read(pool.HeldToken(), maxSecret)
 	if errors.Is(err, unix.ENOENT) {
-		return "", nil
+		return nil
 	}
 	if err != nil {
-		return "", err
+		return err
 	}
 	token, err := ParseSecret(string(data))
 	if err != nil {
-		return "", fmt.Errorf("%s: %w", pool.HeldToken(), err)
+		return fmt.Errorf("%s: %w", pool.HeldToken(), err)
 	}
 	bundleData, err := s.root.read(pool.Bundle(), maxRecord)
 	if err != nil {
-		return "", err
+		return err
 	}
 	b, err := DecodeBundle(bundleData)
 	if err != nil {
-		return "", fmt.Errorf("%s: %w", pool.Bundle(), err)
+		return fmt.Errorf("%s: %w", pool.Bundle(), err)
 	}
-	err = s.credential.Retire(ctx, b, token)
-	if err == nil {
-		return "", nil
-	}
-	why, judgeErr := s.abandoned(b, err)
-	if judgeErr != nil || why == "" {
-		return "", errors.Join(err, judgeErr)
-	}
-	return why, nil
+	return s.credential.Retire(ctx, b, token)
 }
 
-// abandoned is why a holding whose logout failed with err can never be logged out with its
-// bundle, "" when the failure may pass and the release is retried. Only two failures are proof:
-//   - the server's certificate is in date and names the seat's host but chains to another CA
-//     than the bundle's (the team was recreated, or its CA rotated; either way only a reissue,
-//     which signs every device of the account out, brings the seat back);
-//   - the server gave no answer at all and this machine's own records say the team is gone
-//     (Config.Teams).
-//
-// An answer of any kind, a name mismatch, a cancellation, or no answer for a team not known to
-// be gone, is not: a token that may still be live is never left valid by a release.
-func (s *Store) abandoned(b Bundle, err error) (string, error) {
-	switch {
-	case matrix.UnknownAuthority(err):
-		return "the server at " + b.BaseURL + " presents a certificate of another CA than this seat's: the team was recreated or its CA rotated", nil
-	case !matrix.NoAnswer(err) || s.teams == nil:
-		return "", nil
-	}
-	return s.teams.Gone(b)
-}
-
-// logAbandoned says, when why is not empty, that seat was released without its logout.
-func (s *Store) logAbandoned(seat Seat, why string) error {
-	if why == "" || s.log == nil {
-		return nil
-	}
-	_, err := fmt.Fprintf(s.log, "seat %s of team %s released without its logout (abandoned): %s\n", seat.Name, seat.Team, why)
-	return err
-}
-
-// finish is step 5: released.json for this claim and now (and why, for a holding abandoned
-// without its logout), then held/ moved to quarantine and its token unlinked. The pool's
-// credential and seat.json are untouched. A held/ that is gone or carries another claim was
-// released by another (a take, n2c-D4): this release is done.
-func (s *Store) finish(seat Seat, pool paths.PoolSeat, claim paths.ClaimID, abandoned string) error {
+// finish is step 5: released.json for this claim and now, then held/ moved to quarantine and
+// its token unlinked. The pool's credential and seat.json are untouched. A held/ that is gone or
+// carries another claim was released by another (a take, n2c-D4): this release is done.
+func (s *Store) finish(seat Seat, pool paths.PoolSeat, claim paths.ClaimID) error {
 	current, err := s.root.read(pool.HeldRecord(), maxRecord)
 	if errors.Is(err, unix.ENOENT) {
 		return nil
@@ -494,7 +451,7 @@ func (s *Store) finish(seat Seat, pool paths.PoolSeat, claim paths.ClaimID, aban
 	if stillThisClaim := decErr == nil && rec.Claim == claim; !stillThisClaim {
 		return nil
 	}
-	data, err := encodeRecord(ReleasedRecord{V: recordVersion, Claim: claim, ReleasedMS: s.clock.Now().UnixMilli(), Abandoned: abandoned})
+	data, err := encodeRecord(ReleasedRecord{V: recordVersion, Claim: claim, ReleasedMS: s.clock.Now().UnixMilli()})
 	if err != nil {
 		return err
 	}

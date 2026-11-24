@@ -28,6 +28,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/sweep"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -57,6 +58,12 @@ type Cmd struct {
 	Parts seat.Config
 	// Open opens the seat store of one checkout.
 	Open func(cfg seat.Config) (Store, error)
+	// Getwd is the working directory: `seats abandon` acts on its checkout's seats.
+	Getwd func() (string, error)
+	// Status reads a team's status record on this machine (system.StatusRecord).
+	Status func(paths.TeamID) (status.Record, bool, error)
+	// Who is the caller, as `seats abandon` records it: a user name, or a uid.
+	Who func() (string, error)
 }
 
 // errUsage is a call the units never make: said, exit 64.

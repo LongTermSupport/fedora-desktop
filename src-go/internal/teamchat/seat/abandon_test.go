@@ -1,226 +1,202 @@
 package seat
 
 import (
-	"bytes"
+	"context"
 	"errors"
-	"net/http"
-	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
-// closedBase is a member URL nothing listens on: a logout to it gets no answer.
-const closedBase = "http://127.0.0.1:1"
+// retireSpy is the password credential that counts its Retire calls: an abandon makes none.
+type retireSpy struct {
+	Password
 
-// teams is a fake of what the machine knows of a seat's team: why it is gone, or an error.
-type teams struct {
-	mu    sync.Mutex
-	why   string
-	err   error
-	asked []Bundle
+	mu      sync.Mutex
+	retired int
 }
 
-func (f *teams) Gone(b Bundle) (string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.asked = append(f.asked, b)
-	return f.why, f.err
+func (r *retireSpy) Retire(ctx context.Context, b Bundle, held Secret) error {
+	r.mu.Lock()
+	r.retired++
+	r.mu.Unlock()
+	return r.Password.Retire(ctx, b, held)
 }
 
-func (f *teams) calls() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return len(f.asked)
+func (r *retireSpy) calls() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.retired
 }
 
-// newTLSWorld is a world whose homeserver serves a leaf of ca, its pool seat pinned to ca.
-func newTLSWorld(t *testing.T, ca pki.CA) *world {
-	t.Helper()
-	clock := newClock()
-	w := &world{
-		homeserver: startTLSHomeserver(t, mustLeaf(t, ca, loopback), clock), home: t.TempDir(), key: mustKey(t, "c0"),
-		sessions: &sessions{}, notices: &announcer{outcome: Outcome{Posted: true}},
-		seat: Seat{Team: mustTeam(t), Name: mustSeatName(t, testHandle)},
-	}
-	w.store = w.open()
-	b := w.bundle()
-	b.TLSCA = string(ca.CertPEM())
-	w.placeBundle(b)
-	writeFile(t, w.pool().Password(), testPassword)
-	return w
+// spy reopens the world's store with a retireSpy as its credential.
+func (w *world) spy() *retireSpy {
+	spy := &retireSpy{Password: Password{Clock: w.clock}}
+	w.reopen(func(c *Config) { c.Credential = spy })
+	return spy
 }
 
-// placeBundle writes b as the pool's seat.json, as a placement (or a test) leaves it.
-func (w *world) placeBundle(b Bundle) {
+func (w *world) abandon(seat Seat, reason, by string) (Abandoned, error) {
 	w.t.Helper()
+	return w.store.Abandon(w.t.Context(), seat, reason, by)
+}
+
+// An abandon releases the held seat on the owner's word with no logout: the session's copy and
+// held/ go to quarantine as a release moves them, the token file is unlinked, released.json
+// says why, by whom and when, and the token stays live on its server (no call was made).
+func TestAbandon(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	taken := w.take("s1")
+	token := w.readFile(w.pool().HeldToken())
+	spy := w.spy()
+	got, err := w.abandon(w.seat, "team purged", "owner")
+	if err != nil || !got.Held || got.Session.String() != "s1" {
+		t.Fatalf("abandon: %+v, %v", got, err)
+	}
+	if exists(t, taken.Dir) || !exists(t, w.releasedSession(taken)+"/seat.json") {
+		t.Errorf("the session's seat directory was not moved to quarantine")
+	}
+	if exists(t, w.pool().Held()) || !exists(t, w.releasedPool(taken)+"/held.json") || exists(t, w.releasedPool(taken)+"/token") {
+		t.Errorf("held/ was not moved to quarantine with its token unlinked")
+	}
+	raw := decodeJSON(t, w.readFile(w.pool().ReleasedRecord()))
+	ab, ok := raw["abandoned"].(map[string]any)
+	if !ok || ab["reason"] != "team purged" || ab["by"] != "owner" || ab["at_ms"] != float64(w.clock.Now().UnixMilli()) || len(ab) != 3 {
+		t.Errorf("released.json %v, want abandoned {reason, by, at_ms}", raw)
+	}
+	rec, err := decodeReleasedRecord([]byte(w.readFile(w.pool().ReleasedRecord())))
+	if err != nil || rec.Claim != taken.Claim || rec.Abandoned == nil {
+		t.Errorf("released.json does not decode as this claim's abandonment: %+v, %v", rec, err)
+	}
+	if spy.calls() != 0 || !w.alive(token) || len(w.notices.calls()) != 0 {
+		t.Errorf("the abandon contacted the server: %d retires, %d notices", spy.calls(), len(w.notices.calls()))
+	}
+}
+
+// A seat that is not held is nothing to do, and no error.
+func TestAbandonNotHeld(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	got, err := w.abandon(w.seat, "gone", "owner")
+	if err != nil || got.Held {
+		t.Errorf("abandon of a free seat: %+v, %v", got, err)
+	}
+	if exists(t, w.pool().ReleasedRecord()) {
+		t.Errorf("a free seat got a released.json")
+	}
+}
+
+// A seat whose member link runs for its team is refused, held/ and the copy kept.
+func TestAbandonRunning(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	taken := w.take("s1")
+	w.keep("s1", lockRecord)
+	if _, err := w.abandon(w.seat, "gone", "owner"); !errors.Is(err, ErrRunning) {
+		t.Fatalf("abandon of a running seat: %v", err)
+	}
+	if !exists(t, w.pool().HeldToken()) || !exists(t, taken.Dir) || exists(t, w.pool().ReleasedRecord()) {
+		t.Errorf("a refused abandon changed the seat")
+	}
+}
+
+// A reason or a caller that is empty or not one line is refused before anything moves.
+func TestAbandonNeedsReason(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	w.take("s1")
+	for _, c := range [][2]string{{"", "owner"}, {"two\nlines", "owner"}, {"gone", ""}} {
+		if _, err := w.abandon(w.seat, c[0], c[1]); !errors.Is(err, ErrInvalid) {
+			t.Errorf("abandon %q by %q: %v, want ErrInvalid", c[0], c[1], err)
+		}
+	}
+	if !exists(t, w.pool().HeldToken()) {
+		t.Errorf("a refused abandon moved held/")
+	}
+}
+
+// deadTeam is a second team, "dead", with its own homeserver and the test handle's account,
+// its pool seat placed in the world's checkout.
+func (w *world) deadTeam() Seat {
+	w.t.Helper()
+	team, err := paths.ParseTeamID("dead")
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	server := paths.ServerName(team)
+	hs := fakehs.New(fakehs.Options{ServerName: server, Now: func() time.Time { return testStart }})
+	if err := hs.Start(); err != nil {
+		w.t.Fatal(err)
+	}
+	w.t.Cleanup(func() {
+		if err := hs.Stop(); err != nil {
+			w.t.Error(err)
+		}
+	})
+	hs.AddUser(testHandle, testPassword, false)
+	b := bundleAt(w.t, hs.URL())
+	b.Team, b.ServerName, b.UserID, b.AdminID = team, server, "@"+testHandle+":"+server, "@admin:"+server
 	data, err := b.Encode()
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	writeFile(w.t, w.pool().Bundle(), string(data))
+	seat := Seat{Team: team, Name: w.seat.Name}
+	writeFile(w.t, w.poolOf(seat).Password(), testPassword)
+	writeFile(w.t, w.poolOf(seat).Bundle(), string(data))
+	return seat
 }
 
-// withTeams reopens the world's store with f as its teams and log as its log.
-func (w *world) withTeams(f Teams, log *bytes.Buffer) {
-	w.reopen(func(c *Config) { c.Teams, c.Log = f, log })
-}
-
-// released is the world's released.json, decoded.
-func (w *world) released() ReleasedRecord {
-	w.t.Helper()
-	rec, err := decodeReleasedRecord([]byte(w.readFile(w.pool().ReleasedRecord())))
-	if err != nil {
-		w.t.Fatal(err)
-	}
-	return rec
-}
-
-// assertAbandoned holds that the release finished without the logout: held/ in quarantine, its
-// token gone, released.json naming the claim and why, and the log saying why.
-func (w *world) assertAbandoned(taken Taken, log *bytes.Buffer, why string) {
-	w.t.Helper()
-	if exists(w.t, w.pool().Held()) || !exists(w.t, w.releasedPool(taken)+"/held.json") || exists(w.t, w.releasedPool(taken)+"/token") {
-		w.t.Errorf("held/ was not moved to quarantine with its token unlinked")
-	}
-	rec := w.released()
-	if rec.Claim != taken.Claim || !strings.Contains(rec.Abandoned, why) {
-		w.t.Errorf("released.json %+v, want the claim and abandoned naming %q", rec, why)
-	}
-	if !strings.Contains(log.String(), why) || !strings.Contains(log.String(), w.seat.Name.String()) {
-		w.t.Errorf("the log %q does not say why seat %s was abandoned", log.String(), w.seat.Name)
-	}
-}
-
-// assertRetried holds that the release stopped as before: an error, held/ and its token kept,
-// no released.json.
-func (w *world) assertRetried(err error) {
-	w.t.Helper()
-	if err == nil {
-		w.t.Fatal("the release completed")
-	}
-	if !exists(w.t, w.pool().HeldToken()) || exists(w.t, w.pool().ReleasedRecord()) {
-		w.t.Errorf("held/ lost, or released.json written, after a release that must be retried")
-	}
-}
-
-// A server that presents a certificate in date and valid for the seat's host but signed by
-// another CA than the bundle's has been recreated (or its CA rotated): no logout with this
-// bundle can ever succeed, so the release finishes without it.
-func TestAbandonOnAnotherCA(t *testing.T) {
-	ca := mustCA(t, "team-old")
-	w := newTLSWorld(t, ca)
-	taken := w.take("s1")
-	b := w.bundle()
-	b.TLSCA = string(mustCA(t, "team-new").CertPEM())
-	w.placeBundle(b)
-	var log bytes.Buffer
-	f := &teams{}
-	w.withTeams(f, &log)
-	if err := w.release("s1", true); err != nil {
-		t.Fatalf("release: %v", err)
-	}
-	w.assertAbandoned(taken, &log, "another CA")
-	if f.calls() != 0 {
-		t.Errorf("a CA mismatch asked the teams too")
-	}
-}
-
-// A certificate that does not name the seat's host is another server at the address, not proof
-// the team was recreated: retried.
-func TestNameMismatchIsRetried(t *testing.T) {
-	w := newTLSWorld(t, mustCA(t, "team-old"))
-	w.take("s1")
-	b := w.bundle()
-	b.BaseURL = strings.Replace(b.BaseURL, "127.0.0.1", "localhost", 1)
-	b.TLSCA = string(mustCA(t, "team-new").CertPEM())
-	w.placeBundle(b)
-	var log bytes.Buffer
-	w.withTeams(&teams{}, &log)
-	err := w.release("s1", true)
-	w.assertRetried(err)
-	if !strings.Contains(err.Error(), "name mismatch") {
-		t.Errorf("err %v, want the name mismatch", err)
-	}
-}
-
-// No answer from the seat's server, and the machine knows the team is gone: the release
-// finishes without the logout, the reason in released.json and the log.
-func TestAbandonAGoneTeam(t *testing.T) {
+// The running check is per team: one session holds a live seat of team ops (its link running)
+// and a dead seat of team dead. Abandoning dead succeeds while ops's link runs, and ops's seat,
+// its copy and its link's lock are untouched.
+func TestAbandonPerTeam(t *testing.T) {
 	w := newWorld(t)
 	w.seed()
-	taken := w.take("s1")
-	w.placeBundle(bundleAt(t, closedBase))
-	var log bytes.Buffer
-	f := &teams{why: "team ops is gone"}
-	w.withTeams(f, &log)
-	if err := w.release("s1", false); err != nil {
-		t.Fatalf("release: %v", err)
+	dead := w.deadTeam()
+	if _, err := w.takeSeat(dead, "s1"); err != nil {
+		t.Fatalf("take of the dead seat: %v", err)
 	}
-	w.assertAbandoned(taken, &log, "team ops is gone")
-	if f.calls() != 1 || f.asked[0].BaseURL != closedBase {
-		t.Errorf("the teams were asked %d times, of %+v", f.calls(), f.asked)
+	live := w.take("s1")
+	w.keep("s1", lockRecord)
+	liveHeld := w.readFile(w.pool().HeldRecord())
+	got, err := w.abandon(dead, "team purged", "owner")
+	if err != nil || !got.Held {
+		t.Fatalf("abandon of the dead seat while the live team's link runs: %+v, %v", got, err)
 	}
-}
-
-// No answer, and the team is not known to be gone (a transient failure of a live team), or
-// the machine cannot judge, or nothing judges at all: retried, as before.
-func TestNoAnswerIsRetried(t *testing.T) {
-	for name, f := range map[string]*teams{
-		"known":         {},
-		"cannot judge":  {why: "gone", err: errors.New("status record unreadable")},
-		"nobody judges": nil,
-	} {
-		t.Run(name, func(t *testing.T) {
-			w := newWorld(t)
-			w.seed()
-			w.take("s1")
-			w.placeBundle(bundleAt(t, closedBase))
-			var log bytes.Buffer
-			if f == nil {
-				w.withTeams(nil, &log)
-			} else {
-				w.withTeams(f, &log)
-			}
-			w.assertRetried(w.release("s1", true))
-		})
+	if exists(t, w.poolOf(dead).Held()) || exists(t, w.store.store.SessionSeat(mustSession(t, "s1"), dead.Team).Dir()) {
+		t.Errorf("the dead seat was not released")
+	}
+	if w.readFile(w.pool().HeldRecord()) != liveHeld || !exists(t, live.Dir) || exists(t, w.pool().ReleasedRecord()) {
+		t.Errorf("the live team's seat was touched")
+	}
+	if p, err := w.store.probe(w.sessionSeat("s1")); err != nil || p.state != lockHeld {
+		t.Errorf("the live team's link lock: %+v, %v", p, err)
 	}
 }
 
-// A server that answers, even with a failure, is there: the logout is retried and the teams
-// are never asked, so a live token is never left valid.
-func TestAnAnswerIsRetried(t *testing.T) {
-	w := newWorld(t)
-	w.seed()
-	w.take("s1")
-	token := w.readFile(w.pool().HeldToken())
-	f := &teams{why: "gone"}
-	var log bytes.Buffer
-	w.withTeams(f, &log)
-	w.hs.Inject(fakehs.Fault{Method: http.MethodPost, Path: "/logout", Status: http.StatusBadGateway})
-	w.assertRetried(w.release("s1", true))
-	if f.calls() != 0 || !w.alive(token) {
-		t.Errorf("an answering server asked the teams (%d) or lost the token", f.calls())
-	}
-}
-
-// released.json carries abandoned only for an abandoned release, one line, and reads back.
-func TestReleasedRecordAbandoned(t *testing.T) {
+// released.json's abandoned is optional, and when there it has exactly reason, by and at_ms,
+// each well formed.
+func TestReleasedAbandoned(t *testing.T) {
+	const head = `{"v":1,"claim":"00112233aabbccdd","released_ms":1`
 	for doc, ok := range map[string]bool{
-		`{"v":1,"claim":"00112233aabbccdd","released_ms":1}`:                             true,
-		`{"v":1,"claim":"00112233aabbccdd","released_ms":1,"abandoned":"team gone"}`:     true,
-		`{"v":1,"claim":"00112233aabbccdd","released_ms":1,"abandoned":"two\nlines"}`:    false,
-		`{"v":1,"claim":"00112233aabbccdd","released_ms":1,"abandoned":""}`:              false,
-		`{"v":1,"claim":"00112233aabbccdd","released_ms":1,"abandoned":"a","other":"b"}`: false,
+		head + `}`: true,
+		head + `,"abandoned":{"reason":"gone","by":"owner","at_ms":1}}`:       true,
+		head + `,"abandoned":{"reason":"","by":"owner","at_ms":1}}`:           false,
+		head + `,"abandoned":{"reason":"a\nb","by":"owner","at_ms":1}}`:       false,
+		head + `,"abandoned":{"reason":"gone","by":"","at_ms":1}}`:            false,
+		head + `,"abandoned":{"reason":"gone","by":"owner","at_ms":-1}}`:      false,
+		head + `,"abandoned":{"reason":"gone","by":"owner"}}`:                 false,
+		head + `,"abandoned":{"reason":"gone","by":"owner","at_ms":1,"x":1}}`: false,
+		head + `,"abandoned":{"REASON":"gone","by":"owner","at_ms":1}}`:       false,
+		head + `,"abandoned":"gone"}`:                                         false,
+		head + `,"abandoned":null}`:                                           false,
 	} {
 		if _, err := decodeReleasedRecord([]byte(doc)); (err == nil) != ok {
 			t.Errorf("%s: %v, want ok %v", doc, err, ok)
 		}
-	}
-	data, err := encodeRecord(ReleasedRecord{V: recordVersion, Claim: mustClaim(t, "00112233aabbccdd"), ReleasedMS: 1})
-	if err != nil || strings.Contains(string(data), "abandoned") {
-		t.Errorf("a plain release writes %s, %v", data, err)
 	}
 }

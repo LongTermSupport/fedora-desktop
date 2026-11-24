@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"path/filepath"
 	"time"
 
@@ -24,7 +23,7 @@ type Clock interface {
 	Sleep(ctx context.Context, d time.Duration) error
 }
 
-// Config is what a store is opened from; every part is required but Teams and Log.
+// Config is what a store is opened from; every part is required.
 type Config struct {
 	// StateHome is $XDG_STATE_HOME, under which the seat store lives.
 	StateHome string
@@ -41,18 +40,6 @@ type Config struct {
 	Announcer Announcer
 	// Reach asks whether a new seat's homeserver answers from this machine (Plan 00246 X10).
 	Reach Reacher
-	// Teams judges a seat's team gone for good when its logout got no answer (issue 386);
-	// optional: with none, a logout that got no answer is retried, as every failure is.
-	Teams Teams
-	// Log is where a release abandoned without its logout says why; optional.
-	Log io.Writer
-}
-
-// Teams is what this machine alone knows of a seat's team. Gone is why the team of b is gone
-// for good, "" when it is not known to be (or cannot be judged); an error is a source that could
-// not be read, and the release is retried.
-type Teams interface {
-	Gone(b Bundle) (string, error)
 }
 
 // Sessions is the session records, which the store asks and never writes.
@@ -77,8 +64,6 @@ type Store struct {
 	sessions   Sessions
 	announcer  Announcer
 	reacher    Reacher
-	teams      Teams
-	log        io.Writer
 }
 
 // Open opens the seat store, making its root 0700 when missing. A config that lacks a part, or
@@ -105,7 +90,6 @@ func Open(cfg Config) (*Store, error) {
 	return &Store{
 		store: store, checkout: cfg.Checkout, root: root, allocLock: allocLock, clock: cfg.Clock,
 		credential: cfg.Credential, sessions: cfg.Sessions, announcer: cfg.Announcer, reacher: cfg.Reach,
-		teams: cfg.Teams, log: cfg.Log,
 	}, nil
 }
 

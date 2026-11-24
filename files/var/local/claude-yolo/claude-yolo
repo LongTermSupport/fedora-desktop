@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.124.33"  # Container 2.84.74: a seat release finishes without its logout for a seat whose team is gone or whose server presents another CA (#386). See docs/ccy-changelog.md.
+CCY_VERSION="3.124.34"  # Container 2.84.75: tests first for ccy-teams seats abandon, a held seat released on the owner's word without its logout (#386). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -105,7 +105,7 @@ ccy_container_limits || exit 1
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.84.74"
+REQUIRED_CONTAINER_VERSION="2.84.75"
 
 set -e
 

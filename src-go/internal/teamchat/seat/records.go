@@ -279,13 +279,21 @@ type HeldRecord struct {
 	SinceMS int64             `json:"since_ms"`
 }
 
-// ReleasedRecord is released.json, the seat's last release (C 3.7.2). Abandoned is why a
-// release finished without its logout (issue 386), absent for every other release.
+// ReleasedRecord is released.json, the seat's last release (C 3.7.2). Abandoned is set only
+// for a seat released without its logout on the owner's word (Store.Abandon, issue 386).
 type ReleasedRecord struct {
 	V          int           `json:"v"`
 	Claim      paths.ClaimID `json:"claim"`
 	ReleasedMS int64         `json:"released_ms"`
-	Abandoned  string        `json:"abandoned,omitempty"`
+	Abandoned  *Abandonment  `json:"abandoned,omitempty"`
+}
+
+// Abandonment is released.json's abandoned: why the seat was released without its logout, who
+// said so (a user name, or a uid), and when.
+type Abandonment struct {
+	Reason string `json:"reason"`
+	By     string `json:"by"`
+	AtMS   int64  `json:"at_ms"`
 }
 
 // NoticeRecord is held/notice.json, the disconnected notice judged for one run (C 3.7.3
@@ -321,9 +329,6 @@ func decodeReleasedRecord(data []byte) (ReleasedRecord, error) {
 	}
 	if r.V != recordVersion || r.ReleasedMS < 0 {
 		return ReleasedRecord{}, invalid("released.json: v is not 1 or released_ms is negative")
-	}
-	if v, err := proto.Parse(data); err != nil || hasKey(v, "abandoned") && (r.Abandoned == "" || !oneLine(r.Abandoned)) {
-		return ReleasedRecord{}, invalid("released.json: abandoned is not one line of text")
 	}
 	return r, nil
 }
