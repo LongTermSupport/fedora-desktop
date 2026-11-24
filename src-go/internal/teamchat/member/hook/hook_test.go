@@ -517,7 +517,8 @@ func TestThePayload(t *testing.T) {
 		{`{}{}`, wire.UnusableJSON},
 		{`{} junk`, wire.UnusableJSON},
 		{``, wire.UnusableJSON},
-		{`{"n":1.5}`, wire.UnusableJSON},
+		{`{"session_id":"abc","session_id":"abc"}`, wire.UnusableJSON},
+		{`{"session_id":"\ud800"}`, wire.UnusableJSON},
 	} {
 		w := newWorld(t)
 		w.stdin = tc.stdin
@@ -537,6 +538,61 @@ func TestThePayload(t *testing.T) {
 		}
 		if args.Socket == nil || *args.Socket != socket || args.Token == nil || *args.Token != token {
 			t.Fatalf("%.40q: the inbox variables are lost: %v", tc.stdin, args)
+		}
+	}
+}
+
+// Issue 394: Claude Code's payload is a foreign producer's, so a member the hook does not read
+// refuses nothing, whatever its form (a float, an integer past 2^53, a nested object, a repeated
+// key, a lone surrogate): the fields read still reach the link, which accepts the request.
+func TestAFieldTheHookDoesNotReadRefusesNothing(t *testing.T) {
+	for _, tc := range []struct{ event, extra string }{
+		{"session-start", `"cost":1.5`},
+		{"session-start", `"tokens":9007199254740993`},
+		{"session-start", `"model":{"id":"m","limits":{"ratio":0.25,"max":[1e400,-0.0]}}`},
+		{"session-start", `"cwd":"/a","cwd":"/b"`},
+		{"session-start", `"note":"\ud800"`},
+		{"session-start", `"reason":1.5,"reason":"x","stop_hook_active":2.5`},
+		{"user-prompt-submit", `"source":"a","source":"b","prompt":1.5`},
+	} {
+		w := newWorld(t)
+		w.stdin = `{"session_id":"s",` + tc.extra + `,"transcript_path":"/t.jsonl","source":"resume"}`
+		l := w.listen(`{}`, done0)
+		w.hook(tc.event)
+		a := l.request(t).args
+		if a.Payload != wire.PayloadOK || a.Unusable != nil || a.SessionID == nil || *a.SessionID != "s" ||
+			a.TranscriptPath == nil || *a.TranscriptPath != "/t.jsonl" {
+			t.Fatalf("%s %s: %v", tc.event, tc.extra, a)
+		}
+		if tc.event == "session-start" && (a.Source == nil || *a.Source != "resume") {
+			t.Fatalf("%s %s: source %v", tc.event, tc.extra, a.Source)
+		}
+	}
+}
+
+// A field the hook reads, given twice, is refused whole: the hook cannot tell which of the two
+// Claude Code meant. The same key given twice is no refusal for an event that does not read it.
+func TestAFieldReadTwiceIsRefused(t *testing.T) {
+	for _, tc := range []struct{ event, stdin, want string }{
+		{"session-start", `{"session_id":"s","source":"resume","source":"clear"}`, wire.UnusableJSON},
+		{"stop", `{"stop_hook_active":false,"stop_hook_active":true}`, wire.UnusableJSON},
+		{"session-end", `{"reason":"exit","reason":"logout"}`, wire.UnusableJSON},
+		{"session-end", `{"transcript_path":"/a","transcript_path":"/b"}`, wire.UnusableJSON},
+		{"stop", `{"session_id":"s","source":"a","source":"b","reason":"a","reason":"b"}`, ""},
+	} {
+		w := newWorld(t)
+		w.stdin = tc.stdin
+		l := w.listen(`{}`, done0)
+		w.hook(tc.event)
+		a := l.request(t).args
+		if tc.want == "" {
+			if a.Payload != wire.PayloadOK || a.SessionID == nil || *a.SessionID != "s" {
+				t.Fatalf("%s %s: %v", tc.event, tc.stdin, a)
+			}
+			continue
+		}
+		if a.Payload != wire.PayloadUnusable || a.Unusable == nil || *a.Unusable != tc.want {
+			t.Fatalf("%s %s: %v", tc.event, tc.stdin, a)
 		}
 	}
 }

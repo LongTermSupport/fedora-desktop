@@ -94,6 +94,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_tmux_gone_text`          | tmux's "not there" answer read by a loose match on a fragment, which another program in front of tmux (lxc-attach, runuser, env) also prints                                                                                   | `ccy-teams shutdown`: a guest server lxc-attach never reached read as empty, "no session running", exit 0 (Plan 00257 B.13 review)                                                                                      |
 | `project_conversation_record`     | a host reader naming a session's conversation record's path outside `conversation.Locate`, so it knows one system's record only                                                                                                | `conversation.read`: joined v1's `SessionDir` and `File`, so no host reader found a v2 session's conversation (Plan 00209 Task 5.1)                                                                                     |
 | `project_record_file_by_name`     | a session record's file found by the record's name (`Store.Remove`, or `<registry dir>/<name>` built) rather than by the reading that found it, so a record whose file is named otherwise is left behind or named wrongly      | `ccy-sessions` picker: End removed `<registry>/<name>`, and the restore's refusals named it (fedora-desktop#398, after #396)                                                                                            |
+| `project_foreign_strict_parse`    | input from outside teamchat's protocol (stdin, an environment variable) decoded whole by the wire's strict parser `proto.Parse`, so a field the program never reads refuses the fields it reads                                | teamchat `hook`: every Claude Code SessionStart payload unusable, no `started`, every `/exit` ending 78 (fedora-desktop#394)                                                                                            |
 | `project_floor_by_time`           | an event-ordering floor in teamchat's member tree held as a millisecond alone, or a wall-clock since bound cut by `<=` or `>`, so the events sharing its millisecond are dropped                                               | `teamsync` qtake and relays: an owner's answer posted in the millisecond of the post before it was skipped as below the questions floor (Plan 00209 R0 step 7)                                                          |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
@@ -3862,3 +3863,69 @@ path and reads it; a value built from the entry kept outside the loop and used a
   folders, skips regular files, follows a symlink and judges its target the same, and refuses
   anything else (a broken link, a socket, a pipe) with its path. The original:
   `seatsweep` `TestAbandonControlFiles`, red at the test commit, green after.
+
+### project_foreign_strict_parse
+
+**What it is about.** `proto.Parse` is the Matrix wire's parser: no repeated key, integers only
+within ±2^53-1, valid UTF-8, no lone surrogate escape, nothing after the value. Those are
+teamchat's rules for its own documents. A foreign producer (Claude Code's hook payload) follows
+none of them for the fields teamchat never reads, so one such field anywhere in its document
+refuses the whole of it, and the fields teamchat does read are lost with it.
+
+**Why it exists.** fedora-desktop#394: `teamchat hook` parsed Claude Code's hook payload on
+stdin with `proto.Parse` to read three strings. Every SessionStart payload Claude Code wrote was
+refused as `json`, so the link never sent `started`, the keeper saw Claude Code end "before its
+first SessionStart" and exited 78 at every `/exit`, and the seat was marked launch-failed.
+
+**What it flags**, in non-test files: a call of `internal/teamchat/proto`'s `Parse`, or of any
+function that hands a parameter on to it (a fact, so a wrapper in another package, `proto`'s own
+included, counts, through any number of calls), whose argument holds stdin or an environment
+variable. Stdin is the result of `internal/stdinread`'s `Read` or `ReadLine`
+(`project_stdin_seam` holds every read of stdin to that package, so this is every stdin); an
+environment variable is `os.Getenv`, `os.LookupEnv`, `syscall.Getenv` or a call of a function
+value named `Getenv` or `LookupEnv`. A value holds one when it is built from one: a local
+assigned an expression naming it, a conversion, a function of `bytes` or `strings` given it, a
+closure, a function whose result holds one (a fact). Only strings and byte slices carry it.
+
+**Scope, examined.** Not judged: `proto.ForeignObject` (the remedy, whose parse of a key's value
+is strict on purpose) and stdin (only stdin: an environment variable there is still judged) in
+the packages whose stdin is a document teamchat specifies and itself writes, each decoded to its
+every key (`protocolStdin` in the rule, the producer as the reason):
+`teamchat/element` (the Element play's EL1 team list), `teamchat/member/guest` (the host's
+teamchat over lxc-attach), `teamchat/member/placeissued` (teamchat-admin's issued seat) and
+`teamchat/admin` (ctl-child's request from the root parent). There a field nobody reads is a
+defect of the producer, and the strict refusal is the protocol's own. Wider rule considered:
+every `proto.Parse` whose input teamchat did not write itself, files included (a transcript,
+`settings.json`, a foreign program's output). Not built: a path does not say who wrote the file,
+so the rule would need a list of every file teamchat owns, and no such parse exists today (the
+independent search found the transcript read as bytes and Claude Code's settings and status-line
+payload read by `encoding/json`).
+
+**Not caught:** a file a foreign program writes; a foreign program's output; a socket's answer;
+a value kept in a struct field or a map and parsed elsewhere; a value handed through a function
+of the program that returns it changed; a function value.
+
+**How to fix:** decode the object with `proto.ForeignObject`, naming the keys read: it must be
+one JSON object, each key read is parsed strictly and refused if repeated, and every other
+member is skipped whatever its form.
+
+- Red, fixture: `testdata/foreignparse/src/fix`: `internal/badforeign` (the defect: stdin
+  straight to `Parse`; a trimmed copy through a helper of the package; another package's
+  wrapper; `proto`'s own wrapper and a two-call relay inside `proto` given a line of stdin; an
+  environment variable by `os.Getenv`, `os.LookupEnv` and an Env's `Getenv`; stdin handed back by
+  a function of the package and by another package's method; a closure: 11 findings), its test
+  (clean), `internal/goodforeign` (`ForeignObject`, teamchat's own file and socket, a length of
+  stdin, a constant beside an environment variable: clean), `internal/teamchat/element` (a
+  protocol-stdin package: its stdin clean, an environment variable parsed there 1 finding), and
+  the facts of `proto`, `wrap`, `stdinread` and
+  `badforeign`. With the analyzer reporting nothing the test missed all 12 diagnostics.
+- Red, real tree (the defence commit, the driver as `go vet -vettool`, both modules and every
+  build tag set): 1 finding, `teamchat/member/hook/hook.go` (`payload`'s `proto.Parse` of the
+  hook's stdin). Before `protocolStdin` held them, the rule also found the four protocol-stdin
+  packages (6 call sites); each was read to its producer. The independent search made before
+  the rule ran (every call site of `proto.Parse` and of each function reaching it in `src-go`,
+  each traced to its bytes' producer) found the same one foreign instance.
+- Green, the fix commit: 0 findings (both modules, every build tag set). The hook decodes the
+  payload with the new `proto.ForeignObject`, reading only its fields. The original: `hook`
+  `TestAFieldTheHookDoesNotReadRefusesNothing` and `TestAFieldReadTwiceIsRefused`, red before
+  the fix, green after; `proto` `TestForeignObject*` hold the decoder.

@@ -17,6 +17,22 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.41 — container 2.84.77
+
+A teamchat v2 member's SessionStart is usable again, and `/exit` no longer ends with exit 78
+(issue #394). The image is rebuilt for its `teamchat`.
+
+- **The hook reads only what it uses.** `teamchat hook` parsed Claude Code's whole payload with
+  the Matrix wire's strict parser, so one member it never reads (a float, an integer past 2^53,
+  a repeated key) made the payload unusable (`json`). Every SessionStart was refused: the link
+  never said `started`, the keeper exited 78 at every `/exit` and the seat was marked
+  launch-failed, and `session.json`'s `source` read `startup` where it should have read
+  `resume`, `clear` or `compact`. Now only `session_id`, `transcript_path` and the event's own
+  field (`source`, `stop_hook_active`, `reason`) are judged; any other member is ignored. A
+  field the hook reads, given twice, is still refused as `json`.
+- **A new Go rule, `project_foreign_strict_parse`**, refuses any other input from outside
+  teamchat's protocol (stdin, an environment variable) parsed by that strict parser.
+
 ## 3.124.40 — container 2.84.76
 
 `ccy --teams <seats> --continue` (or `-c`) is still refused (exit 64, owner's ruling Q67), but
