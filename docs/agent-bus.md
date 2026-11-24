@@ -801,6 +801,18 @@ session no record names, has no record, and its take is refused (78), because th
 with no record. A list on both systems, and `cc --bus`, stay agent-bus only.
 Design: Plan 00209 `DESIGN-host-cc-v2.md`.
 
+**A seat of a team that is gone.** Releasing a teamchat seat (a session's end, or the seat
+sweep, `ccy-teams seats sweep`) logs its token out on the team's server, and a logout that fails
+is retried on the next pass. Two failures instead finish the release without the logout, the
+reason said on stderr and kept as `abandoned` in the pool seat's `released.json`: the server
+presents a certificate for its address signed by another CA than the seat's (the team was
+recreated or its CA rotated: only a reissue, which signs the account's devices out, brings the
+seat back), or the server gives no answer at all while this machine's own records say the team
+is gone. That is: the seat's URL is an IP address of this machine, the machine hosts teams, the
+team has no status record here, and no session's `desired.json` names it. A team served by
+another machine is never judged gone from here; its seat stays held until its server answers.
+Issue #386; `seatsweep.GoneTeams` names each source it reads.
+
 It runs as you, with no dedicated agent user, so it can reach what you can, including the
 Matrix session you are signed in to in Element, Nheko or Lightning (the Matrix clients this
 repository installs, one list: `helpers/pingbus/matrix_clients.json`). A misbehaving agent

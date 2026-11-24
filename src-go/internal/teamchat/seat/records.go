@@ -322,6 +322,9 @@ func decodeReleasedRecord(data []byte) (ReleasedRecord, error) {
 	if r.V != recordVersion || r.ReleasedMS < 0 {
 		return ReleasedRecord{}, invalid("released.json: v is not 1 or released_ms is negative")
 	}
+	if v, err := proto.Parse(data); err != nil || hasKey(v, "abandoned") && (r.Abandoned == "" || !oneLine(r.Abandoned)) {
+		return ReleasedRecord{}, invalid("released.json: abandoned is not one line of text")
+	}
 	return r, nil
 }
 

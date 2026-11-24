@@ -17,10 +17,23 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.32 — container 2.84.73
+## 3.124.33 — container 2.84.74
 
-Tests first for issue #386: a seat whose team is gone, or whose server presents another CA,
-is to be released without its logout. The release does not do so yet (the fix follows).
+A teamchat seat of a team that is gone no longer stays held for ever (issue #386). ccy-teams is
+rebuilt on the host; the image is rebuilt for its copy of the seat store. (3.124.32 and container
+2.84.73 were the tests-first step and were never deployed.)
+
+- **Released without its logout.** A seat release (a session's end, or `ccy-teams seats sweep`)
+  that cannot log the seat's token out finishes anyway in two cases: the server presents a
+  certificate for its address signed by another CA than the seat's, or the server gives no
+  answer while this machine's records say the team is gone (the seat's URL is an IP address of
+  this machine, which hosts teams, and the team has no status record here and is in no
+  session's `desired.json`). The reason is said on stderr and kept as `abandoned` in the seat's
+  `released.json`.
+- **Still retried**: any answer from the server, a certificate naming another host, a
+  cancelled call, no answer for a team that is known here or served by another machine, and a
+  record that cannot be read.
+- A session's exit no longer reports the dead seat of a purged or renamed team as not settled.
 
 ---
 

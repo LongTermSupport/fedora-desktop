@@ -24,7 +24,7 @@ type Clock interface {
 	Sleep(ctx context.Context, d time.Duration) error
 }
 
-// Config is what a store is opened from; every part is required.
+// Config is what a store is opened from; every part is required but Teams and Log.
 type Config struct {
 	// StateHome is $XDG_STATE_HOME, under which the seat store lives.
 	StateHome string
@@ -77,6 +77,8 @@ type Store struct {
 	sessions   Sessions
 	announcer  Announcer
 	reacher    Reacher
+	teams      Teams
+	log        io.Writer
 }
 
 // Open opens the seat store, making its root 0700 when missing. A config that lacks a part, or
@@ -103,6 +105,7 @@ func Open(cfg Config) (*Store, error) {
 	return &Store{
 		store: store, checkout: cfg.Checkout, root: root, allocLock: allocLock, clock: cfg.Clock,
 		credential: cfg.Credential, sessions: cfg.Sessions, announcer: cfg.Announcer, reacher: cfg.Reach,
+		teams: cfg.Teams, log: cfg.Log,
 	}, nil
 }
 

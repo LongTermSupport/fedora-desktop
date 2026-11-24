@@ -430,12 +430,14 @@ func newLaunch(h *host.Host, membershipInit *membership.Init, sys *system.Cmd) *
 
 // storeParts is the owner's seat store on the real machine, as the launcher and the sweep use
 // it: placeissued.OS's clock, credential and reach, ccy's session registry as its session
-// records and area B's disconnected verb run in process.
+// records and area B's disconnected verb run in process; a seat of a team this machine's records
+// say is gone is released without its logout (seatsweep.MachineTeams), and said on stderr.
 func storeParts(h *host.Host) seat.Config {
 	machine := placeissued.OS("", "", paths.CheckoutKey{})
 	return seat.Config{
 		Clock: machine.Clock, Credential: machine.Credential, Reach: machine.Reach,
 		Sessions: teamchatlaunch.RegistrySessions{Open: h.Registry}, Announcer: teamchatlaunch.Announcer{},
+		Teams: seatsweep.MachineTeams(h.Getenv, system.StatusRecord), Log: h.Stderr,
 	}
 }
 

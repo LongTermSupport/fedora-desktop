@@ -68,6 +68,13 @@
 # by its hook event, reason and byte count (never its content) in link.log, session.json,
 # status.json and the status line, so the next one seen after a restore says which hook it was.
 # The image is rebuilt once more for its teamchat; sessions started after the rebuild show it.
+# #386 (ccy 3.124.33, container 2.84.74): ccy-teams is rebuilt so a seat release (a session's
+# end, or the seat sweep) finishes without its logout for a seat whose server presents another
+# CA, or whose server does not answer while this machine's records say its team is gone (its URL
+# is an address of this machine, no status record, no session desires it). The dead seats of a
+# purged or renamed team held in a seat pool are released by the next sweep, about a minute
+# after the run, each said on stderr (the sweep unit's journal) and recorded as abandoned in its
+# released.json; a session's exit no longer prints that the dead seat was not settled.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that

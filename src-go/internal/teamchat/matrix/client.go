@@ -247,6 +247,27 @@ type Error struct {
 	kind      error
 	transient bool
 	cause     error
+	// noAnswer is a call the server never answered: no connection, a failed handshake, or this
+	// client's time limit (never the caller's cancellation, never an answer cut short).
+	noAnswer bool
+	// unknownCA is a handshake whose certificate chains to no pinned CA.
+	unknownCA bool
+}
+
+// NoAnswer is whether err is a call the homeserver never answered at all: no connection, a TLS
+// handshake that failed, or this client's time limit. A cancelled call, and any answer, is not.
+func NoAnswer(err error) bool {
+	e, ok := errors.AsType[*Error](err)
+	return ok && e.noAnswer
+}
+
+// UnknownAuthority is whether err is a call whose TLS handshake failed because the server's
+// certificate chains to no pinned CA. Go's verifier checks the certificate's validity period and
+// that it names the URL's host before it builds a chain, so the certificate is also in date and
+// for this host: the server at the URL was given another CA.
+func UnknownAuthority(err error) bool {
+	e, ok := errors.AsType[*Error](err)
+	return ok && e.unknownCA
 }
 
 func (e *Error) Error() string {
@@ -463,10 +484,14 @@ func (c *Client) once(ctx context.Context, cl call) (*answer, error) {
 func (c *Client) failed(ctx, tryCtx context.Context, cl call, err error) *Error {
 	if ctx.Err() == nil && tryCtx.Err() == nil {
 		if detail := c.pin.detail(err); detail != "" {
-			return cl.fail(ErrUnreachable, 0, "", detail, false)
+			e := cl.fail(ErrUnreachable, 0, "", detail, false)
+			e.noAnswer, e.unknownCA = true, handshakeClass(err) == classUnknownCA
+			return e
 		}
 	}
-	return cl.lost(ctx, tryCtx, detailNoAnswer)
+	e := cl.lost(ctx, tryCtx, detailNoAnswer)
+	e.noAnswer = e.cause == nil
+	return e
 }
 
 // lost is a request that got no whole answer: the caller's cancellation, this client's time

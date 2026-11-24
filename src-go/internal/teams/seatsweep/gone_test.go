@@ -135,6 +135,22 @@ func TestAnUnreadableSourceIsAnError(t *testing.T) {
 	if why, err := g.Gone(b); err == nil || why != "" {
 		t.Errorf("desired.json unreadable: %q, %v", why, err)
 	}
+	if err := os.Remove(w.store.DesiredFile(mustSession(t, "s1"))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(w.store.DesiredFile(mustSession(t, "s1")), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if why, err := g.Gone(b); err == nil || why != "" {
+		t.Errorf("desired.json not a file: %q, %v", why, err)
+	}
+	w.write(filepath.Join(w.store.Root(), "control", "not a session"), "")
+	if err := os.RemoveAll(w.store.DesiredFile(mustSession(t, "s1"))); err != nil {
+		t.Fatal(err)
+	}
+	if why, err := g.Gone(b); err == nil || why != "" {
+		t.Errorf("a control entry that is no session: %q, %v", why, err)
+	}
 }
 
 // The machine's own addresses: loopback is one, an address of the documentation range is not.
@@ -144,6 +160,21 @@ func TestLocalAddress(t *testing.T) {
 	}
 	if local, err := LocalAddress(netip.MustParseAddr("192.0.2.1")); err != nil || local {
 		t.Errorf("192.0.2.1: %v, %v", local, err)
+	}
+}
+
+// MachineTeams reads the owner's seat store from HOME and the status records from their root;
+// with no home it cannot judge, and every question is an error.
+func TestMachineTeams(t *testing.T) {
+	w := newWorld(t)
+	none := func(paths.TeamID) (status.Record, bool, error) { return status.Record{}, false, nil }
+	g, ok := MachineTeams(func(k string) string { return w.env[k] }, none).(GoneTeams)
+	if !ok || g.Store.Root() != w.store.Root() || g.StatusRoot != paths.StatusRoot {
+		t.Fatalf("MachineTeams = %+v", g)
+	}
+	broken := MachineTeams(func(string) string { return "" }, none)
+	if why, err := broken.Gone(goneBundle(t, "dead", goneBase)); err == nil || why != "" {
+		t.Errorf("no home: %q, %v", why, err)
 	}
 }
 
