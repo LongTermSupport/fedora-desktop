@@ -439,7 +439,11 @@ func storeParts(h *host.Host) seat.Config {
 	}
 }
 
-// newSweep is `ccy-teams seats` over h: the sweep of every checkout of the owner's seat store.
+// newSweep is `ccy-teams seats` over h: the sweep of every checkout of the owner's seat store,
+// and `seats abandon` over the working directory's checkout.
 func newSweep(h *host.Host) *seatsweep.Cmd {
-	return &seatsweep.Cmd{Stdout: h.Payload, Stderr: h.Stderr, Getenv: h.Getenv, Parts: storeParts(h), Open: seatsweep.OpenStore}
+	return &seatsweep.Cmd{
+		Stdout: h.Payload, Stderr: h.Stderr, Getenv: h.Getenv, Parts: storeParts(h), Open: seatsweep.OpenStore,
+		Getwd: os.Getwd, Status: system.StatusRecord, Who: seatsweep.CurrentUser,
+	}
 }

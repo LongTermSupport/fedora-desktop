@@ -6,6 +6,9 @@
 // disconnected notice posted once for a run that ended. It runs as the owner and makes no root
 // call; the health tick, which runs as root, cannot read these seats (C24).
 //
+// `seats abandon` (abandon.go, issue 386) is the owner's word that a team's server is gone for
+// good: the team's held seats in the working directory's checkout released without a logout.
+//
 // The units' text is Go's, as teamchat-admin's is: play-claude-yolo.yml asks `seats units list`
 // and `seats units print <name>` and writes what they print into the owner's systemd user
 // directory.
@@ -33,9 +36,10 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-// Store is one checkout's seat store as the sweep uses it.
+// Store is one checkout's seat store as the sweep and `seats abandon` use it.
 type Store interface {
 	sweep.Store
+	Abandon(ctx context.Context, s seat.Seat, reason, by string) (seat.Abandoned, error)
 	Close() error
 }
 
@@ -69,10 +73,13 @@ type Cmd struct {
 // errUsage is a call the units never make: said, exit 64.
 var errUsage = errors.New("usage")
 
-const usage = "seats sweep, seats units list, or seats units print <name>"
+const usage = "seats sweep, " + abandonUsage + ", seats units list, or seats units print <name>"
 
 // Run dispatches one verb.
 func (c *Cmd) Run(ctx context.Context, args []string) term.ExitCode {
+	if len(args) > 0 && args[0] == "abandon" {
+		return c.abandon(ctx, args[1:])
+	}
 	var err error
 	switch {
 	case len(args) == 1 && args[0] == "sweep":

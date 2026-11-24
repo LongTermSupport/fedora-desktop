@@ -330,7 +330,38 @@ func decodeReleasedRecord(data []byte) (ReleasedRecord, error) {
 	if r.V != recordVersion || r.ReleasedMS < 0 {
 		return ReleasedRecord{}, invalid("released.json: v is not 1 or released_ms is negative")
 	}
+	v, err := proto.Parse(data)
+	if err != nil {
+		return ReleasedRecord{}, fmt.Errorf("%w record: %w", ErrInvalid, err)
+	}
+	if ab, found := v.Get("abandoned"); found && !wellFormedAbandoned(ab, r.Abandoned) {
+		return ReleasedRecord{}, invalid("released.json: abandoned is not an object of exactly reason, by and at_ms, each well formed")
+	}
 	return r, nil
+}
+
+// wellFormedAbandoned is whether released.json's abandoned, as parsed (v) and decoded (a), is
+// an object of exactly the keys reason, by and at_ms (spelled so: encoding/json matches a key
+// case-insensitively), with one line of text in each of the first two and at_ms not negative.
+func wellFormedAbandoned(v proto.Value, a *Abandonment) bool {
+	if a == nil || v.Kind() != proto.KindObject || len(v.Members()) != 3 {
+		return false
+	}
+	for _, key := range []string{"reason", "by", "at_ms"} {
+		if !hasKey(v, key) {
+			return false
+		}
+	}
+	return a.Check() == nil
+}
+
+// Check is whether a is a well formed abandonment: a reason and a caller, each one line of
+// text, and a time not negative.
+func (a Abandonment) Check() error {
+	if a.Reason == "" || !oneLine(a.Reason) || a.By == "" || !oneLine(a.By) || a.AtMS < 0 {
+		return invalid("abandonment: the reason and the caller must each be one line of text, and at_ms not negative")
+	}
+	return nil
 }
 
 func decodeNoticeRecord(data []byte) (NoticeRecord, error) {

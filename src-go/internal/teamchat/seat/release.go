@@ -103,7 +103,7 @@ func (s *Store) releaseHeld(ctx context.Context, r Release, locked locker, pool 
 	if err = s.retire(ctx, h, pool); err != nil {
 		return err
 	}
-	if err = locked(ctx, func() error { return s.finish(r.Seat, pool, rec.Claim) }); err != nil || !copied.kept {
+	if err = locked(ctx, func() error { return s.finish(r.Seat, pool, rec.Claim, nil) }); err != nil || !copied.kept {
 		return err
 	}
 	return fmt.Errorf("%w: %s", ErrCopyKept, seat.Dir())
@@ -436,10 +436,11 @@ func (s *Store) retire(ctx context.Context, h *dir, pool paths.PoolSeat) error {
 	return s.credential.Retire(ctx, b, token)
 }
 
-// finish is step 5: released.json for this claim and now, then held/ moved to quarantine and
-// its token unlinked. The pool's credential and seat.json are untouched. A held/ that is gone or
-// carries another claim was released by another (a take, n2c-D4): this release is done.
-func (s *Store) finish(seat Seat, pool paths.PoolSeat, claim paths.ClaimID) error {
+// finish is step 5: released.json for this claim and now (with ab for a seat abandoned without
+// its logout, Store.Abandon), then held/ moved to quarantine and its token unlinked. The pool's
+// credential and seat.json are untouched. A held/ that is gone or carries another claim was
+// released by another (a take, n2c-D4): this release is done.
+func (s *Store) finish(seat Seat, pool paths.PoolSeat, claim paths.ClaimID, ab *Abandonment) error {
 	current, err := s.root.read(pool.HeldRecord(), maxRecord)
 	if errors.Is(err, unix.ENOENT) {
 		return nil
@@ -451,7 +452,7 @@ func (s *Store) finish(seat Seat, pool paths.PoolSeat, claim paths.ClaimID) erro
 	if stillThisClaim := decErr == nil && rec.Claim == claim; !stillThisClaim {
 		return nil
 	}
-	data, err := encodeRecord(ReleasedRecord{V: recordVersion, Claim: claim, ReleasedMS: s.clock.Now().UnixMilli()})
+	data, err := encodeRecord(ReleasedRecord{V: recordVersion, Claim: claim, ReleasedMS: s.clock.Now().UnixMilli(), Abandoned: ab})
 	if err != nil {
 		return err
 	}

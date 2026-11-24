@@ -17,23 +17,24 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.33 — container 2.84.74
+## 3.124.35 — container 2.84.76
 
-A teamchat seat of a team that is gone no longer stays held for ever (issue #386). ccy-teams is
-rebuilt on the host; the image is rebuilt for its copy of the seat store. (3.124.32 and container
-2.84.73 were the tests-first step and were never deployed.)
+A teamchat seat of a team whose server is gone for good can now be released, on the owner's word
+(issue #386). ccy-teams is rebuilt on the host; the image is rebuilt for its copy of the seat
+store. (3.124.32 to 3.124.34 and containers 2.84.73 to 2.84.75 were intermediate steps of this
+change, including an automatic abandonment that was withdrawn, and were never deployed.)
 
-- **Released without its logout.** A seat release (a session's end, or `ccy-teams seats sweep`)
-  that cannot log the seat's token out finishes anyway in two cases: the server presents a
-  certificate for its address signed by another CA than the seat's, or the server gives no
-  answer while this machine's records say the team is gone (the seat's URL is an IP address of
-  this machine, which hosts teams, and the team has no status record here and is in no
-  session's `desired.json`). The reason is said on stderr and kept as `abandoned` in the seat's
-  `released.json`.
-- **Still retried**: any answer from the server, a certificate naming another host, a
-  cancelled call, no answer for a team that is known here or served by another machine, and a
-  record that cannot be read.
-- A session's exit no longer reports the dead seat of a purged or renamed team as not settled.
+- **`ccy-teams seats abandon <team> [<member>...] --reason "<text>" [--allow-known-team <team>]`.**
+  Run in the checkout the seats were taken in. It releases the team's held seats (or the members
+  named) without a logout and without contacting any server: the session's copy of the seat and
+  the pool's `held/` go to quarantine as a release moves them, and `released.json` records
+  `abandoned` with the reason, the caller and the time. One line per seat on stdout.
+- **Refusals**: no or empty `--reason` (64); a team with a status record on this machine, one a
+  session's `desired.json` lists, or a source that cannot be read, unless `--allow-known-team`
+  repeats the team (78); a seat whose member link of that team is running (75). The check is
+  per team: a session's live seat of another team neither blocks it nor is touched.
+- A release (a session's end, the seat sweep) is unchanged: only a logout the server confirms,
+  or a token it no longer knows, ends it; every other failure is retried.
 
 ---
 

@@ -250,3 +250,11 @@ func TestAbandonBusy(t *testing.T) {
 		t.Errorf("stderr %q", w.errOut.String())
 	}
 }
+
+// The caller is recorded by name, or by uid when the account database has none.
+func TestCurrentUser(t *testing.T) {
+	who, err := CurrentUser()
+	if err != nil || who == "" {
+		t.Fatalf("CurrentUser: %q, %v", who, err)
+	}
+}
