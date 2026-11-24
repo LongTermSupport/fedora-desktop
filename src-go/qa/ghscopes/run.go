@@ -68,10 +68,10 @@ type Spec struct {
 	// rule and fixture by its paths.exclude. TestOnlySemgrepIsStillScanned holds the list.
 	stillScans []string
 	// stillScansFiles names single published files inside an excluded row of
-	// scripts/qa-trees.tsv that this gate reads all the same, leaving the rest of the row out.
-	// Only .claude/ccy/Dockerfile, this project's own image, for arch-pin (issue #408). One the
-	// table does not keep out, or that git does not publish, is exit 2;
-	// TestOnlyTheCCYDockerfileIsAStillScannedFile holds the list.
+	// scripts/qa-trees.tsv that this gate reads all the same, leaving the rest of the row out:
+	// ccyProjectFiles for every gate, and .claude/ccy/Dockerfile for arch-pin. One the table does
+	// not keep out, or that git does not publish, is exit 2;
+	// TestTheStillScannedFilesAreTheCCYProjectFiles holds the lists.
 	stillScansFiles []string
 }
 
@@ -79,26 +79,39 @@ type Spec struct {
 // scan (Spec.stillScans).
 const semgrepTree = ".semgrep"
 
+// ccyProjectFiles is this project's own config inside .claude/ccy, a row scripts/qa-trees.tsv
+// keeps out of every gate for the CCY runtime tree and the daemon-deployed supervisor: every gate
+// of this engine reads every file kind, so each still reads these (issue #412).
+var ccyProjectFiles = []string{".claude/ccy/.gitignore", ".claude/ccy/ccy.env", ".claude/ccy/ccy.env.local.dist", ".claude/ccy/mounts"}
+
+// StillScannedFiles is a copy of the files inside an excluded row of scripts/qa-trees.tsv that
+// the gate reads all the same.
+func (s Spec) StillScannedFiles() []string {
+	return slices.Clone(s.stillScansFiles)
+}
+
 // GHScopes is the gh-scope-outside-ssot gate.
 var GHScopes = Spec{
-	short:       "gh-scopes",
-	ruleFile:    ruleFile,
-	fixtureFile: fixtureFile,
-	ruleName:    ruleName,
-	finding:     "name a GitHub scope outside vars/github-required-scopes.yml",
-	usage:       usageText,
-	stillScans:  []string{semgrepTree},
+	short:           "gh-scopes",
+	ruleFile:        ruleFile,
+	fixtureFile:     fixtureFile,
+	ruleName:        ruleName,
+	finding:         "name a GitHub scope outside vars/github-required-scopes.yml",
+	usage:           usageText,
+	stillScans:      []string{semgrepTree},
+	stillScansFiles: ccyProjectFiles,
 }
 
 // FindRace is the find-race-negated-stat-test gate (issue #152).
 var FindRace = Spec{
-	short:       "find-race",
-	ruleFile:    ".semgrep/find-race.yml",
-	fixtureFile: ".semgrep/find-race.fixture",
-	ruleName:    "find-race-negated-stat-test",
-	finding:     "run find -ignore_readdir_race with a negated stat test",
-	usage:       findRaceUsageText,
-	stillScans:  []string{semgrepTree},
+	short:           "find-race",
+	ruleFile:        ".semgrep/find-race.yml",
+	fixtureFile:     ".semgrep/find-race.fixture",
+	ruleName:        "find-race-negated-stat-test",
+	finding:         "run find -ignore_readdir_race with a negated stat test",
+	usage:           findRaceUsageText,
+	stillScans:      []string{semgrepTree},
+	stillScansFiles: ccyProjectFiles,
 }
 
 // ArchPin is the arch-pinned-artefact gate (Plan 00243).
@@ -110,62 +123,67 @@ var ArchPin = Spec{
 	finding:     "fix a download, package or image to one CPU architecture",
 	usage:       archPinUsageText,
 	stillScans:  []string{semgrepTree},
-	// This project's own image Dockerfile: the rest of .claude/ccy stays out.
-	stillScansFiles: []string{".claude/ccy/Dockerfile"},
+	// This project's own image Dockerfile beside its config: the rest of .claude/ccy stays out.
+	stillScansFiles: slices.Concat([]string{".claude/ccy/Dockerfile"}, ccyProjectFiles),
 }
 
 // ArgvLeak is the secret-in-argv gate (issue #220). Its fixture is YAML so that the rule
 // file's Ansible rule reads it too.
 var ArgvLeak = Spec{
-	short:       "secret-in-argv",
-	ruleFile:    ".semgrep/argv-leak.yml",
-	fixtureFile: ".semgrep/argv-leak.fixture.yml",
-	ruleName:    "secret-in-argv",
-	finding:     "put a secret on a command line",
-	usage:       argvLeakUsageText,
+	short:           "secret-in-argv",
+	ruleFile:        ".semgrep/argv-leak.yml",
+	fixtureFile:     ".semgrep/argv-leak.fixture.yml",
+	ruleName:        "secret-in-argv",
+	finding:         "put a secret on a command line",
+	usage:           argvLeakUsageText,
+	stillScansFiles: ccyProjectFiles,
 }
 
 // PlaceIssuedToken is the token-bundle-into-place-issued gate (issue #248).
 var PlaceIssuedToken = Spec{
-	short:       "place-issued-token",
-	ruleFile:    ".semgrep/place-issued-token.yml",
-	fixtureFile: ".semgrep/place-issued-token.fixture",
-	ruleName:    "token-bundle-into-place-issued",
-	finding:     "pipe a token bundle into seat place-issued",
-	usage:       placeIssuedUsageText,
+	short:           "place-issued-token",
+	ruleFile:        ".semgrep/place-issued-token.yml",
+	fixtureFile:     ".semgrep/place-issued-token.fixture",
+	ruleName:        "token-bundle-into-place-issued",
+	finding:         "pipe a token bundle into seat place-issued",
+	usage:           placeIssuedUsageText,
+	stillScansFiles: ccyProjectFiles,
 }
 
 // BootHold is the unit-holds-boot-target gate (issue #263).
 var BootHold = Spec{
-	short:       "boot-hold",
-	ruleFile:    ".semgrep/boot-hold.yml",
-	fixtureFile: ".semgrep/boot-hold.fixture",
-	ruleName:    "unit-holds-boot-target",
-	finding:     "write a unit whose long start holds the boot target that wants it",
-	usage:       bootHoldUsageText,
+	short:           "boot-hold",
+	ruleFile:        ".semgrep/boot-hold.yml",
+	fixtureFile:     ".semgrep/boot-hold.fixture",
+	ruleName:        "unit-holds-boot-target",
+	finding:         "write a unit whose long start holds the boot target that wants it",
+	usage:           bootHoldUsageText,
+	stillScansFiles: ccyProjectFiles,
 }
 
 // GHPoll is the github-poll-too-often gate: no script or recipe asks GitHub for a run's state
 // more often than once a minute.
 var GHPoll = Spec{
-	short:       "gh-poll",
-	ruleFile:    ".semgrep/gh-poll.yml",
-	fixtureFile: ".semgrep/gh-poll.fixture",
-	ruleName:    "github-poll-too-often",
-	finding:     "poll GitHub more often than once a minute",
-	usage:       ghPollUsageText,
+	short:           "gh-poll",
+	ruleFile:        ".semgrep/gh-poll.yml",
+	fixtureFile:     ".semgrep/gh-poll.fixture",
+	ruleName:        "github-poll-too-often",
+	finding:         "poll GitHub more often than once a minute",
+	usage:           ghPollUsageText,
+	stillScansFiles: ccyProjectFiles,
 }
 
 // SecretScreen is the secret-on-normal-screen gate (issues #255 and #261): shell, Python and
 // Ansible rules in one file, each proven against the fixture in its own language.
 var SecretScreen = Spec{
-	short:        "secret-screen",
-	ruleFile:     ".semgrep/secret-screen.yml",
-	fixtureFile:  ".semgrep/secret-screen.bash",
-	moreFixtures: []string{".semgrep/secret-screen.py", ".semgrep/secret-screen.fixture.yml"},
-	ruleName:     "secret-on-normal-screen",
-	finding:      "write a secret to the terminal's normal screen",
-	usage:        secretScreenUsageText,
+	short:           "secret-screen",
+	ruleFile:        ".semgrep/secret-screen.yml",
+	fixtureFile:     ".semgrep/secret-screen.bash",
+	moreFixtures:    []string{".semgrep/secret-screen.py", ".semgrep/secret-screen.fixture.yml"},
+	ruleName:        "secret-on-normal-screen",
+	finding:         "write a secret to the terminal's normal screen",
+	usage:           secretScreenUsageText,
+	stillScansFiles: ccyProjectFiles,
 }
 
 // Timeouts bound each process.

@@ -176,19 +176,52 @@ func TestOnlySemgrepIsStillScanned(t *testing.T) {
 	}
 }
 
-// The one file a gate still reads inside a tree the table keeps out is this project's own image
-// Dockerfile, for arch-pin alone (issue #408: Plan 00243 fixed arch-pinned-artefact findings in
-// it, and the .claude/ccy row took them out of the gate). The rest of .claude/ccy is the CCY
-// runtime tree and the daemon-deployed claude-supervise, which the owner ruled out of every gate,
-// so a second file named here fails this test rather than pass the drift test above.
-func TestOnlyTheCCYDockerfileIsAStillScannedFile(t *testing.T) {
+// wantCCYProjectFiles is this project's own config inside .claude/ccy, which every gate of this
+// engine still reads (issue #412).
+var wantCCYProjectFiles = []string{".claude/ccy/.gitignore", ".claude/ccy/ccy.env", ".claude/ccy/ccy.env.local.dist", ".claude/ccy/mounts"}
+
+// The files a gate still reads inside a tree the table keeps out are this project's own files in
+// .claude/ccy: its config, for every gate (issue #412), and its image Dockerfile, for arch-pin
+// alone (issue #408: Plan 00243 fixed arch-pinned-artefact findings in it). The rest of
+// .claude/ccy is the CCY runtime tree and the daemon-deployed claude-supervise, which the owner
+// ruled out of every gate, so another file named here fails this test rather than pass the drift
+// test above.
+func TestTheStillScannedFilesAreTheCCYProjectFiles(t *testing.T) {
 	for _, spec := range []Spec{GHScopes, FindRace, ArgvLeak, PlaceIssuedToken, BootHold, GHPoll, SecretScreen} {
-		if len(spec.stillScansFiles) > 0 {
-			t.Errorf("%s still scans the files %v; only arch-pin may name a file inside an excluded tree", spec.short, spec.stillScansFiles)
+		if !slices.Equal(spec.stillScansFiles, wantCCYProjectFiles) {
+			t.Errorf("%s still scans the files %v, want %v", spec.short, spec.stillScansFiles, wantCCYProjectFiles)
 		}
 	}
-	if !slices.Equal(ArchPin.stillScansFiles, []string{".claude/ccy/Dockerfile"}) {
-		t.Errorf("arch-pin still scans the files %v, want [.claude/ccy/Dockerfile]", ArchPin.stillScansFiles)
+	if want := slices.Concat([]string{".claude/ccy/Dockerfile"}, wantCCYProjectFiles); !slices.Equal(ArchPin.stillScansFiles, want) {
+		t.Errorf("arch-pin still scans the files %v, want %v", ArchPin.stillScansFiles, want)
+	}
+}
+
+// The gh-scopes gate hands semgrep the project's own files of .claude/ccy and not the supervisor
+// (the other specs are proven in spec_test.go), and StillScannedFiles is a copy of the list.
+func TestTheGHScopesGateReadsTheCCYProjectFiles(t *testing.T) {
+	w := newWorld(t, withCCYProjectFiles(nil))
+	wantExit(t, runSpec(w, GHScopes), ExitOK)
+	wantCCYProjectFilesHanded(t, w.run.scanArgv)
+	got := GHScopes.StillScannedFiles()
+	if !slices.Equal(got, wantCCYProjectFiles) {
+		t.Fatalf("StillScannedFiles() = %v, want %v", got, wantCCYProjectFiles)
+	}
+	got[0] = "changed"
+	if GHScopes.stillScansFiles[0] == "changed" {
+		t.Fatal("StillScannedFiles hands out the spec's own list")
+	}
+}
+
+// What git publishes in .claude/ccy is the still-scanned files and the daemon-deployed supervisor,
+// nothing else: a new project file there is read by no gate until it is named here or ruled out.
+func TestEveryPublishedCCYFileIsStillScannedOrTheSupervisor(t *testing.T) {
+	_, excluded := tableExcluded(t)
+	known := slices.Concat(ArchPin.stillScansFiles, []string{".claude/ccy/claude-supervise", ".claude/ccy/claude-supervise.py"})
+	for _, rel := range excluded {
+		if strings.HasPrefix(rel, ".claude/ccy/") && !slices.Contains(known, rel) {
+			t.Errorf("%s is published in .claude/ccy but neither still scanned nor the daemon-deployed supervisor", rel)
+		}
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -102,10 +103,15 @@ type result struct {
 	stdout, stderr string
 }
 
+// main runs the gh-scopes gate over the world, less the files of .claude/ccy it still scans (a
+// world holds them only where a case is about them; TestAStillScannedFileIsReadAndTheRestOfItsTreeIsNot
+// and the real-tree drift test prove them).
 func (w *world) main(args ...string) result {
 	w.t.Helper()
+	spec := GHScopes
+	spec.stillScansFiles = nil
 	var stdout, stderr bytes.Buffer
-	code := Main(args, Env{Stdout: &stdout, Stderr: &stderr, Cwd: w.root, Runner: w.run})
+	code := spec.Main(args, Env{Stdout: &stdout, Stderr: &stderr, Cwd: w.root, Runner: w.run})
 	return result{code, stdout.String(), stderr.String()}
 }
 
@@ -203,6 +209,36 @@ func (f *fakeRun) semgrep(c proc.Cmd) (proc.Result, error) {
 // handed is the files an argv names after the flags.
 func handed(argv []string) []string {
 	return argv[slices.Index(argv, "--max-target-bytes=0")+1:]
+}
+
+// withCCYProjectFiles adds to files the project's own config inside .claude/ccy, which every gate
+// still reads and its whole-tree run requires (ccyProjectFiles), beside the daemon-deployed
+// supervisor, which no gate reads.
+func withCCYProjectFiles(files map[string]string) map[string]string {
+	all := maps.Clone(files)
+	if all == nil {
+		all = map[string]string{}
+	}
+	for _, rel := range ccyProjectFiles {
+		all[rel] = "nothing\n"
+	}
+	all[".claude/ccy/claude-supervise.py"] = "x = 1\n"
+	return all
+}
+
+// wantCCYProjectFilesHanded is that a whole-tree run handed semgrep every project file of
+// .claude/ccy and not the supervisor.
+func wantCCYProjectFilesHanded(t *testing.T, argv []string) {
+	t.Helper()
+	files := handed(argv)
+	for _, rel := range wantCCYProjectFiles {
+		if !slices.Contains(files, rel) {
+			t.Errorf("the scan left out %s: %v", rel, files)
+		}
+	}
+	if slices.Contains(files, ".claude/ccy/claude-supervise.py") {
+		t.Errorf("the scan handed over the daemon-deployed supervisor: %v", files)
+	}
 }
 
 // scannable drops the files the test rule excludes by its .semgrep glob.
