@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.32 — container 2.84.73
+
+Tests first for issue #386: a seat whose team is gone, or whose server presents another CA,
+is to be released without its logout. The release does not do so yet (the fix follows).
+
+---
+
 ## 3.124.31 — container 2.84.72
 
 A teamchat hook input that could not be used now names the hook it came from (issue #394), and

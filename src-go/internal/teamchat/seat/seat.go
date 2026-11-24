@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"time"
 
@@ -40,6 +41,18 @@ type Config struct {
 	Announcer Announcer
 	// Reach asks whether a new seat's homeserver answers from this machine (Plan 00246 X10).
 	Reach Reacher
+	// Teams judges a seat's team gone for good when its logout got no answer (issue 386);
+	// optional: with none, a logout that got no answer is retried, as every failure is.
+	Teams Teams
+	// Log is where a release abandoned without its logout says why; optional.
+	Log io.Writer
+}
+
+// Teams is what this machine alone knows of a seat's team. Gone is why the team of b is gone
+// for good, "" when it is not known to be (or cannot be judged); an error is a source that could
+// not be read, and the release is retried.
+type Teams interface {
+	Gone(b Bundle) (string, error)
 }
 
 // Sessions is the session records, which the store asks and never writes.

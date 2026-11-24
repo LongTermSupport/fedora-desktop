@@ -279,11 +279,13 @@ type HeldRecord struct {
 	SinceMS int64             `json:"since_ms"`
 }
 
-// ReleasedRecord is released.json, the seat's last release (C 3.7.2).
+// ReleasedRecord is released.json, the seat's last release (C 3.7.2). Abandoned is why a
+// release finished without its logout (issue 386), absent for every other release.
 type ReleasedRecord struct {
 	V          int           `json:"v"`
 	Claim      paths.ClaimID `json:"claim"`
 	ReleasedMS int64         `json:"released_ms"`
+	Abandoned  string        `json:"abandoned,omitempty"`
 }
 
 // NoticeRecord is held/notice.json, the disconnected notice judged for one run (C 3.7.3
