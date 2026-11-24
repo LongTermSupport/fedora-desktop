@@ -146,6 +146,15 @@ func TestResumeIDAndSupervisedGolden(t *testing.T) {
 		{[]string{"--resume", "a", "--resume=b"}, "b"},
 		{[]string{"--", "--token", "-r", "x"}, "x"},
 		{[]string{"--model", "-r", "x"}, "x"},
+		// A bare --resume opens the picker: the flag after it is not its id (fedora-desktop#411).
+		{[]string{"--resume", "--teams", "x"}, ""},
+		{[]string{"-r", "--no-ssh"}, ""},
+		{[]string{"--", "--resume", "--model", "opus"}, ""},
+		{[]string{"--resume", "--token", "-r", "x"}, ""},
+		{[]string{"--resume", "--teams", "x", "-r", "0a1b"}, "0a1b"},
+		{[]string{"--resume", "a", "--resume="}, ""},
+		{[]string{"--session-id", "-r", "--continue"}, ""},
+		{[]string{"-r", "a", "--continue"}, "a"},
 	}
 	for _, c := range idCases {
 		if got := ResumeID(c.args); got != c.want {

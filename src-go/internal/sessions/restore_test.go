@@ -377,6 +377,39 @@ func TestAMarkedRecordWithNoConversationIsStartedFreshUnderTheAskpass(t *testing
 	}
 }
 
+// A session launched with a bare --resume (Claude Code's picker) before another flag is never
+// put in the manifest as resuming that flag (fedora-desktop#411): with its conversation recorded
+// it is resumed by that id, and with none it is refused and its entry names no conversation.
+func TestABareResumeLaunchIsNeverResumedAsTheFlagAfterIt(t *testing.T) {
+	h := newHarness(t)
+	restoreHost(h)
+	dir := realDir(t, h, "pick")
+	args := []string{"--resume", "--no-ssh"}
+	record(t, h, registry.Record{Name: "ccy-picked", Dir: dir, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, Args: args})
+	recordOnly(t, h, registry.Record{Name: "ccy-unpicked", Dir: dir, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, Args: args})
+	exitCodeIs(t, h.run("restore"), 1, h)
+	started := ""
+	for _, c := range startedSessions(h) {
+		if line := strings.Join(c.Args, " "); strings.Contains(line, " -s ccy-picked ") {
+			started = line
+		}
+	}
+	contains(t, "resumed by its record", started, "/launch/ccy --no-ssh --supervise --resume "+conversationOf("ccy-picked")+" ")
+	got := map[string]string{}
+	for _, e := range manifestOf(t, h).Entries {
+		got[e.Name] = fmt.Sprintf("resume=%q %s", e.Resume, e.Going)
+	}
+	want := map[string]string{
+		"ccy-picked":   `resume="` + conversationOf("ccy-picked") + `" pending`,
+		"ccy-unpicked": `resume="" not-started`,
+	}
+	for name, w := range want {
+		if got[name] != w {
+			t.Errorf("%s: manifest %q, want %q", name, got[name], w)
+		}
+	}
+}
+
 func TestADryRunSaysAMarkedRecordWouldStartFresh(t *testing.T) {
 	h := newHarness(t)
 	restoreHost(h)
