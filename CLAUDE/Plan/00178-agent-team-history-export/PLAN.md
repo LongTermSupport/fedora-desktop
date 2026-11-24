@@ -1,61 +1,73 @@
 # Plan 00178: agent team history export
 
-**Status**: Not Started
+**Status**: In Progress
 **Created**: 2026-10-13
 **Owner**: joseph
-**Priority**: Low
+**Priority**: High (it is the step before v1 is retired, Plan 00209 Task 6.5)
 
 ## Overview
 
 An agent team's room (Plan 00161) holds everything its agents and humans said: pings, human
-messages and agent text. The owner wants to archive a team's history in a plain format,
-JSON and Markdown, before taking a team down or simply for the record (2026-10-13: "not
-urgent but we should do it at some point").
+messages and agent text. The owner wants a team's history archived in plain formats, JSON and
+Markdown. Its first reason was a team being taken down, or simply the record (2026-10-13). Its
+present reason is that the history must be exported before v1 is retired: v2 does not import
+it (Plan 00209 OD-D4: an export, the v1 archive and a link).
 
-The bus already holds an admin login per team that can read the whole room, so the export
-is a read of the room's events, written in two forms.
+Each v1 team has its own homeserver and an admin login that can read every room. The export
+therefore reads each room's events and writes them in two forms. It has a digest that proves
+the record whole before any v1 purge.
+
+The behaviour is [SPEC-v1-export.md](SPEC-v1-export.md) (E1-E21). The v1 facts it rests on were
+read from v1's code: the team directory, files, owners and modes, the loopback address and port,
+the admin token, and the event shapes.
 
 ## Goals
 
-- `agent-bus export <team>` (a root admin verb, like the others) pages the team room from
-  its first event with the team's admin token (`/messages`, `dir=f`).
-- It writes two files:
-  - `events.jsonl`: the raw room events, lossless.
-  - `history.md`: readable. Each line gives the time (UTC), the sender's display name and
-    handle, the kind (a ping's verb and its ref, a human message, agent text, a system
-    event) and the body.
-- The human chooses where it lands. The default is
-  `~/agent-team-archives/<team>-<UTC stamp>/`, offered and accepted on Enter.
-- `ccy-teams export <team>`, and an "Export history" action in the picker.
-- The files are owned by the human, mode 0600, and contain no token or password.
-- Removing a team in `ccy-teams` offers an export first, beside the backup offer.
+- `teamchat-admin migrate export --team <v1-team>` writes a lossless record to a root-only,
+  stamped directory. The record holds each room's events as JSONL, its state, a readable
+  `history.md` and a `digest.json`. It reads v1 only, over GET on loopback.
+- `teamchat-admin migrate export-verify --team <v1-team>` re-hashes a record against its
+  digest. Plan 00209 DESIGN-D 7.2 offers a v1 purge only for a team whose export verifies.
+- `--copy-to <dir> --copy-owner <user>` also gives the human a copy they own.
+- A team is exported now, and again when it is retired. Each record verifies on its own.
 
 ## Non-Goals
 
-- Importing an export back into a team (a backup and restore already exist for that).
-- Exporting other teams' rooms, or anything beyond the one team room.
+- Importing the history into v2 (OD-D4).
+- Starting or unblocking a stopped v1 homeserver. A team declared `absent` is declared
+  `present` again through v1's play before it is exported (SPEC departures).
+- The `ccy-teams export` picker action of the first draft of this plan. The export is a root
+  verb, run on the host through a plan script.
 
 ## Tasks
 
 ### Phase 1: Build
 
-- [ ] ⬜ **Task 1.1**: `agent-bus export` in `helpers/agent_bus` (paging, both writers),
-  tested against a fake transport, including an empty room and a room longer than one page.
-- [ ] ⬜ **Task 1.2**: `ccy-teams export` and the picker action, with the destination
-  prompt (gum, home default); the removal flow offers it. Tests in
-  `scripts/test-ccy-teams-command.bash`.
-- [ ] ⬜ **Task 1.3**: `docs/agent-bus.md` documents it; the `qa-reviewer` agent on the branch.
+- [ ] 🔄 **Task 1.1**: The spec, SPEC-v1-export.md (E1-E21), written from v1's code.
+- [ ] ⬜ **Task 1.2**: `src-go/internal/teamchat/migrate/v1`, test first. It covers the file
+  checks, the loopback client (GET only, no proxy, no redirect), paging to the first event with
+  no cap, the JSONL and state writers, the `history.md` renderer over every v1 event shape, the
+  digest, the atomic record directory and the verify step, each against a fake homeserver and
+  a temporary tree.
+- [ ] ⬜ **Task 1.3**: The two `teamchat-admin migrate` verbs, with the human copy. The
+  `teamchat-keeps-off-v1` gate stays green: v1 names appear only in `migrate/v1`.
+- [ ] ⬜ **Task 1.4**: A plan script, `export.bash`, run through meta-deploy. It exports and
+  verifies every v1 team on the host that is declared present, and names the absent ones. Then
+  the `qa-reviewer` agent on the branch.
 
 ### Phase 2: Host
 
-- [ ] ⬜ **Task 2.1**: Host run through meta-deploy (the plays that install `agent-bus` and
-  `ccy-teams`), then an export of a real team, read by the owner.
+- [ ] ⬜ **Task 2.1**: Only one host still holds v1 team data; the others hold none, checked
+  read-only. On that host: `play-teamchat.yml` installs the new `teamchat-admin`, then
+  `export.bash` runs. Each absent but unpurged team is opened, exported, verified and closed
+  again. The owner reads a `history.md`.
 
 ## Success Criteria
 
-- [ ] On the host, `ccy-teams export <team>` writes both files where the owner chose. The
-  Markdown reads as the room's conversation, and no secret is in either file.
+- [ ] Every v1 team still holding data has a record that `export-verify` passes. Its
+  `history.md` reads as the room's conversation. No token or password is in any file.
+- [ ] Plan 00209 Task 6.5 can then purge v1 against verified exports.
 
 ## Delivery & Milestones
 
-- Plan created; not started (low priority, after Plan 00161's D64 and Plan 00177).
+- Re-scoped on 2026-11-24 from a v1 Python verb to a v2 Go verb, ahead of v1's retirement.
