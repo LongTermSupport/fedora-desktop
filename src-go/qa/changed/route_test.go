@@ -106,6 +106,33 @@ func TestLoadRoutingRefusesBadRowsWithTheLineNumber(t *testing.T) {
 	}
 }
 
+// A comments row says what a file's change to its comments and blank lines alone runs; only a
+// file qa-changed can compare by its rows may have one (issue #413).
+func TestLoadRoutingReadsACommentsRowForAFileItCanCompare(t *testing.T) {
+	path := writeFile(t, t.TempDir(), "r.tsv", "comments\tscripts/qa-trees.tsv\tgo\tcovered\tqa/ghscopes,qa/bashlimits\n")
+	r, err := loadRouting(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.comments) != 1 || len(r.also) != 0 || len(r.first) != 0 {
+		t.Fatalf("rule counts: comments %d also %d first %d", len(r.comments), len(r.also), len(r.first))
+	}
+	if c := r.comments[0]; !c.covered || !reflect.DeepEqual(c.goPackages, []string{"qa/ghscopes", "qa/bashlimits"}) {
+		t.Fatalf("comments row: %+v", c)
+	}
+	for name, body := range map[string]string{
+		"a file it cannot compare": "comments\tscripts/qa-gates.tsv\tgo\tcovered\t@full\n",
+		"a glob":                   "comments\tscripts/*.tsv\tgo\tcovered\t@full\n",
+		"a predicate":              "comments\t@sh\tbash-limits\t-\n",
+		"@yaml":                    "comments\tscripts/qa-trees.tsv\t@yaml\t-\n",
+	} {
+		path := writeFile(t, t.TempDir(), "r.tsv", "# ok\n"+body)
+		if _, err := loadRouting(path); err == nil || !strings.Contains(err.Error(), ":2:") {
+			t.Errorf("%s: want an error naming line 2, got %v", name, err)
+		}
+	}
+}
+
 // go-qa's diff mode sees only src-go/, so a row that routes a file outside it to the go check
 // names the Go packages that read the file, or @full for a file that can change every result.
 func TestLoadRoutingReadsTheGoPackagesColumn(t *testing.T) {

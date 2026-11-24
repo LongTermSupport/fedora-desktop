@@ -3682,6 +3682,21 @@ that judges a whole kind of file, which no mirror rule would find. A plain `unit
 adds only the mirrored module of a Python file. A post row names no module, a module row takes
 no `rel:`, and `TestEveryRealNamedTestModuleExists` fails on a module that is not a file.
 
+**A change to the trees table's comments alone** (issue #413). `scripts/qa-trees.tsv` decides
+what every gate reads, so a change to its rows plans every gate its rows name whole, the whole Go
+gate among them. A change to its comments or blank lines alone changes nothing a gate reads: the
+command reads the table at the base (`git show <base>:scripts/qa-trees.tsv`), parses both texts
+with `qatrees.Parse`, and when the rows are equal routes the file by its `comments` row instead
+of its `also` and `first` rows. That row runs only the table's own checks: the go check in diff
+mode with `qa/ghscopes` and `qa/bashlimits`, the [qa-trees-drift](#qa-trees-drift) tests, which
+load the real table strictly and so are its syntax check too. The plan says
+`note: scripts/qa-trees.tsv: only its comments or blank lines changed`, and the semgrep rule gates
+no longer count the table as a change to themselves. The post rows (gitleaks) and the suites that
+name the table still apply. Any doubt plans the whole set, with a note: an explicit `--files`
+list (no base), a base git cannot show (a new table, a bad ref), or a text either side that
+`qatrees.Parse` refuses. Only a file the command can compare by its rows (`rowComparers` in
+`src-go/qa/changed`) may have a `comments` row; loading refuses any other.
+
 **The go packages column.** go-qa's diff mode sees only `src-go/`, so a routing row that sends a
 file outside it to the `go` check carries a fifth column: the src-go packages whose tests read the
 file, comma-separated and relative to `src-go` (`internal/registry`, or `internal/ccylaunch/...`

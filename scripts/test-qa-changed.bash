@@ -211,6 +211,23 @@ plan="$(scratch_plan --base "$BASE_SHA")"
 expect_has "--base covers committed changes" "$plan" "check bash-syntax: kept.bash"
 expect_has "--base covers committed additions" "$plan" "check ruff: new.py"
 
+# The trees table (issue 413): a change to its comments alone runs only its drift tests; a change
+# to a row runs every gate the table decides, as before. HEAD is the base, so the scratch table's
+# edit is the only change.
+cp "$REPO/scripts/qa-trees.tsv" "$SCRATCH/qa-trees.committed"
+printf '# a comment only\n' >> "$REPO/scripts/qa-trees.tsv"
+plan="$(scratch_plan)"
+expect_has "trees table, comments only: says so" "$plan" "scripts/qa-trees.tsv: only its comments or blank lines changed"
+expect_has "trees table, comments only: the drift tests' go check" "$plan" "check go"
+expect_lacks "trees table, comments only: no whole python gate" "$plan" "check python"
+expect_lacks "trees table, comments only: no whole docs gate" "$plan" "check docs"
+printf 'shell\tsome/new/tree\n' >> "$REPO/scripts/qa-trees.tsv"
+plan="$(scratch_plan)"
+expect_has "trees table, a new row: the whole python gate" "$plan" "check python"
+expect_has "trees table, a new row: the whole docs gate" "$plan" "check docs"
+expect_lacks "trees table, a new row: not called comments only" "$plan" "only its comments or blank lines changed"
+cp "$SCRATCH/qa-trees.committed" "$REPO/scripts/qa-trees.tsv"
+
 echo
 echo "== src-go -> the Go gate =="
 plan="$(plan_for src-go/internal/ui/ui.go src-go/go.mod)"
