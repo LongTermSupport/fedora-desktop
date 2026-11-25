@@ -570,6 +570,16 @@ filled in as each cause is known.
 - **Severity:** high (every gate a commit is meant to pass locally is silently absent).
   **Issue:** #427. **State:** open, outside v2.
 
+## R66: the edit-time lint hook lints the project-rule fixtures, which carry deliberate findings
+
+- **Seen:** the R62 agent, 25 Nov.
+- **What:** the hooks-daemon `lint_on_edit` handler runs golangci-lint on
+  `src-go/qa/rules/testdata/**` and blocks every edit to those fixtures, which can never pass by
+  design (each carries the findings its rule must report).
+- **Fix:** exclude the analysistest testdata tree from that handler in the project's hooks-daemon
+  configuration, or have the handler skip analysistest testdata.
+- **Severity:** low. **Issue:** TBF. **State:** open, tooling (dogfood).
+
 ## R64: a link restart re-judges the questions room and rate-drops the owner's posts
 
 - **Seen:** the coordinator's `teamchat status` after its 18:48Z relaunch, 25 Nov:
@@ -598,11 +608,14 @@ filled in as each cause is known.
   the marker covers it or it is restored) is judged against a window of its own, thrown away, so
   replayed history never counts toward the flood window (`judgeRoom`'s `replayed`). Main has the
   same order after a seat's release (`resume` keeps events past the release time under the
-  marker) and is fixed the same way. Tests in `member/teamsync/replay_flood_test.go`. Whether a
-  team human is exempt from the limit outright is a spec question (A 11.1 exempts only the
-  admin): open. Report: [reports/R64.md](reports/R64.md).
+  marker) and is fixed the same way. Tests in `member/teamsync/replay_flood_test.go`.
+- **Decided (the team coordinator, 25 Nov 21:21Z, on the owner's standing rule; reversible):** a
+  team human is exempt from `recv_per_sender_minute` in main and in questions (A 11.1 now says
+  so). A post past the limit is delivered, counted in `status`'s `counts.human_over_limit` and
+  logged with one line naming it. Report: [reports/R64.md](reports/R64.md).
 - **Severity:** high (the owner's words can be dropped for good). **Issue:** TBF. **State:**
-  fixed on v2-smoke, batch 13 (544ebda3d); not yet run live.
+  fixed on v2-smoke, batch 13 (544ebda3d); the human exemption on v2-smoke, batch 16
+  (`d9a4fcc80`); not yet run live.
 
 ## R63: `declare` fails a converge while a declared session runs with a record not its own
 
