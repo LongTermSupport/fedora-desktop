@@ -137,27 +137,71 @@ func TestADifferentRecordUnderTheNameIsReplacedOnlyWhenAskedAndNeverWhileLive(t 
 		t.Fatal("a refused declare changed the record or printed a verdict")
 	}
 
-	h.sessions("ccy-proj 0 " + dir)
-	h.errOut.Reset()
-	exitCodeIs(t, h.run(append([]string{"declare", "--replace"}, other[1:]...)...), 1, h)
-	contains(t, "live", h.stderr(), "ccy-proj is running")
-	if recordBytes(t, h) != before {
-		t.Fatal("a declare over a live session changed its record")
-	}
-
 	h.sessions()
+	h.out.Reset()
 	exitCodeIs(t, h.run(append([]string{"declare", "--replace"}, other[1:]...)...), 0, h)
 	if h.stdout() != "ccy-proj REPLACED\n" || !strings.Contains(recordBytes(t, h), "arg=--no-ssh\n") {
 		t.Fatalf("stdout %q", h.stdout())
 	}
 }
 
-func TestALiveSessionWithNoRecordIsNotDeclaredOver(t *testing.T) {
-	h := newHarness(t)
-	dir := declareHost(h)
-	h.sessions("ccy-proj 1 " + dir)
-	exitCodeIs(t, h.run(declare("--fresh-if-no-conversation", dir, "--")...), 1, h)
-	contains(t, "live", h.stderr(), "ccy-proj is running")
+// R63: a converge that declares a session while it runs under a record that is not the declared
+// one (its launch's, or an older declaration) is deferred, rc 0, writing nothing, with or
+// without --replace; the record is written by a declare run after the session stops.
+func TestADifferentRecordWhileTheSessionRunsIsDeferredAndNothingIsWritten(t *testing.T) {
+	for _, replace := range []bool{false, true} {
+		t.Run(map[bool]string{false: "plain", true: "replace"}[replace], func(t *testing.T) {
+			h := newHarness(t)
+			dir := declareHost(h)
+			exitCodeIs(t, h.run(declare("--fresh-if-no-conversation", dir, "--")...), 0, h)
+			before := recordBytes(t, h)
+			h.sessions("ccy-proj 0 " + dir)
+			args := []string{"declare", "--fresh-if-no-conversation", dir, "--", "--no-ssh"}
+			if replace {
+				args = append([]string{"declare", "--replace"}, args[1:]...)
+			}
+			h.out.Reset()
+			h.errOut.Reset()
+			exitCodeIs(t, h.run(args...), 0, h)
+			if h.stdout() != "ccy-proj DEFERRED\n" {
+				t.Fatalf("stdout %q", h.stdout())
+			}
+			contains(t, "deferral", h.stderr(),
+				"ccy-proj is running with a record that is not the declared one",
+				"nothing is written while it runs",
+				"run declare again after it stops", "--replace")
+			if recordBytes(t, h) != before {
+				t.Fatal("a declare over a live session changed its record")
+			}
+		})
+	}
+}
+
+func TestALiveSessionWithNoRecordIsDeferredAndNothingIsWritten(t *testing.T) {
+	for _, extra := range [][]string{nil, {"--replace"}} {
+		h := newHarness(t)
+		dir := declareHost(h)
+		h.sessions("ccy-proj 1 " + dir)
+		exitCodeIs(t, h.run(declare(append(extra, "--fresh-if-no-conversation", dir, "--")...)...), 0, h)
+		if h.stdout() != "ccy-proj DEFERRED\n" {
+			t.Fatalf("stdout %q", h.stdout())
+		}
+		contains(t, "deferral", h.stderr(), "ccy-proj is running with no record",
+			"nothing is written while it runs", "run declare again after it stops")
+		regdir, err := registry.Dir(h.app.Getenv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, statErr := os.Stat(filepath.Join(regdir, "ccy-proj")); !os.IsNotExist(statErr) {
+			t.Fatal("a deferred declare left a record")
+		}
+		h.sessions()
+		h.out.Reset()
+		exitCodeIs(t, h.run(declare("--fresh-if-no-conversation", dir, "--")...), 0, h)
+		if h.stdout() != "ccy-proj DECLARED\n" {
+			t.Fatalf("after the stop, stdout %q", h.stdout())
+		}
+	}
 }
 
 func TestTheNameCanBeGivenAndIsAccountedForInTheCheck(t *testing.T) {

@@ -583,15 +583,15 @@ filled in as each cause is known.
   - Every event is judged before the floor check that skips one already delivered
     (`qjudge`, `teamsync/questions.go:518-548`, calls `judgeRoom` at 533, then `qtake`, 566-595,
     whose floor skip is at 579). That check skips only a Deliver verdict, so
-    a `rate` drop inside the floor is still taken and counted (`session.go:916-917, 946-952`).
+    a `rate` drop inside the floor is still taken and counted (`session.go:928-929, 958-964`).
   - The judge applies the per-sender receive limit (`recv_per_sender_minute`, 60 a minute) to a
     human, with no stale test in questions (`proto/verdict.go:368-372, 402`). The window counts
-    the judging time, not the sending time (`session.go:865`, `proto/limits.go:94, 225-235`), so
+    the judging time, not the sending time (`session.go:871`, `proto/limits.go:94, 225-235`), so
     the whole replay lands in one minute.
   - "Seen" holds only ids still pending or in the ledger (`member/engine/storewrite.go:155-163`;
     the ledger, not Pending, is capped at 1024, `capLedger`, `member/state/store.go:30`), so posts
     delivered hours ago are judged again.
-  - A dropped event is not fetched again: the position is saved past it (`session.go:592`), and
+  - A dropped event is not fetched again: the position is saved past it (`session.go:595`), and
     the questions floor is raised to the newest judged event (`questions.go:588-592`). A NEW
     owner post in that burst would be lost for good.
 - **Fix:** an event that is history the link reads again (the questions floor covers it; in main,
@@ -618,7 +618,8 @@ filled in as each cause is known.
   verdict of its own, `<name> DEFERRED`. The line says the record is written when `declare` runs
   again after the session stops. Nothing is written while the session runs. A record that differs
   while the session is stopped is still refused without `--replace`.
-- **Severity:** medium (a play's converge). **Issue:** TBF. **State:** open; after R60.
+- **Severity:** medium (a play's converge). **Issue:** TBF. **State:** fixed on v2-smoke, batch
+  14 (`f1e50d031`); not yet run live. Report: [reports/R63.md](reports/R63.md).
 
 ## R62: `project_walk_open` does not take a regular-file check written as a switch case
 

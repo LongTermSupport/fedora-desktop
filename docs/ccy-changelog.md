@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.62 — container 2.84.83
+
+- **`ccy-sessions declare` no longer fails a converge on a running session.** If a session runs
+  under a record that is not the declared one, or under none, `declare` used to exit 1. That
+  happens when its launch wrote the record, or the inventory changed its arguments. Now it
+  writes nothing, even with `--replace`, prints `<name> DEFERRED` and exits 0. A line on stderr
+  says to run `declare` again after the session stops. A different record while the session is
+  stopped is still refused without `--replace` (Plan 00265 R63).
+
 ## 3.124.61 — container 2.84.83
 
 - **A link restart no longer drops a person's posts as `rate`.** When a teamchat link starts it

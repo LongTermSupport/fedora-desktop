@@ -368,9 +368,12 @@ and `--compose start` or `skip` in a project with compose files (recorded as the
 answer). If `restore --check` would call the record `UNRESTORABLE`, it is refused and nothing
 is written. That covers no mark and no conversation, `--no-bus`, `--no-restore` and
 `--opencode`. stdout is one line, `<name> DECLARED`, `UNCHANGED` (the same record is already
-there, so nothing is written) or `REPLACED`. A different record under the name needs
-`--replace`. A live session's record is never written over. A provisioning task in a
-downstream repository:
+there, so nothing is written), `REPLACED`, or `DEFERRED`. A different record under the name
+needs `--replace`. A live session's record is never written over. If the session is running
+under a record that is not the declared one, or under no record, nothing is written,
+`--replace` or not, and the answer is `DEFERRED` with exit 0. A line on stderr says to run
+`declare` again after the session stops. A play needs no stderr matching for this. A
+provisioning task in a downstream repository:
 
 ```yaml
 - name: Declare the dev box's first ccy session, started at boot
@@ -380,11 +383,12 @@ downstream repository:
     argv: ["/home/{{ user_login }}/.local/bin/ccy-sessions", declare, --fresh-if-no-conversation, "/home/{{ user_login }}/Projects/app",
            --, --token, work, --ssh-key, "/home/{{ user_login }}/.ssh/id_github", --compose, start]
   register: ccy_declare
-  changed_when: "' UNCHANGED' not in ccy_declare.stdout"
+  changed_when: "ccy_declare.stdout is not search(' (UNCHANGED|DEFERRED)$')"
 ```
 
 Once the session has run, its own launch rewrites the record. While it runs, a re-run of the
-task changes nothing when the record is still the declared one, and fails when it is not. Use
+task changes nothing. It answers `UNCHANGED` when the record is still the declared one, and
+`DEFERRED` when it is not. Use
 `creates: ~/.local/state/ccy/sessions/<name>` in place of `changed_when` to leave an existing
 record alone.
 
