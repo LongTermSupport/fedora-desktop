@@ -414,10 +414,23 @@ filled in as each cause is known.
   exec (`internal/ccystart`); the host side in `cc-claude` (`internal/ccclaude`), which already
   sets ccy's defaults. A model the person names on the command line wins. This differs from the
   deferred model-class refusal (Non-Goals): it raises the model instead of refusing the launch.
-- **Unchecked:** how the session restore relaunches (it replays the recorded arguments, so it
-  should carry the model the first launch added).
-- **Severity:** medium. **Issue:** TBF. **State:** open; after the container work, before more
-  seats are added.
+- **Restore (checked):** a restore replays the person's recorded launcher arguments
+  (`lib/session-registry.bash`; a `--model opus` is kept as an unknown flag's value), never the
+  model a launch adds, and the replayed launch takes its seats again, so it re-reads the same
+  setting and starts on the same model.
+- **Built:** `ccy-teams seats model <team> <model>|--clear` (team default) and
+  `ccy-teams seats model [--host] <seat>@<team> <model>|--clear` (a seat's own, which wins; the
+  seat found in the checkout's pool by kind, kept by handle); no argument lists them. Kept in
+  `<seat store>/models.json` (0600, on no mount), read by `Launch.Take` (`internal/teams/teamchatlaunch`)
+  for both launchers: `launch-args` adds `-e ANTHROPIC_MODEL=<model>` to podman's arguments,
+  `cc-run` puts it in the session's environment unless the person's has one; both say it on
+  stderr. claude ranks a `--model` above `ANTHROPIC_MODEL`, so the person's wins with no argument
+  parsing; a project `ccy.env` (sourced after) wins too. The first seat with a model decides.
+  Not the image (`internal/teams` is no image source) and not the bash launcher. Departure from
+  "passed as `--model`": [reports/R39.md](reports/R39.md).
+- **Severity:** medium. **Issue:** TBF. **State:** fixed on v2-smoke; batch 8 (CCY 3.124.52,
+  container 2.84.80 unchanged; live after `play-claude-yolo.yml` rebuilds `ccy-teams`, already
+  queued).
 
 ## R35: the Lightning client setup for a team, with presets
 

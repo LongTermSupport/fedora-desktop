@@ -115,7 +115,8 @@ default; a coordinator needs it). It prints `<N>@<team>`; launch with `ccy --tea
 A bare `ccy --teams <team>` (or `cc --teams <team>`) with no free seat of its kind runs the same
 add and launches the new seat. A team
 whose homeserver is elsewhere is refused there; use the pipe below. `ccy-teams --help` has the
-detail.
+detail. The model a seat starts on is set per team or per seat with `ccy-teams seats model`
+([agent-bus.md](agent-bus.md)) on the machine that launches the seat, wherever the homeserver is.
 
 ## A member on another machine
 

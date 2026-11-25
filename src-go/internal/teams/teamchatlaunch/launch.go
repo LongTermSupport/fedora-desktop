@@ -25,6 +25,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatchoice"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatmodel"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/system"
 )
 
@@ -242,33 +243,60 @@ type Launch struct {
 	NowMS  func() int64
 }
 
-// Run guards the mounts, takes the seats for session, writes desired.json and returns the run
-// arguments. Nothing is taken when the guard or a seat refuses; nothing is written when a take
-// fails.
+// Taken is a launch's take: podman run's arguments for it, and the model its seats start on
+// (register R39; no Model is the account's default).
+type Taken struct {
+	Args  []string
+	Model seatmodel.Pick
+}
+
+// Run is Take's run arguments.
 func (l *Launch) Run(ctx context.Context, session paths.SessionName, list string, mounts []string, relabel bool) ([]string, error) {
+	t, err := l.Take(ctx, session, list, mounts, relabel)
+	return t.Args, err
+}
+
+// Take guards the mounts, reads the seats' model, takes the seats for session, writes
+// desired.json and returns the run arguments, with ANTHROPIC_MODEL when a seat has a model.
+// Nothing is taken when the guard, a seat or the models file refuses; nothing is written when a
+// take fails.
+func (l *Launch) Take(ctx context.Context, session paths.SessionName, list string, mounts []string, relabel bool) (Taken, error) {
 	if err := l.checkKind(); err != nil {
-		return nil, err
+		return Taken{}, err
 	}
 	if err := Guard(l.Store.Root(), MountSources(mounts)); err != nil {
-		return nil, err
+		return Taken{}, err
 	}
 	chosen, takes, err := l.choose(list)
 	if err != nil {
-		return nil, err
+		return Taken{}, err
 	}
+	models, err := seatmodel.Read(l.Store)
+	if err != nil {
+		return Taken{}, err
+	}
+	seats := make([]seatmodel.Seat, 0, len(chosen))
+	for _, c := range chosen {
+		seats = append(seats, seatmodel.Seat{Team: c.Team, Name: c.Name})
+	}
+	pick := models.For(seats)
 	for i := range takes {
 		takes[i].Session = session
 	}
 	if err = l.Taker.TakeAll(ctx, takes); err != nil {
 		if errors.Is(err, seat.ErrNoRecord) {
-			return nil, fmt.Errorf("%w; the seat sweep releases a seat whose session has no record, so start the session with ccy (or cc) at a terminal outside ccy's tmux, which writes the record, or declare it with ccy-sessions declare and start it with ccy-sessions restore", err)
+			return Taken{}, fmt.Errorf("%w; the seat sweep releases a seat whose session has no record, so start the session with ccy (or cc) at a terminal outside ccy's tmux, which writes the record, or declare it with ccy-sessions declare and start it with ccy-sessions restore", err)
 		}
-		return nil, err
+		return Taken{}, err
 	}
 	if err = WriteDesired(l.Store, firstGeneration(session, chosen, l.NowMS())); err != nil {
-		return nil, err
+		return Taken{}, err
 	}
-	return RunArgs(l.Store, session, relabel), nil
+	args := RunArgs(l.Store, session, relabel)
+	if pick.Model != "" {
+		args = append(args, "-e", seatmodel.EnvVar+"="+pick.Model)
+	}
+	return Taken{Args: args, Model: pick}, nil
 }
 
 // checkKind refuses a Launch whose Kind is not a launcher's kind of seat, naming the kind given.

@@ -16,6 +16,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatchoice"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatmodel"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/system"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -274,8 +275,13 @@ func (v *Verbs) ccRunTeamchat(ctx context.Context, l ccLaunch) (term.ExitCode, e
 		return 0, err
 	}
 	launch := &Launch{Store: store, Checkout: key, Kind: seatchoice.KindHost, Taker: v.Taker(v.config(state, key)), Status: v.Status, NowMS: v.NowMS}
-	if _, err := launch.Run(ctx, name, l.seats, nil, false); err != nil {
+	taken, err := launch.Take(ctx, name, l.seats, nil, false)
+	if err != nil {
 		return 0, err
+	}
+	env, err := v.modelEnv(taken.Model)
+	if err != nil {
+		return 0, errors.Join(err, v.ccEnd(ctx, state, key, name, "1"))
 	}
 	extra := l.tmp + "/cc-deny.json"
 	if err := fsx.WriteAtomic(extra, "cc's deny rules", deny, 0o600); err != nil {
@@ -285,7 +291,7 @@ func (v *Verbs) ccRunTeamchat(ctx context.Context, l ccLaunch) (term.ExitCode, e
 		"run", "--claude", "--kind", "host", "--state", store.Session(name), "--desired", store.Control(name),
 		"--extra-settings", extra, "--", v.CC.CCClaude, "--", "claude", "--append-system-prompt", TeamchatPrompt,
 	}, l.claude...)
-	exit, err := v.Foreground.Foreground(execx.Cmd{Name: teamchatProgram, Args: run, Env: []string{"PINGBUS_MEMBERSHIP=off"}})
+	exit, err := v.Foreground.Foreground(execx.Cmd{Name: teamchatProgram, Args: run, Env: env})
 	if err != nil {
 		return 0, errors.Join(err, v.ccEnd(ctx, state, key, name, "1"))
 	}
@@ -300,6 +306,19 @@ func (v *Verbs) ccRunTeamchat(ctx context.Context, l ccLaunch) (term.ExitCode, e
 		return term.ExitOK, nil
 	}
 	return term.FromChild(exit.Code), nil
+}
+
+// modelEnv is the host session's environment: ANTHROPIC_MODEL for the seats' model (register
+// R39), unless the person's environment already sets it, which is kept and said.
+func (v *Verbs) modelEnv(pick seatmodel.Pick) ([]string, error) {
+	env := []string{"PINGBUS_MEMBERSHIP=off"}
+	if pick.Model == "" {
+		return env, nil
+	}
+	if own := v.Getenv(seatmodel.EnvVar); own != "" {
+		return env, v.note("Model: " + seatmodel.EnvVar + "=" + own + " from your environment, not " + pick.Model + " the seats ask for.")
+	}
+	return append(env, seatmodel.EnvVar+"="+pick.Model), v.note(pick.Note())
 }
 
 // ccEnd is the session's end by its status, as bus-disconnected's for a ccy session.

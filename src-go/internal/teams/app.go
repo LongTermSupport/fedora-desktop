@@ -57,6 +57,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/picker"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/restart"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatadd"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatmodel"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatsweep"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/settings"
@@ -110,6 +111,8 @@ type App struct {
 	SeatConversation *SeatConversation
 	// SeatAdd is `ccy-teams seats add`, one teamchat seat issued and placed for this checkout.
 	SeatAdd *seatadd.Cmd
+	// SeatModel is `ccy-teams seats model`, the model a team's seats, or one seat, start on.
+	SeatModel *seatmodel.Cmd
 	// SeatResume is `ccy-teams internal seat-resume`, the conversation a seated launch runs.
 	SeatResume *SeatResume
 	// Interrupted makes the run's context: Ctrl-C cancels it instead of ending the process,
@@ -218,8 +221,32 @@ func Wire(h *host.Host) *App {
 		SeatAdd: &seatadd.Cmd{
 			Stdout: h.Payload, Stderr: h.Stderr, Getwd: os.Getwd, Adder: adder,
 		},
+		SeatModel: newSeatModel(h),
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
+		},
+	}
+}
+
+// newSeatModel is `ccy-teams seats model` over the owner's seat store, a seat found in the working
+// directory checkout's pool as a launch of its kind would find it.
+func newSeatModel(h *host.Host) *seatmodel.Cmd {
+	return &seatmodel.Cmd{
+		Stdout: h.Payload, Stderr: h.Stderr,
+		Store: func() (paths.Store, error) {
+			store, _, _, err := system.Here(h.Getenv, os.Getwd)
+			return store, err
+		},
+		Resolve: func(team paths.TeamID, seat, kind string) (paths.SeatName, error) {
+			store, key, _, err := system.Here(h.Getenv, os.Getwd)
+			if err != nil {
+				return paths.SeatName{}, err
+			}
+			pool, err := system.PoolSeats(store, key, team)
+			if err != nil {
+				return paths.SeatName{}, err
+			}
+			return teamchatlaunch.ChooseSeat(pool, team.String(), seat, kind)
 		},
 	}
 }
@@ -291,6 +318,9 @@ func (a *App) run(ctx context.Context, args []string) term.ExitCode {
 		}
 		if len(args) > 1 && args[1] == seatadd.Verb {
 			return a.SeatAdd.Run(ctx, args[2:])
+		}
+		if len(args) > 1 && args[1] == seatmodel.Verb {
+			return a.SeatModel.Run(args[2:])
 		}
 		return a.Sweep.Run(ctx, args[1:])
 	}
