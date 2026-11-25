@@ -98,7 +98,12 @@ repository files only; the image's own Go commands and the pingbus zipapp are bu
 build by a builder stage that clones this repository at the last commit that changed their
 source, so the checkout must be pushed first. A commit that changes none of that source does
 not rebuild the image. The commit is recorded in `/opt/claude-yolo/source-commit`, and `ccy`'s
-own rebuilds use it too. See [ContainerRules.md](../CLAUDE/ContainerRules.md).
+own rebuilds use it too. The image carries it as the label `ccy-image-source-commit`: the
+image-source commit, not the checkout's HEAD, so an image built today can name an older commit
+when nothing it is built from changed since. Its `teamchat version` prints the image-source
+digest of that commit (`files/var/local/claude-yolo/image-source-digest`), the same digest the
+teamchat play gives the host's `teamchat`, so equal digests mean the same teamchat source. See
+[ContainerRules.md](../CLAUDE/ContainerRules.md).
 
 ---
 

@@ -12,8 +12,11 @@
 #
 #   1. Controller: the commands are built from the committed src-go, static, for each distinct
 #      architecture among the hosts (tasks/teamchat-build-go-commands.yml). The source digest baked
-#      into them is the git tree id of src-go, and the play refuses a src-go that differs from
-#      the commit, so a digest always names the bytes built.
+#      into each names what it is built from: teamchat-admin's is the git tree id of src-go;
+#      teamchat's is the ccy image's source digest (files/var/local/claude-yolo/image-source-digest
+#      over image-source-paths at HEAD), the one the image's builder stage gives its teamchat, so
+#      one teamchat source prints one digest on the host and in the image. The play refuses a
+#      src-go that differs from the commit, so a digest always names the bytes built.
 #   2. Target: the owner group, the teamchat-ctl account and the state roots; the programs copied
 #      to their digest-named homes and checked against the controller's sha256; then
 #      /usr/local/sbin/teamchat-admin, the kit's current link and /usr/local/bin/teamchat swapped.
@@ -340,6 +343,24 @@
           register: tc_tree
           tags: [admin, member]
 
+        # The member program's digest is the ccy image's: the one script the image's builder stage
+        # runs too, over the same image-source-paths, so the host and the image print one digest
+        # for one teamchat source, whatever else src-go holds (Plan 00265 R57).
+        - name: Read the Image-Source Digest of the Member Program
+          ansible.builtin.command:
+            argv:
+              - bash
+              - "{{ root_dir }}/files/var/local/claude-yolo/image-source-digest"
+              - "{{ root_dir }}"
+              - HEAD
+              - "{{ root_dir }}/files/var/local/claude-yolo/image-source-paths"
+          delegate_to: localhost
+          become: false
+          run_once: true
+          changed_when: false
+          register: tc_member_digest
+          tags: [admin, member]
+
         - name: Read What Differs From the Commit in src-go
           ansible.builtin.command:
             argv: [git, -C, "{{ root_dir }}", status, --porcelain, --, src-go]
@@ -355,21 +376,31 @@
             that:
               - tc_dirty.stdout == ''
               - tc_tree.stdout is match('^[0-9a-f]{40,64}$')
+              - tc_member_digest.stdout is match('^[0-9a-f]{40,64}$')
             fail_msg: >-
-              src-go has changes that are not committed (or its tree id cannot be read), so a
+              src-go has changes that are not committed (or a digest cannot be read), so a
               source digest would not name the bytes built. Commit them, or build from a clean checkout.
             quiet: true
           run_once: true
           tags: [admin, member]
 
         # Imported, not included: an import's tag reaches the tasks it reads, an include's does not.
-        - name: Build the Commands for the Targets' Architectures
+        - name: Build the Admin Program for the Targets' Architectures
           ansible.builtin.import_tasks: "{{ root_dir }}/tasks/teamchat-build-go-commands.yml"
           vars:
-            go_cross_commands: [teamchat-admin, teamchat]
+            go_cross_commands: [teamchat-admin]
             go_cross_goarches: "{{ ansible_play_hosts | map('extract', hostvars, ['ansible_facts', 'architecture']) | map('extract', teamchat_arch, 'goarch') | unique | list }}"
             go_cross_dir: "{{ tc_build_dir.path }}"
             go_cross_ldflags: "-X main.SourceDigest={{ tc_tree.stdout }}"
+          tags: [admin, member]
+
+        - name: Build the Member Program for the Targets' Architectures
+          ansible.builtin.import_tasks: "{{ root_dir }}/tasks/teamchat-build-go-commands.yml"
+          vars:
+            go_cross_commands: [teamchat]
+            go_cross_goarches: "{{ ansible_play_hosts | map('extract', hostvars, ['ansible_facts', 'architecture']) | map('extract', teamchat_arch, 'goarch') | unique | list }}"
+            go_cross_dir: "{{ tc_build_dir.path }}"
+            go_cross_ldflags: "-X main.SourceDigest={{ tc_member_digest.stdout }}"
           tags: [admin, member]
 
         - name: Hash This Host's Builds on the Controller
@@ -409,7 +440,7 @@
         - name: Copy the Member Program Beside the Kits
           ansible.builtin.copy:
             src: "{{ tc_build_dir.path }}/{{ teamchat_arch[tc_arch].goarch }}/teamchat"
-            dest: "{{ tc_lib_dir }}/teamchat-member-{{ tc_tree.stdout }}"
+            dest: "{{ tc_lib_dir }}/teamchat-member-{{ tc_member_digest.stdout }}"
             owner: root
             group: root
             mode: "0755"
@@ -417,7 +448,7 @@
 
         - name: Read the Copied Member Program
           ansible.builtin.stat:
-            path: "{{ tc_lib_dir }}/teamchat-member-{{ tc_tree.stdout }}"
+            path: "{{ tc_lib_dir }}/teamchat-member-{{ tc_member_digest.stdout }}"
             checksum_algorithm: sha256
           register: tc_copied_member
           tags: [member]
@@ -438,18 +469,18 @@
         - name: Assemble the Member Kit
           ansible.builtin.command:
             argv:
-              - "{{ tc_lib_dir }}/teamchat-member-{{ tc_tree.stdout }}"
+              - "{{ tc_lib_dir }}/teamchat-member-{{ tc_member_digest.stdout }}"
               - kit
               - assemble
               - --into
-              - "{{ tc_kit_root }}/{{ tc_tree.stdout }}"
+              - "{{ tc_kit_root }}/{{ tc_member_digest.stdout }}"
           register: tc_kit_assembled
           changed_when: tc_kit_assembled.stdout.startswith('assembled ')
           tags: [member]
 
         - name: Read Every Part of the Kit
           ansible.builtin.stat:
-            path: "{{ tc_kit_root }}/{{ tc_tree.stdout }}/{{ item.part }}"
+            path: "{{ tc_kit_root }}/{{ tc_member_digest.stdout }}/{{ item.part }}"
           loop:
             - {part: bin, kind: dir}
             - {part: bin/teamchat, kind: file}
@@ -477,7 +508,7 @@
               - tc_kit_parts.results | selectattr('item.kind', 'eq', 'dir') | rejectattr('stat.isdir') | list | length == 0
               - tc_kit_parts.results | selectattr('item.kind', 'eq', 'file') | rejectattr('stat.isreg') | list | length == 0
             fail_msg: >-
-              The kit at {{ tc_kit_root }}/{{ tc_tree.stdout }} is not whole: a part is missing or of the wrong kind
+              The kit at {{ tc_kit_root }}/{{ tc_member_digest.stdout }} is not whole: a part is missing or of the wrong kind
               (missing: {{ tc_kit_parts.results | rejectattr('stat.exists') | map(attribute='item.part') | list }}),
               so the current link is not moved to it. Run the play again: the assembly replaces a kit that is not whole.
             quiet: true
@@ -485,7 +516,7 @@
 
         - name: Read the Kit's Member Program
           ansible.builtin.stat:
-            path: "{{ tc_kit_root }}/{{ tc_tree.stdout }}/bin/teamchat"
+            path: "{{ tc_kit_root }}/{{ tc_member_digest.stdout }}/bin/teamchat"
             checksum_algorithm: sha256
           register: tc_kit_member
           tags: [member]
@@ -521,7 +552,7 @@
     # step below widens to every present team for it, as for a changed base unit.
     - name: Point the Kit's Current Link at This Build
       ansible.builtin.file:
-        src: "{{ tc_tree.stdout }}"
+        src: "{{ tc_member_digest.stdout }}"
         dest: "{{ tc_kit_root }}/current"
         state: link
         force: true

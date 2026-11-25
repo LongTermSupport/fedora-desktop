@@ -93,7 +93,7 @@ func TestThePlaysDerivedPathsAreThePathsPackagesDerivedPaths(t *testing.T) {
 	rendered := strings.NewReplacer(
 		"{{ tc_lib_dir }}", paths.LibDir, "{{ tc_server_dir }}", paths.ServerDir,
 		"{{ tc_kit_root }}", paths.HostKitRoot, "{{ tc_share_dir }}", paths.ShareDir,
-		"{{ tc_etc_dir }}", paths.EtcDir, "{{ tc_tree.stdout }}", digest, "{{ tc_version }}", "1.9.4",
+		"{{ tc_etc_dir }}", paths.EtcDir, adminDigest, digest, memberDigest, digest, "{{ tc_version }}", "1.9.4",
 	).Replace(string(readRepo(t, paths.PlayFile)))
 	for what, want := range map[string]string{
 		"the admin program's home":   paths.AdminBinaryCopy(d),

@@ -715,6 +715,33 @@ for p in "${seeds[@]}"; do
     moved="$(commit_touching "$p" "change $p")"
     check "a commit to $p moves the key" "$moved" "$(image_key)"
 done
+
+echo "== the image-source digest names the image's source, and nothing else (Plan 00265 R57)"
+# teamchat's source digest, which the builder stage and play-teamchat.yml both compute with this
+# one script: the same image source at two commits is one digest, a change to it moves the digest.
+DIGEST="$REPO_ROOT/files/var/local/claude-yolo/image-source-digest"
+SOURCE_LIST="$REPO_ROOT/files/var/local/claude-yolo/image-source-paths"
+source_digest() { bash "$DIGEST" "$KEYREPO" "$1" "$SOURCE_LIST" 2>>"$QUIET"; }
+key_digest="$(source_digest "$(image_key)")"
+check "the digest is a 40-hex id" yes "$([[ "$key_digest" =~ ^[0-9a-f]{40}$ ]] && echo yes || echo "no: '$key_digest'")"
+check "the play's HEAD and the image's key commit give one digest" "$key_digest" "$(source_digest HEAD)"
+key_tree="$(git -C "$KEYREPO" rev-parse "$(image_key):src-go")"
+other="$(commit_touching src-go/internal/sessions/sessions.go "R57 other Go")"
+check "a commit outside the image's source leaves the digest" "$key_digest" "$(source_digest "$other")"
+check "where the src-go tree id moved" yes "$([ "$(git -C "$KEYREPO" rev-parse "$other:src-go")" != "$key_tree" ] && echo yes || echo no)"
+moved="$(commit_touching src-go/cmd/teamchat/seed.go "R57 teamchat change")"
+check "a change to teamchat's source moves the digest" yes "$([ "$(source_digest "$moved")" != "$key_digest" ] && echo yes || echo no)"
+: >"$SCRATCH/no-paths"
+bash "$DIGEST" "$KEYREPO" HEAD "$SCRATCH/no-paths" >"$SCRATCH/d.out" 2>"$SCRATCH/d.err"
+check "an empty list fails" 1 "$?"
+has "naming the list" "$SCRATCH/d.err" "$SCRATCH/no-paths lists no path"
+printf '%s\n' ':(glob)nowhere/*' >"$SCRATCH/unmatched-paths"
+bash "$DIGEST" "$KEYREPO" HEAD "$SCRATCH/unmatched-paths" >"$SCRATCH/d.out" 2>"$SCRATCH/d.err"
+check "a list that matches nothing fails" 1 "$?"
+check "and prints no digest" "" "$(cat "$SCRATCH/d.out")"
+bash "$DIGEST" "$KEYREPO" HEAD >"$SCRATCH/d.out" 2>"$SCRATCH/d.err"
+check "a missing argument is a usage error" 2 "$?"
+check "the play copies the script into the build context" 1 "$(grep -c "src: \"{{ root_dir }}/files/var/local/claude-yolo/image-source-digest\"" "$PLAY")"
 # The builder stage takes only those paths from the commit, so they must hold everything it
 # builds from: this checkout's src-go and helpers, as a tree, are archived by the list exactly as
 # the stage archives them, and the stage's own go build commands and zipapp build from what came out.
@@ -723,6 +750,11 @@ builder="$(awk '$1 == "FROM" { b = ($NF == "ccy-builder") } b' "$DOCKERFILE")"
 check "the builder copies image-source-paths" yes "$([[ "$builder" == *"COPY image-source-paths /image-source-paths"* ]] && echo yes || echo no)"
 check "the builder takes only those paths from the commit, unglobbed" yes "$([[ "$builder" == *"set -f; \\"*"archive -o /tmp/source.tar FETCH_HEAD -- \${paths}"* ]] && echo yes || echo no)"
 check "the builder checks nothing else out" no "$([[ "$builder" == *"checkout"* ]] && echo yes || echo no)"
+check "the builder copies image-source-digest" yes "$([[ "$builder" == *"COPY image-source-digest /image-source-digest"* ]] && echo yes || echo no)"
+digest_line="digest=\"\$(bash /image-source-digest /repo FETCH_HEAD /image-source-paths)\""
+check "teamchat's digest is the image-source digest of the commit built" yes \
+    "$([[ "$builder" == *"$digest_line"* ]] && echo yes || echo no)"
+check "no digest is the src-go tree id" no "$([[ "$builder" == *"FETCH_HEAD:src-go"* ]] && echo yes || echo no)"
 SRC="$SCRATCH/source"
 mkdir -p "$SRC/out"
 tree="$(GIT_INDEX_FILE="$SCRATCH/source.index" bash -c 'git -C "$1" add -A -- src-go helpers && git -C "$1" write-tree' _ "$REPO_ROOT")"
@@ -742,7 +774,8 @@ out="$(cd "$SRC" && python3 -B -s -m helpers.pingbus.bundle --source "$SRC" --ou
 check "the pingbus zipapp builds from the archived list alone" "0" "$?"
 printf '%s\n' "$out" >>"$QUIET"
 full="$(awk '$1 == "FROM" { f = ($NF == "full") } f' "$DOCKERFILE")"
-check "the image is labelled with the commit it was built from" yes "$([[ "$full" == *"LABEL ccy-source-commit=\"\${CCY_SOURCE_COMMIT}\""* ]] && echo yes || echo no)"
+check "the image is labelled with its image-source commit" yes "$([[ "$full" == *"LABEL ccy-image-source-commit=\"\${CCY_SOURCE_COMMIT}\""* ]] && echo yes || echo no)"
+check "under no name that reads as the checkout's commit" no "$([[ "$full" == *"LABEL ccy-source-commit="* ]] && echo yes || echo no)"
 
 echo "== the lock refuses a directory that is not the user's own"
 reset_world

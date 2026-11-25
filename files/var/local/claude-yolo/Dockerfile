@@ -45,12 +45,14 @@ RUN target="$(uname -m)-unknown-linux-musl" \
 # when they differ (GOTOOLCHAIN=local never downloads another). Go builds for the build's own
 # architecture (x86_64 or aarch64; golang images are published for both), static
 # (CGO_ENABLED=0), because the runtime image is Debian and must link no host glibc, and offline
-# from the committed src-go/vendor (-mod=vendor). teamchat's source digest is the git tree id of
-# the commit's src-go, as `teamchat version` prints it.
+# from the committed src-go/vendor (-mod=vendor). teamchat's source digest, as `teamchat version`
+# prints it, is image-source-digest's over these paths at the commit: the script play-teamchat.yml
+# runs for the host's teamchat too, so one teamchat source prints one digest (Plan 00265 R57).
 FROM golang:1.26.11 AS ccy-builder
 RUN apt-get update && apt-get install -y --no-install-recommends python3 git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY image-source-paths /image-source-paths
+COPY image-source-digest /image-source-digest
 ARG CCY_SOURCE_COMMIT=""
 RUN set -eu; \
     if [ -z "${CCY_SOURCE_COMMIT}" ]; then \
@@ -80,7 +82,7 @@ RUN set -eu; \
     if [ "${pinned}" != "${have}" ]; then \
         echo "src-go/go.mod pins toolchain '${pinned}', this stage has ${have}: move FROM golang: to it" >&2; exit 1; \
     fi; \
-    digest="$(git -C /repo rev-parse FETCH_HEAD:src-go)"; \
+    digest="$(bash /image-source-digest /repo FETCH_HEAD /image-source-paths)"; \
     mkdir -p /out/optional/agent-bus /out/optional/teamchat/bin; \
     go build -trimpath -buildvcs=false -o /out/ccy-start-claude ./cmd/ccy-start-claude; \
     go build -trimpath -buildvcs=false -o /out/optional/agent-bus/pingbus-status-line ./cmd/pingbus-status-line; \
@@ -105,7 +107,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.84.85"
+LABEL claude-yolo-version="2.84.86"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -662,7 +664,11 @@ COPY plugins/phpantom-lsp/ /opt/claude-yolo/plugins/phpantom-lsp/
 # apt/npm/Chromium layers above it. Re-declared because ARGs do not cross stage boundaries.
 ARG DOCKERFILE_HASH="unknown"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
-# The commit the ccy-builder stage built this image's own commands from (issue 235), readable with
-# `podman image inspect`. It changes only when that source does (issue 277).
+# The image-source commit: the commit the ccy-builder stage built this image's own commands from
+# (issue 235), the last one that changed a path image-source-paths lists, NOT the checkout's HEAD
+# the image was built in. Readable with `podman image inspect`. It changes only when that source
+# does (issue 277), so an image built today names an older commit when nothing it is built from
+# changed since (Plan 00265 R57). No label carries the checkout's HEAD: it would change the image
+# on every commit (the build-arg-volatile rule).
 ARG CCY_SOURCE_COMMIT=""
-LABEL ccy-source-commit="${CCY_SOURCE_COMMIT}"
+LABEL ccy-image-source-commit="${CCY_SOURCE_COMMIT}"

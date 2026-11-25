@@ -59,6 +59,9 @@ func InScope(p string) bool {
 var SharedFiles = map[string]string{
 	"tasks/build-go-command.yml": "the one build of every Go command in this repository (src-go/CLAUDE.md)",
 	"vars/golang.yml":            "the oldest Go every Go build in this repository accepts; v2's controller build checks it like play-golang.yml",
+	"files/var/local/claude-yolo/image-source-digest": "teamchat's source digest, the one script the ccy image's builder stage " +
+		"and the teamchat play both run, so one teamchat source prints one digest (Plan 00265 R57)",
+	"files/var/local/claude-yolo/image-source-paths": "the paths that digest covers: the ccy image's source, teamchat's among it",
 }
 
 // reference is a tasks/, files/ or vars/ path from the repository root, at the start of a value,

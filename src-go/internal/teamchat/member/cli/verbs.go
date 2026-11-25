@@ -277,7 +277,7 @@ var table = []Verb{
 	},
 	{Name: "verify", Team: TeamOne, Agent: true, Args: []Arg{eventArg}, Flags: []Flag{{Name: "room", Value: "main|questions", check: checkRoom}}, Does: "re-fetches one event from the homeserver: its verified kind, sender, team, room, full text and SHA-256"},
 	{Name: "status", Team: TeamMulti, Agent: true, Does: "this session's teams, roles, members, side rooms, delivery state, open pings and runtime"},
-	{Name: verbVersion, Agent: true, Does: "the binary's source digest and the record version it prints"},
+	{Name: verbVersion, Agent: true, Does: "the binary's source digest (image-source-digest: the ccy image's source, so the host's and the image's builds of one teamchat source print one digest) and the record version it prints"},
 	{
 		Name: verbHelp, Agent: true,
 		Args: []Arg{{Name: argVerb, Form: "<verb>|" + topicCodes, Optional: true}, {Name: "word", Form: "-", Optional: true}},

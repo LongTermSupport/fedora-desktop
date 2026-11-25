@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# The ccy image's source digest at a commit: the git blob id of the staged listing (mode, object
+# id, path; NUL-separated, so no git setting changes it) of the files image-source-paths matches.
+# Equal image sources give equal digests, whatever else the commit changed. It is teamchat's
+# source digest (what `teamchat version` prints): the one definition, run by the Dockerfile's
+# ccy-builder stage at the commit it clones and by play-teamchat.yml at the checkout's HEAD
+# (Plan 00265 R57). The repository's object store is only read; the index is a scratch file.
+# Usage: image-source-digest REPO COMMIT PATHS-FILE   (the digest on stdout)
+set -euo pipefail
+
+if [ $# -ne 3 ]; then
+    echo "usage: image-source-digest REPO COMMIT PATHS-FILE" >&2
+    exit 2
+fi
+repo=$1 commit=$2 list=$3
+mapfile -t paths <"$list"
+if [ ${#paths[@]} -eq 0 ]; then
+    echo "$list lists no path" >&2
+    exit 1
+fi
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+export GIT_INDEX_FILE=$scratch/index
+git -C "$repo" read-tree "$commit"
+git -C "$repo" ls-files -z --stage -- "${paths[@]}" >"$scratch/listing"
+if [ ! -s "$scratch/listing" ]; then
+    echo "no file of $commit in $repo matches a path $list lists" >&2
+    exit 1
+fi
+git -C "$repo" hash-object --no-filters --stdin <"$scratch/listing"

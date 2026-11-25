@@ -153,7 +153,10 @@ commit of a run the same way (`scripts/qa-ccy-merge-commits.bash`), since a loca
   The play passes the last commit up to its
   checkout's HEAD that changed one of those paths, so **HEAD must be pushed** before the play
   builds the image, and records it in `/opt/claude-yolo/source-commit` for the launcher's own
-  rebuilds. That stage, and the image's id, change only when that source does (issue 277); the
+  rebuilds; the image carries it as the label `ccy-image-source-commit` (the image-source commit,
+  never the checkout's HEAD). teamchat's source digest is `image-source-digest`'s over the same
+  paths at that commit, which `play-teamchat.yml` runs for the host's teamchat too (Plan 00265
+  R57). That stage, and the image's id, change only when that source does (issue 277); the
   Dockerfile hash does not include it. A build argument new on every commit is the rule
   [image-build-arg-volatile](QA.md#image-build-arg-volatile). `test-ccy-container-version-hook.bash` fails on a play task that writes anything
   else where a `COPY` takes from the context.
