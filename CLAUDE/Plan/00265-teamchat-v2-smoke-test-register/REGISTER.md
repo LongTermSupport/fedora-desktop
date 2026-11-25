@@ -599,7 +599,7 @@ filled in as each cause is known.
 - **Fix:** a terminal launch in a checkout with a declared record for the same seats takes that
   record's name.
 - **Severity:** medium (an inventory addressed by fixed names gains a stray session). **Issue:**
-  TBF. **State:** fixed on v2-smoke (batch 11; ccy 3.124.57; commits in reports/R61.md):
+  TBF. **State:** fixed on v2-smoke (batch 11, `bc75780d6`; ccy 3.124.57; reports/R61.md):
   `ccy-teams internal session-name` takes the checkout and reads the registry; exactly one
   stopped record of the same checkout, launcher and seats (canonical, any order; none matches
   none), in the file its name names, is taken over, its `fresh-if-no-conversation` mark kept;
