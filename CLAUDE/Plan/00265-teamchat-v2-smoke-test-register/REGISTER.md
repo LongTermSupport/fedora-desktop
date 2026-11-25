@@ -462,6 +462,8 @@ filled in as each cause is known.
 - **Severity:** medium. **Issue:** TBF. **State:** on F44 (batch 8, `10a63a7f0`, CCY 3.124.52,
   container 2.84.80 unchanged); live after `play-claude-yolo.yml` rebuilds `ccy-teams`, already
   queued. Live check: a seat with a model starts on it; `--model` on the command line wins.
+  The coordinator reads the `ANTHROPIC_MODEL` half at a restore on their dev VM (25 Nov). The
+  `--model` half has no route there but a launch by hand: `declare` records no extra `--model`.
 
 ## R35: the Lightning client setup for a team, with presets
 
@@ -567,6 +569,22 @@ filled in as each cause is known.
   `scripts/git-hooks/pre-commit` by hand before committing. No manual `git config` (IaC only).
 - **Severity:** high (every gate a commit is meant to pass locally is silently absent).
   **Issue:** #427. **State:** open, outside v2.
+
+## R63: `declare` fails a converge while a declared session runs with a record not its own
+
+- **Seen:** the coordinator's question on batch 11 (25 Nov 20:36Z), answered from the code.
+- **What:** `ccy-sessions declare` (`sessions/declare.go`, `declareInto`) answers UNCHANGED (rc 0)
+  only when the record under the name equals the declared one. When it differs and a tmux session
+  of that name runs, it ends rc 1 ("is running, and its record is its launch's"). A provisioning
+  play that declares every session on every converge then fails, or must match stderr. Two ways
+  in: the inventory changes a running session's `--teams`, which has failed since `d5e536a44`;
+  and, since R61 (batch 11), the owner starts a stopped declared session from a terminal, so its
+  record becomes the launch's.
+- **Fix (the coordinator's choice, option c):** in that case `declare` answers rc 0 with a
+  verdict of its own, `<name> DEFERRED`. The line says the record is written when `declare` runs
+  again after the session stops. Nothing is written while the session runs. A record that differs
+  while the session is stopped is still refused without `--replace`.
+- **Severity:** medium (a play's converge). **Issue:** TBF. **State:** open; after R60.
 
 ## R62: `project_walk_open` does not take a regular-file check written as a switch case
 
