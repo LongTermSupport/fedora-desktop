@@ -63,6 +63,44 @@ func TestEventsCarryTheirOwnTransactionIDOnly(t *testing.T) {
 	tm.refused(tm.call(tm.agent, "GET", tm.roomPath("state/teamchat.nothing/"), nil, nil), 404, "M_NOT_FOUND", "Event not found.")
 }
 
+// Tuwunel 1.9.4 (src/api/client/room/event.rs) answers an event a user cannot see 404
+// M_NOT_FOUND, as it does an event that does not exist, never 403: an invited member that has
+// not joined, and a stranger, are told the event is not there.
+func TestAnEventAUserCannotSeeIsNotFound(t *testing.T) {
+	tm := newTeam(t)
+	id := text(t, tm.ok(tm.send(tm.agent, "seen", map[string]any{"body": "x"}))["event_id"])
+	tm.refused(tm.call(tm.outsider, "GET", tm.roomPath("event/"+q(id)), nil, nil), 404, "M_NOT_FOUND", "Event not found.")
+	tm.ok(tm.call(tm.admin, "POST", tm.roomPath("invite"), nil, map[string]any{"user_id": tm.outsider}))
+	tm.refused(tm.call(tm.outsider, "GET", tm.roomPath("event/"+q(id)), nil, nil), 404, "M_NOT_FOUND", "Event not found.")
+	tm.ok(tm.call(tm.outsider, "POST", tm.roomPath("join"), nil, map[string]any{}))
+	if got := tm.ok(tm.call(tm.outsider, "GET", tm.roomPath("event/"+q(id)), nil, nil)); got["event_id"] != id {
+		t.Fatalf("a joined member reads %v", got)
+	}
+}
+
+// Tuwunel 1.9.4 (src/api/client/send.rs check_nested_thread, MSC3440) refuses a thread rooted
+// at an event whose content names a rel_type, an edit or a thread post, 400 M_UNKNOWN; a thread
+// on a plain event, and a plain reply to the edit, are sent.
+func TestAThreadRootedAtAnEventWithARelationIsRefused(t *testing.T) {
+	tm := newTeam(t)
+	plain := text(t, tm.ok(tm.send(tm.human, "plain", map[string]any{"msgtype": "m.text", "body": "x"}))["event_id"])
+	edit := text(t, tm.ok(tm.send(tm.human, "edit", map[string]any{
+		"msgtype": "m.text", "body": "* y", "m.new_content": map[string]any{"msgtype": "m.text", "body": "y"},
+		"m.relates_to": map[string]any{"rel_type": "m.replace", "event_id": plain},
+	}))["event_id"])
+	threaded := func(root string) map[string]any {
+		return map[string]any{"msgtype": "m.text", "body": "z", "m.relates_to": map[string]any{
+			"rel_type": "m.thread", "event_id": root, "is_falling_back": true, "m.in_reply_to": map[string]any{"event_id": root},
+		}}
+	}
+	tm.refused(tm.send(tm.agent, "on-edit", threaded(edit)), 400, "M_UNKNOWN", "Cannot start threads from an event with a relation.")
+	inThread := text(t, tm.ok(tm.send(tm.agent, "on-plain", threaded(plain)))["event_id"])
+	tm.refused(tm.send(tm.agent, "on-thread-post", threaded(inThread)), 400, "M_UNKNOWN", "Cannot start threads from an event with a relation.")
+	tm.ok(tm.send(tm.agent, "reply-to-edit", map[string]any{
+		"msgtype": "m.text", "body": "r", "m.relates_to": map[string]any{"m.in_reply_to": map[string]any{"event_id": edit}},
+	}))
+}
+
 func TestRedactingAStateEventIsUnmodelled(t *testing.T) {
 	tm := newTeam(t)
 	id := text(t, tm.ok(tm.putState(tm.admin, "m.room.topic", "", map[string]any{"topic": "y"}))["event_id"])

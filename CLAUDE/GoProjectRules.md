@@ -2711,6 +2711,20 @@ scope (server; session; pane or window).
 A class is listed here, with what holds it instead, when no analyzer can judge it without
 guessing; the catalogue claims no more than the code does.
 
+- **teamchat code shaped by a fake homeserver answer that Tuwunel does not give** (Plan 00265
+  R10, R12). `fakehs` answered a non-member's GET event 403, where Tuwunel 1.9.4 answers 404
+  M_NOT_FOUND. So a worker's link joined questions only on a 403, never joined, and dropped
+  every relayed answer and verify of a questions post. `fakehs` also posted a thread rooted at
+  an edit, which Tuwunel refuses 400 M_UNKNOWN (MSC3440), so a coordinator's reply to an
+  edited human post was refused live while every test passed. Which answer a real server gives
+  is a fact about the server, not a shape in the Go syntax tree. What holds it: the fake
+  itself, corrected to Tuwunel's own source for the pinned version
+  (`src/api/client/room/event.rs`, `send.rs` `check_nested_thread`) and proven by
+  `TestAnEventAUserCannotSeeIsNotFound` and `TestAThreadRootedAtAnEventWithARelationIsRefused`.
+  The sweep is the whole teamchat test suite under the corrected fake: it turned red only the
+  four relay and verify tests of `teamsync`, fixed in `getQuestionsEvent`. Where an answer has
+  no H4 recording, its fake text cites the server source it was taken from.
+
 - **A restore verdict that calls a record restorable without checking it answers every launch
   question its replay can meet** (fedora-desktop#270: `restore --check` and `declare` called a
   ccy record RESTORABLE when its project had compose files and it held no `compose=` answer, so
