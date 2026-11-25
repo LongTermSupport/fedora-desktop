@@ -463,18 +463,8 @@ func (x *Hot) resolve(ctx context.Context, r request) (*target, term.ExitCode, b
 	}
 	dir := membership.DirOf(runtime, t.kind, session)
 	t.dir, t.store = dir, store
-	if info, statErr := os.Lstat(dir); statErr != nil || !info.IsDir() {
-		seats, found, v2Err := x.teamchatSeats(t, rec.Dir)
-		if v2Err != nil {
-			x.mark(markFailed, "session "+session+": "+v2Err.Error())
-			return nil, term.ExitFailure, false
-		}
-		t.v2 = seats
-		if !found {
-			x.notKit(session, os.ErrNotExist)
-			return nil, exitConfig, false
-		}
-	}
+	info, statErr := os.Lstat(dir)
+	onV1 := statErr == nil && info.IsDir()
 	lockPath, err := changePath(runtime, session)
 	if err == nil {
 		t.lock, err = takeLock(lockPath, holderOf(r))
@@ -487,7 +477,11 @@ func (x *Hot) resolve(ctx context.Context, r request) (*target, term.ExitCode, b
 		x.mark(markFailed, "session "+session+": "+err.Error())
 		return nil, term.ExitFailure, false
 	}
-	if t.v2 != nil {
+	if !onV1 {
+		if code, ok := x.openV2(t, rec.Dir); !ok {
+			x.letGo(t.lock)
+			return nil, code, false
+		}
 		x.step(markDone, fmt.Sprintf(stepSessionNamed, session), hotControlled)
 		return t, term.ExitOK, true
 	}
@@ -517,6 +511,14 @@ func (x *Hot) locate(ctx context.Context, t *target) (term.ExitCode, bool) {
 	}
 	if isCC(t.runtime, t.session) {
 		return x.locateCC(ctx, t)
+	}
+	ccV2, err := x.ccOnTeamchat(ctx, t.session)
+	if err != nil {
+		x.mark(markFailed, "session "+t.session+": "+err.Error())
+		return exitConfig, false
+	}
+	if ccV2 {
+		return x.refuseV2(t, v2CCNotBuilt), false
 	}
 	x.mark(markFailed, "session "+t.session+": no running container is labelled "+sessionTag+t.session+
 		": it is not running, or it was started outside ccy's tmux, so it cannot be changed while it runs")

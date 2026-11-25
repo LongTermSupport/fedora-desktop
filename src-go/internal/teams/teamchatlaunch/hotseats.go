@@ -134,7 +134,8 @@ func (h *HotSeats) Choose(team, given string) (string, string, error) {
 
 // Join takes seat seatPart of team for the session, the way its launch took its seats (the pool
 // seat, its roster state, under the allocation lock), then writes the next generation naming it.
-// Nothing is written when the take fails.
+// Nothing is written when the take fails; a generation that cannot be written releases the seat
+// taken, so no seat stays held for a session that does not name it.
 func (h *HotSeats) Join(ctx context.Context, team, seatPart string) error {
 	l := h.parts.Launch
 	chosen, takes, err := l.choose(seatPart + "@" + team)
@@ -147,7 +148,17 @@ func (h *HotSeats) Join(ctx context.Context, team, seatPart string) error {
 	}
 	c := chosen[0]
 	seats := append(slices.Clone(h.desired.Seats), state.DesiredSeat{Team: c.Team, Seat: c.Seat, Duty: c.Duty})
-	return h.write(seats, h.without(c.Team, c.Seat))
+	if err = h.write(seats, h.without(c.Team, c.Seat)); err != nil {
+		released, relErr := h.Release(ctx, team)
+		if relErr != nil {
+			return errors.Join(err, fmt.Errorf("the seat taken is still held: %w", relErr))
+		}
+		if !released {
+			return errors.Join(err, errors.New("the seat taken was not found in the seat store to release"))
+		}
+		return fmt.Errorf("%w; the seat taken is released", err)
+	}
+	return nil
 }
 
 // Leave writes the next generation without the session's seat of team and with a released
@@ -214,14 +225,14 @@ func (h *HotSeats) Applied(team, seatPart string) (bool, string, error) {
 	}
 	gen := h.desired.Generation
 	switch {
+	case rep.Desired.Generation < gen:
+		return false, fmt.Sprintf("the session's keeper has reported generation %d, not %d yet", rep.Desired.Generation, gen), nil
 	case rep.Desired.State != state.DesiredApplied:
 		code := ""
 		if rep.Desired.Code != nil {
 			code = *rep.Desired.Code
 		}
 		return false, fmt.Sprintf("the session's keeper refused the desired membership (%s)", code), nil
-	case rep.Desired.Generation < gen:
-		return false, fmt.Sprintf("the session's keeper applied generation %d, not %d", rep.Desired.Generation, gen), nil
 	case rep.Seat.Seat != seatPart:
 		return false, fmt.Sprintf("the session's report names seat %s, not %s", rep.Seat.Seat, seatPart), nil
 	case keeper != seat.KeeperRunning:
@@ -231,21 +242,22 @@ func (h *HotSeats) Applied(team, seatPart string) (bool, string, error) {
 }
 
 // Release releases the session's seat of team as a leave (no disconnected notice: the session
-// goes on), waiting, bounded, for the keeper to let its seat lock go (C 3.7.3).
-func (h *HotSeats) Release(ctx context.Context, team string) (err error) {
+// goes on), waiting, bounded, for the keeper to let its seat lock go (C 3.7.3). released is false
+// when the seat store holds no seat of team for the session, so nothing was released.
+func (h *HotSeats) Release(ctx context.Context, team string) (released bool, err error) {
 	holder, err := h.parts.Holder()
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() { err = errors.Join(err, holder.Close()) }()
 	holdings, err := holder.Holdings()
 	if err != nil {
-		return fmt.Errorf("the seats of session %s: %w", h.session, err)
+		return false, fmt.Errorf("the seats of session %s: %w", h.session, err)
 	}
 	for _, held := range seat.HeldBy(holdings, h.session) {
 		if held.Seat.Team.String() == team {
-			return holder.Release(ctx, seat.Release{Seat: held.Seat, Session: h.session, Leaving: true})
+			return true, holder.Release(ctx, seat.Release{Seat: held.Seat, Session: h.session, Leaving: true})
 		}
 	}
-	return nil
+	return false, nil
 }

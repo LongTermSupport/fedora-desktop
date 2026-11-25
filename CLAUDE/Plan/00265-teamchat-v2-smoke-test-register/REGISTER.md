@@ -306,6 +306,11 @@ filled in as each cause is known.
   waits for the keeper's seat lock and `report.json` at that generation. `--role`, `--park`,
   `--coordinator`, `move`, `role` and `repair` refuse by name for v2. Not yet run live.
   Detail, the class guard and the sibling readers left open: `reports/U10.md`.
+- **Review fixes (batch 4):** the desired generation is read under the session's change lock
+  (two adds no longer both write N+1); a join whose generation cannot be written releases the
+  seat it took; a remove whose seat the store does not hold says so instead of "free"; a
+  running cc session on teamchat is refused by name; an unreadable v2 desired is 78; a stale
+  refused report is named as an older generation. ccy 3.124.47, container 2.84.78 (with R49).
 - **Severity:** high (no-degrade, F19). **Issue:** TBF. **Unit:** U10. **State:** fixed on
   `v2-smoke` (U10); lands with batch 4; the live check is an add on a running v2 session.
 
@@ -318,7 +323,7 @@ filled in as each cause is known.
   a team away leaves running v2 sessions in it); `teams/restart/jobs.go`; the board's
   `addDesired` (`teams/board/collect.go`, `snapshot.go`: v1's desired memberships; the board
   has a `v2.go`, so U11 first checks what it already shows); `internal/conversation`. A host `cc`
-  session on teamchat is not covered by R41's fix either.
+  session on teamchat is refused by name by `session` verbs (batch 4 review), not yet changed.
 - **Fix:** each reads a v2 session's `desired.json` (and its seats' reports) as R41's add does,
   under the same class guard, `TestEveryVerbOnAV2SessionActsOrRefusesByName`, widened to these
   readers.
@@ -465,7 +470,8 @@ filled in as each cause is known.
   `untracked/scratch/r49-rootcause.md` (this seat).
 - **Fix:** a failed join is now refused forbidden (exit 22, tell a human), naming the join and
   `link.log`; not-found again means only that no readable event has the id. **Severity:** medium.
-  **Issue:** TBF. **State:** fixed on `v2-smoke`; batch 4.
+  **Issue:** TBF. **State:** fixed on `v2-smoke`; batch 4. `teamsync` is an image source, so it
+  ships in container 2.84.78 (ccy 3.124.47), which batch 4's first commits lacked (review 1).
 
 ## R48: the off-host route demanded a dedicated agent user (uid and groups)
 
