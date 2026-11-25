@@ -38,6 +38,7 @@ func world(t *testing.T, declared ...string) scratch {
 		Stderr:   w.err,
 		Declared: func(context.Context) ([]string, error) { return declared, nil },
 		Status:   func(paths.TeamID) (status.Record, bool, error) { return status.Record{}, false, nil },
+		Life:     func(paths.TeamID) error { return nil },
 	}
 	return w
 }

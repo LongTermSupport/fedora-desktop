@@ -57,8 +57,10 @@ type Verbs struct {
 	// Membership writes a v1 session's membership and is its directory (membership.Init.Prepare).
 	Membership func(ctx context.Context, args []string) (string, term.ExitCode)
 	Status     func(paths.TeamID) (status.Record, bool, error)
-	NowMS      func() int64
-	Exec       execx.Execer
+	// Life is every v2 launch's and join's judgement of a team's lifecycle (Launch.Life).
+	Life  func(paths.TeamID) error
+	NowMS func() int64
+	Exec  execx.Execer
 	// Parts is the seat store's clock, credential, session records, announcer and reach; the
 	// verbs fill in where the store is and whose checkout it allocates.
 	Parts seat.Config
@@ -186,7 +188,7 @@ func codeOf(err error) term.ExitCode {
 		return term.ExitUsage
 	case errors.Is(err, seat.ErrHeld), errors.Is(err, seat.ErrBusy):
 		return term.ExitBusy
-	case errors.Is(err, system.ErrUndecided), errors.Is(err, ErrMount), errors.Is(err, ErrHostKit), errors.Is(err, ErrNoSession), errors.Is(err, seat.ErrNoRecord), errors.Is(err, seat.ErrReturn),
+	case errors.Is(err, system.ErrUndecided), errors.Is(err, system.ErrTeamGone), errors.Is(err, ErrMount), errors.Is(err, ErrHostKit), errors.Is(err, ErrNoSession), errors.Is(err, seat.ErrNoRecord), errors.Is(err, seat.ErrReturn),
 		errors.Is(err, seat.ErrRetired), errors.Is(err, seat.ErrIncomplete), errors.Is(err, seat.ErrLeftover),
 		execx.IsNotInstalled(err):
 		return term.ExitConfig
@@ -264,7 +266,7 @@ func (v *Verbs) launchArgs(ctx context.Context, args []string) (term.ExitCode, e
 	if err != nil {
 		return 0, err
 	}
-	launch := &Launch{Store: store, Checkout: key, Kind: seatchoice.KindPodman, Taker: v.Taker(v.config(state, key)), Status: v.Status, NowMS: v.NowMS}
+	launch := &Launch{Store: store, Checkout: key, Kind: seatchoice.KindPodman, Taker: v.Taker(v.config(state, key)), Status: v.Status, Life: v.Life, NowMS: v.NowMS}
 	taken, err := launch.Take(ctx, name, list, mounts, relabel)
 	if err != nil {
 		return 0, v.withWays(err, checkout, list, seatchoice.KindPodman)

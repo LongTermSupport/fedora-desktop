@@ -115,7 +115,7 @@ func TestR64APostInsideTheFloorIsNotDeliveredAgain(t *testing.T) {
 
 // humanBurst is a coordinator's link given alice's posts, n of them in one minute of the fake
 // clock: the first alone, the rest in one held answer. It gives the batches of both answers and
-// the posts' ids.
+// the posts' ids, once the held answer's judging is committed (its log lines printed).
 func humanBurst(t *testing.T, w *world, n int, post func(i int) string) ([]team.Batch, []string) {
 	t.Helper()
 	var g *filterGate
@@ -129,7 +129,30 @@ func humanBurst(t *testing.T, w *world, n int, post func(i int) string) ([]team.
 	}
 	rt.drainPolls()
 	release()
-	return []team.Batch{first, w.persistedBefore(rt.r)}, ids
+	return []team.Batch{first, w.committed(rt.r)}, ids
+}
+
+// committed is the batch the team persists for the answer it handles next, given once that
+// answer's judging is committed and its log lines printed. Persist hands the batch over before
+// the commit, and the team long-polls again only after it, so the test waits for that poll and
+// then takes the batch, which is sent by then; a test reads link.log after this, never straight
+// after a batch.
+func (w *world) committed(r *running) team.Batch {
+	w.t.Helper()
+	select {
+	case <-r.polls:
+	case err := <-r.done:
+		w.t.Fatalf("the team ended before its next long-poll: %v", err)
+	case <-w.t.Context().Done():
+		w.t.Fatal("no long-poll after the answer")
+	}
+	select {
+	case b := <-w.eng.batches:
+		return b
+	default:
+		w.t.Fatal("the answer was handled and nothing was persisted")
+	}
+	return team.Batch{}
 }
 
 // checkHumanBurst holds A 11.1's human exemption over a burst: every post delivered once, none

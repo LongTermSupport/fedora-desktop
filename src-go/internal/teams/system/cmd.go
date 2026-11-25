@@ -30,6 +30,9 @@ type Cmd struct {
 	Status   func(paths.TeamID) (status.Record, bool, error)
 	// Sessions are the session records a seat's holder is judged by (PoolState).
 	Sessions seat.Sessions
+	// Life is nil for a team whose pool seats can be taken here, else why not (Life.Check,
+	// register R59): PoolState refuses such a team and PoolTeams leaves it out.
+	Life func(paths.TeamID) error
 }
 
 // Here is the seat store and the checkout key of the working directory, from HOME and
@@ -116,9 +119,15 @@ func (c *Cmd) PoolState(team, kind string) ([]seatchoice.Seat, error) {
 	if c.Sessions == nil {
 		return nil, errors.New("the seats' holders cannot be judged: no session records are wired")
 	}
+	if c.Life == nil {
+		return nil, errNoLife
+	}
 	id, err := paths.ParseTeamID(team)
 	if err != nil {
 		return nil, fmt.Errorf("team %s: %w", team, err)
+	}
+	if err = c.Life(id); err != nil {
+		return nil, err
 	}
 	store, key, _, err := Here(c.Getenv, c.Getwd)
 	if err != nil {
@@ -126,6 +135,10 @@ func (c *Cmd) PoolState(team, kind string) ([]seatchoice.Seat, error) {
 	}
 	return PoolState(store, key, id, c.Sessions, kind)
 }
+
+// errNoLife is a Cmd asked for seats to offer with no team lifecycle wired: a removed team's
+// seats would read as free (register R59).
+var errNoLife = errors.New("whether a team is still installed cannot be judged: no lifecycle is wired")
 
 // PoolState is checkout's pool seats of kind of team in store (the only seats a launch of kind is
 // offered, register R55), each with the session a take would be refused for ("" free). It is the take's own test of a holding (seat.Store's clearHeld), read
@@ -178,13 +191,36 @@ func sessionHolds(store paths.Store, sessions seat.Sessions, session paths.Sessi
 	return sessions.Restorable(session)
 }
 
-// PoolTeams are the teams with a seat in the working directory's pool, sorted.
+// PoolTeams are the teams with a seat in the working directory's pool, sorted, less those whose
+// seats cannot be taken here (Life: a removed team is never offered, register R59).
 func (c *Cmd) PoolTeams() ([]string, error) {
+	if c.Life == nil {
+		return nil, errNoLife
+	}
 	store, key, _, err := Here(c.Getenv, c.Getwd)
 	if err != nil {
 		return nil, err
 	}
-	return PoolTeams(store, key)
+	teams, err := PoolTeams(store, key)
+	if err != nil {
+		return nil, err
+	}
+	live := make([]string, 0, len(teams))
+	for _, team := range teams {
+		id, err := paths.ParseTeamID(team)
+		if err != nil {
+			return nil, err
+		}
+		err = c.Life(id)
+		switch {
+		case errors.Is(err, ErrTeamGone):
+			continue
+		case err != nil:
+			return nil, err
+		}
+		live = append(live, team)
+	}
+	return live, nil
 }
 
 // Run prints the lines, or refuses.

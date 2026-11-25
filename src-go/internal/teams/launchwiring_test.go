@@ -22,3 +22,10 @@ func TestTheLaunchVerbsAreWiredToTheStoreAndTheClock(t *testing.T) {
 		t.Fatal("the clock reads no time")
 	}
 }
+
+// Register R59: the launch verbs judge a team's lifecycle; without it every seat is refused.
+func TestTheLaunchVerbsJudgeATeamsLifecycle(t *testing.T) {
+	if newHarness(t).app.Launch.Life == nil {
+		t.Fatal("the launch verbs have no lifecycle wired")
+	}
+}

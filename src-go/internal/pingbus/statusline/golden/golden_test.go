@@ -43,10 +43,14 @@ const (
 	startedName = "inner-started"
 	stepTimeout = 40 * time.Second
 	pollEvery   = 20 * time.Millisecond
-	goneChecks  = 250 // goneChecks * pollEvery is the 5 s a killed process gets to die
-	innerNote   = "[oracle: the inner never started, no signal sent]\n"
-	dirMode     = 0o750
-	fileMode    = 0o600
+	// goneChecks * pollEvery (at least 20 s, a check takes time too) is how long a process the
+	// render's group kill has already sent SIGKILL gets to end. A passing step waits only until it
+	// has; 5 s was seen to run out on a loaded CI runner. It stays well short of the 60 s the
+	// scenarios' grandchild sleeps, so one that escaped the kill still outlives it.
+	goneChecks = 1000
+	innerNote  = "[oracle: the inner never started, no signal sent]\n"
+	dirMode    = 0o750
+	fileMode   = 0o600
 	// settleBy is how far past the world's newest change the in-process run's clock is set: more
 	// than the cache's 2 s racy window, so a render the cache may keep is kept. It is far inside
 	// the 300 s a down mark counts for, and no scenario's mark sits within it of that edge.
@@ -266,18 +270,7 @@ func stdinOf(h stdinHolder, root string) ([]byte, error) {
 	return nil, nil
 }
 
-// alive reports whether pid has not ended as a whole: a zombie whose threads are all gone has
-// ended, and the leader's Z alone does not say so (procend; issue #182).
-func alive(t *testing.T, pid int) bool {
-	t.Helper()
-	ended, err := procend.Ended(pid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return !ended
-}
-
-// gone checks the named pid files: each process must be dead or a zombie within 5 s.
+// gone checks the named pid files: each process must have ended within the bound of outlives.
 func gone(t *testing.T, root string, pidFiles []string) []string {
 	t.Helper()
 	var problems []string
@@ -300,16 +293,54 @@ func goneOne(t *testing.T, root, rel string) string {
 	if err != nil {
 		return rel + ": no pid was written"
 	}
-	for i := 0; i < goneChecks && alive(t, pid); i++ {
-		time.Sleep(pollEvery)
+	outlived, err := outlives(pid, realProcs)
+	if err != nil {
+		t.Error(err)
 	}
-	if !alive(t, pid) {
+	if !outlived {
 		return ""
 	}
-	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
-		t.Errorf("kill %d: %v", pid, err)
-	}
 	return fmt.Sprintf("%s: process %d outlived the render", rel, pid)
+}
+
+// procs is how outlives asks after a process, kills it and waits between two checks.
+type procs struct {
+	ended func(pid int) (bool, error)
+	kill  func(pid int) error
+	pause func()
+}
+
+// realProcs asks procend, for which a zombie whose threads are all gone has ended and the
+// leader's Z alone does not say so (issue #182).
+var realProcs = procs{
+	ended: procend.Ended,
+	kill:  func(pid int) error { return syscall.Kill(pid, syscall.SIGKILL) },
+	pause: func() { time.Sleep(pollEvery) },
+}
+
+// outlives is whether pid is still running after goneChecks checks, a pause apart; one that is
+// is killed. A kill answered ESRCH found the process gone between the last check and the kill,
+// so it did not outlive the bound; any other refused kill is an error.
+func outlives(pid int, p procs) (bool, error) {
+	for range goneChecks {
+		ended, err := p.ended(pid)
+		if err != nil || ended {
+			return false, err
+		}
+		p.pause()
+	}
+	ended, err := p.ended(pid)
+	if err != nil || ended {
+		return false, err
+	}
+	err = p.kill(pid)
+	if errors.Is(err, syscall.ESRCH) {
+		return false, nil
+	}
+	if err != nil {
+		return true, fmt.Errorf("kill %d: %w", pid, err)
+	}
+	return true, nil
 }
 
 func signalNamed(name string) (syscall.Signal, error) {
