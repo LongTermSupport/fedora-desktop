@@ -18,6 +18,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
@@ -1155,9 +1156,11 @@ func (c *Wizard) offerJoin(ctx context.Context, team, here string) error {
 	if err != nil || !yes {
 		return err
 	}
-	c.term.Printf("Starting ccy --teams %s in %s.\n", team, shown)
-	if err = c.ExecLauncher(top, []string{c.Launcher, ccyenv.FlagTeams, team}); err != nil {
-		return fmt.Errorf("start ccy --teams %s: %w", team, err)
+	// A new team's seats have no conversation to resume, so the first session starts fresh on
+	// purpose (issue 417: a plain seated launch resumes the seats' recorded one).
+	c.term.Printf("Starting ccy --teams %s --fresh in %s.\n", team, shown)
+	if err = c.ExecLauncher(top, []string{c.Launcher, ccyenv.FlagTeams, team, registry.FlagFresh}); err != nil {
+		return fmt.Errorf("start ccy --teams %s --fresh: %w", team, err)
 	}
 	return nil
 }

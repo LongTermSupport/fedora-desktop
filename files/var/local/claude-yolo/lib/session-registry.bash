@@ -107,7 +107,8 @@ ccy_registry_launch_args() {
 # The parser this mirrors is the launcher's own flat loop: a value-taking flag consumes the
 # NEXT word whatever it is, `--` ends ccy's options. Three groups:
 #   dropped, no value   modes that exit without a session, one-run switches, --ssh-agent
-#                       (the agent socket is a different path after a reboot) and the opt-out
+#                       (the agent socket is a different path after a reboot), the opt-out,
+#                       and --fresh and --rebind (one seated launch's choice of conversation)
 #   dropped, with value --update-token, --export-token, --connect, --disconnect, --prompt,
 #                       --run-for, --until (a deadline is absolute: a replay would restart or
 #                       miss it; a supervisor-requested relaunch carries it in the environment),
@@ -128,7 +129,7 @@ ccy_registry_launch_args() {
 # population is complete.
 CCY_REGISTRY_DROP_FLAGS=(--rebuild --create-token --list-tokens --token-usage --custom --custom-docker --top
     --prevent --debug --headless --disable-custom-docker --ssh-agent --no-restore --list-containers --stop-containers
-    --help --version -h -v --build-lock --read-launch-config --check-token --check-network --claude-versions --remove-network --stop --secret-screen)
+    --help --version -h -v --build-lock --read-launch-config --check-token --check-network --claude-versions --remove-network --stop --secret-screen --fresh --rebind)
 CCY_REGISTRY_DROP_VALUE_FLAGS=(--update-token --export-token --connect --disconnect --prompt --run-for --until --compose)
 CCY_REGISTRY_KEEP_VALUE_FLAGS=(--token --ssh-key --network --engine --max-age --teams)
 CCY_REGISTRY_KEEP_FLAGS=(--no-ssh --github-443 --no-network --supervise --no-supervise --no-bus --opencode -oc)

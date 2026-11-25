@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
@@ -66,6 +67,9 @@ type Verbs struct {
 	Holder func(cfg seat.Config) (Holder, error)
 	// Forget removes a session's record (seam 54), before its seats are released.
 	Forget func(session string) error
+	// SyncSeats carries the conversation a session ended in into its seats' records
+	// (conversation.SyncSession, issue 417), before its own state goes.
+	SyncSeats func(checkout, session string) (conversation.Synced, error)
 	// CC is what host cc's launch reads and starts (cc-run); Foreground runs its teamchat
 	// session as a child.
 	CC         CC
@@ -339,14 +343,33 @@ func (v *Verbs) busDisconnected(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	synced := v.syncSeats(wd, session)
 	if filepath.Clean(root) != store.Control(session) {
-		return v.Exec.Exec(execx.Cmd{Name: pingbus, Args: rest})
+		return errors.Join(synced, v.Exec.Exec(execx.Cmd{Name: pingbus, Args: rest}))
 	}
 	holder, err := v.Holder(v.config(state, key))
 	if err != nil {
-		return err
+		return errors.Join(synced, err)
 	}
-	return errors.Join(v.end(ctx, holder, session, exitStatus), holder.Close())
+	return errors.Join(synced, v.end(ctx, holder, session, exitStatus), holder.Close())
+}
+
+// syncSeats is the exit's first step (issue 417, register R4): the conversation the session ended
+// in goes into its seats' records while its own state still names them, so ending it, which
+// removes that state, loses nothing a later plain launch or restore needs. Nothing to carry (no
+// seat, no conversation, none with a transcript) is said; a record that cannot be written is an
+// error, and the session is still ended.
+func (v *Verbs) syncSeats(checkout string, session paths.SessionName) error {
+	got, err := v.SyncSeats(checkout, session.String())
+	switch {
+	case errors.Is(err, conversation.ErrNothingToSync):
+		_, werr := fmt.Fprintf(v.Stderr, "ccy-teams: internal bus-disconnected: the seats' conversation records of session %s are left as they were: %v.\n", session, err)
+		return werr
+	case err != nil:
+		return fmt.Errorf("the seats' conversation records of session %s: %w", session, err)
+	}
+	_, err = fmt.Fprintf(v.Stderr, "ccy-teams: the seats %s resume conversation %s on their next launch: ccy --teams %s\n", got.List, got.ID, got.List)
+	return err
 }
 
 // rootAndSession reads --root and --session from pingbus's arguments.

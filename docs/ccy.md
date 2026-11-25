@@ -1221,13 +1221,15 @@ are not given the limits.
 
 **Running sessions** keep the cgroup and limits they started with until relaunched; `podman update` cannot move a running container into the slice.
 
-**Team seats and `--continue`.** A launch that takes team seats (`--teams`, or Quick Launch's
-saved team) refuses claude's `-c`/`--continue` with exit 64: it would resume the checkout's
-newest conversation, which may be another seat's. The refusal prints the exact
-`ccy --resume <id> --teams <seats>`, with the id recorded by the session that held those seats
-(`ccy-teams seats conversation <seats>` prints it). When none can be named (no record, or one id
-recorded by two sessions), it says why and points at a bare `ccy --resume --teams <seats>`:
-Claude Code's picker, whose choice the seat records. ccy never rewrites the arguments.
+**Team seats resume their conversation.** A plain `ccy --teams <seats>` resumes the conversation
+the seats recorded (`.claude/ccy/seat-conversations/`, written by the launch and at the session's
+end; `ccy-teams seats conversation <seats>` prints it). `--fresh` starts a new one on purpose.
+With none to name the launch exits 64 saying why, with the repair
+(`ccy-teams seats conversation <seats> --set <id>`) and `--fresh`. `--resume <id>` other than the
+record needs `--rebind`; claude's `-c`/`--continue` is refused (it would resume the checkout's
+newest conversation, maybe another seat's), naming the plain form. A bare
+`ccy --resume --teams <seats>` is Claude Code's picker, as before. See
+[ccy-changelog.md](ccy-changelog.md) 3.124.45.
 
 The setting lives in `lib/container-limits.bash` (the Go copy, `src-go/internal/ccylimits`, is
 tested against it). The rules that hold every ccy run to the whole set:

@@ -134,11 +134,21 @@ cat >"$bus_bin/ccy-teams" <<'FAKE'
 # $FAKE_BUS_LOG.status.
 # A list of v2- teams is a teamchat list: check prints it and take does nothing, with no
 # agent-bus call. An agent-bus list with agent-bus missing is refused 78, naming the play.
-# `seats conversation <list>` prints FAKE_SEAT_CONVERSATION, the recorded id; unset, it refuses
-# (exit 1) as Go's does when no session recorded one.
-if [ "$1 $2" = "seats conversation" ]; then
-    [ -n "${FAKE_SEAT_CONVERSATION:-}" ] || { echo "ccy-teams seats conversation: no recorded conversation: no session record holds $3 (fake)" >&2; exit 1; }
-    printf '%s\n' "$FAKE_SEAT_CONVERSATION" && exit 0
+# `internal seat-resume --relaunch=<why> --before=<n> <list> -- <claude args>` (issue 417): it
+# refuses --continue (64, naming the plain launch), else prints the count and claude's words, NUL
+# separated, with --resume FAKE_SEAT_CONVERSATION added when set and no --resume is given;
+# FAKE_RESUME_OUT replaces the whole answer. Logged as its relaunch value and list.
+if [ "$1 $2" = "internal seat-resume" ]; then
+    printf 'ccy-teams internal seat-resume %s %s\n' "$3" "$5" >>"$FAKE_BUS_LOG"
+    list=$5 before=${4#--before=}
+    shift 6
+    [ -z "${FAKE_RESUME_OUT+x}" ] || { printf '%s' "$FAKE_RESUME_OUT" && exit 0; }
+    for a in "$@"; do
+        case "$a" in --continue | -c) printf 'ccy: refuses --continue in a team seat.\n  Resume the conversation the seats recorded:\n    ccy --teams %s\n' "$list" >&2 && exit 64 ;; esac
+    done
+    printf '%s\0' "$before" "$@"
+    case " $* " in *" --resume "* | *" -r "*) ;; *) [ -z "${FAKE_SEAT_CONVERSATION:-}" ] || printf '%s\0' --resume "$FAKE_SEAT_CONVERSATION" ;; esac
+    exit 0
 fi
 case "$1 $2 $3" in
 "internal seat-check "*@v2-*) printf '%s\n' "$3" && exit 0 ;;
@@ -260,6 +270,16 @@ launch_then_wait_on_the_container() {
     echo "$$" >"$FAKE_LAUNCHER_PID"
     sh -c 'echo "$$" >"$FAKE_CTR_PID" && exec sleep 30'
 }
+# The seated launch's conversation step (issue 417): CLAUDE_ARGS from the words after <list>
+# <relaunch>, then what ccy_seats_resume leaves in CLAUDE_ARGS_BEFORE_SEPARATOR and CLAUDE_ARGS.
+resume_and_show() {
+    local list="$1" relaunch="$2" s=0
+    shift 2
+    CLAUDE_ARGS=("$@") CLAUDE_ARGS_BEFORE_SEPARATOR=""
+    ccy_seats_resume "$list" "$relaunch" || s=$?
+    printf '%s|' "$CLAUDE_ARGS_BEFORE_SEPARATOR" "${CLAUDE_ARGS[@]}"
+    return "$s"
+}
 take_and_show() {
     ccy_seats_take "$@"
     local s=$?
@@ -328,27 +348,19 @@ rc=0" "$(lib_run ccy_seats_check team-a,qa@team-b true)"
 check "unattended, the check asks for every seat named" "rc=64" "$(lib_run ccy_seats_check team-a false)"
 check "  with --resolved" "seat check team-a --resolved" "$(bus_calls)"
 
-# Owner's ruling Q67: --continue picks the checkout's newest conversation, which in a team
-# checkout may be another seat's, so a launch that takes seats refuses it (64, usage) and names
-# the command that resumes the seat's own conversation: the id its session recorded (issue
-# 409), or, with none, a bare --resume for Claude Code's picker (Q70). The arguments are never
-# rewritten, and nothing is resumed on its own.
+# Issue 417: the seated launch's conversation is ccy-teams internal seat-resume's decision (its Go
+# tests hold it); the library hands it claude's words and the relaunch value, and takes back the
+# count before any `--` and the words, which replace CLAUDE_ARGS.
 cid=0f1e2d3c-4b5a-4968-8776-655443322110
-for cont in --continue -c; do
-    check "a seat with claude's $cont: refused, 64" "rc=64" \
-        "$(FAKE_SEAT_CONVERSATION=$cid lib_run ccy_seats_check dev1@team-a true --model x "$cont")"
-    check "  the refusal names --resume with the recorded id and the seats" "yes" \
-        "$(has "ccy --resume $cid --teams dev1@team-a" "$work/lib.err")"
-done
-check "no recorded id: still refused, 64" "rc=64" "$(lib_run ccy_seats_check dev1@team-a true --continue)"
-check "  it says why, names the lookup and the bare --resume picker, never a transcript" "yes|yes|yes|no" \
-    "$(has 'no session record holds dev1@team-a' "$work/lib.err")|$(has 'ccy-teams seats conversation dev1@team-a' "$work/lib.err")|$(has '    ccy --resume --teams dev1@team-a' "$work/lib.err")|$(has 'transcript' "$work/lib.err")"
-lib_run ccy_seats_check dev1@team-a false -- --continue >/dev/null
-check "--continue after -- is refused too (it still reaches claude)" "yes" "$(has 'refuses --continue' "$work/lib.err")"
-check "other claude arguments with a seat: accepted" "dev1@team-a
-rc=0" "$(lib_run ccy_seats_check dev1@team-a true --model x --resume abc)"
-check "--continue-like words are not --continue" "dev1@team-a
-rc=0" "$(lib_run ccy_seats_check dev1@team-a true --continued -cx)"
+check "a plain seated launch: claude's words with the recorded --resume added" "2|--model|x|--resume|$cid|rc=0" \
+    "$(FAKE_SEAT_CONVERSATION=$cid lib_run resume_and_show dev1@team-a "" --model x)"
+check "  it was given the relaunch value and the list" "ccy-teams internal seat-resume --relaunch= dev1@team-a" "$(bus_calls)"
+check "a relaunch passes its value on" "ccy-teams internal seat-resume --relaunch=1 dev1@team-a" \
+    "$(lib_run resume_and_show dev1@team-a 1 --resume abc >/dev/null; bus_calls)"
+check "a refusal is the launch's code (64), CLAUDE_ARGS untouched" "|--continue|rc=64" "$(lib_run resume_and_show dev1@team-a "" --continue)"
+check "  the refusal names the plain launch" "yes" "$(has '    ccy --teams dev1@team-a' "$work/lib.err")"
+check "an answer without a count: refused, 78, CLAUDE_ARGS untouched" "|--model|x|rc=78" "$(FAKE_RESUME_OUT='x' lib_run resume_and_show dev1@team-a "" --model x)"
+check "  it names the verb" "yes" "$(has 'seat-resume' "$work/lib.err")"
 
 check "take with a list in ccy's tmux: the label, the read-only relabelled mount and the marker" \
     "--label|ccy-session=ccy-proj-1|$MOUNT|rc=0" \
@@ -690,12 +702,13 @@ FAKE_CHECK_RC=78 run_ccy with-bus --teams 'dev1@elsewhere' --headless
 check "seat check's 78 (a team not running here) is the launch's exit code" "78" "$RC"
 check "  no SSH, engine or token work" "yes" "$(no_session_tools)"
 
-# Q67: --continue with seats is refused before anything runs; the arguments are not rewritten.
+# Q67: --continue with seats is refused (by seat-resume, issue 417) before anything runs, naming
+# the plain seated launch; the arguments are not rewritten.
 for cont in "--continue" "-c" "-- --continue"; do
     read -ra cont_words <<<"$cont"
     run_ccy with-bus --headless --prompt go --teams dev1@team-a "${cont_words[@]}"
     check "--teams with '$cont': refused, 64" "64" "$RC"
-    check "  with no recorded id it names the bare --resume picker" "yes" "$(has '    ccy --resume --teams dev1@team-a' "$work/ccy.err")"
+    check "  it names the plain seated launch" "yes" "$(has '    ccy --teams dev1@team-a' "$work/ccy.err")"
     check "  no SSH, engine or token work" "yes" "$(no_session_tools)"
 done
 
@@ -718,7 +731,7 @@ run_ccy with-bus --headless --teams ' dev1@team-a , qa2@team-b'
 check "an accepted list: the launch goes on to its next check" "1" "$RC"
 check "  which is the one after the parsing" "yes" "$(has "--headless flag requires --prompt" "$work/ccy.err")"
 check "  seat check got the list as given, and take was not called yet" \
-    "seat check  dev1@team-a , qa2@team-b --resolved" "$(bus_calls)"
+    "seat check  dev1@team-a , qa2@team-b --resolved|ccy-teams internal seat-resume --relaunch= dev1@team-a,qa2@team-b" "$(bus_calls)"
 
 run_ccy with-bus --headless --prompt go --teams team-a
 check "a team alone with nobody to choose (headless): refused, 64" "64" "$RC"

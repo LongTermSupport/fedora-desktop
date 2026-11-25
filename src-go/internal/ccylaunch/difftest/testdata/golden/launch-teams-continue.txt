@@ -3,12 +3,14 @@
 ✓ Creating .claude/ccy/.gitignore for security
 === stderr
 ✓ Writing .claude/ccy/ccy.env.local.dist (version 3); commit it
-[0;31mERROR:[0m ccy refuses --continue in a team seat: it resumes this checkout's newest conversation, which may be another seat's.
-  Resume the conversation this seat's session recorded:
-    ccy --resume 0f1e2d3c-4b5a-4968-8776-655443322110 --teams dev1@team-a
+ccy: refuses --continue in a team seat: it resumes this checkout's newest conversation, which may be another seat's.
+  Resume the conversation the seats recorded:
+    ccy --teams dev1@team-a
+  Or start a new one on purpose:
+    ccy --teams dev1@team-a --fresh
 === calls
 ccy-teams internal seat-check dev1@team-a --resolved
-ccy-teams seats conversation dev1@team-a
+ccy-teams internal seat-resume --relaunch= --before=1 dev1@team-a -- --continue
 === files
 dir  home/.claude-tokens 0700
 dir  home/.claude-tokens/ccy 0700
