@@ -18,6 +18,17 @@ const (
 	RefIssue  = "issue"
 )
 
+// RefForms are the reference forms in A 9.1's order.
+var RefForms = []string{RefPath, RefCommit, RefPR, RefIssue}
+
+// RefSpellings are the reference forms as a person writes them, for help and refusals.
+var RefSpellings = map[string]string{
+	RefPath:   "path:OWNER/REPO@SHA:PATH",
+	RefCommit: "commit:OWNER/REPO@SHA",
+	RefPR:     "pr:OWNER/REPO#N@SHA",
+	RefIssue:  "issue:OWNER/REPO#N",
+}
+
 const (
 	ownerPattern   = `[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?`
 	repoPattern9   = `[a-z0-9._-]{1,100}`

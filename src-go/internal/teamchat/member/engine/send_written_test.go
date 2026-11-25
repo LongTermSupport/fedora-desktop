@@ -19,7 +19,7 @@ func TestASendTooLargeAsWrittenIsRefusedAsSize(t *testing.T) {
 	before := w.store(ops).Outbox
 	d := firstOf(w.say(&ops, strings.Repeat("<", maxText), "repo.2"))
 	refusedCode(t, "a text of 4096 `<`", d, exits.CodeSize)
-	if !strings.Contains(d.Error.Message, "(size)") {
+	if !strings.Contains(d.Error.Message, "size limit") || !strings.Contains(d.Error.Message, "shorten") {
 		t.Errorf("the refusal says %q", d.Error.Message)
 	}
 	if got := w.store(ops).Outbox; got.Gate.Credit != before.Gate.Credit || len(got.Sending) != 0 || len(got.Gate.Recent) != 0 {

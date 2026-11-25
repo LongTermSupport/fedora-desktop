@@ -38,6 +38,18 @@ func (v VerbRule) AllowsForm(form string) bool {
 	return v.Ref != Forbidden && (v.Forms == nil || slices.Contains(v.Forms, form))
 }
 
+// RefForms are the forms the verb's reference may take, in A 9.1's order; nil for a verb that
+// takes none.
+func (v VerbRule) RefForms() []string {
+	var forms []string
+	for _, form := range RefForms {
+		if v.AllowsForm(form) {
+			forms = append(forms, form)
+		}
+	}
+	return forms
+}
+
 // SentBy is whether a sender of this class may send the verb.
 func (v VerbRule) SentBy(c SenderClass) bool { return slices.Contains(v.Senders, c) }
 
