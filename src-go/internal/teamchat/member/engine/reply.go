@@ -26,6 +26,7 @@ const (
 	msgFormerMember   exits.Template = "the carried item's sender {} is not a member of team {}"
 	msgOwnEvent       exits.Template = "{} is this member's own event"
 	msgNoSuchItem     exits.Template = "team {} has no item {} in main"
+	msgNoSuchItemQ    exits.Template = "team {} has no item {} in main or questions"
 	msgOverheard      exits.Template = "team {}'s {} was not addressed to this member, so it is no item to reply to (history's `for_me` is false); write to its sender with teamchat say --to {}"
 	msgJudgedOut      exits.Template = "team {}'s {} is no item of this member: its link {} it by rule `{}`, so it was never delivered"
 	msgFetchFailed    exits.Template = "team {}'s homeserver did not answer for {}; try again later"
@@ -40,6 +41,9 @@ type replied struct {
 	room, from string
 	ping       bool
 	verb, ref  string
+	// post is a questions-room post as fetched for an id the store did not hold (QR1), so the
+	// reply does not fetch it twice; nil when the store held it.
+	post *proto.Verdict
 }
 
 // reply is SD1 (n3d-D13): the team, room and addressee from the ledger where it holds the id,
@@ -68,7 +72,7 @@ func (e *Engine) reply(ctx context.Context, a wire.ReplyArgs, stdin *string, out
 		if a.Verb != nil || a.ToCoordinator {
 			return doneOf(exits.New(exits.CodeUsage, &t, msgReplyQuestions))
 		}
-		return e.replyQuestions(ctx, st, a.ID, text, out)
+		return e.replyQuestions(ctx, st, a.ID, it.post, text, out)
 	default:
 		return doneOf(exits.New(exits.CodeUsage, &t, msgReplyRoom, exits.Name(it.room)))
 	}
@@ -194,9 +198,15 @@ func ledgerOfPending(p state.Pending) state.Ledger {
 
 // fetched is id judged again by its team (Team.Refetch, off the state goroutine): 23 for none
 // or a verdict with no item, 64 for an own event, 20 for no answer; a carried item is its
-// original sender's, who must still be a member (A 7.7).
+// original sender's, who must still be a member (A 7.7). An id main does not have is looked up
+// in questions by the coordinator of a team that has the room (QR1): a post delivered before a
+// relaunch and gone from the ledger, or one `questions` lists, is answered there. A member that
+// does not coordinate never asks questions.
 func (e *Engine) fetched(ctx context.Context, st sendTeam, id string) (replied, error) {
 	v, err := st.tm.Refetch(ctx, proto.PurposeMain, id)
+	if errors.Is(err, matrix.ErrNotFound) && st.coordinatesQuestions() {
+		return fetchedQuestions(ctx, st, id)
+	}
 	if err != nil {
 		return replied{}, fetchErr(ctx, st.id, id, err)
 	}
@@ -214,6 +224,26 @@ func (e *Engine) fetched(ctx context.Context, st sendTeam, id string) (replied, 
 	}
 	p := v.Content.Ping
 	return replied{room: proto.PurposeMain, from: v.Event.Sender, ping: v.Kind == proto.KindPing, verb: p.Verb, ref: p.Ref}, nil
+}
+
+// coordinatesQuestions is whether this member coordinates a team whose roster names a
+// questions room: the one member that reads it by sync, and so the one a reply looks in.
+func (st sendTeam) coordinatesQuestions() bool {
+	c, ok := st.roster.Coordinator()
+	return ok && c == st.self && st.roster.Rooms.Questions != ""
+}
+
+// fetchedQuestions is id fetched from questions after main had none: 23 naming both rooms when
+// questions has none either. Whether it is a human post is replyQuestions' check.
+func fetchedQuestions(ctx context.Context, st sendTeam, id string) (replied, error) {
+	v, err := st.tm.Refetch(ctx, proto.PurposeQuestions, id)
+	switch {
+	case errors.Is(err, matrix.ErrNotFound):
+		return replied{}, exits.New(exits.CodeNotFound, &st.id, msgNoSuchItemQ, exits.Team(st.id), exits.Name(id))
+	case err != nil:
+		return replied{}, fetchErr(ctx, st.id, id, err)
+	}
+	return replied{room: proto.PurposeQuestions, from: v.Event.Sender, post: &v}, nil
 }
 
 // notAnItem is 23 for a fetched event this member's judge does not take, saying why (issue

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -294,6 +295,77 @@ func TestReplyToAnUnattachedPostIsAThreadPost(t *testing.T) {
 	in := sentContent(t, f, 1)
 	if in.Rel.RelType != "m.thread" || in.Rel.EventID != evID(qLooseEv) || in.Rel.FallingBack == nil || in.fallingBack() || in.Rel.InReplyTo.EventID != evID(qLooseThreadEv) {
 		t.Errorf("the reply in a human's thread = %+v", in.Rel)
+	}
+}
+
+// holdIn puts id in room alone: a re-fetch of it from another room is the homeserver's 404.
+func (f *fakeTeam) holdIn(id, room string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.heldIn == nil {
+		f.heldIn = map[string]string{}
+	}
+	f.heldIn[id] = room
+}
+
+func (f *fakeTeam) refetchRooms() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.refetchedFrom)
+}
+
+// R68 (Plan 00265, QR1): a coordinator's reply to a human post in questions that its store does
+// not hold (delivered before a relaunch and gone from the ledger, or listed by `questions`) is
+// looked up in main, then in questions, and answered in the post's thread, with one fetch of
+// each room; not refused as "no item in main".
+func TestR68ACoordinatorsReplyFindsAQuestionsPostItsLedgerLacks(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	f := w.coordinating(ops)
+	countQuestion(t, f, ops, evID(qOwnEv), agent(ops, 1), startWall)
+	humanPost(t, f, ops, evID(qHumanTopEv), "Q1: MIT", "", startWall+1)
+	f.holdIn(evID(qHumanTopEv), proto.PurposeQuestions)
+	a := w.reply(wire.ReplyArgs{ID: evID(qHumanTopEv)}, new("MIT it is."))
+	if a.d.Error != nil || a.out.kinds() != "sent,sent" {
+		t.Fatalf("reply = %v, records %s", a.d.Error, a.out.kinds())
+	}
+	if answer := sentContent(t, f, 0); answer.Rel.EventID != evID(qOwnEv) || answer.Rel.InReplyTo.EventID != evID(qHumanTopEv) {
+		t.Errorf("the answer = %+v, want it in Q1's thread replying to the post", answer.Rel)
+	}
+	if got, want := f.refetchRooms(), []string{proto.PurposeMain, proto.PurposeQuestions}; !slices.Equal(got, want) {
+		t.Errorf("fetched from %v, want %v", got, want)
+	}
+}
+
+// R68: an id in neither room is 23 for the coordinator, naming both rooms it looked in.
+func TestR68AnIDInNeitherRoomNamesBoth(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	f := w.coordinating(ops)
+	f.holdIn(evID(qLooseEv), proto.PurposeReports)
+	d := firstOf(w.reply(wire.ReplyArgs{ID: evID(qLooseEv)}, new("x")))
+	refusedCode(t, "an id in neither room", d, exits.CodeNotFound)
+	if m := d.Error.Message; !strings.Contains(m, "in main or questions") {
+		t.Errorf("the refusal = %q, want it to name both rooms", m)
+	}
+	// Main answers 404 and questions does not answer: 20, never a not-found.
+	f.holdIn(evID(qLooseThreadEv), proto.PurposeQuestions)
+	f.mu.Lock()
+	f.refetchErrs = map[string]error{evID(qLooseThreadEv): errors.New("connection refused")}
+	f.mu.Unlock()
+	refusedCode(t, "questions unreachable", firstOf(w.reply(wire.ReplyArgs{ID: evID(qLooseThreadEv)}, new("x"))), exits.CodeUnreachable)
+}
+
+// R68 (QR1): a worker never asks questions: an id main does not have is 23, with no request to
+// questions.
+func TestR68AWorkersReplyNeverAsksQuestions(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	f := w.sending(ops)
+	f.holdIn(evID(qHumanTopEv), proto.PurposeQuestions)
+	refusedCode(t, "a worker's reply to a questions id", firstOf(w.reply(wire.ReplyArgs{ID: evID(qHumanTopEv)}, new("x"))), exits.CodeNotFound)
+	if got := f.refetchRooms(); !slices.Equal(got, []string{proto.PurposeMain}) {
+		t.Errorf("a worker fetched from %v, want main alone", got)
 	}
 }
 
