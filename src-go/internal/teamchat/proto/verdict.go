@@ -451,10 +451,12 @@ func (j Judge) agent(v Verdict) Verdict {
 	switch {
 	case reason != "":
 		return drop(v, reason)
-	case kind == KindPeer && !j.Roster.HumanText(j.Self):
-		return drop(v, ReasonSender)
 	case !slices.Contains(addressees(c), j.Self):
 		return ignore(v, IgnoreNotAddressed)
+	case c.Key == KeyText && c.Text.Relay != nil && !j.Roster.HumanText(j.Self):
+		// human_text gates a human's words only (issue #422): a relay carries a human's post,
+		// an agent's own text (PEER) is taken by any member it addresses.
+		return drop(v, ReasonSender)
 	}
 	v.Forge = forge
 	answer, stale, isAnswer := j.answer(v)

@@ -149,6 +149,33 @@ func TestDeliversAgentItems(t *testing.T) {
 	}
 }
 
+// Issue #422: a worker whose roster entry says human_text false takes its coordinator's say
+// (PEER) as it takes its pings; human_text gates a human's words only. A say between two other
+// members is overheard and ignored `not-addressed`, never counted as dropped.
+func TestAWorkerWithoutHumanTextTakesItsCoordinatorsSay(t *testing.T) {
+	w := newWorld(t)
+	next := w.roster
+	next.Members = map[string]proto.RosterMember{}
+	for id, m := range w.roster.Members {
+		next.Members[id] = m
+	}
+	next.Members[user(me)] = proto.RosterMember{Role: proto.RoleWorker, HumanText: false}
+	w.writeRoster(next)
+	_, release := w.held(w.newTeam())
+	say := w.agentText(coord, "Take task 3.\nThe branch is pushed.", user(me))
+	w.agentText(peer, "a report for the coordinator", user(coord))
+	out, err := w.composer(coord).Ping(proto.Ping{Verb: proto.VerbHalt, To: []string{user(me)}}, "", "")
+	ping := w.post(coord, out, err)
+	release()
+	b := w.batch()
+	if len(b.Items) != 2 || b.Items[0].Pending.ID != say || b.Items[0].Pending.Item != records.KindPeer || b.Items[1].Pending.ID != ping {
+		t.Fatalf("items %+v", b.Items)
+	}
+	if b.Counts.Dropped != 0 || b.Counts.Ignored != 1 {
+		t.Errorf("counts %+v: the overheard say is one ignore, nothing is dropped", b.Counts)
+	}
+}
+
 func TestItemKind(t *testing.T) {
 	for k, want := range map[string]string{
 		proto.KindHuman: records.KindHuman, proto.KindPeer: records.KindPeer, proto.KindPing: records.KindPing,
