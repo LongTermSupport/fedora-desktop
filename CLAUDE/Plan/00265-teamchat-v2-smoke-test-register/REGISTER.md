@@ -489,7 +489,31 @@ filled in as each cause is known.
   on-host guest ops keep `Establish`. The doc's off-host requirement is "not root, a home only it
   can write"; L7 dropped. On-host K15 is unchanged (it does not touch this route).
 - **Severity:** high (blocked the container route, P1). **Issue:** #425 (A1). **State:** fixed
-  on `v2-smoke`; lands right after batch 3.
+  on F44 (batch 3, 9d37999ce).
+
+## R52: the git hooks run on one checkout only
+
+- **Seen:** U10's review fixes, 2026-11-25: batch 4 changed an image source with no CCY bump,
+  and no pre-commit gate stopped it.
+- **What:** `play-git-hooks-security.yml` sets `core.hooksPath` on the `repo_path` checkout
+  alone. This seat's checkout has it unset and `.git/hooks` empty, so pre-commit (secret,
+  private-name and version gates), commit-msg and pre-push (the protected-branch gate) never
+  ran here. `SecurityRules.md`'s "Enforced by Ansible on every main playbook run" holds for that
+  one checkout.
+- **Interim:** CI's diff-mode QA caught what the hooks would have (version, coverage), and
+  review caught the bump; no manual `git config` (IaC only).
+- **Severity:** high (every gate a commit is meant to pass locally is silently absent).
+  **Issue:** #427. **State:** open, outside v2.
+
+## R53: the by-hand Go QA cannot see go-qa's module coverage floor
+
+- **Seen:** batch 4's first CI run (45643448881): "statement coverage 89.7% is below
+  fail_under_statements = 90". Per-package `go test -cover` on arm64 read above 86% per package
+  and gave no module figure in go-qa's terms (`-coverpkg`, diff mode).
+- **What:** the third gap of R26's class after R47: go-qa cannot run on arm64 (#426), and each
+  hand-picked substitute misses one of its checks.
+- **Fix:** R26's (#426). Until then, a unit's by-hand QA reports "module coverage unchecked", and
+  CI is the coverage gate. **Severity:** low (CI catches it). **Issue:** #426. **State:** open.
 
 ## R47: the by-hand Go QA missed the launcher's parity oracle
 
