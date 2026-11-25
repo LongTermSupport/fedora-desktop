@@ -220,3 +220,24 @@ workaround; medium misleads; low is cosmetic.
 - **Reproduce:** `teamchat run --kind lxc --key <key> -- claude` in a member container.
 - **Severity:** critical. **Issue:** #425. **Unit:** U8.
   **State:** fixed on U8's branch (90090205e), not yet merged.
+
+## R24: a ping straight after its push is refused as "provenance failed"
+
+- **Seen:** the coordinator, 2026-11-25 12:14Z, once.
+- **What:** `teamchat ping fetch commit:<repo>@<sha>` in the same command as the `git push` of
+  that commit was refused, exit 13 "the reference's provenance failed at the forge"; the same
+  ping seconds later was sent. The forge had not yet indexed the commit; the message names the
+  wrong cause.
+- **Reproduce:** `git push ... && teamchat ping fetch commit:<repo>@<new sha> --to <member>`.
+- **Severity:** low. **Issue:** TBF. **State:** open (the refusal-cause class of U1).
+
+## R25: a seat started on the fallback image joins the team silently
+
+- **Seen:** a hooks-daemon seat's first launch on arm64, 2026-11-25 12:15Z.
+- **What:** the project's `.claude/ccy/Dockerfile` failed to build; ccy started the session on
+  the base image with its build-failure prompt, and the seat joined the team in that state,
+  without the project's toolchain. It reports that `origin` over an SSH host alias did not work
+  in that container (unchecked). Wanted: what a fallback-image seat has and lacks, and whether a
+  team seat says so in its first message.
+- **Reproduce:** launch a team seat whose project Dockerfile fails to build.
+- **Severity:** medium. **Issue:** TBF. **State:** open.
