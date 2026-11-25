@@ -108,8 +108,14 @@ workaround; medium misleads; low is cosmetic.
 
 - **Seen:** the coordinator.
 - **What:** a hook reports "your thread post sent as Q0 was not counted" on later turns.
-- **Reproduce:** unchecked.
-- **Severity:** medium. **Issue:** TBF. **State:** open.
+- **Cause (from code, not proven live):** a coordinator's thread post that replies to a human
+  post with no question number is placed with `PlacedThread.N == 0`
+  (`proto/questions_prov.go` `PlaceThread`). When its echo folds as not counted, `echoed` records
+  `Dropped{N: 0}`, and `hooktext.Uncounted` renders "sent as Q0 was not counted: Q0 is another
+  question", a reason that cannot be true for N 0. It belongs with R7.
+- **Reproduce:** the coordinator replies with `teamchat reply` to a human's top-level post in
+  questions; read the next turns' hook lines.
+- **Severity:** medium. **Issue:** TBF. **State:** open (with R7).
 
 ## R12: a worker cannot verify a human's message from the questions room
 
