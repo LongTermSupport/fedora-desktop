@@ -422,8 +422,9 @@ filled in as each cause is known.
   `launch-args` adds `-e ANTHROPIC_MODEL=<model>` to podman's arguments, so a host-shell
   `ANTHROPIC_MODEL` does not reach a ccy container, only the seat's recorded model; `cc-run`
   puts it in the session's environment unless the person's has one. Both say it on stderr.
-  claude ranks a `--model` above `ANTHROPIC_MODEL`, so the person's wins with no argument
-  parsing; a project `ccy.env` (sourced after) wins too. Child claudes the session starts
+  claude is taken to rank a `--model` above `ANTHROPIC_MODEL`, so the person's wins with no
+  argument parsing, and a project `ccy.env` to win too (sourced after the image ENV; that it
+  also comes after `podman run -e` is unchecked): both are the live check after deploy. Child claudes the session starts
   inherit `ANTHROPIC_MODEL`. With several seats, the first seat with a model decides: its own,
   else its team's (`seatmodel.Settings.For`). A hot-seat join (`ccy-teams session add`) launches
   nothing, so the seat's model is not used; `HotSeats.Join` says so on stderr before the take.
@@ -432,9 +433,9 @@ filled in as each cause is known.
   (`lib/session-registry.bash`; a `--model opus` is kept as an unknown flag's value), never the
   model a launch adds, and the replayed launch takes its seats again, so it re-reads the same
   setting and starts on the same model.
-- **Severity:** medium. **Issue:** TBF. **State:** fixed on v2-smoke; batch 8 (CCY 3.124.52,
-  container 2.84.80 unchanged; live after `play-claude-yolo.yml` rebuilds `ccy-teams`, already
-  queued).
+- **Severity:** medium. **Issue:** TBF. **State:** on F44 (batch 8, `10a63a7f0`, CCY 3.124.52,
+  container 2.84.80 unchanged); live after `play-claude-yolo.yml` rebuilds `ccy-teams`, already
+  queued. Live check: a seat with a model starts on it; `--model` on the command line wins.
 
 ## R35: the Lightning client setup for a team, with presets
 
