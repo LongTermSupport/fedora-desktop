@@ -277,6 +277,23 @@ func TestLaunchArgsRefusals(t *testing.T) {
 	}
 }
 
+// Register R55: ccy's launch takes a podman seat only; a host seat named for it is refused (64)
+// naming its kind and cc, and the ways on name ccy's own seats and add.
+func TestLaunchArgsRefusesAHostSeat(t *testing.T) {
+	w := newVerbs(t)
+	w.pool("repo.1+site.host")
+	w.verbs.Parts.Sessions = recorded{}
+	code := w.run("launch-args", "s1", w.checkout, "1@alpha", "", "--")
+	if code != term.ExitUsage || w.out.Len() != 0 || len(w.taker.took) != 0 {
+		t.Fatalf("exit %d, out %q, took %+v", code, w.out, w.taker.took)
+	}
+	for _, want := range []string{"1@alpha is a host seat (repo.1+site.host)", "cc --teams 1@alpha", "has no podman seat of alpha", "a new seat: ccy-teams seats add alpha, then ccy"} {
+		if !strings.Contains(w.err.String(), want) {
+			t.Errorf("stderr lacks %q:\n%s", want, w.err)
+		}
+	}
+}
+
 // fedora-desktop#393: a take for a session with no ccy session record (a launch from a pane
 // already on ccy's tmux, or from no terminal) is refused with exit 78, naming the starts that
 // write the record, so the sweep cannot release the seat a minute later.

@@ -190,6 +190,23 @@ func TestChooseWithNoSeatIsTheLowestFreePoolSeat(t *testing.T) {
 	}
 }
 
+// Register R55: a ccy session's join is offered its own kind's seats only: a host seat of the
+// team is neither the default nor taken by name, and with no podman seat the way on is a podman
+// seat's add.
+func TestChooseOffersAPodmanSessionOnlyPodmanSeats(t *testing.T) {
+	w := newHotWorld(t)
+	gamma := mustTeamID(t, "gamma")
+	if err := os.MkdirAll(filepath.Join(w.launch.Store.PoolTeam(w.launch.Checkout, gamma), "repo.1+site.host"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := w.seats.Choose("gamma", ""); !errors.Is(err, ErrSeat) || !strings.HasSuffix(err.Error(), "add one with ccy-teams seats add gamma") {
+		t.Fatalf("a team with only a host seat: %v", err)
+	}
+	if _, _, err := w.seats.Choose("gamma", "1"); !errors.Is(err, ErrSeat) || !strings.Contains(err.Error(), "is a host seat") {
+		t.Fatalf("a host seat by name: %v", err)
+	}
+}
+
 // A take that fails writes nothing: the session keeps generation 1.
 func TestJoinWritesNothingWhenTheTakeFails(t *testing.T) {
 	w := newHotWorld(t)

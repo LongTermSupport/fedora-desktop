@@ -15,6 +15,10 @@ func TestDispatchSeatsAdd(t *testing.T) {
 		c.Adder.Site == nil || c.Adder.Issuer == nil || c.Adder.Place == nil {
 		t.Fatalf("seats add is not wired: %+v", c)
 	}
+	// Register R5: a launch with no free seat adds one through the same adder.
+	if h.app.Chooser.Teamchat == nil || h.app.Chooser.Teamchat.NewSeat == nil {
+		t.Fatal("the chooser's NewSeat is not wired, so a bare --teams <team> with no free seat ends at 78")
+	}
 	if code := h.app.Run([]string{"seats", "add"}); code != term.ExitUsage {
 		t.Fatalf("exit %d, want 64: %s", code, h.ErrOut.String())
 	}

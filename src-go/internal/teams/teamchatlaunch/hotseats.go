@@ -84,7 +84,8 @@ func (v *Verbs) HotSeats(checkout, session string) (*HotSeats, bool, error) {
 	}
 	cfg := v.config(home, key)
 	parts := HotParts{
-		Launch:   &Launch{Store: store, Checkout: key, Taker: v.Taker(cfg), Status: v.Status, NowMS: v.NowMS},
+		// A podman seat: a cc session on teamchat is not changed while it runs (hot's v2CCNotBuilt).
+		Launch:   &Launch{Store: store, Checkout: key, Kind: seatchoice.KindPodman, Taker: v.Taker(cfg), Status: v.Status, NowMS: v.NowMS},
 		Sessions: cfg.Sessions,
 		Holder:   func() (Holder, error) { return v.Holder(cfg) },
 		Keeper:   seat.KeeperOf,
@@ -115,19 +116,19 @@ func (h *HotSeats) Choose(team, given string) (string, string, error) {
 		if err != nil {
 			return "", "", err
 		}
-		name, err := ChooseSeat(pool, given)
+		name, err := ChooseSeat(pool, team, given, l.Kind)
 		if err != nil {
 			return "", "", fmt.Errorf("team %s: %w", team, err)
 		}
 		return given, name.String(), nil
 	}
-	pool, err := system.PoolState(l.Store, l.Checkout, id, h.parts.Sessions)
+	pool, err := system.PoolState(l.Store, l.Checkout, id, h.parts.Sessions, l.Kind)
 	if err != nil {
 		return "", "", err
 	}
 	free, ok := seatchoice.Default(pool)
 	if !ok {
-		return "", "", fmt.Errorf("%w: team %s has no free seat in this checkout; add one with %s", ErrSeat, team, seatchoice.AddCommand(team))
+		return "", "", fmt.Errorf("%w: team %s has no free %s seat in this checkout; add one with %s", ErrSeat, team, l.Kind, seatchoice.AddCommand(team, l.Kind))
 	}
 	return free.Name, free.Handle, nil
 }

@@ -245,7 +245,9 @@ func (c *Chooser) alone(ctx context.Context, memberType string, i int, items, re
 type entry struct {
 	declare.Choice
 
-	// teamchatSeats is a teamchat team's count of pool seats in this checkout; 0 is agent-bus.
+	// teamchat is the launch's kind of seat for a teamchat team ("" for agent-bus), and
+	// teamchatSeats its count of this checkout's pool seats of that kind, which may be 0.
+	teamchat      string
 	teamchatSeats int
 	down          bool
 }

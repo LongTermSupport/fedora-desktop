@@ -76,16 +76,17 @@ func (c *Cmd) Live(ctx context.Context, team string) (bool, error) {
 	return len(lines) == 1 && lines[0].System == Teamchat, nil
 }
 
-// SeatCount is how many pool seats of team the working directory's checkout has, for the
-// chooser's list; which seat to take is PoolState's, which says who holds each (issue 423).
-func (c *Cmd) SeatCount(team string) (int, error) {
-	handles, err := c.Handles(team)
+// SeatCount is how many pool seats of kind of team the working directory's checkout has, for
+// the chooser's list; which seat to take is PoolState's, which says who holds each (issue 423).
+func (c *Cmd) SeatCount(team, kind string) (int, error) {
+	handles, err := c.Handles(team, kind)
 	return len(handles), err
 }
 
-// Handles are the member handles of the working directory's pool seats of team, in pool order:
-// what a host launch's Matrix consent names (Task 5.1).
-func (c *Cmd) Handles(team string) ([]string, error) {
+// Handles are the member handles of the working directory's pool seats of kind of team, in pool
+// order: what a host launch's Matrix consent names (Task 5.1). Only kind's: a seat of another
+// kind is another launcher's (register R55).
+func (c *Cmd) Handles(team, kind string) ([]string, error) {
 	id, err := paths.ParseTeamID(team)
 	if err != nil {
 		return nil, fmt.Errorf("team %s: %w", team, err)
@@ -100,15 +101,17 @@ func (c *Cmd) Handles(team string) ([]string, error) {
 	}
 	var handles []string
 	for _, s := range seats {
-		handles = append(handles, s.String())
+		if seatchoice.KindOf(s.String()) == kind {
+			handles = append(handles, s.String())
+		}
 	}
 	return handles, nil
 }
 
-// PoolState is the working directory's pool seats of team as a launch with no seat named offers
-// them: each with the session a take would be refused for (issue 423). With no session records
-// wired it refuses, never calling a held seat free.
-func (c *Cmd) PoolState(team string) ([]seatchoice.Seat, error) {
+// PoolState is the working directory's pool seats of kind of team as a launch of kind with no
+// seat named offers them: each with the session a take would be refused for (issue 423). With
+// no session records wired it refuses, never calling a held seat free.
+func (c *Cmd) PoolState(team, kind string) ([]seatchoice.Seat, error) {
 	if c.Sessions == nil {
 		return nil, errors.New("the seats' holders cannot be judged: no session records are wired")
 	}
@@ -120,16 +123,16 @@ func (c *Cmd) PoolState(team string) ([]seatchoice.Seat, error) {
 	if err != nil {
 		return nil, err
 	}
-	return PoolState(store, key, id, c.Sessions)
+	return PoolState(store, key, id, c.Sessions, kind)
 }
 
-// PoolState is checkout's pool seats of team in store, each with the session a take would be
-// refused for ("" free). It is the take's own test of a holding (seat.Store's clearHeld), read
+// PoolState is checkout's pool seats of kind of team in store (the only seats a launch of kind is
+// offered, register R55), each with the session a take would be refused for ("" free). It is the take's own test of a holding (seat.Store's clearHeld), read
 // without opening the store for allocation: a complete holding whose session's keeper runs now
 // (seat.KeeperOf) or whose record is kept (sessions) is held; one whose session is over, or an
 // incomplete one, the take releases or quarantines, so it is free. A record or lock that cannot
 // be read is an error, never a free seat.
-func PoolState(store paths.Store, checkout paths.CheckoutKey, team paths.TeamID, sessions seat.Sessions) ([]seatchoice.Seat, error) {
+func PoolState(store paths.Store, checkout paths.CheckoutKey, team paths.TeamID, sessions seat.Sessions, kind string) ([]seatchoice.Seat, error) {
 	names, err := PoolSeats(store, checkout, team)
 	if err != nil {
 		return nil, err
@@ -140,6 +143,9 @@ func PoolState(store paths.Store, checkout paths.CheckoutKey, team paths.TeamID,
 	}
 	out := make([]seatchoice.Seat, 0, len(names))
 	for _, n := range names {
+		if seatchoice.KindOf(n.String()) != kind {
+			continue
+		}
 		s := seatchoice.Seat{Name: n.String(), Handle: n.String()}
 		if h, ok := proto.ParseHandle(n.String()); ok {
 			s.Name = h.Seat

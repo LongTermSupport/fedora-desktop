@@ -313,7 +313,9 @@ Usage:
                                    given (a worker's default). sudo asks your password once for teamchat-admin member
                                    add; its answer goes straight into the seat pool and is
                                    never shown. Prints <N>@<team> to launch with
-                                   ccy --teams (cc --teams with --host). Refused: a team with
+                                   ccy --teams (cc --teams with --host). A bare
+                                   ccy --teams <team> (cc --teams <team>) with no free
+                                   seat of its kind runs this add and launches the seat. Refused: a team with
                                    no status record here, whose homeserver is elsewhere (78,
                                    naming the place-issued pipe); a failed issue or placement
                                    (1; a seat issued but not placed names its reissue pipe)

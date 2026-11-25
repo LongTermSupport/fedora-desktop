@@ -138,7 +138,7 @@ func (c *Chooser) seats(ctx context.Context, memberType string, taken []entry) t
 	refs := make([]string, 0, len(taken))
 	for i, e := range taken {
 		seat := c.Seat
-		if e.teamchatSeats > 0 {
+		if e.teamchat != "" {
 			seat = c.teamchatSeat
 		}
 		ref, code := seat(ctx, flow.LaunchTeam(i+1, len(taken), e.Team), e.Team, memberType)

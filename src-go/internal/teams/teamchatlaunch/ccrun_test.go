@@ -120,6 +120,22 @@ func TestCCRunOnTeamchatRunsTheSessionAsAChild(t *testing.T) {
 	}
 }
 
+// Register R55: cc takes a host seat only; a podman seat named for it is refused before anything
+// is taken or started.
+func TestCCRunOnTeamchatRefusesAPodmanSeat(t *testing.T) {
+	w := newCC(t)
+	w.pool("repo.1+site.podman")
+	if code := w.ccRun("cc-s1", "1@alpha", "false"); code != term.ExitUsage {
+		t.Fatalf("exit %d: %s", code, w.err)
+	}
+	if len(w.taker.took) != 0 || len(w.fg.cmds) != 0 {
+		t.Fatalf("took %+v, started %+v", w.taker.took, w.fg.cmds)
+	}
+	if !strings.Contains(w.err.String(), "1@alpha is a podman seat (repo.1+site.podman), and this is a cc (host) launch") {
+		t.Errorf("stderr %q", w.err)
+	}
+}
+
 // (b) A status ends the session whatever it is; the tool's own code is the documented one.
 func TestCCRunOnTeamchatEndsOnAnyStatus(t *testing.T) {
 	w := newCC(t)

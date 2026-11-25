@@ -82,7 +82,12 @@ filled in as each cause is known.
 - **Severity:** critical. **Issue:** #416. **Unit:** U5. **State:** first slice merged (751bdeab3),
   `ccy-teams seats add <team>` on the homeserver's machine (derived handle, one sudo, issue and
   place; worker seats take no human text by default); seat creation in the launch follows U3;
-  the rest waits on the owner (Q6, [reports/U5.md](reports/U5.md)). Live proof owed.
+  the rest waits on the owner (Q6, [reports/U5.md](reports/U5.md)). **Fixed on v2-smoke; batch
+  7** (ccy 3.124.49): a bare `ccy --teams <team>` / `cc --teams <team>` with no free seat of its
+  kind (and the chooser's new-seat row) runs the same add in process (`seatadd.Adder.NewSeat`,
+  wired as the chooser's `NewSeat`) and launches the new seat instead of ending 78; a team served
+  on another machine is still 78, naming the route ([reports/R5.md](reports/R5.md)). Live proof
+  owed.
 - **Owner's answer to Q6 (12:42Z, via the coordinator, A9):** a human adding a seat, even with
   sudo, is fine for now. On the home and dc server VMs, seats are managed through IaC first.
   Seats are numbered only, and named seats are dropped. So `seats add` serves a machine where the
@@ -529,7 +534,13 @@ filled in as each cause is known.
   whose seat part is N (`teamchatlaunch.ChooseSeat`), also with no kind check.
 - **Fix:** with R5: the pool offered and the seat named are those of the launcher's kind; a
   named seat of the other kind is refused, naming the kind. **Severity:** medium (a host agent
-  can start on a podman seat's identity). **Issue:** TBF. **State:** open.
+  can start on a podman seat's identity). **Issue:** TBF. **State:** fixed on v2-smoke; batch 7
+  (ccy 3.124.49). Every pool read a launch chooses from names the kind (the handle's type) in
+  its signature (`system.PoolState`, `Cmd.Handles`/`SeatCount`/`PoolState`, the chooser's
+  `Teamchat` fields, `teamchatlaunch.ChooseSeat` and `Launch.Kind`), so the compiler holds every
+  pick to one; the chooser, list, ways on, launch-args (podman), cc-run (host) and a running
+  session's join (podman) offer and take that kind only, and a named seat of the other kind is
+  refused naming its kind and launcher (`seatchoice.WrongKind`) ([reports/R5.md](reports/R5.md)).
 
 ## R54: fixes landed on F44 without reaching any image (no container bump, no CI gate)
 

@@ -24,6 +24,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatchoice"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/system"
 )
 
@@ -109,21 +110,31 @@ func Guard(root string, sources []string) error {
 	return nil
 }
 
-// ChooseSeat is the pool seat whose handle's seat part is seat (C 3.7.4's seat number, given by
-// the launch's <seat>@<team>), refused when none or more than one has it.
-func ChooseSeat(pool []paths.SeatName, seatPart string) (paths.SeatName, error) {
+// ChooseSeat is the pool seat of team of kind (the launcher's: podman for ccy, host for cc) whose
+// handle's seat part is seat (C 3.7.4's seat number, given by the launch's <seat>@<team>),
+// refused when none or more than one has it. A seat part only another kind has is refused naming
+// that kind and its launcher (register R55): a launch never takes another launcher's seat.
+func ChooseSeat(pool []paths.SeatName, team, seatPart, kind string) (paths.SeatName, error) {
 	var found []paths.SeatName
+	other := ""
 	names := make([]string, 0, len(pool))
 	for _, n := range pool {
 		names = append(names, n.String())
-		if h, ok := proto.ParseHandle(n.String()); ok && h.Seat == seatPart {
+		h, ok := proto.ParseHandle(n.String())
+		switch {
+		case !ok || h.Seat != seatPart:
+		case h.Type == kind:
 			found = append(found, n)
+		default:
+			other = n.String()
 		}
 	}
-	switch len(found) {
-	case 1:
+	switch {
+	case len(found) == 1:
 		return found[0], nil
-	case 0:
+	case len(found) == 0 && other != "":
+		return paths.SeatName{}, fmt.Errorf("%w: %s", ErrSeat, seatchoice.WrongKind(seatPart, team, other, kind))
+	case len(found) == 0:
 		return paths.SeatName{}, fmt.Errorf("%w: no pool seat of this checkout has seat %s (it has: %s)", ErrSeat, seatPart, strings.Join(names, ", "))
 	}
 	return paths.SeatName{}, fmt.Errorf("%w: more than one pool seat has seat %s (%v); remove the one you do not use", ErrSeat, seatPart, found)
@@ -220,9 +231,12 @@ type Taker interface {
 type Launch struct {
 	Store    paths.Store
 	Checkout paths.CheckoutKey
-	Taker    Taker
-	Status   func(paths.TeamID) (status.Record, bool, error)
-	NowMS    func() int64
+	// Kind is the launcher's kind of seat (seatchoice.KindPodman for ccy, KindHost for cc): the
+	// only pool seats the launch takes.
+	Kind   string
+	Taker  Taker
+	Status func(paths.TeamID) (status.Record, bool, error)
+	NowMS  func() int64
 }
 
 // Run guards the mounts, takes the seats for session, writes desired.json and returns the run
@@ -271,7 +285,7 @@ func (l *Launch) choose(list string) ([]Chosen, []seat.Take, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		name, err := ChooseSeat(pool, s.Seat)
+		name, err := ChooseSeat(pool, s.Team, s.Seat, l.Kind)
 		if err != nil {
 			return nil, nil, fmt.Errorf("team %s: %w", s.Team, err)
 		}
