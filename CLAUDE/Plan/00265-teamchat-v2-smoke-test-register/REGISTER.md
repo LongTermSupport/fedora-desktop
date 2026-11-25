@@ -349,8 +349,18 @@ filled in as each cause is known.
   `membership.json`; `add` falls through to v2's `desired.json` (`hot.go:480-487`). The picker's
   running-sessions view has the same gap. Fix: one lookup, v1 else v2, shared by list, add,
   `SessionsIn` and the picker.
+- **Fixed (batch 10):** one lookup, `hot.Lookup.Running` (v1's membership if the session has a
+  v1 directory, else its teamchat `desired.json`), used by `session add`/`remove` (resolve),
+  `session list` and the picker's view (`Sessions`), `SessionsIn`, `ccy-teams restart` and the
+  cc-on-teamchat listing. A v2 row shows teams, seats and duties and a state from
+  `HotSeats.Applied`, never `keeperLine`. `SessionsIn` counts v1 sessions only, since its take-down
+  is of a v1 team. Restart refuses a v2 session by name, and so does the picker's add (it offers
+  remove). The board and `conversation` were already v2-aware. The class guard
+  `TestEveryVerbOnAV2SessionActsOrRefusesByName` now also drives the readers and holds an
+  inventory of every v1-membership read outside the lookup, so a new one fails it. ccy 3.124.56.
+  Detail: `reports/R51.md`.
 - **Severity:** high (no-degrade, F19: v1's tools saw every session). **Issue:** TBF.
-  **Unit:** U11. **State:** open; batch 10.
+  **Unit:** U11. **State:** fixed on v2-smoke, batch 10 (SHA_PENDING); not yet run live.
 
 ## R42: `say --to-coordinator` is ambiguous in a session that coordinates one of its teams
 

@@ -14,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/hot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
@@ -225,13 +226,17 @@ func (r *Restart) prepareInPlace(j *job, again string) {
 		j.done(resultFailed, "XDG_RUNTIME_DIR is not an absolute path, so its membership directory cannot be found")
 		return
 	}
-	j.memDir = membership.DirOf(runtime, membership.KindCcy, j.name)
-	d, err := membership.Read(j.memDir)
-	if err != nil {
+	run, err := r.Lookup.Running(runtime, membership.KindCcy, j.rec)
+	switch {
+	case err != nil:
 		j.done(resultFailed, "its supervisor cannot be asked: "+err.Error())
-		return
+	case run.Bus == hot.BusV2:
+		j.done(resultFailed, "it runs on teamchat (v2), and ccy-teams restart restarts only agent-bus (v1) sessions in place; "+again)
+	case run.Bus == hot.BusNone:
+		j.done(resultFailed, "its supervisor cannot be asked: it has no agent-bus membership ("+run.Dir+")")
+	default:
+		j.memDir, j.generation, j.action = run.Dir, run.V1.Generation, actInPlace
 	}
-	j.generation, j.action = d.Generation, actInPlace
 }
 
 // prepareStart is B6: started as a restore starts a record (conversation.StartPlan): by its

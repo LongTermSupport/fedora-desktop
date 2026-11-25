@@ -1,6 +1,7 @@
 package restart
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/hot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -306,6 +308,54 @@ func TestARunningCcySessionWithoutTheSupervisorFails(t *testing.T) {
 	if pending, err := membership.RelaunchPending(m.dir("ccy-proj")); err != nil || pending {
 		t.Fatalf("a request was written: %v %v", pending, err)
 	}
+}
+
+// Register R51: a running session the shared lookup finds on teamchat (no v1 membership, a v2
+// desired.json) is refused by name: restart in place is agent-bus's supervisor request, so it
+// is never written into a v1 directory the session does not read. One with neither says so.
+func TestARunningSessionOnTeamchatIsRefusedByName(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	if err := os.RemoveAll(m.dir("ccy-proj")); err != nil {
+		t.Fatal(err)
+	}
+	m.r.Lookup = hot.Lookup{Teamchat: func(checkout, session string) (hot.TeamchatSeats, bool, error) {
+		if session != "ccy-proj" {
+			t.Errorf("opened %s in %s", session, checkout)
+		}
+		return nil, true, nil
+	}}
+	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	m.errHas(t, "✗ ccy-proj: it runs on teamchat (v2), and ccy-teams restart restarts only agent-bus (v1) sessions in place; "+
+		"/exit it, then run ccy-teams restart alpha again to start it")
+	if _, err := os.Stat(m.dir("ccy-proj")); !os.IsNotExist(err) {
+		t.Fatalf("a v1 membership directory was made: %v", err)
+	}
+
+	m = newMachine(t)
+	m.noLxc()
+	if err := os.RemoveAll(m.dir("ccy-proj")); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
+		t.Fatalf("neither: exit %d\n%s", got, m.ErrOut.String())
+	}
+	m.errHas(t, "✗ ccy-proj: its supervisor cannot be asked: it has no agent-bus membership ("+m.dir("ccy-proj")+")")
+
+	m = newMachine(t)
+	m.noLxc()
+	if err := os.RemoveAll(m.dir("ccy-proj")); err != nil {
+		t.Fatal(err)
+	}
+	m.r.Lookup = hot.Lookup{Teamchat: func(string, string) (hot.TeamchatSeats, bool, error) {
+		return nil, false, errors.New("HOME is not set")
+	}}
+	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
+		t.Fatalf("unreadable: exit %d\n%s", got, m.ErrOut.String())
+	}
+	m.errHas(t, "✗ ccy-proj: its supervisor cannot be asked: HOME is not set")
 }
 
 // A session whose container is stopped is offline (CLAUDE/AgentNotes.md): named and left as it

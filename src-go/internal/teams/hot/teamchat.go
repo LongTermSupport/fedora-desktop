@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
@@ -37,28 +36,6 @@ const (
 // v2CCNotBuilt refuses a cc session on teamchat: it has no v1 membership to find it by, and hot
 // control of one is not built (register R41).
 const v2CCNotBuilt = "a cc session on a teamchat (v2) team is not changed while it runs yet: end it and start it again with cc --teams naming the seats it should have"
-
-// openV2 opens the running session's v2 seats in checkout, under its change lock (the generation
-// read is the one the next write follows); a session with none is v1's "launched without the
-// kit", and one whose desired membership cannot be read is refused as a configuration.
-func (x *Hot) openV2(t *target, checkout string) (term.ExitCode, bool) {
-	if x.Teamchat == nil {
-		x.notKit(t.session, os.ErrNotExist)
-		return exitConfig, false
-	}
-	seats, found, err := x.Teamchat(checkout, t.session)
-	if err != nil {
-		x.mark(markFailed, "session "+t.session+": it has no agent-bus membership, and whether it runs on teamchat (v2) could not be read: "+
-			err.Error()+"; relaunch it from ccy's tmux to change it while it runs")
-		return exitConfig, false
-	}
-	if !found {
-		x.notKit(t.session, os.ErrNotExist)
-		return exitConfig, false
-	}
-	t.v2, t.desired.Checkout = seats, checkout
-	return term.ExitOK, true
-}
 
 // ccOnTeamchat is whether a session with no container and no cc membership is a running cc
 // session launched on teamchat: a cc record, its tmux pane live and a v2 desired membership in

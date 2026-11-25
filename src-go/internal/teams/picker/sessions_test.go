@@ -482,6 +482,38 @@ func TestASessionThatCannotBeChangedIsOnlyAttachedAndTheMenuSaysWhy(t *testing.T
 	h.wantRuns(t)
 }
 
+// Register R51: a running teamchat (v2) session, which `session list` now shows, offers in the
+// picker what is built for it: its removal from each team, as `session remove` with no
+// coordinator question (the role stays, v2 refuses --coordinator), and Attach. Adding it names
+// the command, as the picker's add asks agent-bus (v1) seats; role and move are not offered.
+func TestTheMenuOfATeamchatSessionOffersWhatIsBuiltForIt(t *testing.T) {
+	h := newRig(t)
+	s := h.seated()
+	s.V2 = true
+	h.ses.list = []hot.Session{s}
+	h.Script.Fzf = []string{toSessions, "|ccy-proj", "|Remove from alpha", "|ABORT", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	want := []string{
+		"Add to a team: unavailable, ccy-proj runs on teamchat (v2): ccy-teams session add ccy-proj <team> adds it to one",
+		"Attach", "Remove from alpha", "Back to the list",
+	}
+	if menu := untagged(h.Script.Rows[2]); !slices.Equal(menu, want) {
+		t.Fatalf("menu %q, want %q", menu, want)
+	}
+	h.wantRuns(t, []string{"remove", proj, "alpha"})
+
+	h = newRig(t)
+	h.ses.list = []hot.Session{s}
+	h.Script.Fzf = []string{toSessions, "|ccy-proj", "|Add to a team", "|ABORT", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("add: exit %d: %s", code, h.ErrOut.String())
+	}
+	h.wantErr(t, "ccy-proj runs on teamchat (v2): ccy-teams session add ccy-proj <team> adds it to one.")
+	h.wantRuns(t)
+}
+
 func TestMoveFromTheMenuRunsSessionMove(t *testing.T) {
 	h := newRig(t)
 	h.withBeta(t)

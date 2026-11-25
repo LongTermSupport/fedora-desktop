@@ -205,6 +205,8 @@ func Wire(h *host.Host) *App {
 		}
 		return seats, true, nil
 	}
+	// restart finds a running session through the same lookup as session list and add (R51).
+	again.Lookup = session.Lookup()
 	return &App{
 		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: pick,
 		Chooser: chosen,

@@ -147,12 +147,13 @@ func (x *Hot) ccRepair(t *target) term.ExitCode {
 	return exitConfig
 }
 
-// runningCC is every running cc session with a membership, name -> pane, and a line for each cc
-// membership that could not be read.
-func (x *Hot) runningCC(ctx context.Context, runtime string) (map[string]int, []string, error) {
+// runningCC is every running cc session with a v1 membership, name -> pane, every live tmux
+// session's first pane by name (where a cc session on teamchat is found, addCCOnTeamchat), and a
+// line for each cc membership that could not be read.
+func (x *Hot) runningCC(ctx context.Context, runtime string) (map[string]int, map[string]int, []string, error) {
 	panes, err := x.Host.Tmux.Panes(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	pane := map[string]int{}
 	for _, p := range panes {
@@ -162,15 +163,15 @@ func (x *Hot) runningCC(ctx context.Context, runtime string) (map[string]int, []
 	}
 	desired, unreadable, err := discover.RunningCC(runtime, func(name string) bool { return pane[name] != 0 })
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	store, err := x.Host.Registry()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	records, err := readableRecords(store)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	// A pane of the name whose own launch did not carry the bus owns no membership (B1).
 	desired = discover.Current(desired, records)
@@ -178,5 +179,5 @@ func (x *Hot) runningCC(ctx context.Context, runtime string) (map[string]int, []
 	for _, d := range desired {
 		running[d.Session] = pane[d.Session]
 	}
-	return running, unreadable, nil
+	return running, pane, unreadable, nil
 }

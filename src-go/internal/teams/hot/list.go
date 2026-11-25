@@ -16,7 +16,6 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -34,6 +33,9 @@ type Session struct {
 	Controllable bool
 	// Unguarded is a session whose seat keeper has stopped (H10): repair starts it again.
 	Unguarded bool
+	// V2 is a session on teamchat (v2) teams: only add and remove are built for one while it
+	// runs (register R41), and its STATE is read from its keeper's seat reports.
+	V2 bool
 }
 
 // Cell is one team of a session: its seat and the role the session was told ("-" before).
@@ -43,12 +45,12 @@ type Cell struct{ Team, Seat, Role string }
 const OnlyTmuxLine = "Only sessions started through ccy's tmux (the ones ccy-sessions lists) can be changed here."
 
 // listCache keeps what several sessions share: a checkout's seats and a team's homeserver; each
-// running cc session's pane; and whether each session's own launch carried the bus (its record).
+// running cc session's pane; and each session's record, which the lookup reads it by.
 type listCache struct {
-	seats map[string][]agentbus.Seat
-	up    map[string]upState
-	panes map[string]int
-	bus   map[string]bool
+	seats   map[string][]agentbus.Seat
+	up      map[string]upState
+	panes   map[string]int
+	records map[string]registry.Record
 }
 
 // Sessions is every running session ccy's tmux started, by name, read as `session list` reads
@@ -63,23 +65,24 @@ func (x *Hot) Sessions(ctx context.Context) ([]Session, error) {
 		return nil, errors.New("podman could not list the sessions' containers: " + lastLine(err))
 	}
 	running := runningSessions(out)
-	cc, unreadable, err := x.runningCC(ctx, runtime)
+	cc, live, unreadable, err := x.runningCC(ctx, runtime)
 	if err != nil {
 		return nil, errors.New("the cc sessions could not be listed: " + err.Error())
 	}
 	for _, why := range unreadable {
 		x.mark(markSkip, why+"; that cc session is not listed")
 	}
+	records, err := x.recordsByName()
+	if err != nil {
+		return nil, err
+	}
+	x.addCCOnTeamchat(runtime, cc, live, records)
 	for name := range cc {
 		if _, taken := running[name]; !taken {
 			running[name] = ""
 		}
 	}
-	bus, err := x.launchedWithBus()
-	if err != nil {
-		return nil, err
-	}
-	cache := listCache{seats: map[string][]agentbus.Seat{}, up: map[string]upState{}, panes: cc, bus: bus}
+	cache := listCache{seats: map[string][]agentbus.Seat{}, up: map[string]upState{}, panes: cc, records: records}
 	names := make([]string, 0, len(running))
 	for name := range running {
 		names = append(names, name)
@@ -163,15 +166,21 @@ func SessionLines(rows []Session, home string) (string, []string, error) {
 func (x *Hot) session(ctx context.Context, runtime, container, name string, cache listCache) Session {
 	kind := kindOf(container)
 	row := Session{Name: name, Kind: kind, Checkout: "-"}
-	d, err := ownMembership(runtime, kind, name, cache)
-	if errors.Is(err, os.ErrNotExist) {
-		row.State = "old or --no-bus: relaunch it to change it while it runs"
+	run, err := x.ownMembership(runtime, kind, name, cache)
+	switch {
+	case err != nil && run.Bus == BusV2:
+		row.State = "its teamchat (v2) membership cannot be read: " + err.Error()
 		return row
-	}
-	if err != nil {
+	case err != nil:
 		row.State = "membership unreadable: " + err.Error()
 		return row
+	case run.Bus == BusNone:
+		row.State = "old or --no-bus: relaunch it to change it while it runs"
+		return row
+	case run.Bus == BusV2:
+		return v2Row(row, cache.records[name].Dir, run.V2)
 	}
+	d := run.V1
 	row.Kind, row.Checkout, row.Controllable = d.Kind, d.Checkout, d.Kind == kind
 	seats, seatsErr := x.checkoutSeats(ctx, d.Checkout, cache)
 	rep, repErr := membership.ReadReport(d.Checkout, name)
@@ -207,15 +216,49 @@ func (x *Hot) session(ctx context.Context, runtime, container, name string, cach
 	return row
 }
 
-// ownMembership is the session's desired membership, or none (os.ErrNotExist) when the record
-// its own launch wrote left the bus out: the membership under the name is then an earlier
-// session's (Fable's M6 review B1).
-func ownMembership(runtime, kind, name string, cache listCache) (membership.Desired, error) {
-	d, err := membership.Read(membership.DirOf(runtime, kind, name))
-	if err == nil && !cache.bus[name] {
-		return membership.Desired{}, os.ErrNotExist
+// ownMembership is the session's membership by the lookup, from the record its own launch
+// wrote; a session with no record owns none (Fable's M6 review B1).
+func (x *Hot) ownMembership(runtime, kind, name string, cache listCache) (Running, error) {
+	rec, ok := cache.records[name]
+	if !ok {
+		return Running{}, nil
 	}
-	return d, err
+	return x.Lookup().Running(runtime, kind, rec)
+}
+
+// v2Row is a running teamchat (v2) session's row: its teams, seats and duties from its desired
+// membership, and a STATE from its keeper's report of each seat (HotSeats.Applied), never v1's
+// keeper process. A ccy one is changed by add and remove; a cc one is not changed while it runs.
+func v2Row(row Session, checkout string, seats TeamchatSeats) Session {
+	row.Checkout, row.V2, row.Controllable = checkout, true, row.Kind == kindCcy
+	var unheld []string
+	var why string
+	var first error
+	for _, s := range seats.Desired().Seats {
+		team, role := s.Team.String(), "-"
+		if s.Duty != "" {
+			role = string(s.Duty)
+		}
+		row.Teams = append(row.Teams, Cell{Team: team, Seat: s.Seat, Role: role})
+		held, because, err := seats.Applied(team, s.Seat)
+		switch {
+		case err != nil:
+			first = cmp.Or(first, err)
+		case !held:
+			unheld, why = append(unheld, s.Seat+"@"+team), cmp.Or(why, because)
+		}
+	}
+	switch {
+	case !row.Controllable:
+		row.State = v2CCNotBuilt
+	case first != nil:
+		row.State = "its seats cannot be read: " + first.Error()
+	case len(unheld) > 0:
+		row.State = strings.Join(unheld, ",") + " not held: " + why
+	default:
+		row.State = stateOK
+	}
+	return row
 }
 
 // problems are the reads of a listed session that failed: its processes, its seats, its seat
@@ -302,7 +345,9 @@ func runningSessions(out string) map[string]string {
 }
 
 // SessionsIn is every running session whose desired membership names team (H29, for
-// ccy-teams remove), by name.
+// ccy-teams remove), by name. That take-down is of an agent-bus (v1) team, so only a session
+// the lookup finds on v1 is in it: a teamchat session is on v2 teams only, and a v2 team of the
+// same name is another team.
 func (x *Hot) SessionsIn(ctx context.Context, team string) ([]string, error) {
 	runtime := x.Host.Getenv("XDG_RUNTIME_DIR")
 	if !filepath.IsAbs(runtime) {
@@ -312,7 +357,7 @@ func (x *Hot) SessionsIn(ctx context.Context, team string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("podman could not list the sessions' containers: %s", lastLine(err))
 	}
-	cc, _, err := x.runningCC(ctx, runtime)
+	cc, _, _, err := x.runningCC(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("the cc sessions could not be listed: %w", err)
 	}
@@ -320,14 +365,19 @@ func (x *Hot) SessionsIn(ctx context.Context, team string) ([]string, error) {
 	for name := range cc {
 		names[name] = ""
 	}
-	bus, err := x.launchedWithBus()
+	records, err := x.recordsByName()
 	if err != nil {
 		return nil, err
 	}
+	lookup := Lookup{} // v1 only: see above
 	var in []string
 	for name, container := range names {
-		d, readErr := membership.Read(membership.DirOf(runtime, kindOf(container), name))
-		if readErr == nil && bus[name] && slices.ContainsFunc(d.Seats, func(s membership.Seat) bool { return s.Team == team }) {
+		rec, ok := records[name]
+		if !ok {
+			continue
+		}
+		run, readErr := lookup.Running(runtime, kindOf(container), rec)
+		if readErr == nil && run.Bus == BusV1 && slices.ContainsFunc(run.V1.Seats, func(s membership.Seat) bool { return s.Team == team }) {
 			in = append(in, name)
 		}
 	}
@@ -335,10 +385,10 @@ func (x *Hot) SessionsIn(ctx context.Context, team string) ([]string, error) {
 	return in, nil
 }
 
-// launchedWithBus is, by session name, whether the record its own launch wrote carries the bus
-// (discover.LaunchedWithBus): a membership under a name whose launch left it out is an earlier
-// session's (Fable's M6 review B1).
-func (x *Hot) launchedWithBus() (map[string]bool, error) {
+// recordsByName is every session record by its name: the lookup reads a session by the record
+// its own launch wrote (a membership under a name whose launch left the bus out is an earlier
+// session's, Fable's M6 review B1).
+func (x *Hot) recordsByName() (map[string]registry.Record, error) {
 	store, err := x.Host.Registry()
 	if err != nil {
 		return nil, err
@@ -347,11 +397,25 @@ func (x *Hot) launchedWithBus() (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	bus := make(map[string]bool, len(records))
+	byName := make(map[string]registry.Record, len(records))
 	for _, rec := range records {
-		bus[rec.Name] = discover.LaunchedWithBus(rec)
+		byName[rec.Name] = rec
 	}
-	return bus, nil
+	return byName, nil
+}
+
+// addCCOnTeamchat adds to cc each running cc session the lookup finds on teamchat (it has no v1
+// membership, so runningCC does not see it): a cc record of a live pane. One whose v2 membership
+// cannot be read is added too, and its row says why.
+func (x *Hot) addCCOnTeamchat(runtime string, cc, live map[string]int, records map[string]registry.Record) {
+	for name, rec := range records {
+		if _, seen := cc[name]; seen || rec.Prefix != membership.KindCC || live[name] == 0 {
+			continue
+		}
+		if run, err := x.Lookup().Running(runtime, membership.KindCC, rec); err != nil || run.Bus == BusV2 {
+			cc[name] = live[name]
+		}
+	}
 }
 
 // readableRecords is every session record, or an error naming each one that cannot be read
