@@ -67,7 +67,7 @@ func TestWaysOnNameEverySeatAndTheCommandForEach(t *testing.T) {
 		"ccy --teams 3@" + team, "ccy --teams 10@" + team, "ccy --teams lead@" + team,
 		"re-attach session ccy-proj (seat 2): ccy-sessions",
 		"ccy-sessions restore ccy-proj",
-		"teamchat seat place-issued --checkout ~/proj",
+		"a new seat: ccy-teams seats add " + team + ", then ccy --teams <seat>@" + team,
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the ways on lack %q:\n%s", want, text)
@@ -84,7 +84,14 @@ func TestWaysOnNameEverySeatAndTheCommandForEach(t *testing.T) {
 // S5: with no seat at all, the ways on still name the way to have one.
 func TestWaysOnWithNoSeatNameTheWayToHaveOne(t *testing.T) {
 	text := strings.Join(WaysOn("ccy", team, "~/proj", nil), "\n")
-	if !strings.Contains(text, "has no seat of "+team) || !strings.Contains(text, "place-issued") {
+	if !strings.Contains(text, "has no seat of "+team) || !strings.Contains(text, AddCommand(team)) {
 		t.Errorf("no seat:\n%s", text)
+	}
+}
+
+// S6: the new-seat row names the command that adds the seat.
+func TestTheNewSeatRowNamesItsCommand(t *testing.T) {
+	if got := NewRow(team); !strings.Contains(got, "ccy-teams seats add "+team) {
+		t.Errorf("new row %q", got)
 	}
 }

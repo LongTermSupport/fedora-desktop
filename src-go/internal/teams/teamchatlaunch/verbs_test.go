@@ -357,7 +357,7 @@ func TestARefusalOnTeamchatNamesTheSeatsAndEachWayOn(t *testing.T) {
 	}
 	for _, want := range []string{
 		"<seat>@<team>", "held by session ccy-repo", "take free seat 2: ccy --teams 2@alpha",
-		"re-attach session ccy-repo (seat 1): ccy-sessions", "place-issued",
+		"re-attach session ccy-repo (seat 1): ccy-sessions", "ccy-teams seats add alpha",
 	} {
 		if !strings.Contains(w.err.String(), want) {
 			t.Errorf("a team alone: stderr lacks %q:\n%s", want, w.err)

@@ -9,7 +9,7 @@
 //	S2  Default: the lowest free seat; none when every seat is held.
 //	S3  Row: the seat, its handle, and free or the session holding it with the re-attach.
 //	S4  WaysOn: every seat with its state, then a free seat's launch, a held seat's re-attach,
-//	    and another seat issued to this checkout.
+//	    and a new seat (AddCommand, `ccy-teams seats add <team>`).
 //	S5  WaysOn with no seat names the way to have one.
 package seatchoice
 
@@ -98,6 +98,12 @@ func WaysOn(launcher, team, checkout string, seats []Seat) []string {
 		}
 		lines = append(lines, "    take free seat "+s.Name+": "+launcher+" --teams "+s.Name+"@"+team)
 	}
-	return append(lines, "    another seat: have one issued to this checkout on the team's host (teamchat-admin member add, "+
-		"piped into teamchat seat place-issued --checkout "+checkout+"), then "+launcher+" --teams <seat>@"+team)
+	return append(lines, "    a new seat: "+AddCommand(team)+", then "+launcher+" --teams <seat>@"+team)
 }
+
+// AddCommand is the command that adds a new seat of team to this checkout (`ccy-teams seats add`,
+// issue 416): the way on when no seat is free.
+func AddCommand(team string) string { return "ccy-teams seats add " + team }
+
+// NewRow is the chooser's row that asks for a new seat of team, offered when no seat is free.
+func NewRow(team string) string { return "new seat in " + team + " (" + AddCommand(team) + ")" }

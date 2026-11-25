@@ -123,11 +123,39 @@ func TestATeamchatTeamsOneSeatHeldIsNeverTaken(t *testing.T) {
 	r.Script.Gum = []string{"CANCEL"}
 	exit(t, r.run("--type=podman", v2Team), term.ExitOK, r.rig)
 	r.lacksOutput(t)
-	contains(t, "stderr", r.stderr(), "every seat of "+v2Team+" in this checkout is held",
-		"held by session ccy-proj", "re-attach session ccy-proj (seat 2): ccy-sessions",
-		"teamchat seat place-issued --checkout")
+	contains(t, "stderr", r.stderr(), "Every seat of "+v2Team+" in this checkout is held by a running session")
 	if strings.Contains(r.stderr(), "this checkout's one seat of it") {
 		t.Fatalf("the held seat was taken:\n%s", r.stderr())
+	}
+	if got := r.gumDefault(t); !strings.HasPrefix(got, seatchoice.NewRow(v2Team)) {
+		t.Fatalf("with no seat free the default is a new seat: %s", got)
+	}
+	contains(t, "the question", r.Script.GumLog[0], r.row("2"))
+}
+
+// The "no free seat" outcome is one seam (Teamchat.NewSeat): unwired, the new-seat row says the
+// command that adds the seat and every way on, and ends the launch (78); wired (issue 416's
+// seat add), its seat is the launch's.
+func TestTheNewSeatRowGoesThroughTheNewSeatSeam(t *testing.T) {
+	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2"}})
+	r.held["2"] = "ccy-proj"
+	r.Script.Gum = []string{"CHOOSE:" + seatchoice.NewRow(v2Team)}
+	exit(t, r.run("--type=podman", v2Team), term.ExitConfig, r.rig)
+	r.lacksOutput(t)
+	contains(t, "stderr", r.stderr(), "a new seat of "+v2Team+" is added by ccy-teams seats add "+v2Team,
+		"re-attach session ccy-proj (seat 2): ccy-sessions", "a new seat: ccy-teams seats add "+v2Team)
+
+	r = newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2"}})
+	r.held["2"] = "ccy-proj"
+	var asked []string
+	r.c.Teamchat.NewSeat = func(_ context.Context, team, memberType string) (string, term.ExitCode) {
+		asked = append(asked, team+"/"+memberType)
+		return "4@" + team, term.ExitOK
+	}
+	r.Script.Gum = []string{"CHOOSE:" + seatchoice.NewRow(v2Team)}
+	exit(t, r.run("--type=podman", v2Team), term.ExitOK, r.rig)
+	if r.payload.String() != "4@"+v2Team+"\n" || !slices.Equal(asked, []string{v2Team + "/podman"}) {
+		t.Fatalf("payload %q, asked %v", r.payload.String(), asked)
 	}
 }
 
@@ -216,7 +244,7 @@ func TestATeamchatTeamWithNoSeatInThisCheckoutIsRefused(t *testing.T) {
 	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: nil})
 	exit(t, r.run("--type=podman", v2Team), term.ExitConfig, r.rig)
 	contains(t, "stderr", r.stderr(), "Team "+v2Team+" is on teamchat, and this checkout has no seat of it",
-		"ask its coordinator for a seat issued to this checkout")
+		"ccy-teams seats add "+v2Team)
 	r.lacksOutput(t)
 }
 

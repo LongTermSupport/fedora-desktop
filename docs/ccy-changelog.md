@@ -22,12 +22,13 @@ Two version numbers move independently — see
 `ccy --teams <team>` and `cc --teams <team>` (or a bare `--teams`) on a teamchat team no longer
 take a seat a running session holds, which made the launch exit 75 (issue #423). The checkout's
 seats of the team are listed with whether a session holds each, the lowest free seat is the
-default, and choosing a held seat re-attaches the session holding it (or switches the terminal
-to it inside ccy's tmux) instead of starting one. When every seat is held, when a re-attach
-cannot be made, when nobody is at a terminal to choose (a headless launch), and when a named
-seat is held, the refusal lists the seats, which are held, and the command for each way on: a
-free seat's launch, the held session's re-attach (`ccy-sessions`, or `ccy-sessions restore` for
-one not running), and another seat issued to the checkout. The launcher's Go front builds from
+default (a new seat when none is free), and choosing a held seat re-attaches the session holding
+it (or switches the terminal to it inside ccy's tmux) instead of starting one. A new seat is not
+yet added by the launch: it names `ccy-teams seats add <team>`. When a re-attach cannot be made,
+when nobody is at a terminal to choose (a headless launch), and when a named seat is held, the
+refusal lists the seats, which are held, and the command for each way on: a free seat's launch,
+the held session's re-attach (`ccy-sessions`, or `ccy-sessions restore` for one not running),
+and a new seat. The launcher's Go front builds from
 `ccy-teams`' seat-state package, hence the bump; the image is unchanged.
 
 ## 3.124.43 — container 2.84.77
