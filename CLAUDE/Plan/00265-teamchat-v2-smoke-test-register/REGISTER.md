@@ -287,9 +287,10 @@ filled in as each cause is known.
   becomes worker seat 7 on lts-ops), 2026-11-25.
 - **What:** v1's `ccy-teams session add <session> <team>[/<seat>]` adds a seat to a running
   session. In v2 the keeper already re-reads the session's `desired.json` and the engine can add
-  a team while running (`member/keeper/seats.go`, `engine/teams.go`), but nothing on the host
-  writes a new generation of it: `session add` (`teams/hot`) reads only v1's membership, and the
-  launch always writes generation 1. So a v2 session must be relaunched to gain a team.
+  a team while running (`member/keeper/seats.go`, `engine/teams.go`). But `session add`
+  (`teams/hot`) writes its next generation to v1's `membership.json`, which the v2 keeper never
+  reads, and nothing writes a new generation of `desired.json` (the launch always writes
+  generation 1). So a v2 session must be relaunched to gain a team.
 - **Multi-team itself works** (from the code, not yet run end to end): one link holds every team,
   each delivery names its team, role and `human_text` are per seat, and the questions verbs check
   coordinatorship per team.
