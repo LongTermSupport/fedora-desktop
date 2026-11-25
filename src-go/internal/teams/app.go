@@ -188,13 +188,21 @@ func Wire(h *host.Host) *App {
 		Pool: sys.PoolState, Reattach: chooser.TmuxReattach(h.Tmux, h.Getenv),
 	}
 	pick.Teamchat = sys.Live
+	launch := newLaunch(h, membershipInit, sys)
+	session.Teamchat = func(checkout, name string) (hot.TeamchatSeats, bool, error) {
+		seats, found, err := launch.HotSeats(checkout, name)
+		if err != nil || !found {
+			return nil, false, err
+		}
+		return seats, true, nil
+	}
 	return &App{
 		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: pick,
 		Chooser: chosen,
 		Picker:  list, Shutdown: down, Restart: again, WindDown: calm, Membership: membershipInit, ContainerName: containername.New(h), GoCache: gocache.New(h),
 		Session: session,
 		System:  sys,
-		Launch:  newLaunch(h, membershipInit, sys),
+		Launch:  launch,
 		Sweep:   newSweep(h),
 		SeatConversation: &SeatConversation{
 			Stdout: h.Payload, Stderr: h.Stderr, Getenv: h.Getenv, Getwd: os.Getwd, NowMS: nowMS,

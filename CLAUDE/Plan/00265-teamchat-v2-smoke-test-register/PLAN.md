@@ -38,8 +38,11 @@ when, who hit it, how to reproduce it, its severity, issue, unit and state.
 
 ### Phase 1: the faults that stop real work
 
+Batch 3 (U1, U3, U4, U5, U6, U7, U9, R42, R47, R48) is on F44 at 9d37999ce: live proofs follow
+the coordinator's worker restarts.
+
 - [ ] 🔄 **Task 1.1** (U1): R6, R18, #421: a refusal names its cause and the fix; detector first.
-  Merged into `v2-smoke` (ea576bbbf); live proof owed.
+  On F44 (9d37999ce); live proof owed.
 
 - [ ] 🔄 **Task 1.2** (U2): R1, R2, R21, #422: every PEER reaches the session or its sender is
   told why; reply works on what history lists. On F44 (c1b20004f, the home pin);
@@ -61,9 +64,9 @@ when, who hit it, how to reproduce it, its severity, issue, unit and state.
   so the estate's re-pin (L5) is with the coordinator. Route: other-host only (Q8). See [ROUTE-TO-LIVE.md](ROUTE-TO-LIVE.md).
 
 - [ ] 🔄 **Task 1.7** (U10): R41, R42: a seat is added to a running v2 session as v1 allowed
-  (R42 fixed on `v2-smoke`, cdac15584; R41 next, in a worktree once the branch pool has room)
+  (R42 on F44, 9d37999ce; R41 next, on `v2-smoke`)
   (`ccy-teams session add`), and `--to-coordinator` leaves out a team this session coordinates.
-  Next after batch 3 lands (F19: no-degrade).
+  F19: no-degrade.
 
 ### Phase 2: threads, procedure and authority
 

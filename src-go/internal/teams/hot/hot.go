@@ -96,6 +96,9 @@ type Hot struct {
 	Now   func() time.Time
 	Sleep func(time.Duration)
 	Waits Waits
+	// Teamchat opens a running v2 session's seats in its checkout, found false for a session
+	// with no v2 desired membership; nil changes v1 sessions only.
+	Teamchat func(checkout, session string) (TeamchatSeats, bool, error)
 
 	// head is the heading of this run's questions: the session and the change asked of it.
 	head ui.Heading
@@ -159,6 +162,12 @@ repair starts the session's seat keeper again when it has stopped (list says ung
 waits for it to take back every seat. A cc session's keeper ends with its claude, so a cc session
 is not repaired: end it and start it again from ccy-sessions.
 
+A session launched on teamchat (v2) teams is changed through its desired membership: add takes a
+pool seat of the checkout (the one given, or the lowest free one; ccy-teams seats add <team> makes
+a new one) and waits for the session's keeper to hold it; remove writes the member's farewell
+(it posts its own goodbye and stays in the team) and releases the seat. --role, --park,
+--coordinator, move, role and repair are not built for one yet, and say so.
+
 Each change asks first; with no terminal, --yes is required. One change runs at a time per
 session, and one seat allocation at a time per checkout: a second one is refused (exit 75),
 naming what holds it.
@@ -213,6 +222,9 @@ func (x *Hot) Run(ctx context.Context, args []string) term.ExitCode {
 
 // change runs one verb on a resolved session, under its change lock.
 func (x *Hot) change(ctx context.Context, t *target, r request) term.ExitCode {
+	if t.v2 != nil {
+		return x.changeV2(ctx, t, r)
+	}
 	switch r.verb {
 	case verbAdd:
 		return x.blockAfter(ctx, t, func() term.ExitCode { return x.addTo(ctx, t, r, r.team, r.seat) })
@@ -398,6 +410,8 @@ type target struct {
 	store     *registry.Store
 	lock      *lock
 	runtime   string
+	// v2 is a session launched on teamchat: its seats, and no v1 membership (desired is empty).
+	v2 TeamchatSeats
 }
 
 func (t *target) cc() bool { return t.kind == membership.KindCC }
@@ -450,8 +464,16 @@ func (x *Hot) resolve(ctx context.Context, r request) (*target, term.ExitCode, b
 	dir := membership.DirOf(runtime, t.kind, session)
 	t.dir, t.store = dir, store
 	if info, statErr := os.Lstat(dir); statErr != nil || !info.IsDir() {
-		x.notKit(session, os.ErrNotExist)
-		return nil, exitConfig, false
+		seats, found, v2Err := x.teamchatSeats(t, rec.Dir)
+		if v2Err != nil {
+			x.mark(markFailed, "session "+session+": "+v2Err.Error())
+			return nil, term.ExitFailure, false
+		}
+		t.v2 = seats
+		if !found {
+			x.notKit(session, os.ErrNotExist)
+			return nil, exitConfig, false
+		}
 	}
 	lockPath, err := changePath(runtime, session)
 	if err == nil {
@@ -464,6 +486,10 @@ func (x *Hot) resolve(ctx context.Context, r request) (*target, term.ExitCode, b
 	if err != nil {
 		x.mark(markFailed, "session "+session+": "+err.Error())
 		return nil, term.ExitFailure, false
+	}
+	if t.v2 != nil {
+		x.step(markDone, fmt.Sprintf(stepSessionNamed, session), hotControlled)
+		return t, term.ExitOK, true
 	}
 	t.desired, err = membership.Read(dir)
 	if err == nil && t.desired.Kind != t.kind {

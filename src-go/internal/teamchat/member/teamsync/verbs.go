@@ -21,6 +21,7 @@ const (
 	notInMain    exits.Template = "event {} is not in the team's main room"
 	notInRooms   exits.Template = "event {} is not in the team's main room, nor in a questions room this member reads"
 	notAuthentic exits.Template = "event {} is from no member of the team, or does not read as its sender's"
+	notJoined    exits.Template = "event {} is not in the team's main room, and this member could not join the questions room to read it (its cause is in the session's link.log); run status and tell a human: the room may hold no invite for this member"
 	notARoom     exits.Template = "{} is not a room this member reads"
 
 	verbUnreachable exits.Template = "the homeserver of team {} did not answer; the link keeps retrying"
@@ -204,6 +205,12 @@ func (t *Team) verify(ctx context.Context, id string, room *string) (records.Ver
 			return records.Verified{}, err
 		}
 		raw, err := t.getEvent(ctx, c, purpose, roomID, id, r, a.Self)
+		// A worker the questions room would not admit is told so, with the homeserver's class,
+		// never a not-found that reads as "workers cannot verify" (Plan 00265 R49).
+		var joinErr *questionsJoinError
+		if errors.As(err, &joinErr) {
+			return records.Verified{}, exits.New(exits.CodeForbidden, &t.cfg.Team, notJoined, exits.Name(id))
+		}
 		// A member outside questions is refused its events: to it they are not there.
 		if errors.Is(err, matrix.ErrNotFound) || purpose == proto.PurposeQuestions && errors.Is(err, matrix.ErrForbidden) {
 			continue
@@ -252,10 +259,20 @@ func (t *Team) getQuestionsEvent(ctx context.Context, c *matrix.Client, roomID, 
 	}
 	if _, joinErr := c.Join(ctx, roomID); joinErr != nil {
 		t.log.Printf("the questions room was not joined to read %s: %s", id, matrix.Cause(joinErr))
-		return raw, err
+		return raw, &questionsJoinError{cause: joinErr}
 	}
 	return c.GetEvent(ctx, roomID, id)
 }
+
+// questionsJoinError is a worker's refused read of questions whose join failed too: the
+// homeserver would not admit it, which verify reports as that, not as an absent event.
+type questionsJoinError struct{ cause error }
+
+func (e *questionsJoinError) Error() string {
+	return "the questions room was not joined: " + matrix.Cause(e.cause)
+}
+
+func (e *questionsJoinError) Unwrap() error { return e.cause }
 
 // verifiedRecord is m, read from room purpose, as verify's record.
 func (t *Team) verifiedRecord(ctx context.Context, c *matrix.Client, m message, purpose, roomID string, r proto.Roster, a proto.Anchors) records.Verified {

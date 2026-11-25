@@ -298,7 +298,30 @@ filled in as each cause is known.
   the session runs, `/exit`, then `ccy --resume <id> --teams 1@ballicom,7@lts-ops`.
 - **Fix:** `ccy-teams session add` writes the next generation of a teamchat session's
   `desired.json` (after the seat is in the pool).
-- **Severity:** high (no-degrade, F19). **Issue:** TBF. **Unit:** U10. **State:** open; next unit.
+- **Cause, checked (U10):** worse than the row said: a v2 launch makes no v1 membership
+  directory, so every `session` verb stopped at `resolve` with exit 78 "launched without the
+  agent team bus kit".
+- **Fixed (U10):** `session add` and `remove` on a v2 session take or release the seat the way a
+  launch does and write the next generation of `desired.json` (`teamchatlaunch/hotseats.go`); add
+  waits for the keeper's seat lock and `report.json` at that generation. `--role`, `--park`,
+  `--coordinator`, `move`, `role` and `repair` refuse by name for v2. Not yet run live.
+  Detail, the class guard and the sibling readers left open: `reports/U10.md`.
+- **Severity:** high (no-degrade, F19). **Issue:** TBF. **Unit:** U10. **State:** fixed on
+  `v2-smoke` (U10); lands with batch 4; the live check is an add on a running v2 session.
+
+## R51: host verbs that read only v1 membership do not see v2 sessions
+
+- **Seen:** U10, sweeping R41's class ("a host verb acting on one bus generation's file for a
+  session of the other"), 2026-11-25.
+- **What:** these still read only v1's per-session membership, so a v2 session is invisible to
+  them: `ccy-teams session list`; `ops.SessionsIn` and `TakeOut` (taking a team away leaves
+  running v2 sessions in it); `restart/jobs.go`; `board/collect.go`; `conversation`. A host `cc`
+  session on teamchat is not covered by R41's fix either.
+- **Fix:** each reads a v2 session's `desired.json` (and its seats' reports) as R41's add does,
+  under the same class guard, `TestEveryVerbOnAV2SessionActsOrRefusesByName`, widened to these
+  readers.
+- **Severity:** high (no-degrade, F19: v1's tools saw every session). **Issue:** TBF.
+  **Unit:** U11. **State:** open; next after batch 4 is in CI.
 
 ## R42: `say --to-coordinator` is ambiguous in a session that coordinates one of its teams
 
@@ -423,13 +446,32 @@ filled in as each cause is known.
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
   open.
 
+## R49: a worker's failed questions join was reported as "event not found"
+
+- **Seen:** the devops seat, Task 4.11 (lts-ops), 14:40Z, holding a write on owner words it
+  could not verify (F25).
+- **What:** a worker's `verify` of a questions post joins questions by its invite when refused
+  (`teamsync/verbs.go`, `getQuestionsEvent`). When that join failed, the cause went only to
+  `link.log` and the verb answered 23 not-found "not in the team's main room, nor in a questions
+  room this member reads", which reads as "workers cannot verify".
+- **The live 23 is R12, not this:** this seat, on the same code (digest `2f5c69f0…` is the src-go
+  git tree of ffa5e86c8), reproduced it on both owner ids (F26), with and without `--room questions`. At ffa5e86c8 `getQuestionsEvent` joins only on a 403, and Tuwunel answers a reader
+  who is not joined 404 M_NOT_FOUND (`src/api/client/room/event.rs:68-75` at tuwunel f7dc0770), so
+  no join was ever tried (hence no log line) and a worker holding only an invite cannot see the
+  event under `shared` (`user_can.rs:402-437`). U6 (5309c8de1, R12) joins on 404 too and made the
+  fake answer as Tuwunel does; it reaches sessions with batch 3 and their restart. Report:
+  `untracked/scratch/r49-rootcause.md` (this seat).
+- **Fix:** a failed join is now refused forbidden (exit 22, tell a human), naming the join and
+  `link.log`; not-found again means only that no readable event has the id. **Severity:** medium.
+  **Issue:** TBF. **State:** fixed on `v2-smoke`; batch 4.
+
 ## R48: the off-host route demanded a dedicated agent user (uid and groups)
 
 - **Seen:** the owner, lts-ops Q8, 14:31Z (F22): "we're still blocked - the whole uid thing is
   misguided".
 - **What:** K15 (a guest uid that is a host account's is refused) is enforced only by the
-  homeserver host's own `lxc apply` (`guestfacts.go:157`, given that host's passwd by
-  `apply.go:829`, `903`). Off-host nothing reads any host's accounts, yet our doc
+  homeserver host's own `lxc apply` and its absent phase (`guestfacts.go:157`, given that host's
+  passwd by `apply.go:829`, `903` and `absent.go:371`). Off-host nothing reads any host's accounts, yet our doc
   (`agent-bus-lxc-members.md`, off-host section) and route-to-live L7 asked for "a uid no
   account on the container's host has". What `seat place-lxc` did enforce off-host was GU1's
   caller check, which also refused any supplementary group (`identity.go`, `ownGroupOnly`): a

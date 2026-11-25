@@ -14,11 +14,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/duty"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -182,6 +180,10 @@ type Chosen struct {
 // Desired is generation 1 of the session's desired.json (C 3.7.5): the launch's seats, no
 // farewell, inbound accepted.
 func Desired(session paths.SessionName, chosen []Chosen, nowMS int64) ([]byte, error) {
+	return firstGeneration(session, chosen, nowMS).Encode()
+}
+
+func firstGeneration(session paths.SessionName, chosen []Chosen, nowMS int64) state.Desired {
 	d := state.Desired{
 		Session: session, Generation: 1, WrittenMS: nowMS,
 		Seats: []state.DesiredSeat{}, Farewell: []state.Farewell{}, Inbound: state.InboundAccept,
@@ -189,7 +191,7 @@ func Desired(session paths.SessionName, chosen []Chosen, nowMS int64) ([]byte, e
 	for _, c := range chosen {
 		d.Seats = append(d.Seats, state.DesiredSeat{Team: c.Team, Seat: c.Seat, Duty: c.Duty})
 	}
-	return d.Encode()
+	return d
 }
 
 // RunArgs is what podman run is given for a v2 session: the session's seat directory
@@ -243,15 +245,7 @@ func (l *Launch) Run(ctx context.Context, session paths.SessionName, list string
 		}
 		return nil, err
 	}
-	data, err := Desired(session, chosen, l.NowMS())
-	if err != nil {
-		return nil, err
-	}
-	control := l.Store.Control(session)
-	if err = os.MkdirAll(control, 0o700); err != nil {
-		return nil, fmt.Errorf("make the control directory: %w", err)
-	}
-	if err = fsx.WriteAtomic(l.Store.DesiredFile(session), "desired membership", data, 0o600); err != nil {
+	if err = WriteDesired(l.Store, firstGeneration(session, chosen, l.NowMS())); err != nil {
 		return nil, err
 	}
 	return RunArgs(l.Store, session, relabel), nil

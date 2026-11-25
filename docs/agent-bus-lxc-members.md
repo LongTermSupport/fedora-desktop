@@ -487,7 +487,8 @@ off-host client: nothing on the homeserver host reaches into it. It is not decla
 - a route to the team's `url` (a name or address that machine reaches), inside one of the
   team's `networks`; the bundle carries the team CA, so nothing else is trusted;
 - an agent user that is not root, whose home only it can write: the container's existing login
-  will do, whatever its uid and groups. The uid rule above (K15) is the homeserver host's own
+  will do, whatever its uid and other groups (its primary group must be its passwd entry's, as
+  any normal login's is). The uid rule above (K15) is the homeserver host's own
   containers' alone, where the play compares the guest with that host's accounts; nothing here
   reads any host's accounts.
 

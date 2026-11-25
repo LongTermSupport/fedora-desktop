@@ -24,6 +24,7 @@ import (
 type fakeHolder struct {
 	holdings []seat.Holding
 	calls    []string
+	released []seat.Release
 	err      error
 	listErr  error
 	closed   bool
@@ -33,6 +34,7 @@ func (f *fakeHolder) Holdings() ([]seat.Holding, error) { return f.holdings, f.l
 
 func (f *fakeHolder) Release(_ context.Context, r seat.Release) error {
 	f.calls = append(f.calls, "release "+r.Seat.Name.String()+" "+r.Session.String())
+	f.released = append(f.released, r)
 	return f.err
 }
 
