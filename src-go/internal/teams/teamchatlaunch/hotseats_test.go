@@ -126,6 +126,16 @@ func TestOpenHotSeatsFindsNoV2SessionWithoutDesired(t *testing.T) {
 	}
 }
 
+// A running session's seats are not opened through a Launch without its launcher's kind: its
+// joins would refuse every seat as another launcher's (register R55).
+func TestOpenHotSeatsRefusesALaunchWithNoKind(t *testing.T) {
+	w := newLaunchWorld(t)
+	w.launch.Kind = ""
+	if _, _, err := OpenHotSeats(HotParts{Launch: w.launch}, mustSession(t, "other")); !errors.Is(err, ErrKind) {
+		t.Fatalf("got %v", err)
+	}
+}
+
 // The launcher's verbs open a running session's seats in the checkout's seat store: the session
 // its launch wrote desired.json for is found, its release goes to the same store, and a session
 // with none, or a name v2 never gives a session, is not found.

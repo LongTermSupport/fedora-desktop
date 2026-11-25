@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.51 — container 2.84.80
+
+`ccy-teams` is rebuilt (Plan 00265 R5, R55 review fixes); the image is unchanged.
+
+- **A seat neither launcher takes is named as such.** A seat named for `ccy` or `cc` whose
+  handle is of another kind, such as an LXC member's, is refused naming its kind and that
+  neither launcher starts it, instead of "not one of the seats".
+- **An automatic seat add no longer tells you to launch.** When a bare `--teams <team>` adds a
+  seat, it says the launch takes it; only `ccy-teams seats add` prints "Launch it here".
+
 ## 3.124.50 — container 2.84.80
 
 `ccy-teams` is rebuilt (Plan 00265 R5, R55); the image is unchanged.

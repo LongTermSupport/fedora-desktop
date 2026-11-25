@@ -56,6 +56,9 @@ type HotSeats struct {
 // OpenHotSeats reads the session's desired.json; found is false when it has none, which is a
 // session that was not launched on teamchat.
 func OpenHotSeats(parts HotParts, session paths.SessionName) (*HotSeats, bool, error) {
+	if err := parts.Launch.checkKind(); err != nil {
+		return nil, false, err
+	}
 	data, err := os.ReadFile(parts.Launch.Store.DesiredFile(session))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, false, nil

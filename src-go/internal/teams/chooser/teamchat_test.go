@@ -38,10 +38,17 @@ func (r *teamchatRig) ofKind(team, kind string) []seatchoice.Seat {
 	var pool []seatchoice.Seat
 	for _, s := range r.seats[team] {
 		name, fixed, ok := strings.Cut(s, ":")
-		if ok && fixed != kind {
+		if ok && fixed != kind && kind != seatchoice.AnyKind {
 			continue
 		}
-		pool = append(pool, seatchoice.Seat{Name: name, Handle: "proj." + name + "+local." + kind, HeldBy: r.held[name]})
+		// A seat of no fixed kind is of whichever kind is asked (podman when any is).
+		of := kind
+		if ok {
+			of = fixed
+		} else if kind == seatchoice.AnyKind {
+			of = seatchoice.KindPodman
+		}
+		pool = append(pool, seatchoice.Seat{Name: name, Handle: "proj." + name + "+local." + of, HeldBy: r.held[name]})
 	}
 	return pool
 }
@@ -424,6 +431,13 @@ func TestAHostLaunchRefusesANamedPodmanSeat(t *testing.T) {
 	r.consentRig()
 	exit(t, r.run("--type=host", "9@"+v2Team), term.ExitConfig, r.rig)
 	contains(t, "stderr", r.stderr(), "9@"+v2Team+" is not one of this checkout's teamchat host seats of "+v2Team+" (it has: none)")
+
+	// A seat of a kind neither launcher takes is refused naming that kind, not as an unknown seat.
+	r = newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"4:lxc", "3:host"}})
+	r.consentRig()
+	exit(t, r.run("--type=host", "4@"+v2Team), term.ExitConfig, r.rig)
+	r.lacksOutput(t)
+	contains(t, "stderr", r.stderr(), "4@"+v2Team+" is a lxc seat (proj.4+local.lxc)", "neither ccy nor cc launches it")
 }
 
 // Register R55: with nobody to ask, the ways on name the launch's own kind's seats only.

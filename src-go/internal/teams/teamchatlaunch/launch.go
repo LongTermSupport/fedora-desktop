@@ -36,11 +36,13 @@ const MembershipMount = paths.SessionMembershipMount
 // its seat lock's release before podman kills the container.
 const stopTimeout = "20"
 
-// The refusals of a launch: a mount that reaches the seat store (exit 78) and a seat list the
-// pool cannot answer (exit 64).
+// The refusals of a launch: a mount that reaches the seat store (exit 78), a seat list the
+// pool cannot answer (exit 64), and a Launch built without its launcher's kind of seat (a
+// defect in the launcher, exit 1).
 var (
 	ErrMount = errors.New("a mount reaches the seat store")
 	ErrSeat  = errors.New("no such seat")
+	ErrKind  = errors.New("internal error: the launch has no kind of seat")
 )
 
 // MountSources is the source of every bind in podman run arguments: -v and --volume (joined or
@@ -232,7 +234,8 @@ type Launch struct {
 	Store    paths.Store
 	Checkout paths.CheckoutKey
 	// Kind is the launcher's kind of seat (seatchoice.KindPodman for ccy, KindHost for cc): the
-	// only pool seats the launch takes.
+	// only pool seats the launch takes. The compiler does not hold it: Run and OpenHotSeats
+	// refuse any other value (ErrKind), so a Launch built without it fails at once.
 	Kind   string
 	Taker  Taker
 	Status func(paths.TeamID) (status.Record, bool, error)
@@ -243,6 +246,9 @@ type Launch struct {
 // arguments. Nothing is taken when the guard or a seat refuses; nothing is written when a take
 // fails.
 func (l *Launch) Run(ctx context.Context, session paths.SessionName, list string, mounts []string, relabel bool) ([]string, error) {
+	if err := l.checkKind(); err != nil {
+		return nil, err
+	}
 	if err := Guard(l.Store.Root(), MountSources(mounts)); err != nil {
 		return nil, err
 	}
@@ -263,6 +269,14 @@ func (l *Launch) Run(ctx context.Context, session paths.SessionName, list string
 		return nil, err
 	}
 	return RunArgs(l.Store, session, relabel), nil
+}
+
+// checkKind refuses a Launch whose Kind is not a launcher's kind of seat, naming the kind given.
+func (l *Launch) checkKind() error {
+	if l.Kind == seatchoice.KindPodman || l.Kind == seatchoice.KindHost {
+		return nil
+	}
+	return fmt.Errorf("%w (%q; want %q for ccy or %q for cc)", ErrKind, l.Kind, seatchoice.KindPodman, seatchoice.KindHost)
 }
 
 // choose reads the canonical list and finds each seat in the pool.

@@ -105,6 +105,11 @@ func TestChooseSeatTakesOnlyTheLaunchKindsSeat(t *testing.T) {
 	if !errors.Is(err, ErrSeat) || !strings.Contains(err.Error(), "is a host seat (repo.2+site.host)") || !strings.Contains(err.Error(), "cc --teams 2@") {
 		t.Fatalf("a host seat for ccy: got %v", err)
 	}
+	pool = append(pool, mustSeat(t, "repo.5+site.lxc"))
+	_, err = ChooseSeat(pool, "alpha", "5", seatchoice.KindPodman)
+	if !errors.Is(err, ErrSeat) || !strings.Contains(err.Error(), "is a lxc seat (repo.5+site.lxc)") || !strings.Contains(err.Error(), "neither ccy nor cc launches it") {
+		t.Fatalf("an lxc seat for ccy: got %v", err)
+	}
 }
 
 func TestHandleStateIsTheRostersOrNoRoster(t *testing.T) {
@@ -285,6 +290,23 @@ func TestLaunchRefusesBeforeTakingAnything(t *testing.T) {
 	}
 	if w.taker.took != nil {
 		t.Fatalf("took %+v", w.taker.took)
+	}
+}
+
+// A Launch built without its launcher's kind, or with one no launcher has, is refused before
+// anything is read or taken, naming the kind it was given (register R55): it would otherwise
+// refuse every seat as another launcher's.
+func TestLaunchRefusesAMissingOrUnknownKind(t *testing.T) {
+	for _, kind := range []string{"", "lxc"} {
+		w := newLaunchWorld(t)
+		w.launch.Kind = kind
+		_, err := w.launch.Run(context.Background(), mustSession(t, "s1"), "1@alpha", nil, false)
+		if !errors.Is(err, ErrKind) || !strings.Contains(err.Error(), `"`+kind+`"`) {
+			t.Fatalf("kind %q: got %v", kind, err)
+		}
+		if w.taker.took != nil {
+			t.Fatalf("kind %q: took %+v", kind, w.taker.took)
+		}
 	}
 }
 

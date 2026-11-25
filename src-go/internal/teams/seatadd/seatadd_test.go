@@ -189,7 +189,7 @@ func TestAddDerivesIssuesAndPlaces(t *testing.T) {
 	if w.out.String() != "1@alpha\n" {
 		t.Errorf("stdout %q, want the seat to launch", w.out.String())
 	}
-	for _, s := range []string{"fedora-desktop.1+local.podman", "ccy --teams 1@alpha"} {
+	for _, s := range []string{"fedora-desktop.1+local.podman", "Launch it here: ccy --teams 1@alpha"} {
 		if !strings.Contains(w.err.String(), s) {
 			t.Errorf("stderr does not say %q:\n%s", s, w.err.String())
 		}
@@ -382,7 +382,10 @@ func TestNewSeatAddsTheLaunchersSeat(t *testing.T) {
 	if code != term.ExitOK || got != "1@alpha" {
 		t.Fatalf("host: %q %d; said %q", got, code, said)
 	}
-	if !strings.Contains(strings.Join(w.sudo.argv, " "), "--kind host") || !strings.Contains(strings.Join(said, "\n"), "cc --teams 1@alpha") {
+	// The launch goes on with the seat, so it is said as taken, not as a command to run.
+	text := strings.Join(said, "\n")
+	if !strings.Contains(strings.Join(w.sudo.argv, " "), "--kind host") || !strings.Contains(text, "This cc launch takes seat 1@alpha.") ||
+		strings.Contains(text, "Launch it here") {
 		t.Errorf("argv %q, said %q", w.sudo.argv, said)
 	}
 	w.pool("fedora-desktop.1+local.host")

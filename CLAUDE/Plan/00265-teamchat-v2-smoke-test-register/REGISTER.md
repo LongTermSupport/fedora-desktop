@@ -535,10 +535,12 @@ filled in as each cause is known.
 - **Fix:** with R5: the pool offered and the seat named are those of the launcher's kind; a
   named seat of the other kind is refused, naming the kind. **Severity:** medium (a host agent
   can start on a podman seat's identity). **Issue:** TBF. **State:** fixed on v2-smoke; batch 7
-  (ccy 3.124.50). Every pool read a launch chooses from names the kind (the handle's type) in
-  its signature (`system.PoolState`, `Cmd.Handles`/`SeatCount`/`PoolState`, the chooser's
-  `Teamchat` fields, `teamchatlaunch.ChooseSeat` and `Launch.Kind`), so the compiler holds every
-  pick to one; the chooser, list, ways on, launch-args (podman), cc-run (host) and a running
+  (ccy 3.124.50). Every pool read a launch chooses from takes the kind (the handle's type, a
+  plain string) as a parameter (`system.PoolState`, `Cmd.Handles`/`SeatCount`/`PoolState`, the
+  chooser's `Teamchat` fields, `teamchatlaunch.ChooseSeat`), so every caller passes one, though
+  nothing at compile time checks its value. `Launch.Kind` is a plain field, so `Launch.Run` and
+  `OpenHotSeats` refuse an empty or unknown one (`ErrKind`, tested) before reading anything; the
+  chooser, list, ways on, launch-args (podman), cc-run (host) and a running
   session's join (podman) offer and take that kind only, and a named seat of the other kind is
   refused naming its kind and launcher (`seatchoice.WrongKind`) ([reports/R5.md](reports/R5.md)).
 

@@ -289,9 +289,9 @@ func (c *Chooser) handles(ctx context.Context, memberType string, refs []string)
 }
 
 // poolHandle is the handle of seat@team from this checkout's pool seats of the launch's kind, and
-// whether the team has a pool seat of any kind here at all (false: ask agent-bus). A seat of the
-// other kind is refused naming its kind and launcher (register R55), and a seat part no seat has
-// is refused; both 78.
+// whether the team has a pool seat of any kind here at all (false: ask agent-bus). A seat of
+// another kind (the other launcher's, or one neither takes) is refused naming its kind (register
+// R55), and a seat part no seat has is refused; both 78.
 func (c *Chooser) poolHandle(memberType, ref, seat, team string) (string, bool, term.ExitCode) {
 	tc := c.teamchatFor(memberType)
 	if tc == nil {
@@ -301,18 +301,18 @@ func (c *Chooser) poolHandle(memberType, ref, seat, team string) (string, bool, 
 	if err != nil {
 		return "", false, c.failed(err)
 	}
-	other, err := tc.Handles(team, seatchoice.Other(memberType))
+	every, err := tc.Handles(team, seatchoice.AnyKind)
 	if err != nil {
 		return "", false, c.failed(err)
 	}
-	if len(pool) == 0 && len(other) == 0 {
+	if len(pool) == 0 && len(every) == 0 {
 		return "", false, term.ExitOK
 	}
 	if at := seatAt(pool, seat); at >= 0 {
 		return pool[at], true, term.ExitOK
 	}
-	if at := seatAt(other, seat); at >= 0 {
-		c.say("ccy-teams: " + seatchoice.WrongKind(seat, team, other[at], memberType) + ".")
+	if at := seatAt(every, seat); at >= 0 {
+		c.say("ccy-teams: " + seatchoice.WrongKind(seat, team, every[at], memberType) + ".")
 		return "", true, exitConfig
 	}
 	has := strings.Join(pool, ", ")

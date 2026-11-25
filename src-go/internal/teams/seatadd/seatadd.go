@@ -169,7 +169,7 @@ func (a *Adder) Add(ctx context.Context, r Request) (Added, error) {
 	if r.Host {
 		added.Launcher = "cc"
 	}
-	a.note("Seat " + added.List + " is in this checkout's pool. Launch it here: " + added.Launcher + " --teams " + added.List)
+	a.note("Seat " + added.List + " is in this checkout's pool.")
 	return added, nil
 }
 
@@ -201,6 +201,7 @@ func (a *Adder) NewSeat(getwd func() (string, error), say func(string)) func(ctx
 			say("ccy-teams: no new seat of " + team + " could be added: " + err.Error() + ".")
 			return "", term.ExitFailure
 		}
+		say("This " + added.Launcher + " launch takes seat " + added.List + ".")
 		return added.List, term.ExitOK
 	}
 }
@@ -309,6 +310,7 @@ func (c *Cmd) run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	c.note("Launch it here: " + added.Launcher + " --teams " + added.List)
 	if _, err = io.WriteString(c.Stdout, added.List+"\n"); err != nil {
 		return fmt.Errorf("could not print the seat: %w", err)
 	}

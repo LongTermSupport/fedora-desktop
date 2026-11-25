@@ -13,8 +13,8 @@
 //	S5  WaysOn with no seat names the way to have one.
 //	S7  A seat's kind is its handle's type (podman for ccy, host for cc); a launch is offered,
 //	    and its ways on name, only the seats of its own kind (OfKind; register R55).
-//	S8  WrongKind refuses a seat of the other kind named for a launch: its kind, its launcher,
-//	    and the add of a seat of the launch's kind.
+//	S8  WrongKind refuses a seat of another kind named for a launch: its kind, its launcher
+//	    (or that neither launcher takes it), and the add of a seat of the launch's kind.
 package seatchoice
 
 import (
@@ -82,10 +82,18 @@ func Row(s Seat) string {
 }
 
 // The kinds of pool seat: a handle's type, and the --type a launcher gives (ccy podman, cc host).
+// AnyKind is not a kind: asked for, it is every seat with a handle (no handle's type has a "*").
 const (
 	KindPodman = "podman"
 	KindHost   = "host"
+	AnyKind    = "*"
 )
+
+// IsKind is whether handle is a seat of kind (any handle, for AnyKind).
+func IsKind(handle, kind string) bool {
+	of := KindOf(handle)
+	return of != "" && (kind == AnyKind || of == kind)
+}
 
 // KindOf is the kind of the seat whose handle is handle, "" for a name that is not a handle.
 func KindOf(handle string) string {
@@ -100,19 +108,11 @@ func KindOf(handle string) string {
 func OfKind(seats []Seat, kind string) []Seat {
 	var out []Seat
 	for _, s := range seats {
-		if KindOf(s.Handle) == kind {
+		if IsKind(s.Handle, kind) {
 			out = append(out, s)
 		}
 	}
 	return out
-}
-
-// Other is the launcher kind that is not kind: a ccy launch's other is host, a cc launch's podman.
-func Other(kind string) string {
-	if kind == KindHost {
-		return KindPodman
-	}
-	return KindHost
 }
 
 // Launcher is the command that launches a seat of kind: cc for host, ccy for podman.
@@ -124,13 +124,18 @@ func Launcher(kind string) string {
 }
 
 // WrongKind is the refusal of seat@team, whose handle is of another kind, for a launch of kind:
-// the seat's kind, the launcher it belongs to, and the add of a seat of the launch's own kind.
+// the seat's kind, the launcher it belongs to (or that neither launches it, for a kind such as an
+// LXC member's), and the add of a seat of the launch's own kind.
 func WrongKind(seat, team, handle, kind string) string {
 	ref := seat + "@" + team
 	other := KindOf(handle)
+	way := "launch it with " + Launcher(other) + " --teams " + ref + ", or "
+	if other != KindPodman && other != KindHost {
+		way = "neither ccy nor cc launches it; "
+	}
 	return ref + " is a " + other + " seat (" + handle + "), and this is a " + Launcher(kind) + " (" + kind +
-		") launch: launch it with " + Launcher(other) + " --teams " + ref + ", or add a " + kind + " seat with " +
-		AddCommand(team, kind) + ", then " + Launcher(kind) + " --teams <seat>@" + team
+		") launch: " + way + "add a " + kind + " seat with " + AddCommand(team, kind) + ", then " +
+		Launcher(kind) + " --teams <seat>@" + team
 }
 
 // WaysOn are the lines a refusal prints for team in checkout (as shown to a person): the seats

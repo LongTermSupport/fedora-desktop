@@ -110,6 +110,10 @@ func TestCmdAnswersEachKindWithItsOwnSeats(t *testing.T) {
 			t.Errorf("PoolState(%s): got %+v %v, want %s", kind, got, err, want)
 		}
 	}
+	// AnyKind is every seat, for the refusal of a named seat of another kind.
+	if got, err := w.cmd.Handles("fresh", seatchoice.AnyKind); err != nil || len(got) != 2 {
+		t.Errorf("Handles(AnyKind): got %v %v, want both seats", got, err)
+	}
 }
 
 // placeHandle makes the pool seat handle of team in checkout.

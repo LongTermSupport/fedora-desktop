@@ -85,7 +85,8 @@ func (c *Cmd) SeatCount(team, kind string) (int, error) {
 
 // Handles are the member handles of the working directory's pool seats of kind of team, in pool
 // order: what a host launch's Matrix consent names (Task 5.1). Only kind's: a seat of another
-// kind is another launcher's (register R55).
+// kind is another launcher's (register R55). seatchoice.AnyKind is every seat, for a refusal
+// that names a seat's kind.
 func (c *Cmd) Handles(team, kind string) ([]string, error) {
 	id, err := paths.ParseTeamID(team)
 	if err != nil {
@@ -101,7 +102,7 @@ func (c *Cmd) Handles(team, kind string) ([]string, error) {
 	}
 	var handles []string
 	for _, s := range seats {
-		if seatchoice.KindOf(s.String()) == kind {
+		if seatchoice.IsKind(s.String(), kind) {
 			handles = append(handles, s.String())
 		}
 	}
