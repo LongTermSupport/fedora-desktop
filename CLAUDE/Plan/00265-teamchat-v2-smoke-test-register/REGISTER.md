@@ -428,8 +428,8 @@ filled in as each cause is known.
 - **Seen:** the owner, lts-ops Q8, 14:31Z (F22): "we're still blocked - the whole uid thing is
   misguided".
 - **What:** K15 (a guest uid that is a host account's is refused) is enforced only by the
-  homeserver host's own `lxc apply` (`guestfacts.go:157`, given that host's passwd by
-  `apply.go:829`, `903`). Off-host nothing reads any host's accounts, yet our doc
+  homeserver host's own `lxc apply` and its absent phase (`guestfacts.go:157`, given that host's
+  passwd by `apply.go:829`, `903` and `absent.go:371`). Off-host nothing reads any host's accounts, yet our doc
   (`agent-bus-lxc-members.md`, off-host section) and route-to-live L7 asked for "a uid no
   account on the container's host has". What `seat place-lxc` did enforce off-host was GU1's
   caller check, which also refused any supplementary group (`identity.go`, `ownGroupOnly`): a
