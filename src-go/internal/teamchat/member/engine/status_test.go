@@ -2,6 +2,7 @@ package engine
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -28,7 +29,7 @@ func TestStatusShowsEachTeamItsMembersRoomsAndTheRuntime(t *testing.T) {
 		},
 		Rooms: proto.SideRooms{Questions: qRoom},
 	})
-	w.persistBatch(team.Batch{Team: ops, NextBatch: "s1", Counts: team.Counts{Ignored: 2, Gaps: 1}})
+	w.persistBatch(team.Batch{Team: ops, NextBatch: "s1", Counts: team.Counts{Ignored: 2, Gaps: 1, Dropped: 1, DroppedBy: map[string]int64{proto.ReasonStale: 1}}})
 	check(t, w.e.Refuse(t.Context(), dev, w.run))
 	d, out := w.serve(t.Context(), wire.OpStatus, wire.TeamsArgs{})
 	if d != (wire.Done{}) || out.flushes != 1 {
@@ -49,9 +50,10 @@ func checkOpsStatus(t *testing.T, out *recorder) {
 	t.Helper()
 	want := records.Team{
 		Team: tid(t, "ops"), Name: "Operations", Handle: "repo.1+site.podman", Role: "worker", Trust: trustTrusted,
-		Delivery: state.DeliveryWait, Counts: records.TeamCounts{Ignored: 2, Gaps: 1},
+		Delivery: state.DeliveryWait, Counts: records.TeamCounts{Ignored: 2, Gaps: 1, Dropped: 1, DroppedBy: map[string]int64{proto.ReasonStale: 1}},
 	}
-	if out.recs[0] != records.Record(want) {
+	// Issue #422: status names each drop's reason, not only their number.
+	if !reflect.DeepEqual(out.recs[0], records.Record(want)) {
 		t.Fatalf("the team record = %+v, want %+v", out.recs[0], want)
 	}
 	if m, ok := out.recs[1].(records.Member); !ok || !m.Present || m.Role != "worker" {

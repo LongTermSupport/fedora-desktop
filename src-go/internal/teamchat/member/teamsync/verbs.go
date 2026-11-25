@@ -370,7 +370,29 @@ func (t *Team) historyOf(m message, room string, a proto.Anchors) records.Histor
 		n := m.content.Notice
 		item = records.Notice{Team: t.cfg.Team, ID: m.id, From: from, SentMS: m.ts, Event: n.Event, Subject: n.Subject, Reason: optional(n.Reason)}
 	}
-	return records.History{Team: t.cfg.Team, Dir: dir, Item: item}
+	to, forMe := historyTo(m, a)
+	return records.History{Team: t.cfg.Team, Dir: dir, To: to, ForMe: forMe, Item: item}
+}
+
+// historyTo is m's addressees as history names them (handles on the team's server) and whether
+// this member is one: an agent item's `to`, or a human's mentions and `@room`.
+func historyTo(m message, a proto.Anchors) ([]string, bool) {
+	ids := m.content.Addressees()
+	room := false
+	if m.kind == records.KindHuman {
+		ids, room = m.human.Mentions, m.human.MentionRoom
+	}
+	to := make([]string, 0, len(ids)+1)
+	for _, id := range ids {
+		if local, ok := proto.Localpart(id, a.Server); ok {
+			id = local
+		}
+		to = append(to, id)
+	}
+	if room {
+		to = append(to, "@room")
+	}
+	return to, room || slices.Contains(ids, a.Self)
 }
 
 // gone is err as a Refetch whose item can never be judged again.

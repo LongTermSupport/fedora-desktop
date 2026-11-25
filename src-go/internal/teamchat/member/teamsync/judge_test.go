@@ -108,8 +108,8 @@ func TestDropsAndRedacts(t *testing.T) {
 	w.batch()
 	r.poll(t)
 	w.say(peer, human("plain text from an agent", user(me)))
-	if b := w.batch(); b.Counts.Dropped != 1 || len(b.Items) != 0 {
-		t.Errorf("batch %+v", b)
+	if b := w.batch(); b.Counts.Dropped != 1 || len(b.Items) != 0 || b.Counts.DroppedBy[proto.ReasonSchema] != 1 {
+		t.Errorf("batch %+v: one drop, counted under its reason", b)
 	}
 	r.poll(t)
 	if n := w.log.count("dropped "); n != 1 {

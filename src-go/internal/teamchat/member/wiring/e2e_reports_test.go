@@ -3,6 +3,7 @@ package wiring
 import (
 	"maps"
 	"net/http"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -83,7 +84,7 @@ func TestE2EAReportWithAWorkerStopped(t *testing.T) {
 	kill(t, p.keeper.Pid(), syscall.SIGTERM)
 	p.wait()
 	stopped := s.report(oneStopped)
-	if !maps.Equal(withoutID(stopped), withoutID(running)) {
+	if !reflect.DeepEqual(withoutID(stopped), withoutID(running)) {
 		t.Errorf("with a worker stopped the report answered %v, with all running %v", stopped, running)
 	}
 	if got := w.reportsFrom(me); len(got) != 2 || got[0] != oneStopped || got[1] != allRunning {

@@ -118,9 +118,42 @@ type Item struct {
 	Verdict proto.Verdict
 }
 
-// Counts are a batch's counters (UH1), counted once per event.
+// Counts are a batch's counters (UH1), counted once per event. DroppedBy splits Dropped by its
+// reason (A 7.6), so a drop is never only a number (issue #422).
 type Counts struct {
 	Ignored, Dropped, Unheard, Gaps, Redacted int64
+	DroppedBy                                 map[string]int64
+}
+
+// IsZero is whether nothing was counted.
+func (c Counts) IsZero() bool {
+	return c.Ignored == 0 && c.Dropped == 0 && c.Unheard == 0 && c.Gaps == 0 && c.Redacted == 0 && len(c.DroppedBy) == 0
+}
+
+// Drop counts one drop under its reason.
+func (c *Counts) Drop(reason string) {
+	c.Dropped++
+	if c.DroppedBy == nil {
+		c.DroppedBy = map[string]int64{}
+	}
+	c.DroppedBy[reason]++
+}
+
+// Add is a and b counted together.
+func (c Counts) Add(b Counts) Counts {
+	sum := Counts{
+		Ignored: c.Ignored + b.Ignored, Dropped: c.Dropped + b.Dropped, Unheard: c.Unheard + b.Unheard,
+		Gaps: c.Gaps + b.Gaps, Redacted: c.Redacted + b.Redacted,
+	}
+	for _, m := range []map[string]int64{c.DroppedBy, b.DroppedBy} {
+		for reason, n := range m {
+			if sum.DroppedBy == nil {
+				sum.DroppedBy = map[string]int64{}
+			}
+			sum.DroppedBy[reason] += n
+		}
+	}
+	return sum
 }
 
 // View is what Judge's Lookup reads, from the engine's memory (gap 14).

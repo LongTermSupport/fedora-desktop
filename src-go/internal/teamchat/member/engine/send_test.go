@@ -302,7 +302,11 @@ func TestSD2_1NamesResolvePerTeam(t *testing.T) {
 	r.Members[twin] = proto.RosterMember{Role: proto.RoleWorker, HumanText: true}
 	fo.notices.set(r)
 	refusedCode(t, "an ambiguous short name", firstOf(w.say(&ops, "hello", "repo.2")), exits.CodeAmbiguousMember)
-	posted(t, w.say(&ops, "hello", "repo.2+other.podman"))
+	// Issue #422: the sent record names the addressees the names resolved to, as full handles,
+	// so a sender can check who its say went to.
+	if s := sentOf(t, w.say(&ops, "hello", "repo.2+other.podman")); !slices.Equal(s.To, []string{"repo.2+other.podman"}) {
+		t.Errorf("the sent record names %v", s.To)
+	}
 	if c := contentOf(t, lastContent(t, fo)); !slices.Equal(c.Text.To, []string{twin}) {
 		t.Errorf("the full handle is to %v", c.Text.To)
 	}
