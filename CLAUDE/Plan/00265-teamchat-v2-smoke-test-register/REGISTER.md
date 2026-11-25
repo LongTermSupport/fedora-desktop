@@ -568,6 +568,22 @@ filled in as each cause is known.
 - **Severity:** high (every gate a commit is meant to pass locally is silently absent).
   **Issue:** #427. **State:** open, outside v2.
 
+## R61: a terminal launch beside a declared session makes a second record under a new name
+
+- **Seen:** the coordinator's question before taking batch 9 (R15), 25 Nov 19:45Z, read in the
+  code at `d5e9eda6d`.
+- **What:** a restore, a team restart and a declared session keep the recorded name
+  (`sessions/restore.go:561`, `teams/restart/jobs.go:298`, `sessions/declare.go`). A fresh
+  `ccy --teams …` from a terminal names a new session `<launcher>-<team>-<project>-<seat>`
+  (`tmux-session.bash` `ccy_tmux_next_name`). A record is the file `<registry>/<session name>`
+  (`registry/registry.go:202`), so in a checkout whose session is declared under a fixed name, that
+  launch writes a second record beside the declared one, and a later restore would try to start
+  both. Unchecked: what the second start does with the seats the first holds.
+- **Fix:** a terminal launch in a checkout with a declared record for the same seats takes that
+  record's name.
+- **Severity:** medium (an inventory addressed by fixed names gains a stray session). **Issue:**
+  TBF. **State:** open; after R51, which the coordinator agreed (not blocking).
+
 ## R60: a hot join to a team the container cannot reach reports success, and status hides it
 
 - **Seen:** R41's second live run, 25 Nov 18:57Z (the coordinator read the container's keeper and
@@ -783,8 +799,8 @@ before the move to v2. Filled in as causes are found.
   is given, and reads only. A container seat has no tmux client inside, so it cannot.
   Unchecked on the laptop.
 - **Reproduce:** switch tmux sessions between seats.
-- **Severity:** low. **Issue:** TBF. **State:** fixed on v2-smoke (batch 9, commit in
-  reports/R15.md; ccy 3.124.53 to 3.124.55): a `ccy`/`cc` launch with `--teams` names its tmux
+- **Severity:** low. **Issue:** TBF. **State:** on F44 (batch 9, `d5e9eda6d`, commits in
+  reports/R15.md; ccy 3.124.53 to 3.124.55; live tab check after the deploy): a `ccy`/`cc` launch with `--teams` names its tmux
   session `<launcher>-<team>-<project>-<seat>` (seats joined with `_`), its list read as the
   seat check reads it so cc and ccy name the same seats alike, built in one place,
   `ccy-teams internal session-name`; the tab follows. The name is fixed at launch. The launcher leads, not trails, and no `·`
