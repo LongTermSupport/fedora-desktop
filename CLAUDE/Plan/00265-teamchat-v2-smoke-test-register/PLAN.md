@@ -40,20 +40,29 @@ when, who hit it, how to reproduce it, its severity, issue, unit and state.
 
 - [ ] 🔄 **Task 1.1** (U1): R6, R18, #421: a refusal names its cause and the fix; detector first.
   Merged into `v2-smoke` (ea576bbbf); live proof owed.
+
 - [ ] 🔄 **Task 1.2** (U2): R1, R2, R21, #422: every PEER reaches the session or its sender is
   told why; reply works on what history lists. On F44 (c1b20004f, the home pin);
   live proof owed after the re-pin and a worker restart.
+
 - [ ] 🔄 **Task 1.3** (U3): R3, #423: seat choice at launch is at least v1's. Merged into
   `v2-smoke` (d9b11903f); live proof owed.
+
 - [ ] 🔄 **Task 1.4** (U4): R4, #417: a seat's conversation survives joining a team and `/exit`.
   Merged into `v2-smoke` (15fbc90cd, ccy 3.124.45); the chooser's never-used seat goes back to
   U3; next F44 batch with U3, before any worker restart.
+
 - [ ] 🔄 **Task 1.5** (U5): R5, #416: a seat is added in a couple of commands with a derived name.
   First slice merged (751bdeab3): `ccy-teams seats add` on the homeserver's machine; the in-launch
   creation follows U3; other-machine, coordinator requests and named seats wait on the owner (Q6).
+
 - [ ] 🔄 **Task 1.6** (U8): R22, R23, #425: LXC members on another host (Plan 00257 B.4). R23 on
   F44 (5fea8d97f); L2 to L4 on F44 (c1b20004f) with U2; the key is trusted at home (R31),
   so the estate's re-pin (L5) is with the coordinator. Route: other-host only (Q8). See [ROUTE-TO-LIVE.md](ROUTE-TO-LIVE.md).
+
+- [ ] ⬜ **Task 1.7** (U10): R41, R42: a seat is added to a running v2 session as v1 allowed
+  (`ccy-teams session add`), and `--to-coordinator` leaves out a team this session coordinates.
+  Next after batch 3 lands (F19: no-degrade).
 
 ### Phase 2: threads, procedure and authority
 

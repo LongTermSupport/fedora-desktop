@@ -281,6 +281,34 @@ filled in as each cause is known.
   every write of an analysistest GOPATH fixture is denied ("package … is not in std").
 - **Severity:** low. **Issue:** TBF. **State:** open.
 
+## R41: a seat cannot be added to a running v2 session (regression against v1)
+
+- **Seen:** this seat, reading the code for F18 and F19 (the owner: Ballicom's coordinator also
+  becomes worker seat 7 on lts-ops), 2026-11-25.
+- **What:** v1's `ccy-teams session add <session> <team>[/<seat>]` adds a seat to a running
+  session. In v2 the keeper already re-reads the session's `desired.json` and the engine can add
+  a team while running (`member/keeper/seats.go`, `engine/teams.go`), but nothing on the host
+  writes a new generation of it: `session add` (`teams/hot`) reads only v1's membership, and the
+  launch always writes generation 1. So a v2 session must be relaunched to gain a team.
+- **Multi-team itself works** (from the code, not yet run end to end): one link holds every team,
+  each delivery names its team, role and `human_text` are per seat, and the questions verbs check
+  coordinatorship per team.
+- **Interim:** relaunch keeping the conversation: `ccy-teams seats conversation 1@ballicom` while
+  the session runs, `/exit`, then `ccy --resume <id> --teams 1@ballicom,7@lts-ops`.
+- **Fix:** `ccy-teams session add` writes the next generation of a teamchat session's
+  `desired.json` (after the seat is in the pool).
+- **Severity:** high (no-degrade, F19). **Issue:** TBF. **Unit:** U10. **State:** open; next unit.
+
+## R42: `say --to-coordinator` is ambiguous in a session that coordinates one of its teams
+
+- **Seen:** the same reading, 2026-11-25.
+- **What:** with two teams and no `--team`, `--to-coordinator` takes each team's coordinator and
+  never leaves out the sender (`engine/send.go`, `resolve`), so a session that coordinates team A
+  and works on team B always gets the ambiguous-team refusal, though only B's coordinator is
+  someone else. `--team <B>` works.
+- **Fix:** a team whose coordinator is this session is not a candidate for `--to-coordinator`.
+- **Severity:** medium. **Issue:** TBF. **Unit:** U10. **State:** open.
+
 ## R40: a `ci/<topic>` push of a commit GitHub already has runs no CI
 
 - **Seen:** this seat, batch 3, 2026-11-25 (dogfood: the CI recipe in `CLAUDE.md`).
