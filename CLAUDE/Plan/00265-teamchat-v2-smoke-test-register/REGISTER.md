@@ -236,6 +236,36 @@ filled in as each cause is known.
 - **Reproduce:** `teamchat ask-human --skeleton`.
 - **Severity:** low. **Issue:** #420 (with R8). **State:** open.
 
+## R34: a human's in-thread answer is delivered with no question
+
+- **Seen:** the coordinator and the owner, all of 2026-11-25 (F12, 12:56Z).
+- **What:** the delivery envelope of a human's reply made inside a question's thread says
+  `question: none` and `re: -`. `teamchat verify '<id>'` on the same message prints the question
+  (for example `"question": "Q8"`) and its headline. Of 17 of the owner's messages checked,
+  verify named a question for 15, and every one was delivered as `question: none`. So the
+  coordinator treated in-thread answers as unattached: it asked the owner which question a
+  reply belonged to, and answered one in the wrong thread. `teamchat questions` also lists two
+  of the owner's messages as `unattached`. The owner: "this = the thread im replying to - the fact
+  you regard this as ambiguous is a concern that needs logging somewhere".
+- **Wanted:** the envelope carries the question number and headline whenever the event is in a
+  question's thread, and `reply` answers in that thread.
+- **Reproduce:** a human replies in the thread of `Q<n>`; compare the envelope with
+  `teamchat verify '<id>' --room questions`.
+- **Severity:** high (it misled the coordinator all day). **Issue:** TBF. **State:** open; next
+  unit. Same family as R9.
+
+## R35: the Lightning client setup for a team, with presets
+
+- **Seen:** the owner, lts-ops Q2 and 12:53Z (F13).
+- **What:** the owner's boundary ruling puts setting up Lightning for a team in fedora-desktop.
+  Today that setup is a script in the team's own infrastructure repository. The owner asks
+  whether Lightning can be preconfigured when it is set up for a team. The first preset is the
+  spaces rail hidden (R20, F11).
+- **Next:** move that setup into `agent-bus-lightning` (`internal/lightning`) with a per-team
+  preset of client settings. What Lightning lets us set is to be read from a real client config
+  by the team's host-level seat on the owner's laptop.
+- **Severity:** low (after the container work). **Issue:** TBF. **State:** open.
+
 ## Cause classes
 
 For the owner's retrospective: each fault's cause class, and the check that would have caught it
@@ -354,6 +384,9 @@ before the move to v2. Filled in as causes are found.
   **State:** L2 to L4 fixed (U8) and merged into `v2-smoke`: a seat's url follows who places it;
   `teamchat seat place-lxc`; `team rotate-ca` lists an off-host LXC seat. In the second F44 batch
   (`ci/v2-batch2-u2-u8`). The re-pin of the team's estate (L5) and a live join are owed.
+- **Route (the owner, Q8, 12:56Z, via A11):** the other-host route. The team's homeserver stays
+  on the bus guest. A container seat's token may travel once in the ssh pipe, as a pool seat's
+  password does. Only this route is built and proven.
 
 ## R23: no v2 LXC session can start
 
