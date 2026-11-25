@@ -14,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatchoice"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/system"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -109,12 +110,67 @@ func (v *Verbs) Run(ctx context.Context, args []string) term.ExitCode {
 	return term.ExitOK
 }
 
-// fail says err and is its exit code.
+// fail says err, then the ways on it carries, and is its exit code.
 func (v *Verbs) fail(verb string, err error) term.ExitCode {
 	if _, werr := fmt.Fprintf(v.Stderr, "ccy-teams: internal %s: %v.\n", verb, err); werr != nil {
 		return term.ExitFailure
 	}
+	if w, ok := errors.AsType[*waysError](err); ok {
+		if _, werr := io.WriteString(v.Stderr, strings.Join(w.lines, "\n")+"\n"); werr != nil {
+			return term.ExitFailure
+		}
+	}
 	return codeOf(err)
+}
+
+// waysError is a refusal of a seat with the lines that name the checkout's seats of each team,
+// which are held, and the command for each way on (issue 423).
+type waysError struct {
+	err   error
+	lines []string
+}
+
+func (e *waysError) Error() string { return e.err.Error() }
+func (e *waysError) Unwrap() error { return e.err }
+
+// withWays is err with the ways on for each team of list in checkout, when err is a seat held
+// or a seat not named; any other err is returned as it is. Holders that cannot be read are said
+// in place of the ways, and never change the refusal.
+func (v *Verbs) withWays(err error, checkout, list, launcher string) error {
+	if !errors.Is(err, seat.ErrHeld) && !errors.Is(err, ErrSeat) {
+		return err
+	}
+	teams, ok := teamsOf(list)
+	if !ok {
+		return err
+	}
+	var lines []string
+	for _, team := range teams {
+		pool, perr := v.poolState(checkout, team)
+		if perr != nil {
+			lines = append(lines, "  The seats could not be read, so no way on is named: "+perr.Error()+".")
+			continue
+		}
+		lines = append(lines, seatchoice.WaysOn(launcher, team, term.AbbrevHome(checkout, v.Getenv("HOME")), pool)...)
+	}
+	return &waysError{err: err, lines: lines}
+}
+
+// poolState is checkout's pool seats of team with their holders, judged by the store's session
+// records (Parts.Sessions).
+func (v *Verbs) poolState(checkout, team string) ([]seatchoice.Seat, error) {
+	if v.Parts.Sessions == nil {
+		return nil, errors.New("no session records are wired")
+	}
+	id, err := paths.ParseTeamID(team)
+	if err != nil {
+		return nil, err
+	}
+	store, key, _, err := system.Here(v.Getenv, func() (string, error) { return checkout, nil })
+	if err != nil {
+		return nil, err
+	}
+	return system.PoolState(store, key, id, v.Parts.Sessions)
 }
 
 // codeOf is the launcher's exit code for a refusal: 64 a list or call it cannot use, 75 a seat
@@ -206,7 +262,7 @@ func (v *Verbs) launchArgs(ctx context.Context, args []string) (term.ExitCode, e
 	launch := &Launch{Store: store, Checkout: key, Taker: v.Taker(v.config(state, key)), Status: v.Status, NowMS: v.NowMS}
 	run, err := launch.Run(ctx, name, list, mounts, relabel)
 	if err != nil {
-		return 0, err
+		return 0, v.withWays(err, checkout, list, "ccy")
 	}
 	return term.ExitOK, v.print(append([]string{store.Control(name)}, run...)...)
 }
@@ -250,7 +306,7 @@ func (v *Verbs) seat(ctx context.Context, verb string, args []string) error {
 	}
 	seats, err := membership.ParseSeats(strings.Join(strings.Fields(args[0]), ""))
 	if err != nil {
-		return fmt.Errorf("%w: a teamchat team is named with its seat, <seat>@<team> (%w)", ErrSeat, err)
+		return v.withWays(fmt.Errorf("%w: a teamchat team is named with its seat, <seat>@<team> (%w)", ErrSeat, err), wd, args[0], "ccy")
 	}
 	items := make([]string, 0, len(seats))
 	for _, s := range seats {

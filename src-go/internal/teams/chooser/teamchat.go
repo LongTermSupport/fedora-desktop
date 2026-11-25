@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatchoice"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -19,14 +20,30 @@ import (
 type Teamchat struct {
 	// Live is whether team is live on teamchat for this checkout (system.Cmd.Lines).
 	Live func(ctx context.Context, team string) (bool, error)
-	// Seats are the seat parts of this checkout's pool seats of team, in pool order.
-	Seats func(team string) ([]string, error)
+	// SeatCount is how many pool seats of team this checkout has, for the list. It names no seat:
+	// a seat is chosen only from Pool, which says who holds each (issue 423).
+	SeatCount func(team string) (int, error)
 	// Handles are the member handles of this checkout's pool seats of team, in pool order: what
 	// a host seat's Matrix consent names.
 	Handles func(team string) ([]string, error)
 	// Teams are the teams with a pool seat in this checkout, sorted.
 	Teams func() ([]string, error)
+	// Pool is this checkout's pool seats of team, each with the session a take would be refused
+	// for: the only source a seat is chosen from, so a held seat is never taken (issue 423).
+	Pool func(team string) ([]seatchoice.Seat, error)
+	// Reattach puts this terminal on the running session that holds a seat; an error says why it
+	// cannot (open in another terminal, not running).
+	Reattach func(ctx context.Context, session string) error
+	// NewSeat is the seam for the "no free seat" outcome (and the list's new-seat row): it adds a
+	// seat of team to this checkout and is its SEAT@TEAM, or "" with the code to exit with. nil is
+	// today's: the way on, `ccy-teams seats add <team>`, is said and the launch ends (78). The
+	// in-process seat add (issue 416, package seatadd) plugs in here.
+	NewSeat NewSeatFunc
 }
+
+// NewSeatFunc adds a new seat of team for a launcher of memberType and is its SEAT@TEAM, or ""
+// with the code to exit with (said on stderr).
+type NewSeatFunc func(ctx context.Context, team, memberType string) (string, term.ExitCode)
 
 // teamchatAbout is a teamchat team's description in the list: its roster is not on this machine.
 const teamchatAbout = "a teamchat team: its description is on the team's roster"
@@ -54,36 +71,133 @@ func (c *Chooser) teamchatTeam(ctx context.Context, memberType, team string) (bo
 	return live, term.ExitOK
 }
 
-// teamchatSeat is the SEAT@TEAM of a teamchat team, from this checkout's pool: its one seat,
-// or the one the person chooses of several. No seat here is refused (78); leaving the question
-// is "" and ExitOK, said.
-func (c *Chooser) teamchatSeat(ctx context.Context, h ui.Heading, team string) (string, term.ExitCode) {
-	seats, err := c.Teamchat.Seats(team)
+// teamchatSeat is the SEAT@TEAM of a teamchat team, from this checkout's pool, never a seat a
+// running session holds (issue 423; v1's agent-bus seat choose is the floor). One seat, free, is
+// taken; no seat at all goes to newSeat; otherwise every seat is listed, free and held, then a
+// new seat, the lowest free one the default (the new seat when none is free), and a held one
+// offered as the re-attach of its session, which starts nothing new. Leaving the question, or a
+// re-attach made, is "" and ExitOK; a re-attach that cannot be made is refused as held (75).
+func (c *Chooser) teamchatSeat(ctx context.Context, h ui.Heading, team, memberType string) (string, term.ExitCode) {
+	pool, err := c.Teamchat.Pool(team)
 	if err != nil {
 		return "", c.failed(err)
 	}
-	switch len(seats) {
-	case 0:
-		c.say("ccy-teams: Team " + team + " is on teamchat, and this checkout has no seat of it: " +
-			"ask its coordinator for a seat issued to this checkout, then launch again.")
-		return "", exitConfig
-	case 1:
-		c.say("Team " + team + " is on teamchat: seat " + seats[0] + ", this checkout's one seat of it.")
-		return seats[0] + "@" + team, term.ExitOK
+	seats := seatchoice.Order(pool)
+	free, anyFree := seatchoice.Default(seats)
+	switch {
+	case len(seats) == 0:
+		c.say("Team " + team + " is on teamchat, and this checkout has no seat of it.")
+		return c.newSeat(ctx, team, memberType, seats)
+	case len(seats) == 1 && anyFree:
+		c.say("Team " + team + " is on teamchat: seat " + free.Name + ", this checkout's one seat of it.")
+		return free.Name + "@" + team, term.ExitOK
 	}
-	head := h.Push("Seat").About("team " + team + " · on teamchat · " + strconv.Itoa(len(seats)) + " seats in this checkout")
-	answer, err := c.Gum.Choose(ctx, head, "Which seat of "+team+"?", seats[0], seats)
+	rows := make([]string, len(seats), len(seats)+1)
+	held := 0
+	for i, s := range seats {
+		rows[i] = seatchoice.Row(s)
+		if s.Held() {
+			held++
+		}
+	}
+	rows = append(rows, seatchoice.NewRow(team))
+	def := rows[len(rows)-1]
+	if anyFree {
+		def = seatchoice.Row(free)
+	} else {
+		c.say("Every seat of " + team + " in this checkout is held by a running session: re-attach one, or start a new seat.")
+	}
+	head := h.Push("Seat").About("team " + team + " · on teamchat · " + strconv.Itoa(len(seats)) +
+		" seats in this checkout, " + strconv.Itoa(held) + " held")
+	answer, err := c.Gum.Choose(ctx, head, "Which seat of "+team+"? A held seat re-attaches the session holding it.", def, rows)
+	i := slices.Index(rows, answer)
 	switch {
 	case errors.Is(err, ui.ErrCancelled):
 		c.say(nothingChosen)
 		return "", term.ExitOK
 	case err != nil:
 		return "", c.failed(err)
-	case !slices.Contains(seats, answer):
+	case i < 0:
 		c.say("ccy-teams: gum returned an answer that was not offered: " + answer)
 		return "", term.ExitFailure
+	case i == len(seats):
+		return c.newSeat(ctx, team, memberType, seats)
+	case seats[i].Held():
+		return "", c.reattach(ctx, team, memberType, seats[i], seats)
 	}
-	return answer + "@" + team, term.ExitOK
+	return seats[i].Name + "@" + team, term.ExitOK
+}
+
+// newSeat is the one place the "no free seat" outcome and the new-seat row go: Teamchat.NewSeat
+// when wired; otherwise the seats and every way on, `ccy-teams seats add <team>` among them, are
+// said and the launch ends (78), since no seat can be had here yet.
+func (c *Chooser) newSeat(ctx context.Context, team, memberType string, seats []seatchoice.Seat) (string, term.ExitCode) {
+	if c.Teamchat.NewSeat != nil {
+		return c.Teamchat.NewSeat(ctx, team, memberType)
+	}
+	c.say("ccy-teams: a new seat of " + team + " is added by " + seatchoice.AddCommand(team) + "; this launch does not add it.")
+	if code := c.waysOn(ctx, team, memberType, seats); code != term.ExitOK {
+		return "", code
+	}
+	return "", exitConfig
+}
+
+// reattach puts this terminal on the session holding s instead of starting one; when it cannot,
+// the refusal is held (75) and names each way on.
+func (c *Chooser) reattach(ctx context.Context, team, memberType string, s seatchoice.Seat, seats []seatchoice.Seat) term.ExitCode {
+	c.say("Seat " + s.Name + "@" + team + " is held by session " + s.HeldBy + ": re-attaching it; nothing new is started.")
+	err := c.Teamchat.Reattach(ctx, s.HeldBy)
+	if err == nil {
+		return term.ExitOK
+	}
+	c.say("ccy-teams: session " + s.HeldBy + " could not be re-attached here: " + err.Error())
+	if code := c.waysOn(ctx, team, memberType, seats); code != term.ExitOK {
+		return code
+	}
+	return term.ExitBusy
+}
+
+// waysOn says the seats of team in this checkout, which are held, and the command for each way
+// on, the launcher named as the person ran it (cc for a host launch).
+func (c *Chooser) waysOn(ctx context.Context, team, memberType string, seats []seatchoice.Seat) term.ExitCode {
+	here, err := c.Host.Checkouts.Find(ctx, "")
+	if err != nil {
+		return c.failed(err)
+	}
+	launcher := "ccy"
+	if memberType == typeHost {
+		launcher = "cc"
+	}
+	for _, line := range seatchoice.WaysOn(launcher, team, term.AbbrevHome(here.Top, c.Host.Home), seats) {
+		c.say(line)
+	}
+	return term.ExitOK
+}
+
+// unattendedWays is the refusal of a list with a team named alone when nobody can be asked: each
+// teamchat team alone gets its seats and the command for each way on; nothing is prompted.
+func (c *Chooser) unattendedWays(ctx context.Context, memberType, list string) term.ExitCode {
+	for item := range strings.SplitSeq(list, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" || strings.Contains(item, "@") {
+			continue
+		}
+		v2, code := c.teamchatTeam(ctx, memberType, item)
+		if code != term.ExitOK {
+			return code
+		}
+		if !v2 {
+			continue
+		}
+		pool, err := c.Teamchat.Pool(item)
+		if err != nil {
+			return c.failed(err)
+		}
+		if code := c.waysOn(ctx, item, memberType, pool); code != term.ExitOK {
+			return code
+		}
+	}
+	return term.ExitUsage
 }
 
 // withTeamchat puts this checkout's teamchat teams first in the list (they cover it: their
@@ -103,11 +217,11 @@ func (c *Chooser) withTeamchat(memberType string, entries []entry) ([]entry, err
 		if inTeams(entries, team) {
 			continue
 		}
-		seats, seatsErr := tc.Seats(team)
+		seats, seatsErr := tc.SeatCount(team)
 		if seatsErr != nil {
 			return nil, seatsErr
 		}
-		v2 = append(v2, entry{Choice: declare.Choice{Team: team, Description: teamchatAbout, Standing: declare.StandingCovers}, teamchatSeats: len(seats)})
+		v2 = append(v2, entry{Choice: declare.Choice{Team: team, Description: teamchatAbout, Standing: declare.StandingCovers}, teamchatSeats: seats})
 	}
 	return append(v2, entries...), nil
 }
