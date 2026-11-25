@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.49 — container 2.84.80
+
+The image is rebuilt for its `teamchat` kit (Plan 00265 R44, review fixes).
+
+- **The coordinator answers a human with `teamchat reply`.** The skill said reply was an agent
+  verb only; on a human's post in the questions room it answers in that post's thread and tells
+  only that human. `teamchat thread Q<n>` is now kept for what waits on the humans, since it tells
+  every human and marks the question as waiting on them.
+
 ## 3.124.48 — container 2.84.79
 
 The image is rebuilt for its `teamchat` kit (Plan 00265 R44).

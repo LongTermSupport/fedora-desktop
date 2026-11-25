@@ -560,6 +560,10 @@ filled in as each cause is known.
   and gave no module figure in go-qa's terms (`-coverpkg`, diff mode).
 - **What:** the third gap of R26's class after R47: go-qa cannot run on arm64 (#426), and each
   hand-picked substitute misses one of its checks.
+- **Also (batch 6 review):** `go test` over the changed packages alone misses a test in a package
+  that only reads a changed one: `installplay`'s kit-part test failed on R44's new skill
+  directory and no by-hand run reached it. Until #426, a by-hand run tests the whole tree the
+  change sits in (`./internal/teamchat/...`, `./internal/teams/...`), not the changed packages.
 - **Fix:** R26's (#426). Until then, a unit's by-hand QA reports "module coverage unchecked", and
   CI is the coverage gate. **Severity:** low (CI catches it). **Issue:** #426. **State:** open.
 

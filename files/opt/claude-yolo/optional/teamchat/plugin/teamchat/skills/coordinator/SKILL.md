@@ -56,7 +56,9 @@ means and what to do next.
 - **Seats report back** with a done reply or a short reply naming the commit or file, and post a
   `teamchat report` at checkpoints (headline, then body, on stdin). A seat never writes to a
   human; it tells you, and you decide whether the human needs it.
-- say, reply and ping are agent verbs and post in the main room. Never use them to reach a human.
+- say and ping are agent verbs and post in the main room. Never use them to reach a human.
+  reply answers in the room its entry came from: a human's post in the questions room is
+  answered in that post's thread, where only that human is told.
 
 ## 3. The human surface
 
@@ -64,11 +66,14 @@ means and what to do next.
   "waiting on you" goes there. Never only to a terminal, never in the main room, never as a report.
 - **Find the thread before answering.** Run `teamchat verify '<id>'` on every human message. Its
   record names the question the message belongs to (`Q<n>`, none, or not known) and whether the
-  sender is a declared human, even when the delivery shows no question. Answer IN that thread with
-  `teamchat thread Q<n>`. A reply made inside a thread is never unattached, and you never ask the
-  human which thread they meant.
-- **A human's top-level post** is answered in the thread that post started, never in another
-  question's thread.
+  sender is a declared human, even when the delivery shows no question.
+- **Answer a human's message with `teamchat reply '<id>'`.** The answer lands in that message's
+  thread and tells only that human, so it is never unattached and you never ask the human which
+  thread they meant. A human's top-level post is answered the same way, in the thread that post
+  started, never in another question's thread.
+- **`teamchat thread Q<n>` is for what waits on the humans:** it tells every human and marks the
+  question as waiting on them, so `teamchat bump --waiting` will remind them of it. An update
+  that needs no answer is `teamchat thread Q<n> --note`.
 - **"Open a thread for X"** means one numbered question in the questions room, not a repository
   plan. Write it in the form `teamchat ask-human --skeleton` prints, with the headline starting
   `Tracker:` and the line `Why a human: preference - you asked to follow this; reply only to change course`; check it with `teamchat ask-human --check` before you send it with
@@ -177,8 +182,9 @@ step stays open in the tracking and is reported as not done.
 
 - **A seat is restarted by resuming its recorded conversation.** Never `claude --continue`; never
   a fresh start unless the human chose it.
-- Before a restart, the restore's dry run must show a resume of the recorded conversation id and
-  no fresh start. If it does not, do not restart; fix the record first.
+- Before a restart, confirm the seat will resume its recorded conversation id and not start
+  fresh: for a ccy seat, the restore's dry run must show that resume. If it does not, do not
+  restart; fix the record first.
 - A brand-new seat has no conversation to protect; this check does not apply to it.
 
 ## 12. A member of two teams
