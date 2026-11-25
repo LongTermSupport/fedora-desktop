@@ -450,7 +450,7 @@ Records (all also carry `"v": 1`; `team` is always present, B5):
 {"kind":"verified","team":"<team>","id":"$<43>","item":"human","from":"alice","room":"main","text":"Please push the branch.","body_sha256":"<64 hex>","sent_ms":1760000000000}
 {"kind":"more","team":null,"pending":14}
 {"kind":"team","team":"<team>","name":"<display name>","handle":"<repo>.2+<site>.podman","role":"worker","about":"Release work for the desktop","trust":"trusted","delivery":"socket","pending":0,"down":false}
-{"kind":"member","team":"<team>","handle":"<repo>.1+<site>.podman","role":"coordinator","present":true}
+{"kind":"member","team":"<team>","handle":"<repo>.1+<site>.podman","role":"coordinator","present":true,"presence":"online"}
 {"kind":"room","team":"<team>","purpose":"questions","state":"joined"}
 {"kind":"runtime","keeper":{"rss_kib":7400,"cpu_ms":120,"wakeups":31,"fds":9,"uptime_s":3600},"link":{"rss_kib":14100,"cpu_ms":910,"wakeups":402,"fds":14,"conns":2,"restarts":0,"uptime_s":3590}}
 ```

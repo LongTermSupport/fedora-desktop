@@ -108,6 +108,28 @@ type fakeNotices struct {
 	// gate, when set, holds every Send once it has recorded its txn, until it is closed: the
 	// PUT has reached the server and its answer is not yet read.
 	gate chan struct{}
+	// presence is each account's presence as the homeserver answers it, none for a 404;
+	// presenceErr fails every read; asked is the accounts read, in order.
+	presence    map[string]string
+	presenceErr error
+	asked       []string
+}
+
+func (n *fakeNotices) Presence(_ context.Context, userID string) (string, bool, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.asked = append(n.asked, userID)
+	if n.presenceErr != nil {
+		return "", false, n.presenceErr
+	}
+	p, found := n.presence[userID]
+	return p, found, nil
+}
+
+func (n *fakeNotices) setPresence(p map[string]string, err error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.presence, n.presenceErr = p, err
 }
 
 func (*fakeNotices) RoomState(context.Context, string) ([]json.RawMessage, error) { return nil, nil }

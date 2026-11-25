@@ -11,7 +11,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"slices"
 	"testing"
 	"time"
@@ -208,21 +207,15 @@ func reAddSync(ctx context.Context, t *testing.T, c *Client, room, human string)
 	}
 }
 
-// presenceOf is uid's presence as the observer reads it (GET /presence/{uid}/status, which
-// the client has no caller for, so the test asks it through the client's own call path).
+// presenceOf is uid's presence as the observer reads it through the client's Presence (M54),
+// the read `status` makes for each member.
 func presenceOf(ctx context.Context, t *testing.T, observer *Client, uid string) string {
 	t.Helper()
-	path, err := pathf(clientPrefix+"/presence/%s/status", uid)
-	if err != nil {
-		t.Fatalf("presence path: %v", err)
+	got, found, err := observer.Presence(ctx, uid)
+	if err != nil || !found {
+		t.Fatalf("read the presence of %s: found %v, %v", uid, found, err)
 	}
-	var got struct {
-		Presence string `json:"presence"`
-	}
-	if err := observer.object(ctx, call{method: http.MethodGet, path: path}, &got); err != nil {
-		t.Fatalf("read the presence of %s: %v", uid, err)
-	}
-	return got.Presence
+	return got
 }
 
 // presenceCycle is host check HC-A1 as a lasting regression (A 6.6, C 3.2.4): a default sync
