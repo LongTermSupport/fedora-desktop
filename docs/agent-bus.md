@@ -77,7 +77,9 @@ launch does not start.
    say so: its own `client: lightning` in `agent_bus_element_teams`, else
    `agent_bus_matrix_client: lightning` (Element by default). Every menu line and message then
    names Lightning, `ccy-teams` opens the team's Lightning launcher in its own window, and
-   setting it up writes the team's own Lightning instance instead of an Element profile. Who
+   setting it up writes the team's own Lightning instance instead of an Element profile. For
+   one sidebar instead of two (a portrait window), untick *Show spaces rail* in Lightning's
+   settings. Who
    has signed in is read from the team's homeserver either way. Why, and the alternatives weighed:
    [RESEARCH-one-element-window.md](../CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/RESEARCH-one-element-window.md).
 3. **Add ccy sessions.** `ccy --teams` with no value, in a checkout of a GitHub repository,

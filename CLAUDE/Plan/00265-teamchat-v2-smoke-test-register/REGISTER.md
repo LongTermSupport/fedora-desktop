@@ -326,7 +326,11 @@ before the move to v2. Filled in as causes are found.
 - **What:** two sidebars (home and workspaces, then rooms); the owner wants one minimal sidebar,
   most of all in a portrait window.
 - **Reproduce:** open Lightning in a portrait window.
-- **Severity:** low. **Issue:** TBF. **State:** open.
+- **Workaround (the owner, F11, 12:52Z):** untick *Show spaces rail* in Lightning's settings,
+  which hides one sidebar. This is now in `docs/agent-bus.md`. No issue was filed anywhere.
+- **Severity:** low. **Issue:** none. **State:** workaround known; an optional improvement is
+  that each new team's Lightning instance starts with the rail off (`internal/lightning`), or
+  with a collapsed option.
 
 ## R21: status counts do not say what they hold
 
