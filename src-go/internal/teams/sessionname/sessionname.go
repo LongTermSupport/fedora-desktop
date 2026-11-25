@@ -2,18 +2,22 @@
 // name of the tmux session a ccy or cc launch starts, which is also what the tab shows
 // (files/etc/tmux.conf titles the terminal with #S).
 //
-//   - N1. A launch in seats is named for them: `<launcher>-<team>-<seat>`, every character of
-//     the seat that tmux or the seat store would not keep in a session name ('.' and ':' tmux
-//     replaces; '+' the store refuses) made '-'. `ccy --teams fedora-desktop.4@team-a` starts
-//     `ccy-team-a-fedora-desktop-4`. Several seats are joined with '_' in list order.
+//   - N1. A launch in seats is named for them: `<launcher>-<team>-<project>-<seat>`, so
+//     `ccy --teams 4@team-a` in the fedora-desktop checkout starts
+//     `ccy-team-a-fedora-desktop-4`. Several seats are joined with '_' in list order
+//     (`ccy-alpha-proj-1_beta-proj-3`). Team and seat names hold only letters, digits and '-',
+//     so nothing is mapped; tmux would not keep a '.' or ':' in a session name.
 //   - N2. The launcher (ccy for a container seat, cc for a host one) comes first, not last as
 //     in the owner's example (`team-a · fedora-desktop.4 · ccy`): the `ccy-` and `cc-` prefix
 //     is how the re-attach offer, ccy-sessions and its declare tell a container session from a
 //     host one. No '·' or space: the name is also the session's key in the session registry,
 //     the seat store (paths.ParseSessionName) and the agent-bus membership.
-//   - N3. A launch in no seat, or in a list with an entry that names no seat (cc is given a
-//     team alone before its chooser runs inside the session), keeps `<launcher>-<project>`.
-//   - N4. A seat name longer than MaxLen keeps `<launcher>-<project>` and says so on stderr:
+//   - N3. The list is read as `ccy-teams internal seat-check` reads it (whitespace removed,
+//     membership.ParseSeats), so cc, which passes the list as typed, and ccy, which passes the
+//     check's canonical list, name the same seats alike. A launch in no seat, or in a list the
+//     check would refuse or that names a team alone (cc's chooser runs inside the session), keeps
+//     `<launcher>-<project>`.
+//   - N4. A seat-named session name longer than MaxLen keeps `<launcher>-<project>` and says so on stderr:
 //     the launcher appends `-<n>` for a second session of the same name, and the seat store
 //     takes 128 bytes.
 //   - N5. The name printed is the first free one on ccy's tmux server: the name, then
@@ -32,6 +36,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
@@ -41,7 +46,6 @@ const MaxLen = 120
 
 var (
 	projectWord = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]*$`)
-	unkept      = regexp.MustCompile(`[^A-Za-z0-9_-]`)
 	errUsage    = errors.New("internal session-name <ccy|cc> <project> <seats>")
 )
 
@@ -55,7 +59,7 @@ func Name(launcher, project, seats string) (string, string, error) {
 		return "", "", fmt.Errorf("%w: the project %q is not letters, digits, '_' and '-'", errUsage, project)
 	}
 	plain := launcher + "-" + project
-	parts, ok := seatParts(seats)
+	parts, ok := seatParts(project, seats)
 	if !ok {
 		return plain, "", nil
 	}
@@ -66,18 +70,18 @@ func Name(launcher, project, seats string) (string, string, error) {
 	return named, "", nil
 }
 
-// seatParts is `<team>-<seat>` for every entry of the list, or false when an entry names no seat.
-func seatParts(seats string) ([]string, bool) {
-	if seats == "" {
+// seatParts is `<team>-<project>-<seat>` for every seat of the list, the owner's order (team,
+// project, seat number) and the one place to change it. The list is read as the seat check
+// reads it (whitespace removed, membership.ParseSeats), so cc's list as typed and ccy's
+// canonical one name a session alike; false when it names no seat or the check would refuse it.
+func seatParts(project, seats string) ([]string, bool) {
+	parsed, err := membership.ParseSeats(strings.Join(strings.Fields(seats), ""))
+	if err != nil || len(parsed) == 0 {
 		return nil, false
 	}
-	var parts []string
-	for entry := range strings.SplitSeq(seats, ",") {
-		seat, team, found := strings.Cut(entry, "@")
-		if !found || seat == "" || team == "" {
-			return nil, false
-		}
-		parts = append(parts, unkept.ReplaceAllString(team, "-")+"-"+unkept.ReplaceAllString(seat, "-"))
+	parts := make([]string, 0, len(parsed))
+	for _, s := range parsed {
+		parts = append(parts, s.Team+"-"+project+"-"+s.Seat)
 	}
 	return parts, true
 }

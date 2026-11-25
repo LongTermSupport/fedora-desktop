@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.55 — container 2.84.80
+
+The launcher library and `ccy-teams` change (Plan 00265 R15); the image is unchanged.
+
+- **A seat's session names the project too, and cc and ccy agree.** The name is now
+  `<launcher>-<team>-<project>-<seat>`: `ccy --teams 4@team-a` in the fedora-desktop checkout
+  starts `ccy-team-a-fedora-desktop-4`. The `--teams` list is read as the seat check reads it,
+  so `cc`, which names its session from the list as typed (`1@alpha, 3@beta`), and `ccy`, which
+  names it from the checked list, give the same seats the same name. A list the check would
+  refuse keeps `<launcher>-<project>`.
+
 ## 3.124.54 — container 2.84.80
 
 The launcher library and `ccy-teams` change (Plan 00265 R15); the image is unchanged.
@@ -31,11 +42,10 @@ The launcher library and `ccy-teams` change (Plan 00265 R15); the image is uncha
 The launcher library and `ccy-teams` change (Plan 00265 R15); the image is unchanged.
 
 - **A seat's tmux session, and so its tab, names the seat.** A `ccy` or `cc` launch with
-  `--teams` starts its tmux session as `<launcher>-<team>-<seat>`, for example
-  `ccy-team-a-fedora-desktop-4` for `ccy --teams fedora-desktop.4@team-a`, instead of
-  `<launcher>-<project>`. The terminal's title is the session name (`files/etc/tmux.conf`), so
-  the tab shows the team, the seat and the launcher. tmux keeps no `.` or `:` in a session name,
-  so a seat's dots become `-`; several seats are joined with `_`. A launch with no seat, a `cc --teams <team>` whose seat is chosen inside the session, and a name over 120 characters keep
+  `--teams` starts its tmux session as `<launcher>-<team>-<seat>` instead of
+  `<launcher>-<project>` (3.124.55 adds the project). The terminal's title is the session name
+  (`files/etc/tmux.conf`), so the tab shows the team, the seat and the launcher. tmux keeps no
+  `.` or `:` in a session name; several seats are joined with `_`. A launch with no seat, a `cc --teams <team>` whose seat is chosen inside the session, and a name over 120 characters keep
   `<launcher>-<project>`. A session already running keeps its name. The form lives in one place, `ccy-teams internal session-name`.
 
 ## 3.124.52 — container 2.84.80
