@@ -60,7 +60,7 @@ func TestARecvHandsOutAtMostEightItems(t *testing.T) {
 // lineLen is the bytes an item's record takes in the caps, its newline included.
 func lineLen(t *testing.T, id paths.TeamID, it team.Item) int {
 	t.Helper()
-	line, err := records.Encode(itemRecord(id, it.Pending, it.Verdict, namer{server: paths.ServerName(id)}, nil))
+	line, err := records.Encode(itemRecord(id, it.Pending, it.Verdict, team.InQuestion{}, namer{server: paths.ServerName(id)}, nil))
 	check(t, err)
 	return len(line) + 1
 }

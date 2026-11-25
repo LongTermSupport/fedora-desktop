@@ -114,8 +114,9 @@ func (*fakeTeam) ReportsRoom() team.ReportsRoom       { return team.ReportsRoom{
 func (*fakeTeam) Questions(context.Context, func(team.QuestionsView) ([]team.Placement, error)) (team.QuestionsView, error) {
 	return team.QuestionsView{}, errors.New("no questions")
 }
-func (*fakeTeam) QuestionPosted(string, string)       {}
-func (*fakeTeam) QuestionsPostable(proto.Value) error { return nil }
+func (*fakeTeam) QuestionPosted(string, string)                  {}
+func (*fakeTeam) QuestionsPostable(proto.Value) error            { return nil }
+func (*fakeTeam) QuestionIn(string, proto.Human) team.InQuestion { return team.InQuestion{} }
 func (*fakeTeam) FetchEvent(context.Context, string) (json.RawMessage, error) {
 	return nil, errors.New("no fetch")
 }

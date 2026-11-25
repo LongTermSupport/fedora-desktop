@@ -260,29 +260,35 @@ func (t *Team) getQuestionsEvent(ctx context.Context, c *matrix.Client, roomID, 
 // verifiedRecord is m, read from room purpose, as verify's record.
 func (t *Team) verifiedRecord(ctx context.Context, c *matrix.Client, m message, purpose, roomID string, r proto.Roster, a proto.Anchors) records.Verified {
 	sum := sha256.Sum256([]byte(m.text))
-	v := records.Verified{
+	var in team.InQuestion
+	if purpose == proto.PurposeQuestions {
+		in = t.questionOf(ctx, c, m, roomID, r, a)
+	}
+	return records.Verified{
 		Team: t.cfg.Team, ID: m.id, Item: m.kind, From: m.sender, Room: purpose, Text: m.text,
 		BodySHA256: hex.EncodeToString(sum[:]), SentMS: m.ts, Human: m.kind == records.KindHuman,
+		Question: in.Name(), Headline: in.HeadlineName(),
 	}
-	if purpose == proto.PurposeQuestions {
-		v.Question, v.Headline = t.questionOf(ctx, c, m, roomID, r, a)
-	}
-	return v
 }
 
-// questionOf is the question a questions-room message names, and its headline: a question is
-// its own; this member's index answers for a human post it holds (`none` when attached to
-// none); else the post's own relation, when it names a question this member can fetch (A 10.4
-// rules 1 and 2); else null.
-func (t *Team) questionOf(ctx context.Context, c *matrix.Client, m message, roomID string, r proto.Roster, a proto.Anchors) (*string, *string) {
+// QuestionIn is which question the questions-room event id, of human content h, is in, by the
+// live index; nothing while this member holds none (R34). It takes only the room's own lock.
+func (t *Team) QuestionIn(id string, h proto.Human) team.InQuestion {
+	return team.InQuestionOf(t.qget().idx, id, h)
+}
+
+// questionOf is the question a questions-room message is in, and its headline: a question is
+// its own; this member's index answers whenever it can place the message (QuestionIn, the one
+// resolver the delivery and recv ask too: `none` for a post attached to none); else, for a
+// member with no index or a post it does not hold, the post's own relation, when it names a
+// question this member can fetch (A 10.4 rules 1 and 2); else null.
+func (t *Team) questionOf(ctx context.Context, c *matrix.Client, m message, roomID string, r proto.Roster, a proto.Anchors) team.InQuestion {
 	if m.content.Key == proto.KeyQuestion {
 		return questionNamed(m.content.Question.N, m.text)
 	}
-	if q := t.qget(); q.idx != nil && q.room == roomID && m.kind == records.KindHuman {
-		if n, seen := q.idx.Attachment(m.id); seen && n == 0 {
-			return new("none"), nil
-		} else if iq, ok := q.idx.Question(n); seen && ok {
-			return new(fmt.Sprintf("Q%d", n)), new(iq.Headline)
+	if q := t.qget(); q.idx != nil && q.room == roomID {
+		if in := team.InQuestionOf(q.idx, m.id, m.human); in.Known() {
+			return in
 		}
 	}
 	for _, rel := range []string{m.human.ThreadRoot, m.human.ReplyTo} {
@@ -298,17 +304,17 @@ func (t *Team) questionOf(ctx context.Context, c *matrix.Client, m message, room
 			return questionNamed(root.content.Question.N, root.text)
 		}
 	}
-	return nil, nil
+	return team.InQuestion{}
 }
 
-// questionNamed is `Q<n>` and the headline of a question whose body is text.
-func questionNamed(n int64, text string) (*string, *string) {
-	name := fmt.Sprintf("Q%d", n)
-	h, err := proto.Headline(strings.TrimPrefix(text, name+" "))
+// questionNamed is question n, with the headline of its body text (none when it has no
+// headline).
+func questionNamed(n int64, text string) team.InQuestion {
+	h, err := proto.Headline(strings.TrimPrefix(text, proto.QuestionName(int(n))+" "))
 	if err != nil {
-		return &name, nil
+		h = ""
 	}
-	return &name, &h
+	return team.QuestionNamed(n, h)
 }
 
 // History is LN6: a room's messages read backwards, at most limit (and maxHistory), given oldest
@@ -357,7 +363,14 @@ func (t *Team) historyOf(m message, room string, a proto.Anchors) records.Histor
 	var item records.Record
 	switch m.kind {
 	case records.KindHuman:
-		item = records.Human{Team: t.cfg.Team, ID: m.id, From: from, FromID: m.sender, SentMS: m.ts, Room: room, Text: m.text, Revises: optional(m.human.Revises)}
+		var in team.InQuestion
+		if room == proto.PurposeQuestions {
+			in = t.QuestionIn(m.id, m.human)
+		}
+		item = records.Human{
+			Team: t.cfg.Team, ID: m.id, From: from, FromID: m.sender, SentMS: m.ts, Room: room, Text: m.text,
+			Question: in.Name(), Headline: in.HeadlineName(), Revises: optional(m.human.Revises),
+		}
 	case records.KindPeer:
 		item = records.Peer{Team: t.cfg.Team, ID: m.id, From: from, SentMS: m.ts, Text: m.text}
 	case records.KindPing:
