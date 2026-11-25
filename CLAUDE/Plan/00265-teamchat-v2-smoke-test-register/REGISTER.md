@@ -753,7 +753,13 @@ filled in as each cause is known.
   and nothing on that path reads the team's removal.
 - **Fix:** with #386, a seat of a removed team is never offered, and a named one is refused,
   naming the removal.
-- **Severity:** medium. **Issue:** #386 (related). **State:** open.
+- **Fixed (batch 19):** `system.Life` reads the status record, then `teamchat_teams`: declared
+  absent is removed, declared present is not installed (both refused, 78); no record and no
+  entry is a team served elsewhere, offered as before. Every chooser (session add, launches,
+  the `--teams` chooser, seats add) consults it. Residual: an `absent` entry later deleted
+  leaves no removal record. Detail: `reports/R59.md`.
+- **Severity:** medium. **Issue:** #386 (related). **State:** fixed on v2-smoke, batch 19
+  (058938264); not yet run live.
 
 ## R57: `teamchat version` names all of `src-go`, so equal teamchat builds disagree
 
