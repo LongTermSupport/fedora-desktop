@@ -41,6 +41,50 @@ func (w *world) noRateDrop(bs []team.Batch) {
 	}
 }
 
+// noReplayCount fails when replayed history counted toward the flood window: a `rate` drop, or
+// (a team human being exempt, spec A 11.1) a human post counted or logged over the limit. It is
+// read once the team has settled, so a line the judging prints is in the log by then.
+func (w *world) noReplayCount(bs []team.Batch) {
+	w.t.Helper()
+	w.noRateDrop(bs)
+	for _, b := range bs {
+		if n := b.Counts.HumanOverLimit; n != 0 {
+			w.t.Errorf("a batch counted %d human posts over the flood limit (counts %+v)", n, b.Counts)
+		}
+	}
+	if n := w.log.count("over the flood limit"); n != 0 {
+		w.t.Errorf("the log names %d posts over the flood limit:\n%s", n, w.log.String())
+	}
+}
+
+// settled waits until the team has committed the last of bs that a long-poll answered: the team
+// long-polls from that batch's position only after the answer's judging is committed and its log
+// lines printed. A builder's page carries no position; its commit is before the build's end.
+func (w *world) settled(r *running, bs []team.Batch) {
+	w.t.Helper()
+	next := ""
+	for _, b := range bs {
+		if b.NextBatch != "" {
+			next = b.NextBatch
+		}
+	}
+	if next == "" {
+		return
+	}
+	for {
+		select {
+		case since := <-r.polls:
+			if since == next {
+				return
+			}
+		case err := <-r.done:
+			w.t.Fatalf("the team ended before it polled from %q: %v", next, err)
+		case <-w.t.Context().Done():
+			w.t.Fatalf("the team never polled from %q", next)
+		}
+	}
+}
+
 // deliveredIn counts the items of id among bs.
 func deliveredIn(bs []team.Batch, id string) int {
 	n := 0
@@ -52,8 +96,9 @@ func deliveredIn(bs []team.Batch, id string) int {
 
 // questionsReplay is a coordinator's questions room holding posts of a human made after its join,
 // all inside the room's marker floor, then one new post past it; the team is started with QX1's
-// own builder, which reads the room from its start (R64).
-func questionsReplay(t *testing.T, n int) (w *world, old []string, fresh string) {
+// own builder, which reads the room from its start (R64). It gives the running team, once its
+// build has ended.
+func questionsReplay(t *testing.T, n int) (w *world, r *running, old []string, fresh string) {
 	t.Helper()
 	w = newWorld(t)
 	if n < 0 {
@@ -70,18 +115,19 @@ func questionsReplay(t *testing.T, n int) (w *world, old []string, fresh string)
 	fresh = w.sayIn(w.qroom(), alice, human("a new post after the restart"))
 	tm := w.newTeam(withIndexBuilder())
 	b := watchBuilds(tm)
-	w.startTeam(tm)
+	r = w.startTeam(tm)
 	b.ended(t)
-	return w, old, fresh
+	return w, r, old, fresh
 }
 
 // R64: a link start's build replays the questions room from its start; the posts its floor
 // covers are folded without counting toward the flood window, so none is dropped `rate`, and
 // the one new post past the floor is delivered exactly once.
 func TestR64AReplayedQuestionsRoomCountsNothingTowardTheFloodWindow(t *testing.T) {
-	w, old, fresh := questionsReplay(t, -1)
+	w, r, old, fresh := questionsReplay(t, -1)
 	bs := w.drained()
-	w.noRateDrop(bs)
+	w.settled(r, bs)
+	w.noReplayCount(bs)
 	if n := deliveredIn(bs, fresh); n != 1 {
 		t.Errorf("the new post delivered %d times, want once", n)
 	}
@@ -101,7 +147,7 @@ func TestR64AReplayedQuestionsRoomCountsNothingTowardTheFloodWindow(t *testing.T
 // R64 and QS5: a few replayed posts inside the floor, each a Deliver verdict, are not delivered
 // a second time (the floor's skip in qtake), and the new one past it is delivered once.
 func TestR64APostInsideTheFloorIsNotDeliveredAgain(t *testing.T) {
-	w, old, fresh := questionsReplay(t, 3)
+	w, _, old, fresh := questionsReplay(t, 3)
 	bs := w.drained()
 	for _, id := range old {
 		if n := deliveredIn(bs, id); n != 0 {
@@ -219,10 +265,11 @@ func TestR64ARestoredMainReplayCountsNothingTowardTheFloodWindow(t *testing.T) {
 	w.clk.StepWall(1000)
 	fresh := w.say(alice, human("a new post after the restart", user(me)))
 	w.place(w.tokens[me], &released)
-	w.start()
+	r := w.start()
 	b := w.batch()
 	bs := append([]team.Batch{b}, w.drained()...)
-	w.noRateDrop(bs)
+	w.settled(r, bs)
+	w.noReplayCount(bs)
 	for _, id := range append(old, fresh) {
 		if n := deliveredIn(bs, id); n != 1 {
 			t.Errorf("the post %s delivered %d times, want once", id, n)
