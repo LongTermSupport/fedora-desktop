@@ -707,7 +707,7 @@ before the move to v2. Filled in as causes are found.
   Unchecked on the laptop.
 - **Reproduce:** switch tmux sessions between seats.
 - **Severity:** low. **Issue:** TBF. **State:** fixed on v2-smoke (batch 9, commit in
-  reports/R15.md; ccy 3.124.53): a `ccy`/`cc` launch with `--teams` names its tmux session
+  reports/R15.md; ccy 3.124.53 and 3.124.54): a `ccy`/`cc` launch with `--teams` names its tmux session
   `<launcher>-<team>-<seat>` (`.` and `+` made `-`, seats joined with `_`), built in one place,
   `ccy-teams internal session-name`; the tab follows. The launcher leads, not trails, and no `·`
   or `.`: see reports/R15.md. Open: a `cc --teams <team>` whose seat is chosen inside the session,

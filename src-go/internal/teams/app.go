@@ -419,7 +419,7 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 		case "go-cache":
 			return a.GoCache.Run(ctx, rest[1:])
 		case "session-name":
-			return sessionname.Run(rest[1:], a.Payload, a.Stderr)
+			return sessionname.Command{Server: a.Host.Tmux, Stdout: a.Payload, Stderr: a.Stderr}.Run(ctx, rest[1:])
 		case verbSeatResume:
 			return a.SeatResume.Run(rest[1:])
 		case verbLaunchArgs, verbSeatCheck, "seat-take", "bus-disconnected", "cc-run":

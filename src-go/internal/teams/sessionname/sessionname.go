@@ -16,18 +16,24 @@
 //   - N4. A seat name longer than MaxLen keeps `<launcher>-<project>` and says so on stderr:
 //     the launcher appends `-<n>` for a second session of the same name, and the seat store
 //     takes 128 bytes.
-//   - N5. A launcher other than ccy or cc, or a project that is not a session-name word, is
+//   - N5. The name printed is the first free one on ccy's tmux server: the name, then
+//     `<name>-2`, `<name>-3` ..., matched exactly against every session there. A server that
+//     cannot be listed is exit 1 (no server yet is an empty list).
+//   - N6. A launcher other than ccy or cc, or a project that is not a session-name word, is
 //     exit 64; the name is the only line on stdout.
 package sessionname
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
 
 // MaxLen bounds a seat-named session name, leaving room for the launcher's `-<n>`.
@@ -76,29 +82,60 @@ func seatParts(seats string) ([]string, bool) {
 	return parts, true
 }
 
-// Run is the command: it prints the name, or refuses its arguments.
-func Run(args []string, stdout, stderr io.Writer) term.ExitCode {
-	if len(args) != 3 {
-		return refuse(stderr, errUsage)
+// Free is the first of base, base-2, base-3 ... that no session in taken has.
+func Free(base string, taken []tmuxccy.Session) string {
+	used := make(map[string]bool, len(taken))
+	for _, s := range taken {
+		used[s.Name] = true
 	}
-	name, note, err := Name(args[0], args[1], args[2])
+	candidate := base
+	for n := 2; used[candidate]; n++ {
+		candidate = base + "-" + strconv.Itoa(n)
+	}
+	return candidate
+}
+
+// Server lists the sessions on ccy's tmux server.
+type Server interface {
+	List(ctx context.Context) ([]tmuxccy.Session, error)
+}
+
+// Command is `ccy-teams internal session-name`.
+type Command struct {
+	Server Server
+	Stdout io.Writer
+	Stderr io.Writer
+}
+
+// Run prints the first free session name for the launch, or refuses its arguments (64), or
+// fails (1) when the server cannot be listed.
+func (c Command) Run(ctx context.Context, args []string) term.ExitCode {
+	if len(args) != 3 {
+		return c.say(term.ExitUsage, errUsage.Error()+". See ccy-teams --help.")
+	}
+	base, note, err := Name(args[0], args[1], args[2])
 	if err != nil {
-		return refuse(stderr, err)
+		return c.say(term.ExitUsage, err.Error()+". See ccy-teams --help.")
 	}
 	if note != "" {
-		if _, err := fmt.Fprintln(stderr, "ccy-teams: "+note); err != nil {
-			return term.ExitFailure
+		if code := c.say(term.ExitOK, note); code != term.ExitOK {
+			return code
 		}
 	}
-	if _, err := fmt.Fprintln(stdout, name); err != nil {
+	sessions, err := c.Server.List(ctx)
+	if err != nil {
+		return c.say(term.ExitFailure, "no session name could be chosen: "+err.Error())
+	}
+	if _, err := fmt.Fprintln(c.Stdout, Free(base, sessions)); err != nil {
 		return term.ExitFailure
 	}
 	return term.ExitOK
 }
 
-func refuse(stderr io.Writer, err error) term.ExitCode {
-	if _, werr := fmt.Fprintln(stderr, "ccy-teams: "+err.Error()+". See ccy-teams --help."); werr != nil {
+// say writes one ccy-teams line to stderr and returns code, or a failure when it cannot.
+func (c Command) say(code term.ExitCode, msg string) term.ExitCode {
+	if _, err := fmt.Fprintln(c.Stderr, "ccy-teams: "+msg); err != nil {
 		return term.ExitFailure
 	}
-	return term.ExitUsage
+	return code
 }

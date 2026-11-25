@@ -93,7 +93,8 @@ echo "── ccy_tmux_insulate ──"
 mkdir -p "$SCRATCH/bin"
 printf '#!/bin/sh\nexit 0\n' >"$SCRATCH/bin/tmux"
 printf '#!/bin/sh\nexit 0\n' >"$SCRATCH/bin/systemd-run"
-chmod 755 "$SCRATCH/bin/tmux" "$SCRATCH/bin/systemd-run"
+printf '#!/bin/sh\nexit 0\n' >"$SCRATCH/bin/ccy-teams"
+chmod 755 "$SCRATCH/bin/tmux" "$SCRATCH/bin/systemd-run" "$SCRATCH/bin/ccy-teams"
 
 # insulated <args...> — for /launcher "$@", run through ccy_tmux_insulate in a pseudo-terminal:
 # the replay argv it records, then " | ", then the launch argv it starts the session with. Each

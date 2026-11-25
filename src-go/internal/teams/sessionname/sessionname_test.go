@@ -2,11 +2,14 @@ package sessionname
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
 
 func TestASeatSessionNamesLauncherTeamAndSeat(t *testing.T) {
@@ -53,24 +56,65 @@ func TestWrongLauncherOrProjectIsRefused(t *testing.T) {
 	}
 }
 
-func TestRunPrintsTheName(t *testing.T) {
-	var out, errOut bytes.Buffer
-	if code := Run([]string{"ccy", "proj", "app.1@alpha"}, &out, &errOut); code != term.ExitOK || out.String() != "ccy-alpha-app-1\n" {
-		t.Fatalf("exit %d out %q err %q", code, out.String(), errOut.String())
+// fakeServer is ccy's tmux server: its sessions, or the error listing them gives.
+type fakeServer struct {
+	names []string
+	err   error
+}
+
+func (f fakeServer) List(context.Context) ([]tmuxccy.Session, error) {
+	sessions := make([]tmuxccy.Session, 0, len(f.names))
+	for _, n := range f.names {
+		sessions = append(sessions, tmuxccy.Session{Name: n, Path: "/elsewhere"})
 	}
-	out.Reset()
-	long := strings.Repeat("s", 130) + "@alpha"
-	if code := Run([]string{"cc", "proj", long}, &out, &errOut); code != term.ExitOK || out.String() != "cc-proj\n" ||
-		!strings.Contains(errOut.String(), "longer than") {
-		t.Fatalf("long: exit %d out %q err %q", code, out.String(), errOut.String())
+	return sessions, f.err
+}
+
+func run(t *testing.T, server fakeServer, args ...string) (term.ExitCode, string, string) {
+	t.Helper()
+	var out, errOut bytes.Buffer
+	code := Command{Server: server, Stdout: &out, Stderr: &errOut}.Run(t.Context(), args)
+	return code, out.String(), errOut.String()
+}
+
+func TestRunPrintsTheFirstFreeName(t *testing.T) {
+	for _, tc := range []struct {
+		taken []string
+		args  []string
+		want  string
+	}{
+		{nil, []string{"ccy", "proj", "app.1@alpha"}, "ccy-alpha-app-1\n"},
+		{[]string{"ccy-alpha-app-1", "ccy-alpha-app-1-2"}, []string{"ccy", "proj", "app.1@alpha"}, "ccy-alpha-app-1-3\n"},
+		{nil, []string{"cc", "proj", ""}, "cc-proj\n"},
+		{[]string{"cc-proj", "cc-proj-2-x"}, []string{"cc", "proj", ""}, "cc-proj-2\n"},
+		{[]string{"cc-proj-2"}, []string{"cc", "proj", ""}, "cc-proj\n"},
+	} {
+		code, out, errOut := run(t, fakeServer{names: tc.taken}, tc.args...)
+		if code != term.ExitOK || out != tc.want {
+			t.Fatalf("%v taken %v: exit %d out %q err %q, want %q", tc.args, tc.taken, code, out, errOut, tc.want)
+		}
+	}
+}
+
+func TestRunSaysWhenTheSeatsAreNotUsed(t *testing.T) {
+	code, out, errOut := run(t, fakeServer{}, "cc", "proj", strings.Repeat("s", 130)+"@alpha")
+	if code != term.ExitOK || out != "cc-proj\n" || !strings.Contains(errOut, "longer than") {
+		t.Fatalf("exit %d out %q err %q", code, out, errOut)
+	}
+}
+
+func TestRunFailsWhenTheServerCannotBeListed(t *testing.T) {
+	code, out, errOut := run(t, fakeServer{err: errors.New("tmux list-sessions failed: boom")}, "ccy", "proj", "")
+	if code != term.ExitFailure || out != "" || !strings.Contains(errOut, "boom") {
+		t.Fatalf("exit %d out %q err %q", code, out, errOut)
 	}
 }
 
 func TestRunRefusesWrongArguments(t *testing.T) {
 	for _, args := range [][]string{{}, {"ccy", "proj"}, {"ccy", "proj", "a@b", "x"}, {"nope", "proj", ""}} {
-		var out, errOut bytes.Buffer
-		if code := Run(args, &out, &errOut); code != term.ExitUsage || out.Len() != 0 || errOut.Len() == 0 {
-			t.Fatalf("%q: exit %d out %q err %q", args, code, out.String(), errOut.String())
+		code, out, errOut := run(t, fakeServer{}, args...)
+		if code != term.ExitUsage || out != "" || errOut == "" {
+			t.Fatalf("%q: exit %d out %q err %q", args, code, out, errOut)
 		}
 	}
 }
