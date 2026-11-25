@@ -513,7 +513,8 @@ filled in as each cause is known.
 - **What:** ccy rebuilds its image only when the container version or the Dockerfile hash
   changes (`validate_container_version`, `lib/common.bash`). Container 2.84.77 came in at
   `ffa5e86c8` (Nov 24 12:31), whose src-go tree is the `2f5c69f0…` digest every session
-  reports. U2 (R1, `c1b20004f`) and batch 3 (`9d37999ce`) changed teamchat image sources and
+  reports. U2 (R1, landed as `dc6b81aac..81b89b14b`), the source-list fix `c1b20004f` and
+  batch 3 (`9d37999ce`) changed teamchat image sources and
   kept 2.84.77, so no session ran R1's, R12's or any batch 3 fix. The version gate for image
   sources lives only in `scripts/git-hooks/pre-commit`, which this checkout does not run (R52),
   and no QA script or CI job runs it.
