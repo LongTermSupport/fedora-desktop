@@ -194,6 +194,26 @@ func TestPrefixRepoFromOrigin(t *testing.T) {
 	}
 }
 
+// RepoName is the same rule for a caller that read origin another way (ccy-teams seats add, which
+// asks git): the origin's last component, else the checkout's base name, normalised.
+func TestRepoName(t *testing.T) {
+	for name, c := range map[string]struct {
+		origin, checkout, want string
+		has                    bool
+	}{
+		"origin":    {"git@github.com:owner/Fedora-Desktop.git", "/srv/x", "fedora-desktop", true},
+		"no origin": {"", "/home/u/My Thing", "my-thing", false},
+	} {
+		got, err := RepoName(c.origin, c.has, c.checkout)
+		if err != nil || got != c.want {
+			t.Errorf("%s: %q, %v; want %q", name, got, err, c.want)
+		}
+	}
+	if _, err := RepoName("", false, "/srv/---"); !errors.Is(err, ErrRefused) {
+		t.Errorf("unusable name: %v", err)
+	}
+}
+
 // With no origin, the repo is the checkout directory's base name normalised (v1's rule).
 func TestPrefixRepoFromTheCheckoutWithNoOrigin(t *testing.T) {
 	p, err := Prefix(member(t, ""), []byte("[core]\n\tbare = false\n[remote \"upstream\"]\n\turl = https://example.com/x/y.git\n"))

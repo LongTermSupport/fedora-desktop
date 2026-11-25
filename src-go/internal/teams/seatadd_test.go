@@ -1,0 +1,23 @@
+package teams
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+)
+
+// `ccy-teams seats add` is dispatched to the seat add verb, wired with every seam.
+func TestDispatchSeatsAdd(t *testing.T) {
+	h := newHarness(t)
+	c := h.app.SeatAdd
+	if c == nil || c.Getwd == nil || c.Status == nil || c.Origin == nil || c.Site == nil || c.Sudo == nil || c.Place == nil {
+		t.Fatalf("seats add is not wired: %+v", c)
+	}
+	if code := h.app.Run([]string{"seats", "add"}); code != term.ExitUsage {
+		t.Fatalf("exit %d, want 64: %s", code, h.ErrOut.String())
+	}
+	if !strings.Contains(h.ErrOut.String(), "ccy-teams seats add <team>") {
+		t.Errorf("stderr %q", h.ErrOut.String())
+	}
+}

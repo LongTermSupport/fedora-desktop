@@ -300,6 +300,21 @@ Usage:
                                    stale record). Each refusal names the sessions, their seats
                                    and when each record was written, the newest marked but not
                                    chosen
+  ccy-teams seats add <team> [--host] [--no-human-text]
+                                   issue and place one teamchat seat for the working
+                                   directory's checkout, on the machine that runs the team's
+                                   homeserver. Its handle is derived, never typed:
+                                   <repo>.<N>+<site>.podman (.host with --host, a cc seat),
+                                   repo from the checkout's origin (else its directory name),
+                                   site the host_vars' teamchat_site (else local), N the
+                                   lowest number free in this checkout and on the roster.
+                                   sudo asks your password once for teamchat-admin member
+                                   add; its answer goes straight into the seat pool and is
+                                   never shown. Prints <N>@<team> to launch with
+                                   ccy --teams (cc --teams with --host). Refused: a team with
+                                   no status record here, whose homeserver is elsewhere (78,
+                                   naming the place-issued pipe); a failed issue or placement
+                                   (1; a seat issued but not placed names its reissue pipe)
   ccy-teams seats units list
   ccy-teams seats units print <name>
                                    the two user units that run the sweep: each name and its
