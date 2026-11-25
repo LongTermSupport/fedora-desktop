@@ -189,3 +189,14 @@ workaround; medium misleads; low is cosmetic.
   reason goes only to the link log.
 - **Reproduce:** `teamchat status`; compare with `history`.
 - **Severity:** high. **Issue:** #422. **Unit:** U2. **State:** in progress (U2).
+
+## R22: LXC containers on another host cannot join a v2 team
+
+- **Seen:** the owner and a container team, a dev VM, 2026-11-25 ("not working at all").
+- **What:** the v2 LXC route admits only containers on the homeserver's own host (lxc-attach,
+  the bridge address); here the containers run on another guest. Also asked: how a host-started
+  LXC session signs in (A2), a v2 contract for a container repository's own launcher (A3), a v2
+  `lxc-add` (A4), two doc points (A5), and the uid rule K15 in the user docs.
+- **Reproduce:** a team whose homeserver is on host X; a container on host Y tries to join.
+- **Severity:** critical. **Issue:** #425. **Unit:** U8 (Plan 00257 Task B.4).
+  **State:** in progress (U8).
