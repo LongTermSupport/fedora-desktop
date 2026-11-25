@@ -309,6 +309,20 @@ filled in as each cause is known.
 - **Severity:** high (no-degrade, F19). **Issue:** TBF. **Unit:** U10. **State:** fixed on
   `v2-smoke` (U10); lands with batch 4; the live check is an add on a running v2 session.
 
+## R51: host verbs that read only v1 membership do not see v2 sessions
+
+- **Seen:** U10, sweeping R41's class ("a host verb acting on one bus generation's file for a
+  session of the other"), 2026-11-25.
+- **What:** these still read only v1's per-session membership, so a v2 session is invisible to
+  them: `ccy-teams session list`; `ops.SessionsIn` and `TakeOut` (taking a team away leaves
+  running v2 sessions in it); `restart/jobs.go`; `board/collect.go`; `conversation`. A host `cc`
+  session on teamchat is not covered by R41's fix either.
+- **Fix:** each reads a v2 session's `desired.json` (and its seats' reports) as R41's add does,
+  under the same class guard, `TestEveryVerbOnAV2SessionActsOrRefusesByName`, widened to these
+  readers.
+- **Severity:** high (no-degrade, F19: v1's tools saw every session). **Issue:** TBF.
+  **Unit:** U11. **State:** open; next after batch 4 is in CI.
+
 ## R42: `say --to-coordinator` is ambiguous in a session that coordinates one of its teams
 
 - **Seen:** the same reading, 2026-11-25.
