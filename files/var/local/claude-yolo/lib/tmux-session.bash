@@ -19,9 +19,11 @@
 #     that already has one. A session is on ONE terminal or none; two terminals mirroring
 #     the same claude cannot happen, whoever races whom.
 #
-# Session names mirror container names: ccy-<project>, then ccy-<project>-2, and so on; a
-# launch in team seats is named for them instead, ccy-<team>-<seat> (ccy-teams internal
-# session-name), so the tab, which tmux titles with the session name, shows the seat.
+# Session names are <launcher>-<project>, then <launcher>-<project>-2, and so on; a launch in
+# team seats is named for them instead, <launcher>-<team>-<project>-<seat> (ccy-teams internal
+# session-name), so the tab, which tmux titles with the session name, shows the seat. A
+# container is not named after its session: it is <project>_yolo, tied to the session by its
+# ccy-session label.
 # Running ccy in a project that has a detached session — the one a dead terminal left
 # behind — offers to re-attach it; a session open in another terminal is never offered
 # there. Taking one over from another terminal is the Go ccy-sessions' (Ctrl-T in its picker).

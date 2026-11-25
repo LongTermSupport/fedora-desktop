@@ -317,8 +317,18 @@ filled in as each cause is known.
   seat it took; a remove whose seat the store does not hold says so instead of "free"; a
   running cc session on teamchat is refused by name; an unreadable v2 desired is 78; a stale
   refused report is named as an older generation. ccy 3.124.47, container 2.84.78 (with R49).
-- **Severity:** high (no-degrade, F19). **Issue:** TBF. **Unit:** U10. **State:** fixed on
-  `v2-smoke` (U10); lands with batch 4; the live check is an add on a running v2 session.
+- **Live check (batch 7 launcher, the devops seat and the coordinator, 25 Nov 18:51-18:57Z):**
+  - **Run 1:** an add of a purged team's seat failed at the take (that homeserver is not reached
+    from the VM) and put the record back: R59.
+  - **Run 2 (team B):** the host side held. Add exited 0, wrote generation 2, and the keeper in the
+    container held the seat ("the desired membership generation 2 applied", "seat .../1 held").
+    Remove exited 0, wrote generation 3, and released it.
+  - **The session never had the team.** The container's network policy admits only its first team's
+    bus port, so every request of the link to team B got no answer. `teamchat status` in the session
+    did not list team B, and no join notice arrived: R60.
+  - So the hot path works, but only to a team the container can reach. It has to be re-run on one.
+- **Severity:** high (no-degrade, F19). **Issue:** TBF. **Unit:** U10. **State:** on F44 (batch
+  4); host side proven live; session side open behind R60.
 
 ## R51: host verbs that read only v1 membership do not see v2 sessions
 
@@ -333,8 +343,14 @@ filled in as each cause is known.
 - **Fix:** each reads a v2 session's `desired.json` (and its seats' reports) as R41's add does,
   under the same class guard, `TestEveryVerbOnAV2SessionActsOrRefusesByName`, widened to these
   readers.
+- **Seen live (R58, 25 Nov 18:51Z):** `session list` showed a running v2 session as "old or
+  --no-bus: relaunch it to change it while it runs", while `session add` on the same session
+  said "running, can be hot-controlled". `ownMembership` (`hot/list.go:213-219`) reads only v1's
+  `membership.json`; `add` falls through to v2's `desired.json` (`hot.go:480-487`). The picker's
+  running-sessions view has the same gap. Fix: one lookup, v1 else v2, shared by list, add,
+  `SessionsIn` and the picker.
 - **Severity:** high (no-degrade, F19: v1's tools saw every session). **Issue:** TBF.
-  **Unit:** U11. **State:** open; next after batch 4 is in CI.
+  **Unit:** U11. **State:** open; batch 10.
 
 ## R42: `say --to-coordinator` is ambiguous in a session that coordinates one of its teams
 
@@ -542,6 +558,56 @@ filled in as each cause is known.
 - **Severity:** high (every gate a commit is meant to pass locally is silently absent).
   **Issue:** #427. **State:** open, outside v2.
 
+## R60: a hot join to a team the container cannot reach reports success, and status hides it
+
+- **Seen:** R41's second live run, 25 Nov 18:57Z (the coordinator read the container's keeper and
+  link logs).
+- **What:**
+  - The host reaches team B's homeserver, the container does not: its network policy admits only
+    the first team's bus port. The link's log has "no roster cache; sends wait for the first
+    verification", then "teamsync ...: down: the homeserver did not answer usably", and every
+    later request got no answer.
+  - Even so, `session add` printed "seat 1 held, applied" and "The session is told it joined",
+    and the seat's `report.json` said the link was running with no reason.
+  - `teamchat status` in the session did not list team B at all, not even as down.
+  - On remove, the leave notice was left "owed" for a team the container can never reach.
+- **Fix:**
+  - `HotSeats.Applied` waits for the link's first answer from the team (or its down state) and
+    reports a down team as such, naming the reach the session lacks.
+  - `report.json` carries the team's down reason.
+  - `status` lists a held team that is down.
+  - An owed leave notice for an unreachable team is dropped with a line in the log.
+  - Unchecked: why status omitted a held team. The engine's `load` puts the team in `e.teams`
+    before any network call (`engine/teams.go:162-197`), so this needs a test of a link that never
+    gets an answer.
+- **Not ours:** the session network policy has to admit a hot-joined team's port. That is the
+  owner's host configuration.
+- **Severity:** high (a join reported done that never happened). **Issue:** TBF. **State:** open.
+
+## R59: `session add` offers a purged team's dead seat as free
+
+- **Seen:** R41's first live run, 25 Nov 18:51Z.
+- **What:** the team had been removed with purge, but its seat was still in the member pool
+  (#386: no verb releases such seats). `session add` called it "free" and failed only at the
+  login. `HotSeats.Choose` judges a seat free from the pool folder and the seat holdings alone,
+  and nothing on that path reads the team's removal.
+- **Fix:** with #386, a seat of a removed team is never offered, and a named one is refused,
+  naming the removal.
+- **Severity:** medium. **Issue:** #386 (related). **State:** open.
+
+## R57: `teamchat version` names all of `src-go`, so equal teamchat builds disagree
+
+- **Seen:** the coordinator, 25 Nov 18:48Z. The container's `teamchat version` printed digest
+  `85c2df54`, the host and the bus printed `f39fc426`.
+- **What:** the digest is the git tree id of the whole `src-go` at the build commit (the
+  Dockerfile's and `play-teamchat.yml`'s `-X main.SourceDigest`). Batches 7 and 8 changed only
+  `internal/teams`, which is no image source, so the container kept batch 6's build, which has the
+  same teamchat code. The two digests are the `src-go` trees of batch 6 and batch 7. A reader
+  cannot tell a stale image from a harmless difference.
+- **Fix:** the digest covers what teamchat is built from (the image-source paths), or `version`
+  also prints the build commit. Nothing compares digests at run time, so either is safe.
+- **Severity:** low (misleading, harmless). **Issue:** TBF. **State:** open.
+
 ## R56: a Lightning instance on a busy team's rooms grows to 75 GB resident
 
 - **Seen:** the laptop host seat via the coordinator, 25 Nov 17:55Z (F30), read-only (`ps`,
@@ -708,9 +774,10 @@ before the move to v2. Filled in as causes are found.
   Unchecked on the laptop.
 - **Reproduce:** switch tmux sessions between seats.
 - **Severity:** low. **Issue:** TBF. **State:** fixed on v2-smoke (batch 9, commit in
-  reports/R15.md; ccy 3.124.53 and 3.124.54): a `ccy`/`cc` launch with `--teams` names its tmux session
-  `<launcher>-<team>-<seat>` (`.` and `+` made `-`, seats joined with `_`), built in one place,
-  `ccy-teams internal session-name`; the tab follows. The launcher leads, not trails, and no `·`
+  reports/R15.md; ccy 3.124.53 to 3.124.55): a `ccy`/`cc` launch with `--teams` names its tmux
+  session `<launcher>-<team>-<project>-<seat>` (seats joined with `_`), its list read as the
+  seat check reads it so cc and ccy name the same seats alike, built in one place,
+  `ccy-teams internal session-name`; the tab follows. The name is fixed at launch. The launcher leads, not trails, and no `·`
   or `.`: see reports/R15.md. Open: a `cc --teams <team>` whose seat is chosen inside the session,
   and sessions already running, keep `<launcher>-<project>`; that restored and restarted
   sessions keep their recorded names is unchecked. Live proof owed.

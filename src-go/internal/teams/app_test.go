@@ -351,9 +351,9 @@ func TestDispatchInternalGoCacheIsTheCacheCommand(t *testing.T) {
 
 func TestDispatchInternalSessionNameIsTheNameCommand(t *testing.T) {
 	h := newHarness(t)
-	h.On("tmux -L ccy list-sessions", "ccy-alpha-app-4 0 /elsewhere\n", 0)
-	if code := h.app.Run([]string{"internal", "session-name", "ccy", "proj", "app.4@alpha"}); code != term.ExitOK ||
-		h.Out.String() != "ccy-alpha-app-4-2\n" {
+	h.On("tmux -L ccy list-sessions", "ccy-alpha-proj-4 0 /elsewhere\n", 0)
+	if code := h.app.Run([]string{"internal", "session-name", "ccy", "proj", "4@alpha"}); code != term.ExitOK ||
+		h.Out.String() != "ccy-alpha-proj-4-2\n" {
 		t.Fatalf("exit %d: %q %s", code, h.Out.String(), h.ErrOut.String())
 	}
 }
