@@ -172,7 +172,11 @@ mapfile -t positional_flags < <(grep -oE '1" ==? "-[a-z0-9-]+' "$LAUNCHER" | gre
 # --opencode and -oc (Plan 00215): its patterns are the third parse site.
 mapfile -t choice_flags < <(grep -oE '^    -[^)]+\)' "$REPO_ROOT/files/var/local/claude-yolo/lib/agent-choice.bash" | grep -oE -- '-{1,2}[a-z][a-z0-9-]*' | LC_ALL=C sort -u)
 check "the agent choice's flags were found" "--opencode -oc" "${choice_flags[*]}"
-mapfile -t parsed_flags < <(printf '%s\n' "${loop_flags[@]}" "${positional_flags[@]}" "${choice_flags[@]}" | LC_ALL=C sort -u)
+# ccy's --fresh and --rebind reach claude's words through the parse's last branch and are read by
+# `ccy-teams internal seat-resume` (issue 417); their one spelling is registry.FlagFresh/FlagRebind.
+mapfile -t seat_flags < <(grep -oE 'Flag(Fresh|Rebind) += "--[a-z]+"' "$REPO_ROOT/src-go/internal/registry/restore.go" | grep -oE -- '--[a-z]+')
+check "the seated launch's flags were found" "--fresh --rebind" "${seat_flags[*]}"
+mapfile -t parsed_flags < <(printf '%s\n' "${loop_flags[@]}" "${positional_flags[@]}" "${choice_flags[@]}" "${seat_flags[@]}" | LC_ALL=C sort -u)
 # A parse site that stopped matching would shrink the population and still pass, so each
 # bucket is floored and printed.
 printf '  COVERAGE: %s flags from the argument loop, %s from the positional checks\n' \

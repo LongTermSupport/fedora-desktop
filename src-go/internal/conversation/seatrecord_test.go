@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 )
 
@@ -230,6 +232,37 @@ func TestSyncSessionFindsTheSeatsTheSessionHeld(t *testing.T) {
 	}
 	if _, err := SyncSession(w.checkout, "ccy-none", w.where(), recordMS); !errors.Is(err, ErrNothingToSync) {
 		t.Fatalf("a session holding no seat: %v", err)
+	}
+}
+
+// Register R4 (seat 4 against seat 5): a session that resumed into its seat (its link's record says
+// source "resume", as a session that existed before it joined a team says on its relaunch) is
+// carried into the seat's record exactly as one that started there; the source is never read.
+func TestSyncSessionCarriesASessionThatResumedIntoItsSeat(t *testing.T) {
+	w := newWorld(t)
+	w.v2Session("ccy-joined", id, 1791000000000, "4@beta")
+	name, err := paths.ParseSessionName("ccy-joined")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := paths.ParseRunID("0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := state.Conversation{Run: run, SessionID: id, Source: state.SourceResume, WrittenMS: 1791000000001}.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, w.v2Path(name.String()), string(conv))
+	got, err := SyncSession(w.checkout, "ccy-joined", w.where(), recordMS)
+	if err != nil || got.ID != id || got.List != "4@beta" {
+		t.Fatalf("SyncSession = %+v, %v", got, err)
+	}
+	if err := os.RemoveAll(filepath.Dir(w.store.DesiredFile(name))); err != nil {
+		t.Fatal(err)
+	}
+	if seated, err := w.forSeats("4@beta"); err != nil || seated.ID != id {
+		t.Fatalf("after the session's state is gone ForSeats = %+v, %v", seated, err)
 	}
 }
 

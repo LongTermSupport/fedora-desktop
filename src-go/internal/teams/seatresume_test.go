@@ -245,6 +245,23 @@ func TestSeatResumeAcceptsTheSameIDNoRecordAndARelaunch(t *testing.T) {
 	}
 }
 
+// Register R4: a session that existed before it joined a team comes into its seat by the
+// supervisor's relaunch with --resume <its id>, and no seat has a record yet. The seat records it.
+func TestSeatResumeARelaunchIntoAnUnrecordedSeatRecordsIt(t *testing.T) {
+	checkout := t.TempDir()
+	plantTranscript(t, checkout, seatConvID)
+	if got := run(t, checkout, term.ExitOK, "--relaunch=ccy-proj", "4@team-a", "--", "--resume", seatConvID); got.out != "" {
+		t.Fatalf("stdout %q: %s", got.out, got.err)
+	}
+	data, err := os.ReadFile(filepath.Join(checkout, ".claude/ccy/seat-conversations/team-a/4.json"))
+	if err != nil || !strings.Contains(string(data), seatConvID) || !strings.Contains(string(data), `"source":"relaunch"`) {
+		t.Fatalf("record %s, %v", data, err)
+	}
+	if got := run(t, checkout, term.ExitOK, "4@team-a", "--"); got.out != "--resume|"+seatConvID+"|" {
+		t.Fatalf("the next plain launch: %q", got.out)
+	}
+}
+
 // Issue 417 point 4: the --continue refusal names the plain form (and --fresh), never an id.
 func TestSeatResumeRefusesContinueNamingThePlainForm(t *testing.T) {
 	for _, flag := range []string{"--continue", "-c"} {

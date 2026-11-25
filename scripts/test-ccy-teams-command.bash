@@ -1291,8 +1291,9 @@ check_lacks "  nor an edit of localhost.yml" "localhost.yml" "$(grep -v 'saved t
 check_has "  sign-in is offered straight after, default No (decision A12)" "gum confirm --default=false Sign owner in to Element now?" "$(cat "$LOG")"
 check_has "  then Element opened, default No" "gum confirm --default=false Open proj in Element now?" "$(cat "$LOG")"
 check "  declined, no password is set" "no" "$(logged 'human password')"
-check "  in a checkout of the team, a session is offered, and started in it with no seat" "yes" \
-    "$(logged 'launcher --teams proj (in proj)')"
+# --fresh: a new team's seats have no conversation to resume (issue 417).
+check "  in a checkout of the team, a session is offered, and started in it with no seat, fresh" "yes" \
+    "$(logged 'launcher --teams proj --fresh (in proj)')"
 check_has "  gum's greys are replaced by the terminal's own text colour" "GUM_INPUT_HEADER_FOREGROUND="$'\n' \
     "$(cat "$STATE/gum-env")"$'\n'
 check_has "  with one accent from the terminal's theme" "GUM_CONFIRM_SELECTED_BACKGROUND=3" "$(cat "$STATE/gum-env")"

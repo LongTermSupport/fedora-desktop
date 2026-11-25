@@ -64,12 +64,14 @@ ccy_seats_check() {
 # relaunch is non-empty for a restore, a team restart or the supervisor's relaunch, whose
 # --resume <id> is the session's own and moves the record.
 #   status 0   CLAUDE_ARGS and CLAUDE_ARGS_BEFORE_SEPARATOR carry the conversation
-#   otherwise  ccy-teams' code (64 refused, 1 a record that cannot be read or written)
+#   otherwise  ccy-teams' code (64 refused, 1 a record that cannot be read or written), or 78
+#              for an answer with no count
 ccy_seats_resume() {
     local words=()
     mapfile -d '' -t words < <(ccy-teams internal seat-resume "--relaunch=$2" \
         "--before=${CLAUDE_ARGS_BEFORE_SEPARATOR:-${#CLAUDE_ARGS[@]}}" "$1" -- "${CLAUDE_ARGS[@]}")
     wait "$!" || return
+    [[ "${words[0]-}" =~ ^[0-9]+$ ]] || { print_error "ccy-teams internal seat-resume did not print the count of claude's words; update ccy-teams (play-claude-yolo.yml)." && return 78; }
     CLAUDE_ARGS_BEFORE_SEPARATOR=${words[0]} CLAUDE_ARGS=("${words[@]:1}")
 }
 
