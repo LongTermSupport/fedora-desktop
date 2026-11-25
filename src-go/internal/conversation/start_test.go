@@ -108,6 +108,62 @@ func TestStartPlanMarksUnworkableArguments(t *testing.T) {
 	}
 }
 
+// Issue 417, register R4: a seated session whose own record is gone (its end removed it, or it
+// never wrote one) is resumed by its seats' record, marked or not, never started fresh.
+func TestStartPlanResumesASeatedRecordByItsSeatRecord(t *testing.T) {
+	for _, marked := range []bool{false, true} {
+		rec := ccyCase(t, "--teams", "4@alpha")
+		rec.FreshIfNoConversation = marked
+		if err := os.Remove(recordPath(rec.Dir)); err != nil {
+			t.Fatal(err)
+		}
+		write(t, filepath.Join(rec.Dir, ".claude/ccy/projects/-workspace", otherID+".jsonl"), "{}\n")
+		if err := RecordSeats(rec.Dir, "4@alpha", otherID, SourceRelaunch, 1); err != nil {
+			t.Fatal(err)
+		}
+		got, err := StartPlan(rec, none)
+		if err != nil || got.Fresh || got.ID != otherID {
+			t.Fatalf("marked %v: StartPlan = %+v, %v; want %s resumed", marked, got, err, otherID)
+		}
+		if !slices.Equal(got.Args[len(got.Args)-2:], []string{"--resume", otherID}) || slices.Contains(got.Args, "--fresh") {
+			t.Fatalf("marked %v: args %q", marked, got.Args)
+		}
+		if !strings.Contains(got.Why, "seat") {
+			t.Fatalf("marked %v: Why = %q, want the seat record named", marked, got.Why)
+		}
+	}
+}
+
+// The seats' record answers only for a missing conversation: the session's own record, when it
+// has one, is the session's.
+func TestStartPlanPrefersTheSessionsOwnRecord(t *testing.T) {
+	rec := ccyCase(t, "--teams", "4@alpha")
+	write(t, filepath.Join(rec.Dir, ".claude/ccy/projects/-workspace", otherID+".jsonl"), "{}\n")
+	if err := RecordSeats(rec.Dir, "4@alpha", otherID, SourceRelaunch, 1); err != nil {
+		t.Fatal(err)
+	}
+	got, err := StartPlan(rec, none)
+	if err != nil || got.ID != id {
+		t.Fatalf("StartPlan = %+v, %v; want its own %s", got, err, id)
+	}
+}
+
+// A seated record started fresh says --fresh, since its plain launch would resume the seats'.
+func TestStartPlanStartsAMarkedSeatedRecordWithFresh(t *testing.T) {
+	rec := ccyCase(t, "--teams", "4@alpha")
+	rec.FreshIfNoConversation = true
+	if err := os.Remove(recordPath(rec.Dir)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := StartPlan(rec, none)
+	if err != nil || !got.Fresh || !slices.Contains(got.Args, "--fresh") {
+		t.Fatalf("StartPlan = %+v, %v", got, err)
+	}
+	if !strings.Contains(got.Why, "no session record") {
+		t.Fatalf("Why = %q, want the seat lookup's reason too", got.Why)
+	}
+}
+
 func isArgsError(err error) bool {
 	var argsErr *ArgsError
 	return errors.As(err, &argsErr)

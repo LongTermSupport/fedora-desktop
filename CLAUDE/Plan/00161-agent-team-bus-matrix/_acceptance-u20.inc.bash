@@ -435,7 +435,8 @@ u20_launch() {
     : >"${ev}/stdin.jsonl" || return 1
     args=(--headless --no-restore --no-supervise)
     if [[ -n "${seat}" ]]; then
-        args+=(--teams "${seat}@${TEAM}")
+        # --fresh: a plain seated launch resumes the seat's recorded conversation (ccy 3.124.44).
+        args+=(--teams "${seat}@${TEAM}" --fresh)
     fi
     args+=(--prompt "${U20_PROMPT}" -- --input-format stream-json --output-format stream-json --verbose --model "${U20_MODEL}")
     U20_STARTED=1

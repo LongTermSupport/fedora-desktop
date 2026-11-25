@@ -33,6 +33,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/placeissued"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -106,6 +107,8 @@ type App struct {
 	Sweep *seatsweep.Cmd
 	// SeatConversation is `ccy-teams seats conversation`, the id a seat's session recorded.
 	SeatConversation *SeatConversation
+	// SeatResume is `ccy-teams internal seat-resume`, the conversation a seated launch runs.
+	SeatResume *SeatResume
 	// Interrupted makes the run's context: Ctrl-C cancels it instead of ending the process,
 	// so the sudo credential is still dropped (review L-A).
 	Interrupted func(context.Context) (context.Context, context.CancelFunc)
@@ -119,7 +122,7 @@ func NewApp(cfg config.Config) *App { return Wire(host.New(cfg)) }
 // output cannot reach the value.
 func NewAppFor(cfg config.Config, args []string) *App {
 	if len(args) > 0 && (args[0] == subChooseTeams || args[0] == subLaunchSummary || args[0] == subSystem || args[0] == subSeats) ||
-		len(args) > 1 && args[0] == subInternal && (args[1] == verbLaunchArgs || args[1] == verbSeatCheck) {
+		len(args) > 1 && args[0] == subInternal && (args[1] == verbLaunchArgs || args[1] == verbSeatCheck || args[1] == verbSeatResume) {
 		return Wire(host.NewDiverted(cfg))
 	}
 	return NewApp(cfg)
@@ -188,7 +191,10 @@ func Wire(h *host.Host) *App {
 		Launch:  newLaunch(h, membershipInit, sys),
 		Sweep:   newSweep(h),
 		SeatConversation: &SeatConversation{
-			Stdout: h.Payload, Stderr: h.Stderr, Getenv: h.Getenv, Getwd: os.Getwd,
+			Stdout: h.Payload, Stderr: h.Stderr, Getenv: h.Getenv, Getwd: os.Getwd, NowMS: nowMS,
+		},
+		SeatResume: &SeatResume{
+			Stdout: h.Payload, Stderr: h.Stderr, Getenv: h.Getenv, Getwd: os.Getwd, NowMS: nowMS, NewID: NewConversationID,
 		},
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
@@ -356,6 +362,8 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 			return a.ContainerName.Run(ctx, rest[1:])
 		case "go-cache":
 			return a.GoCache.Run(ctx, rest[1:])
+		case verbSeatResume:
+			return a.SeatResume.Run(rest[1:])
 		case verbLaunchArgs, verbSeatCheck, "seat-take", "bus-disconnected", "cc-run":
 			return a.Launch.Run(ctx, rest)
 		}
@@ -364,6 +372,7 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 		"internal restart-args <session>, internal claim-container-name <project> <suffix> <owner-pid>, " +
 		"internal go-cache <project> [z], internal launch-args <session> <checkout> <seats> <Z or empty> -- <mounts...>, " +
 		"internal seat-check <list> [--resolved], internal seat-take <list> [--no-prompt], " +
+		seatResumeUsage + ", " +
 		"internal bus-disconnected <status> <pingbus> <pingbus arguments>, " +
 		"or internal cc-run <tmp> <checkout> <session or empty> <cc pid> <seats> <true|false> -- <claude args...>.")
 }
@@ -413,7 +422,7 @@ func newLaunch(h *host.Host, membershipInit *membership.Init, sys *system.Cmd) *
 			return in.Lines(ctx, teams)
 		},
 		Membership: membershipInit.Prepare, Status: system.StatusRecord, Exec: h.Echo.Execer(h.Execer),
-		NowMS: func() int64 { return time.Now().UnixMilli() },
+		NowMS: nowMS,
 		Parts: storeParts(h),
 		Taker: func(cfg seat.Config) teamchatlaunch.Taker {
 			return teamchatlaunch.StoreTaker{Open: func() (*seat.Store, error) { return seat.Open(cfg) }}
@@ -431,6 +440,9 @@ func newLaunch(h *host.Host, membershipInit *membership.Init, sys *system.Cmd) *
 				return err
 			}
 			return store.RemoveSession(session)
+		},
+		SyncSeats: func(checkout, session string) (conversation.Synced, error) {
+			return conversation.SyncSession(checkout, session, conversation.Here(h.Getenv), nowMS())
 		},
 		CC: teamchatlaunch.HostCC, Foreground: execx.OS{},
 	}
@@ -455,3 +467,6 @@ func newSweep(h *host.Host) *seatsweep.Cmd {
 		Getwd: os.Getwd, Status: system.StatusRecord, Who: seatsweep.CurrentUser,
 	}
 }
+
+// nowMS is the wall clock in milliseconds, the production clock of the commands that stamp records.
+func nowMS() int64 { return time.Now().UnixMilli() }

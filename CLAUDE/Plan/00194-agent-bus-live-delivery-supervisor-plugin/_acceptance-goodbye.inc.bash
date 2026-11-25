@@ -550,7 +550,7 @@ gb_launch() {
     fi
     gb_tmux new-session -d -s "${name}" -x 200 -y 50 -c "${GB_CHECKOUT}" \
         -e "CCY_TEAMS_HOST_VARS=${HOST_VARS_FILE}" -- "${wrap[@]+"${wrap[@]}"}" \
-        "${CCY_LAUNCHER}" --teams "${SEAT_LIST}" --token "${GB_TOKEN}" --no-ssh --no-network --compose skip --no-restore \; \
+        "${CCY_LAUNCHER}" --teams "${SEAT_LIST}" --fresh --token "${GB_TOKEN}" --no-ssh --no-network --compose skip --no-restore \; \
         pipe-pane -o "cat >>$(printf '%q' "${ev}/pane.log")" || return 1
     pid="$(gb_tmux display-message -p -t "=${name}:" '#{pane_pid}')" || return 1
     printf '%s\n' "${pid}" >"${ev}/launcher.pid" || return 1
