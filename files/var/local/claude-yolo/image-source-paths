@@ -11,6 +11,8 @@
 :(glob)src-go/internal/pingbus/pyjson/*
 :(glob)src-go/internal/pingbus/statusline/*
 :(glob)src-go/internal/stdinread/*
+:(glob)src-go/internal/sudo/*
+:(glob)src-go/internal/systemd/*
 :(glob)src-go/internal/teamchat/clock/*
 :(glob)src-go/internal/teamchat/colour/*
 :(glob)src-go/internal/teamchat/duty/*
@@ -52,6 +54,7 @@
 :(glob)src-go/internal/teamchat/richtext/*
 :(glob)src-go/internal/teamchat/seat/*
 :(glob)src-go/internal/teamchat/state/*
+:(glob)src-go/internal/teamchat/status/*
 :(glob)src-go/internal/teamchat/tlsterm/*
 :(glob)src-go/internal/term/*
 :(glob)src-go/vendor/github.com/yuin/goldmark/*
