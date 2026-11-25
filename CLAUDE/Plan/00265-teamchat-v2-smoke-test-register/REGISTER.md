@@ -314,8 +314,10 @@ filled in as each cause is known.
 - **Seen:** U10, sweeping R41's class ("a host verb acting on one bus generation's file for a
   session of the other"), 2026-11-25.
 - **What:** these still read only v1's per-session membership, so a v2 session is invisible to
-  them: `ccy-teams session list`; `ops.SessionsIn` and `TakeOut` (taking a team away leaves
-  running v2 sessions in it); `restart/jobs.go`; `board/collect.go`; `conversation`. A host `cc`
+  them: `ccy-teams session list` (`teams/hot/list.go`); `ops.SessionsIn` and `TakeOut` (taking
+  a team away leaves running v2 sessions in it); `teams/restart/jobs.go`; the board's
+  `addDesired` (`teams/board/collect.go`, `snapshot.go`: v1's desired memberships; the board
+  has a `v2.go`, so U11 first checks what it already shows); `internal/conversation`. A host `cc`
   session on teamchat is not covered by R41's fix either.
 - **Fix:** each reads a v2 session's `desired.json` (and its seats' reports) as R41's add does,
   under the same class guard, `TestEveryVerbOnAV2SessionActsOrRefusesByName`, widened to these
