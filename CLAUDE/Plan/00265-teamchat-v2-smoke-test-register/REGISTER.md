@@ -407,27 +407,31 @@ filled in as each cause is known.
 - **What:** a seat comes up on the default model (Sonnet) and the owner switches it by hand.
   Neither launcher passes a model: no `--model` or `ANTHROPIC_MODEL` in `ccy`, `cc` or the Go
   launch code, so claude takes the account's default on every route.
-- **Wanted:** a minimum model per team with a per-seat override; a seat started below it is
-  switched to it at launch, with no human step.
-- **Where it would live:** the team's declaration (the same record that names the seats and
-  their roles), read at launch. The container side passes `--model` in `ccy-start-claude`'s final
-  exec (`internal/ccystart`); the host side in `cc-claude` (`internal/ccclaude`), which already
-  sets ccy's defaults. A model the person names on the command line wins. This differs from the
-  deferred model-class refusal (Non-Goals): it raises the model instead of refusing the launch.
+- **Wanted:** a default model per team with a per-seat override, given to the seat at launch
+  with no human step. A model the person names on the command line wins. It sets the model a
+  seat starts on, not a minimum: it neither compares models nor refuses a launch (the deferred
+  model-class refusal stays in Non-Goals).
+- **Where it lives:** the per-machine seat store, `<seat store>/models.json` (0600, on no
+  mount), not the team's declaration: a model set on one machine does not follow the team to
+  another. Read by `Launch.Take` (`internal/teams/teamchatlaunch`) for both launchers, as
+  `ANTHROPIC_MODEL`, not `--model`, and not in `ccy-start-claude` or `cc-claude`: departure in
+  [reports/R39.md](reports/R39.md).
+- **Built:** `ccy-teams seats model <team> <model>|--clear` (team default) and
+  `ccy-teams seats model [--host] <seat>@<team> <model>|--clear` (a seat's own, which wins; the
+  seat found in the checkout's pool by kind, kept by handle); no argument lists them.
+  `launch-args` adds `-e ANTHROPIC_MODEL=<model>` to podman's arguments, so a host-shell
+  `ANTHROPIC_MODEL` does not reach a ccy container, only the seat's recorded model; `cc-run`
+  puts it in the session's environment unless the person's has one. Both say it on stderr.
+  claude ranks a `--model` above `ANTHROPIC_MODEL`, so the person's wins with no argument
+  parsing; a project `ccy.env` (sourced after) wins too. Child claudes the session starts
+  inherit `ANTHROPIC_MODEL`. With several seats, the first seat with a model decides: its own,
+  else its team's (`seatmodel.Settings.For`). A hot-seat join (`ccy-teams session add`) launches
+  nothing, so the seat's model is not used; `HotSeats.Join` says so on stderr before the take.
+  Not the image (`internal/teams` is no image source) and not the bash launcher.
 - **Restore (checked):** a restore replays the person's recorded launcher arguments
   (`lib/session-registry.bash`; a `--model opus` is kept as an unknown flag's value), never the
   model a launch adds, and the replayed launch takes its seats again, so it re-reads the same
   setting and starts on the same model.
-- **Built:** `ccy-teams seats model <team> <model>|--clear` (team default) and
-  `ccy-teams seats model [--host] <seat>@<team> <model>|--clear` (a seat's own, which wins; the
-  seat found in the checkout's pool by kind, kept by handle); no argument lists them. Kept in
-  `<seat store>/models.json` (0600, on no mount), read by `Launch.Take` (`internal/teams/teamchatlaunch`)
-  for both launchers: `launch-args` adds `-e ANTHROPIC_MODEL=<model>` to podman's arguments,
-  `cc-run` puts it in the session's environment unless the person's has one; both say it on
-  stderr. claude ranks a `--model` above `ANTHROPIC_MODEL`, so the person's wins with no argument
-  parsing; a project `ccy.env` (sourced after) wins too. The first seat with a model decides.
-  Not the image (`internal/teams` is no image source) and not the bash launcher. Departure from
-  "passed as `--model`": [reports/R39.md](reports/R39.md).
 - **Severity:** medium. **Issue:** TBF. **State:** fixed on v2-smoke; batch 8 (CCY 3.124.52,
   container 2.84.80 unchanged; live after `play-claude-yolo.yml` rebuilds `ccy-teams`, already
   queued).

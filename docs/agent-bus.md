@@ -807,11 +807,17 @@ with no record. A list on both systems, and `cc --bus`, stay agent-bus only.
 model a team's seats start on; `ccy-teams seats model [--host] <seat>@<team> <model>` sets one
 seat's own (in the working directory's checkout), which wins over its team's. `--clear` in
 place of the model removes either, and `ccy-teams seats model` alone lists them. They live in
-your seat store on this machine, so every `ccy` and `cc` launch and every restore reads them
-with no network. The launch says the model on stderr and gives it to claude as
+your seat store on this machine (not in the team's declaration), so every `ccy` and `cc` launch
+and every restore reads them with no network, and a model set on one machine does not follow the
+team to another. The launch says the model on stderr and gives it to claude as
 `ANTHROPIC_MODEL`, so a `--model` you give claude wins, as does an `ANTHROPIC_MODEL` in `cc`'s
-environment or a project's `ccy.env`. With several seats, the first with a model decides. With
-none set, claude takes the account's default.
+environment or a project's `ccy.env`. On `ccy`, an `ANTHROPIC_MODEL` in your host shell does not
+reach the container: only the seat's recorded model does. Child claudes the seat's session
+starts inherit `ANTHROPIC_MODEL` from its environment, so they start on the seat's model too
+unless given their own. With several seats, the first seat with a model decides, and that model
+is the seat's own, else its team's. With none set, claude takes the account's default. A seat
+joined to a running session (`ccy-teams session add`) is not launched, so its model is not
+used: the join says so on stderr, and the session keeps the model it was launched on.
 
 **Changing a teamchat (v2) session while it runs.** Only `ccy-teams session add` and `remove`
 work on a running ccy session launched on teamchat: add takes the seat and writes the next

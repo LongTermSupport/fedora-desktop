@@ -330,8 +330,12 @@ Usage:
                                    by every launch, a restore too; claude gets it as
                                    ANTHROPIC_MODEL, so a --model given to claude wins, and so
                                    does an ANTHROPIC_MODEL in cc's environment or a project's
-                                   ccy.env. With several seats, the first with a model
-                                   decides. <model> is passed through: opus, sonnet or a full
+                                   ccy.env. With several seats, the first seat with a model
+                                   decides: its own, else its team's. A seat joined to a
+                                   running session (session add) is not launched, so its
+                                   model is not used (said on stderr). Not in the team's
+                                   declaration: a model set on one machine does not follow
+                                   the team to another. <model> is passed through: opus, sonnet or a full
                                    model id, one word. Refused, exit 64: anything else
   ccy-teams seats units list
   ccy-teams seats units print <name>
