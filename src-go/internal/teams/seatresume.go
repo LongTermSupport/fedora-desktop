@@ -18,7 +18,7 @@ import (
 // verbSeatResume is `ccy-teams internal seat-resume`, the launcher's.
 const verbSeatResume = "seat-resume"
 
-const seatResumeUsage = "internal seat-resume [--fresh] [--rebind] [--relaunch=<why or empty>] <seats> -- [claude arguments...]"
+const seatResumeUsage = "internal seat-resume [--fresh] [--rebind] [--relaunch=<why or empty>] [--given=<list as given>] <seats> -- [claude arguments...]"
 
 // SeatResume is `ccy-teams internal seat-resume` (issue 417): which conversation a seated ccy
 // launch runs, decided from claude's arguments and the seats' records, and the claude arguments
@@ -35,7 +35,11 @@ const seatResumeUsage = "internal seat-resume [--fresh] [--rebind] [--relaunch=<
 //     restore, a team restart or the supervisor's: it resumes the session's own conversation);
 //     another id is refused, naming --rebind and the plain launch;
 //   - --continue: refused (the owner's ruling Q67), naming the plain launch and --fresh;
-//   - the bare --resume picker (Q70): left alone, nothing recorded.
+//   - the bare --resume picker (Q70): left alone, nothing recorded;
+//   - --given=<list>, the --teams list as the person gave it (issue 423): when no seat of the
+//     launch is named in it, the seats were picked in the chooser, so a plain launch whose seats
+//     no session ever used (conversation.CaseNoSession) starts fresh, said, instead of the
+//     refusal; a picked seat with a record resumes it, and a named seat keeps the refusal.
 type SeatResume struct {
 	Stdout, Stderr io.Writer
 	Getenv         func(string) string
@@ -49,7 +53,10 @@ type SeatResume struct {
 type seatLaunch struct {
 	fresh, rebind, relaunch bool
 	list                    string
-	sel                     registry.Selection
+	// given is the --teams list as the person gave it, when hasGiven (--given).
+	given    string
+	hasGiven bool
+	sel      registry.Selection
 	// own is claude's arguments before the launcher's `--` less ccy's --fresh and --rebind,
 	// which reach them through the launcher's parse; rest is those after it.
 	own, rest []string
@@ -119,6 +126,8 @@ func parseSeatLaunch(args []string) (seatLaunch, error) {
 			req.fresh = true
 		case a == registry.FlagRebind:
 			req.rebind = true
+		case strings.HasPrefix(a, "--given="):
+			req.given, req.hasGiven = strings.TrimPrefix(a, "--given="), true
 		case strings.HasPrefix(a, "--relaunch="):
 			req.relaunch = strings.TrimPrefix(a, "--relaunch=") != ""
 		case strings.HasPrefix(a, "--before="):
@@ -152,6 +161,21 @@ func parseSeatLaunch(args []string) (seatLaunch, error) {
 	req.rest = claude[before:]
 	req.sel = registry.Selectors(append(slices.Clone(req.own), req.rest...))
 	return req, nil
+}
+
+// chosen is whether every seat of the launch was picked in the chooser: --given was passed and
+// names none of them.
+func (req seatLaunch) chosen() bool {
+	if !req.hasGiven {
+		return false
+	}
+	given := strings.Split(strings.Join(strings.Fields(req.given), ""), ",")
+	for item := range strings.SplitSeq(req.list, ",") {
+		if slices.Contains(given, item) {
+			return false
+		}
+	}
+	return true
 }
 
 // decide is the launch's conversation, as claude arguments to add.
@@ -227,6 +251,11 @@ func (r *SeatResume) recorded(wd string, req seatLaunch) ([]string, error) {
 	got, err := conversation.ForSeats(wd, req.list, conversation.Here(r.Getenv))
 	var seatErr *conversation.SeatError
 	switch {
+	case errors.As(err, &seatErr) && seatErr.Case == conversation.CaseNoSession && req.chosen():
+		if err := r.say("ccy: the seats %s, chosen in the list, were never used: a new conversation starts.", req.list); err != nil {
+			return nil, err
+		}
+		return r.fresh(wd, req)
 	case errors.As(err, &seatErr):
 		return nil, usageErr("no conversation of the seats %s can be resumed: %w\n%s", req.list, err, conversation.WaysOn(req.list))
 	case err != nil:

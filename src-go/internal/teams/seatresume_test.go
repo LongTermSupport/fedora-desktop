@@ -184,6 +184,46 @@ func TestSeatResumeRefusesWithNoRecordNamingRepairAndFresh(t *testing.T) {
 	}
 }
 
+// Issue 423 with 417: a seat the person picked in the chooser (not in the list as given, --given)
+// that no session ever used starts fresh, said, and is recorded; a picked seat with a record
+// resumes it; a seat named in the given list keeps the refusal; and a picked seat whose record is
+// in trouble (not never-used) is refused as before.
+func TestSeatResumeAChosenNeverUsedSeatStartsFresh(t *testing.T) {
+	checkout := t.TempDir()
+	got := run(t, checkout, term.ExitOK, "--given=team-a", "3@team-a", "--")
+	if got.out != "--session-id|"+freshConvID+"|" {
+		t.Fatalf("a chosen never-used seat: stdout %q", got.out)
+	}
+	data, err := os.ReadFile(filepath.Join(checkout, ".claude/ccy/seat-conversations/team-a/3.json"))
+	if !strings.Contains(got.err, "never used") || err != nil || !strings.Contains(string(data), freshConvID) {
+		t.Fatalf("not said or not recorded: %q, record %s, %v", got.err, data, err)
+	}
+	if got := run(t, t.TempDir(), term.ExitOK, "--given=", "3@team-a", "--"); got.out != "--session-id|"+freshConvID+"|" {
+		t.Fatalf("a bare --teams: stdout %q", got.out)
+	}
+
+	checkout = t.TempDir()
+	plantTranscript(t, checkout, seatConvID)
+	plantSeatRecord(t, checkout, "2@team-a", seatConvID)
+	if got := run(t, checkout, term.ExitOK, "--given=team-a", "2@team-a", "--"); got.out != "--resume|"+seatConvID+"|" {
+		t.Fatalf("a chosen seat with a record: stdout %q", got.out)
+	}
+
+	for _, given := range []string{"--given=3@team-a", "--given=3@team-a,team-b"} {
+		got := run(t, t.TempDir(), term.ExitUsage, given, "3@team-a,4@team-b", "--")
+		if !strings.Contains(got.err, "--fresh") {
+			t.Errorf("%s: a named seat with no record: %q", given, got.err)
+		}
+	}
+	run(t, t.TempDir(), term.ExitUsage, "3@team-a", "--")
+
+	checkout = t.TempDir()
+	plantSeatRecord(t, checkout, "3@team-a", seatConvID)
+	if got := run(t, checkout, term.ExitUsage, "--given=team-a", "3@team-a", "--"); !strings.Contains(got.err, seatConvID+".jsonl") {
+		t.Errorf("a chosen seat whose record has no transcript: %q", got.err)
+	}
+}
+
 // --fresh starts a new conversation with an id ccy chooses and records, so the next plain launch
 // resumes it.
 func TestSeatResumeFreshStartsANewConversationAndRecordsIt(t *testing.T) {
