@@ -431,11 +431,13 @@ filled in as each cause is known.
   (`teamsync/verbs.go`, `getQuestionsEvent`). When that join failed, the cause went only to
   `link.log` and the verb answered 23 not-found "not in the team's main room, nor in a questions
   room this member reads", which reads as "workers cannot verify".
-- **Not yet explained:** this seat, on the same code (digest `2f5c69f0…` is the src-go git tree
-  of ffa5e86c8, which holds the join path), reproduced it on both owner ids (F26, in-thread
-  replies in Q8), with and without `--room questions`: 23 each time, and `link.log` has no join
-  line, so the join did not fail, yet the event still read 404 after it. The coordinator, in
-  questions since the room was made, verifies the same ids. The cause behind the 404 is open.
+- **The live 23 is R12, not this:** this seat, on the same code (digest `2f5c69f0…` is the src-go
+  git tree of ffa5e86c8), reproduced it on both owner ids (F26), with and without `--room questions`. At ffa5e86c8 `getQuestionsEvent` joins only on a 403, and Tuwunel answers a reader
+  who is not joined 404 M_NOT_FOUND (`src/api/client/room/event.rs:68-75` at tuwunel f7dc0770), so
+  no join was ever tried (hence no log line) and a worker holding only an invite cannot see the
+  event under `shared` (`user_can.rs:402-437`). U6 (5309c8de1, R12) joins on 404 too and made the
+  fake answer as Tuwunel does; it reaches sessions with batch 3 and their restart. Report:
+  `untracked/scratch/r49-rootcause.md` (this seat).
 - **Fix:** a failed join is now refused forbidden (exit 22, tell a human), naming the join and
   `link.log`; not-found again means only that no readable event has the id. **Severity:** medium.
   **Issue:** TBF. **State:** fixed on `v2-smoke`; batch 4.
