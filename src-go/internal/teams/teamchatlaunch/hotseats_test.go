@@ -11,6 +11,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatmodel"
 )
 
 type hotWorld struct {
@@ -182,6 +183,54 @@ func TestJoinTakesTheSeatThenWritesTheNextGeneration(t *testing.T) {
 	if w.seats.Desired().Generation != 2 {
 		t.Fatalf("the session's view is generation %d", w.seats.Desired().Generation)
 	}
+}
+
+// Register R39: a join adds the seat to a claude already running, so no launch gives it the
+// seat's model; the join says so on stderr, before the take, and says nothing when the seat has
+// no model. A note that cannot be written takes nothing.
+func TestJoinSaysTheSeatsModelIsNotUsed(t *testing.T) {
+	w := newHotWorld(t)
+	var stderr strings.Builder
+	w.seats.parts.Stderr = &stderr
+	if err := w.seats.Join(context.Background(), "beta", "1"); err != nil || stderr.Len() != 0 {
+		t.Fatalf("no model: %v, stderr %q", err, stderr.String())
+	}
+
+	w = newHotWorld(t)
+	w.seats.parts.Stderr = &stderr
+	var s seatmodel.Settings
+	s.SetSeat(w.beta, mustSeatName(t, "repo.2+site.podman"), "sonnet")
+	if err := seatmodel.Write(w.launch.Store, s); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.seats.Join(context.Background(), "beta", "2"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"sonnet", "repo.2+site.podman", "not used for this join", "relaunch"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr %q lacks %q", stderr.String(), want)
+		}
+	}
+
+	w = newHotWorld(t)
+	w.seats.parts.Stderr = brokenWriter{}
+	s = seatmodel.Settings{}
+	s.SetDefault(w.beta, "opus")
+	if err := seatmodel.Write(w.launch.Store, s); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.seats.Join(context.Background(), "beta", "1"); err == nil || w.taker.took != nil {
+		t.Fatalf("got %v, took %+v", err, w.taker.took)
+	}
+}
+
+func mustSeatName(t *testing.T, s string) paths.SeatName {
+	t.Helper()
+	n, err := paths.ParseSeatName(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
 
 // With no seat named, the lowest free pool seat of the team is chosen, as the launch's chooser

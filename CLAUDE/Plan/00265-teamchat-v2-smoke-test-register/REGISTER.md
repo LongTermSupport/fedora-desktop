@@ -82,8 +82,8 @@ filled in as each cause is known.
 - **Severity:** critical. **Issue:** #416. **Unit:** U5. **State:** first slice merged (751bdeab3),
   `ccy-teams seats add <team>` on the homeserver's machine (derived handle, one sudo, issue and
   place; worker seats take no human text by default); seat creation in the launch follows U3;
-  the rest waits on the owner (Q6, [reports/U5.md](reports/U5.md)). **Fixed on v2-smoke; batch
-  7** (ccy 3.124.50): a bare `ccy --teams <team>` / `cc --teams <team>` with no free seat of its
+  the rest waits on the owner (Q6, [reports/U5.md](reports/U5.md)). **Fixed on F44 (batch
+  7, `800d9eed7`)** (ccy 3.124.51): a bare `ccy --teams <team>` / `cc --teams <team>` with no free seat of its
   kind (and the chooser's new-seat row) runs the same add in process (`seatadd.Adder.NewSeat`,
   wired as the chooser's `NewSeat`) and launches the new seat instead of ending 78; a team served
   on another machine is still 78, naming the route ([reports/R5.md](reports/R5.md)). Live proof
@@ -407,17 +407,34 @@ filled in as each cause is known.
 - **What:** a seat comes up on the default model (Sonnet) and the owner switches it by hand.
   Neither launcher passes a model: no `--model` or `ANTHROPIC_MODEL` in `ccy`, `cc` or the Go
   launch code, so claude takes the account's default on every route.
-- **Wanted:** a minimum model per team with a per-seat override; a seat started below it is
-  switched to it at launch, with no human step.
-- **Where it would live:** the team's declaration (the same record that names the seats and
-  their roles), read at launch. The container side passes `--model` in `ccy-start-claude`'s final
-  exec (`internal/ccystart`); the host side in `cc-claude` (`internal/ccclaude`), which already
-  sets ccy's defaults. A model the person names on the command line wins. This differs from the
-  deferred model-class refusal (Non-Goals): it raises the model instead of refusing the launch.
-- **Unchecked:** how the session restore relaunches (it replays the recorded arguments, so it
-  should carry the model the first launch added).
-- **Severity:** medium. **Issue:** TBF. **State:** open; after the container work, before more
-  seats are added.
+- **Wanted:** a default model per team with a per-seat override, given to the seat at launch
+  with no human step. A model the person names on the command line wins. It sets the model a
+  seat starts on, not a minimum: it neither compares models nor refuses a launch (the deferred
+  model-class refusal stays in Non-Goals).
+- **Where it lives:** the per-machine seat store, `<seat store>/models.json` (0600, on no
+  mount), not the team's declaration: a model set on one machine does not follow the team to
+  another. Read by `Launch.Take` (`internal/teams/teamchatlaunch`) for both launchers, as
+  `ANTHROPIC_MODEL`, not `--model`, and not in `ccy-start-claude` or `cc-claude`: departure in
+  [reports/R39.md](reports/R39.md).
+- **Built:** `ccy-teams seats model <team> <model>|--clear` (team default) and
+  `ccy-teams seats model [--host] <seat>@<team> <model>|--clear` (a seat's own, which wins; the
+  seat found in the checkout's pool by kind, kept by handle); no argument lists them.
+  `launch-args` adds `-e ANTHROPIC_MODEL=<model>` to podman's arguments, so a host-shell
+  `ANTHROPIC_MODEL` does not reach a ccy container, only the seat's recorded model; `cc-run`
+  puts it in the session's environment unless the person's has one. Both say it on stderr.
+  claude ranks a `--model` above `ANTHROPIC_MODEL`, so the person's wins with no argument
+  parsing; a project `ccy.env` (sourced after) wins too. Child claudes the session starts
+  inherit `ANTHROPIC_MODEL`. With several seats, the first seat with a model decides: its own,
+  else its team's (`seatmodel.Settings.For`). A hot-seat join (`ccy-teams session add`) launches
+  nothing, so the seat's model is not used; `HotSeats.Join` says so on stderr before the take.
+  Not the image (`internal/teams` is no image source) and not the bash launcher.
+- **Restore (checked):** a restore replays the person's recorded launcher arguments
+  (`lib/session-registry.bash`; a `--model opus` is kept as an unknown flag's value), never the
+  model a launch adds, and the replayed launch takes its seats again, so it re-reads the same
+  setting and starts on the same model.
+- **Severity:** medium. **Issue:** TBF. **State:** fixed on v2-smoke; batch 8 (CCY 3.124.52,
+  container 2.84.80 unchanged; live after `play-claude-yolo.yml` rebuilds `ccy-teams`, already
+  queued).
 
 ## R35: the Lightning client setup for a team, with presets
 
@@ -524,6 +541,27 @@ filled in as each cause is known.
 - **Severity:** high (every gate a commit is meant to pass locally is silently absent).
   **Issue:** #427. **State:** open, outside v2.
 
+## R56: a Lightning instance on a busy team's rooms grows to 75 GB resident
+
+- **Seen:** the laptop host seat via the coordinator, 25 Nov 17:55Z (F30), read-only (`ps`,
+  `free`, `podman stats`).
+- **What:** the Lightning instance of the team with the busy questions room reached RSS 75.1 GB
+  after 7h open, still growing (78,869,176 KiB at 17:55:08Z, about 80.9 GB at 17:57Z; over one
+  measured minute after that it fell by about 200 MB, and the first "a minute later" pair had no
+  real interval, so no rate stands). The host had 86 of 93 GiB in use and zram swap at 6.6 of 8.0 GiB, and
+  two deploys were killed. A second instance, on a quieter team and open as long, held 0.3 GB, so
+  the growth follows the traffic. Cause unverified. Upstream #98 (4 GB on Windows) had
+  search-indexer memory fixed in 0.10.7; the installed version is not yet read.
+- **Capture (17:58Z, `/proc` of the live process):** RssAnon 80,535,588 kB of VmRSS
+  80,596,944 kB; RssFile 61 MB, RssShmem 0; Private_Dirty 80.7 GB, of it Referenced 40.8 GB;
+  **153,465 `memfd:unknown-usage:QtQml` mappings** (then 3,795 JSGCHeap, 548 JITCode, 219
+  `i915.gem`); 152 fds. So the memory is the client's QML engine allocations, not GPU, files or
+  shared memory. `flatpak info`/`ps` were denied on the laptop, so the version is unread.
+- **Next:** file upstream with those numbers once the owner agrees (public tracker; no names;
+  draft `untracked/scratch/lightning-f30-issue.md`). Until a fix: quit and reopen the instance.
+- **Severity:** high (it starves the owner's laptop). **Issue:** upstream, to file. **State:**
+  open.
+
 ## R55: the v2 seat pool is not filtered by member type
 
 - **Seen:** this seat, 2026-11-25, answering the owner's host-seat question (F28).
@@ -534,8 +572,8 @@ filled in as each cause is known.
   whose seat part is N (`teamchatlaunch.ChooseSeat`), also with no kind check.
 - **Fix:** with R5: the pool offered and the seat named are those of the launcher's kind; a
   named seat of the other kind is refused, naming the kind. **Severity:** medium (a host agent
-  can start on a podman seat's identity). **Issue:** TBF. **State:** fixed on v2-smoke; batch 7
-  (ccy 3.124.50). Every pool read a launch chooses from takes the kind (the handle's type, a
+  can start on a podman seat's identity). **Issue:** TBF. **State:** fixed on F44 (batch 7,
+  `800d9eed7`, ccy 3.124.51). Every pool read a launch chooses from takes the kind (the handle's type, a
   plain string) as a parameter (`system.PoolState`, `Cmd.Handles`/`SeatCount`/`PoolState`, the
   chooser's `Teamchat` fields, `teamchatlaunch.ChooseSeat`), so every caller passes one, though
   nothing at compile time checks its value. `Launch.Kind` is a plain field, so `Launch.Run` and

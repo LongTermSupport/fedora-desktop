@@ -17,6 +17,24 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.52 — container 2.84.80
+
+`ccy-teams` is rebuilt (Plan 00265 R39); the image is unchanged.
+
+- **A seat starts on its team's model.** `ccy-teams seats model <team> <model>` sets the model a
+  team's teamchat seats start on, and `ccy-teams seats model [--host] <seat>@<team> <model>`
+  one seat's own, which wins over its team's (`--clear` removes either; no argument lists
+  them). They are kept in your seat store on this machine, not in the team's declaration, so
+  every launch reads them without the network, a `ccy-sessions restore` too, and a model set on
+  one machine does not follow the team to another. A `ccy` or `cc` launch gives claude the model
+  as `ANTHROPIC_MODEL` and says so on stderr; a `--model` given to claude wins, as does an
+  `ANTHROPIC_MODEL` in `cc`'s environment or a project's `ccy.env`. On `ccy`, an
+  `ANTHROPIC_MODEL` in the host shell does not reach the container; only the seat's recorded
+  model does. Child claudes the session starts inherit `ANTHROPIC_MODEL`, so they start on the
+  seat's model too unless given their own. With several seats, the first seat with a model
+  decides: its own, else its team's. A seat joined to a running session with `ccy-teams session add` is not launched, so its model is not used, and the join says so on stderr. With no model
+  set, a seat starts on the account's default as before.
+
 ## 3.124.51 — container 2.84.80
 
 `ccy-teams` is rebuilt (Plan 00265 R5, R55 review fixes); the image is unchanged.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatchoice"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatmodel"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/system"
 )
 
@@ -34,12 +36,13 @@ func WriteDesired(store paths.Store, d state.Desired) error {
 
 // HotParts is what a running v2 session's seats are changed through: the launch's seat store
 // and take, the store's session records (whose seats are held, for a seat not named), the
-// store opened for a release, and the probe of a seat lock's keeper.
+// store opened for a release, the probe of a seat lock's keeper, and stderr for a join's note.
 type HotParts struct {
 	Launch   *Launch
 	Sessions seat.Sessions
 	Holder   func() (Holder, error)
 	Keeper   func(paths.Store, paths.SessionName, paths.TeamID) (seat.Keeper, error)
+	Stderr   io.Writer
 }
 
 // HotSeats is a running v2 (teamchat) session's seats, changed while it runs (C 3.7.5, register
@@ -92,6 +95,7 @@ func (v *Verbs) HotSeats(checkout, session string) (*HotSeats, bool, error) {
 		Sessions: cfg.Sessions,
 		Holder:   func() (Holder, error) { return v.Holder(cfg) },
 		Keeper:   seat.KeeperOf,
+		Stderr:   v.Stderr,
 	}
 	return OpenHotSeats(parts, name)
 }
@@ -139,11 +143,15 @@ func (h *HotSeats) Choose(team, given string) (string, string, error) {
 // Join takes seat seatPart of team for the session, the way its launch took its seats (the pool
 // seat, its roster state, under the allocation lock), then writes the next generation naming it.
 // Nothing is written when the take fails; a generation that cannot be written releases the seat
-// taken, so no seat stays held for a session that does not name it.
+// taken, so no seat stays held for a session that does not name it. A seat with a model is told
+// first that the model is not used (modelNote); nothing is taken when that cannot be said.
 func (h *HotSeats) Join(ctx context.Context, team, seatPart string) error {
 	l := h.parts.Launch
 	chosen, takes, err := l.choose(seatPart + "@" + team)
 	if err != nil {
+		return err
+	}
+	if err = h.modelNote(chosen[0]); err != nil {
 		return err
 	}
 	takes[0].Session = h.session
@@ -161,6 +169,26 @@ func (h *HotSeats) Join(ctx context.Context, team, seatPart string) error {
 			return errors.Join(err, errors.New("the seat taken was not found in the seat store to release"))
 		}
 		return fmt.Errorf("%w; the seat taken is released", err)
+	}
+	return nil
+}
+
+// modelNote says on stderr that the joined seat's model (register R39: its own, else its team's)
+// is not used: a join adds the seat to a claude already running on the model its launch gave it,
+// and only a launch passes a model. A seat with no model is not said.
+func (h *HotSeats) modelNote(c Chosen) error {
+	models, err := seatmodel.Read(h.parts.Launch.Store)
+	if err != nil {
+		return err
+	}
+	pick := models.For([]seatmodel.Seat{{Team: c.Team, Name: c.Name}})
+	if pick.Model == "" {
+		return nil
+	}
+	line := "Model: " + pick.Model + " (seat " + c.Name.String() + " of team " + c.Team.String() +
+		") is not used for this join: the session keeps the model it was launched on; relaunch it to start on a seat's model.\n"
+	if _, err := io.WriteString(h.parts.Stderr, line); err != nil {
+		return fmt.Errorf("could not write to stderr: %w", err)
 	}
 	return nil
 }

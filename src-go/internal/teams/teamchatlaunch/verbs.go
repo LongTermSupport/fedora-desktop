@@ -264,11 +264,24 @@ func (v *Verbs) launchArgs(ctx context.Context, args []string) (term.ExitCode, e
 		return 0, err
 	}
 	launch := &Launch{Store: store, Checkout: key, Kind: seatchoice.KindPodman, Taker: v.Taker(v.config(state, key)), Status: v.Status, NowMS: v.NowMS}
-	run, err := launch.Run(ctx, name, list, mounts, relabel)
+	taken, err := launch.Take(ctx, name, list, mounts, relabel)
 	if err != nil {
 		return 0, v.withWays(err, checkout, list, seatchoice.KindPodman)
 	}
-	return term.ExitOK, v.print(append([]string{store.Control(name)}, run...)...)
+	if taken.Model.Model != "" {
+		if err := v.note(taken.Model.Note()); err != nil {
+			return 0, err
+		}
+	}
+	return term.ExitOK, v.print(append([]string{store.Control(name)}, taken.Args...)...)
+}
+
+// note is one line to the person, on stderr (stdout is the launcher's payload).
+func (v *Verbs) note(line string) error {
+	if _, err := io.WriteString(v.Stderr, line+"\n"); err != nil {
+		return fmt.Errorf("could not write to stderr: %w", err)
+	}
+	return nil
 }
 
 // config is the seat store of the state home for checkout key.
