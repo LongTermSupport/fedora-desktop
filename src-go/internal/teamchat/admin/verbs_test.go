@@ -264,6 +264,11 @@ func TestMemberVerbsThroughTheVerbs(t *testing.T) {
 	if w.bundled[len(w.bundled)-1] != sampleHandle || len(w.bundled) != 3 {
 		t.Fatalf("bundled %v", w.bundled)
 	}
+	// A seat a person issues goes to another machine through a pipe: it reaches the team's url,
+	// never the LXC bridge (issue 425 A1), whatever its kind.
+	if !slices.Equal(w.reaches, []Reach{ReachURL, ReachURL, ReachURL}) {
+		t.Fatalf("reaches %v", w.reaches)
+	}
 }
 
 // TestACoordinatorChangeThroughTheVerbs: the one-field approve, then team apply's role steps;

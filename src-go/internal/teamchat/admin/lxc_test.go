@@ -461,6 +461,10 @@ func TestLXCRosterAddsAMember(t *testing.T) {
 	if err != nil || states[got.Handle] != apply.MemberEnrolled || len(states) != 1 {
 		t.Fatalf("members = %v, %v", states, err)
 	}
+	// The lxc apply places this seat in a guest on this host: it reaches the team on the bridge.
+	if !slices.Equal(w.reaches, []Reach{ReachBridge}) {
+		t.Fatalf("reaches %v", w.reaches)
+	}
 }
 
 // Park parks; return and reissue answer the handle asked for.

@@ -237,7 +237,7 @@ func (r lxcRoster) Join(ctx context.Context, team paths.TeamID, j lxc.Join) (lxc
 	default:
 		return lxc.Joined{}, fmt.Errorf("%s is not a join", j.Op)
 	}
-	w, err := memberWork(ctx, r.sys, j.Op, team, args)
+	w, err := memberWork(ctx, r.sys, j.Op, team, args, ReachBridge)
 	if ce, ok := errors.AsType[*ChildError](err); ok && ce.Class == ClassRetired {
 		return lxc.Joined{}, fmt.Errorf("%w (%w)", err, apply.ErrRetired)
 	}
@@ -249,7 +249,7 @@ func (r lxcRoster) Join(ctx context.Context, team paths.TeamID, j lxc.Join) (lxc
 
 // Park is member park.
 func (r lxcRoster) Park(ctx context.Context, team paths.TeamID, handle string) error {
-	_, err := memberWork(ctx, r.sys, apply.OpMemberPark, team, []proto.Member{proto.M(keyHandle, proto.Str(handle))})
+	_, err := memberWork(ctx, r.sys, apply.OpMemberPark, team, []proto.Member{proto.M(keyHandle, proto.Str(handle))}, ReachBridge)
 	return err
 }
 

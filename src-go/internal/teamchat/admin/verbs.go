@@ -65,9 +65,9 @@ type Child interface {
 }
 
 // Bundles is the seat side's bundle for a credential the child issued (C 3.7.2), with the
-// team's main room the child answered beside it (BU1).
+// team's main room the child answered beside it (BU1), and how the seat reaches its team.
 type Bundles interface {
-	Bundle(ctx context.Context, team declare.Team, handle, mainRoom string, c apply.Credential) (proto.Value, error)
+	Bundle(ctx context.Context, team declare.Team, handle, mainRoom string, c apply.Credential, reach Reach) (proto.Value, error)
 }
 
 // SeatWait is how long a member or role verb waits for the team lock: a launcher's seat take
@@ -187,7 +187,7 @@ func memberVerb(op string) func(context.Context, Env, []string) term.ExitCode {
 		if err != nil {
 			return failWith(e, err)
 		}
-		w, err := memberWork(ctx, sys, op, team, opArgs)
+		w, err := memberWork(ctx, sys, op, team, opArgs, ReachURL)
 		err = errors.Join(err, lock.Release())
 		if w.doc != nil {
 			if code = answerIssued(ctx, e, w); code != term.ExitOK {
@@ -347,8 +347,9 @@ type work struct {
 }
 
 // memberWork is a member or role verb's work, which its caller runs under the team lock, and
-// every failure (the child's, the status record's, the bundle's) joined.
-func memberWork(ctx context.Context, sys *System, op string, team paths.TeamID, args []proto.Member) (work, error) {
+// every failure (the child's, the status record's, the bundle's) joined. reach is how an issued
+// seat reaches the team: ReachURL for a person's verb, ReachBridge for the lxc apply's join.
+func memberWork(ctx context.Context, sys *System, op string, team paths.TeamID, args []proto.Member, reach Reach) (work, error) {
 	decl, tf, err := readTeamFile(sys.Host.Root, team)
 	if err != nil {
 		return work{}, err
@@ -374,7 +375,7 @@ func memberWork(ctx context.Context, sys *System, op string, team paths.TeamID, 
 		members = append(members, proto.M("notes", lineArray(a.Notes)))
 	}
 	if a.Credential != nil {
-		b, berr := sys.Bundles.Bundle(ctx, decl, a.Handle, a.MainRoom, *a.Credential)
+		b, berr := sys.Bundles.Bundle(ctx, decl, a.Handle, a.MainRoom, *a.Credential, reach)
 		if berr != nil {
 			err = errors.Join(err, fmt.Errorf("the bundle of %s: %w; member reissue issues a new credential", a.Handle, berr))
 		} else {
