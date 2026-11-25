@@ -393,13 +393,27 @@ func threadError(st sendTeam, text string, whole int64, err error) error {
 	return exits.New(exits.CodeBody, &st.id, msgQBlank)
 }
 
-// replyQuestions is QR1 with the link-back (2.3): a human post attached to Q<n> is answered in
-// Q<n>'s thread, then, when the post is not in that thread, linked back to at the top level; an
-// unattached post is answered in its own thread, or in a new one rooted at it.
-func (e *Engine) replyQuestions(ctx context.Context, st sendTeam, id, text string, out RecordWriter) wire.Done {
+// questionsPost is id's questions-room post: fetched when reply's lookup holds it, else fetched
+// now.
+func questionsPost(ctx context.Context, st sendTeam, id string, fetched *proto.Verdict) (proto.Verdict, error) {
+	if fetched != nil {
+		return *fetched, nil
+	}
 	v, err := st.tm.Refetch(ctx, proto.PurposeQuestions, id)
 	if err != nil {
-		return doneOf(fetchErr(ctx, st.id, id, err))
+		return proto.Verdict{}, fetchErr(ctx, st.id, id, err)
+	}
+	return v, nil
+}
+
+// replyQuestions is QR1 with the link-back (2.3): a human post attached to Q<n> is answered in
+// Q<n>'s thread, then, when the post is not in that thread, linked back to at the top level; an
+// unattached post is answered in its own thread, or in a new one rooted at it. fetched is the
+// post as reply's lookup already fetched it, nil when the store held the id.
+func (e *Engine) replyQuestions(ctx context.Context, st sendTeam, id string, fetched *proto.Verdict, text string, out RecordWriter) wire.Done {
+	v, err := questionsPost(ctx, st, id, fetched)
+	if err != nil {
+		return doneOf(err)
 	}
 	// An edit answers as the post it revises (R10): the homeserver refuses a thread rooted at
 	// an edit, and the human's thread is the original's (A 7.5 accepts an edit only of a post

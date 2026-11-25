@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.65 — container 2.84.85
+
+- **A coordinator can reply to a person's older questions-room post again.** `teamchat reply '<id>'` took a questions-room post's room only from the seat's store; for an id the store no
+  longer held (a post delivered before a relaunch) it looked in main alone and refused with
+  "team <t> has no item <id> in main". The coordinator now looks in the questions room when
+  main has no such id, as the spec (QR1) says, and answers in the post's thread; an id in
+  neither room is refused naming both. A worker still never reads the questions room for a
+  reply (Plan 00265 R68).
+
 ## 3.124.64 — container 2.84.84
 
 - **A removed teamchat team's seats are no longer offered as free.** A team with no status

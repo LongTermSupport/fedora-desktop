@@ -2830,7 +2830,11 @@ guessing; the catalogue claims no more than the code does.
   fixture fails when Converge made no reports room, and the sends' fake keeps the room of every
   send (`fakeNotices.rooms`). Swept in the member packages' tests: the stubs that still take no
   room (`fakeNotices.RoomState` in `engine`, and `RoomState`, `Messages`, `Send` in `link`) answer
-  nothing for every room and back no assertion on one.
+  nothing for every room and back no assertion on one. A second instance, Plan 00265 R68: the
+  engine's `fakeTeam.Refetch` took no room and answered an id from every room, so no test could
+  see `reply` look only in main for a questions post. It now records each fetch's room
+  (`refetchedFrom`) and can hold an id in one room alone (`heldIn`), the homeserver's 404 for the
+  others. `link`'s `fakeTeam.Refetch` still takes no room; no link test asks which room was read.
 
 - **A readiness probe read as a verdict on something it does not test** (the `sudo -n -v` probe,
   fixed in `internal/sudo`: a failing `-n -v` was read as "a password is needed", but `-v` fails

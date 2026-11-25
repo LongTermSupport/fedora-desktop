@@ -214,13 +214,18 @@ type fakeTeam struct {
 	refetchErr error
 	// refetchErrs answers one id's re-fetch with its error, over refetchErr.
 	refetchErrs map[string]error
-	refetched   []string
-	verified    records.Verified
-	verifyErr   error
-	history     []records.History
-	historyErr  error
-	flushes     int
-	flushErr    error
+	// heldIn is the one room an id is in: a re-fetch of it from any other room is a 404, as the
+	// homeserver answers. An id it does not name is in every room.
+	heldIn    map[string]string
+	refetched []string
+	// refetchedFrom is the room of each re-fetch, in the order of refetched.
+	refetchedFrom []string
+	verified      records.Verified
+	verifyErr     error
+	history       []records.History
+	historyErr    error
+	flushes       int
+	flushErr      error
 	// raised are the floors FloorRaised was told, in order.
 	raised []state.Floor
 	// ended (below) is set once Run returns; flushedLive counts the flushes made while it ran.
@@ -290,12 +295,16 @@ func (f *fakeTeam) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (f *fakeTeam) Refetch(ctx context.Context, _, id string) (proto.Verdict, error) {
+func (f *fakeTeam) Refetch(ctx context.Context, room, id string) (proto.Verdict, error) {
 	f.mu.Lock()
 	f.refetched = append(f.refetched, id)
+	f.refetchedFrom = append(f.refetchedFrom, room)
 	block, v, err := f.block, f.verdicts[id], f.refetchErr
 	if e, ok := f.refetchErrs[id]; ok {
 		err = e
+	}
+	if in, ok := f.heldIn[id]; ok && in != room {
+		v, err = proto.Verdict{}, fmt.Errorf("%w: %w", team.ErrItemGone, matrix.ErrNotFound)
 	}
 	f.mu.Unlock()
 	if block {
