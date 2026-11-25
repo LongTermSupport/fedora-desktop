@@ -349,9 +349,9 @@ filled in as each cause is known.
 - **Where it will live:** a second skill in the teamchat plugin the kit already ships,
   `files/opt/claude-yolo/optional/teamchat/plugin/teamchat/skills/coordinator/SKILL.md`, beside
   the `teamchat` skill.
-- **How a coordinator finds it:** the SessionStart frame's coordinator line
-  (`member/hooktext/hooktext.go`, `tmplRoleCoordinator`) names the skill, so it reaches only the
-  seats that coordinate a team, at every launch. A project adds its layer in its own repository.
+- **How a coordinator will find it:** the SessionStart frame's coordinator line
+  (`member/hooktext/hooktext.go`, `tmplRoleCoordinator`; today it names no skill) will name the
+  skill, so it reaches only the seats that coordinate a team, at every launch. A project adds its layer in its own repository.
 - **Upkeep:** every `teamchat` verb and flag the skill names is checked against the code when
   it lands. A test will hold the skill's verbs to the CLI's verb table, so a renamed verb fails
   QA.
