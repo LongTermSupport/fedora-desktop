@@ -570,6 +570,36 @@ filled in as each cause is known.
 - **Severity:** high (every gate a commit is meant to pass locally is silently absent).
   **Issue:** #427. **State:** open, outside v2.
 
+## R64: a link restart re-judges the questions room and rate-drops the owner's posts
+
+- **Seen:** the coordinator's `teamchat status` after its 18:48Z relaunch, 25 Nov:
+  `"dropped_by":{"rate":45}`, and link.log lines "teamsync lts-ops: dropped $<id>: rate".
+  The coordinator re-fetched all 45 with `teamchat verify`. Every one was a HUMAN post by the
+  owner in the questions room, sent 12:42-16:47Z, all already shown before the relaunch. So
+  nothing was lost this time.
+- **What (read in code):**
+  - On a link start the questions room is read from its start or its stored token, by design
+    (`teamsync/builder.go:17, 96-103`).
+  - Every event is judged before the floor check that skips one already delivered
+    (`qtake`, `teamsync/questions.go:518-548, 579`). That check skips only a Deliver verdict, so
+    a `rate` drop inside the floor is still taken and counted (`session.go:916-917, 946-952`).
+  - The judge applies the per-sender receive limit (`recv_per_sender_minute`, 60 a minute) to a
+    human, with no stale test in questions (`proto/verdict.go:368-372, 402`). The window counts
+    the judging time, not the sending time (`session.go:865`, `proto/limits.go:94, 225-235`), so
+    the whole replay lands in one minute.
+  - "Seen" holds only ids still pending or in the ledger (at most 1024, `engine/storewrite.go:155-163`),
+    so posts delivered hours ago are judged again.
+  - A dropped event is not fetched again: the position is saved past it (`session.go:592`), and
+    the questions floor is raised to the newest judged event (`questions.go:588-592`). A NEW
+    owner post in that burst would be lost for good.
+- **Fix:** an event the floor covers is folded into the index without being judged for delivery,
+  so replayed history never counts toward the flood window. Tests first in `member/teamsync`: 70
+  replayed owner posts inside the floor, then a new one. Assert no `rate` drop and the new post
+  delivered once. Whether a team human is exempt from the limit outright is a spec question
+  (A 11.1 exempts only the admin): open.
+- **Severity:** high (the owner's words can be dropped for good). **Issue:** TBF. **State:**
+  open; after R60. Design: the R64 Explore report of 25 Nov (in `untracked/agent-reports/`).
+
 ## R63: `declare` fails a converge while a declared session runs with a record not its own
 
 - **Seen:** the coordinator's question on batch 11 (25 Nov 20:36Z), answered from the code.
@@ -617,7 +647,7 @@ filled in as each cause is known.
 - **Fix:** a terminal launch in a checkout with a declared record for the same seats takes that
   record's name.
 - **Severity:** medium (an inventory addressed by fixed names gains a stray session). **Issue:**
-  TBF. **State:** fixed on v2-smoke (batch 11, `bc75780d6`; ccy 3.124.57; reports/R61.md):
+  TBF. **State:** on F44 (batch 11, `6b480e66f`; ccy 3.124.57; reports/R61.md):
   `ccy-teams internal session-name` takes the checkout and reads the registry; exactly one
   stopped record of the same checkout, launcher and seats (canonical, any order; none matches
   none), in the file its name names, is taken over, its `fresh-if-no-conversation` mark kept;
@@ -650,7 +680,9 @@ filled in as each cause is known.
 - **Not ours:** the session network policy has to admit a hot-joined team's port. That is the
   owner's host configuration.
 - **Severity:** high (a join reported done that never happened). **Issue:** TBF. **State:** fixed
-  on v2-smoke, batch 12 (`b239a00a6`); not yet run live. Detail: `reports/R60.md`.
+  on v2-smoke, batch 12 (`b239a00a6`, `2a0b1854c`: the host reads a running older image's
+  report.json, which has no `down`, as down null; `8d93dd3d7`: container 2.84.82, ccy
+  3.124.60); not yet run live. Detail: `reports/R60.md`.
 
 ## R59: `session add` offers a purged team's dead seat as free
 
