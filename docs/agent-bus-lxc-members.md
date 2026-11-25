@@ -486,7 +486,10 @@ off-host client: nothing on the homeserver host reaches into it. It is not decla
   distribution of the same architecture runs it;
 - a route to the team's `url` (a name or address that machine reaches), inside one of the
   team's `networks`; the bundle carries the team CA, so nothing else is trusted;
-- an agent user that is not root, with a uid no account on the container's host has.
+- an agent user that is not root, whose home only it can write: the container's existing login
+  will do, whatever its uid and groups. The uid rule above (K15) is the homeserver host's own
+  containers' alone, where the play compares the guest with that host's accounts; nothing here
+  reads any host's accounts.
 
 The seat is issued on the homeserver host and piped into the container as the agent user, the
 token credential for an LXC seat, with the seat number the key is made from:

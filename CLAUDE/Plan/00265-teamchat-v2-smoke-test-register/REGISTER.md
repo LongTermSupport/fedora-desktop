@@ -423,6 +423,24 @@ filled in as each cause is known.
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
   open.
 
+## R48: the off-host route demanded a dedicated agent user (uid and groups)
+
+- **Seen:** the owner, lts-ops Q8, 14:31Z (F22): "we're still blocked - the whole uid thing is
+  misguided".
+- **What:** K15 (a guest uid that is a host account's is refused) is enforced only by the
+  homeserver host's own `lxc apply` (`guestfacts.go:157`, given that host's passwd by
+  `apply.go:829`, `903`). Off-host nothing reads any host's accounts, yet our doc
+  (`agent-bus-lxc-members.md`, off-host section) and route-to-live L7 asked for "a uid no
+  account on the container's host has". What `seat place-lxc` did enforce off-host was GU1's
+  caller check, which also refused any supplementary group (`identity.go`, `ownGroupOnly`): a
+  container's usual login (wheel, sudo, docker) was refused 78 identity, protecting nothing,
+  since the seat files are created 0600 and 0700 under a home only the user can write.
+- **Fix:** `guest.EstablishOffHost` (GU1 without the group rule) for `seat place-lxc` only; the
+  on-host guest ops keep `Establish`. The doc's off-host requirement is "not root, a home only it
+  can write"; L7 dropped. On-host K15 is unchanged (it does not touch this route).
+- **Severity:** high (blocked the container route, P1). **Issue:** #425 (A1). **State:** fixed
+  on `v2-smoke`; lands right after batch 3.
+
 ## R47: the by-hand Go QA missed the launcher's parity oracle
 
 - **Seen:** this seat, batch 3 CI run 45628379212 (QA diff, go), 2026-11-25.
