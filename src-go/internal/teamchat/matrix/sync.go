@@ -71,8 +71,13 @@ func (req SyncRequest) filterQuery() (string, bool, error) {
 	return string(req.FilterJSON), true, nil
 }
 
+// PresenceOnline is the specification's presence value for a client that is connected (SPEC M50).
+const PresenceOnline = "online"
+
 // presenceOK says p is a presence the specification names.
-func presenceOK(p string) bool { return p == "online" || p == "offline" || p == "unavailable" }
+func presenceOK(p string) bool {
+	return p == PresenceOnline || p == "offline" || p == "unavailable"
+}
 
 const detailBadPresence = "a presence is online, offline or unavailable"
 

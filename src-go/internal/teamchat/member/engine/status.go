@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/colour"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
@@ -208,7 +209,7 @@ type teamView struct {
 // The presence a member record shows beside the three Matrix names: none recorded, or the read
 // failed.
 const (
-	presenceOnline  = "online"
+	presenceOnline  = matrix.PresenceOnline
 	presenceUnknown = "unknown"
 )
 
