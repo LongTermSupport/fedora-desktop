@@ -134,14 +134,15 @@ cat >"$bus_bin/ccy-teams" <<'FAKE'
 # $FAKE_BUS_LOG.status.
 # A list of v2- teams is a teamchat list: check prints it and take does nothing, with no
 # agent-bus call. An agent-bus list with agent-bus missing is refused 78, naming the play.
-# `internal seat-resume --relaunch=<why> --before=<n> <list> -- <claude args>` (issue 417): it
-# refuses --continue (64, naming the plain launch), else prints the count and claude's words, NUL
-# separated, with --resume FAKE_SEAT_CONVERSATION added when set and no --resume is given;
-# FAKE_RESUME_OUT replaces the whole answer. Logged as its relaunch value and list.
+# `internal seat-resume --relaunch=<why> --given=<list as given> --before=<n> <list> -- <claude
+# args>` (issues 417, 423): it refuses --continue (64, naming the plain launch), else prints the
+# count and claude's words, NUL separated, with --resume FAKE_SEAT_CONVERSATION added when set and
+# no --resume is given; FAKE_RESUME_OUT replaces the whole answer. Logged as its relaunch value,
+# the list and the list as given.
 if [ "$1 $2" = "internal seat-resume" ]; then
-    printf 'ccy-teams internal seat-resume %s %s\n' "$3" "$5" >>"$FAKE_BUS_LOG"
-    list=$5 before=${4#--before=}
-    shift 6
+    printf 'ccy-teams internal seat-resume %s %s %s\n' "$3" "$6" "$4" >>"$FAKE_BUS_LOG"
+    list=$6 before=${5#--before=}
+    shift 7
     [ -z "${FAKE_RESUME_OUT+x}" ] || { printf '%s' "$FAKE_RESUME_OUT" && exit 0; }
     for a in "$@"; do
         case "$a" in --continue | -c) printf 'ccy: refuses --continue in a team seat.\n  Resume the conversation the seats recorded:\n    ccy --teams %s\n' "$list" >&2 && exit 64 ;; esac
@@ -276,7 +277,7 @@ resume_and_show() {
     local list="$1" relaunch="$2" s=0
     shift 2
     CLAUDE_ARGS=("$@") CLAUDE_ARGS_BEFORE_SEPARATOR=""
-    ccy_seats_resume "$list" "$relaunch" || s=$?
+    ccy_seats_resume "$list" "$relaunch" "$list" || s=$?
     printf '%s|' "$CLAUDE_ARGS_BEFORE_SEPARATOR" "${CLAUDE_ARGS[@]}"
     return "$s"
 }
@@ -354,8 +355,9 @@ check "  with --resolved" "seat check team-a --resolved" "$(bus_calls)"
 cid=0f1e2d3c-4b5a-4968-8776-655443322110
 check "a plain seated launch: claude's words with the recorded --resume added" "2|--model|x|--resume|$cid|rc=0" \
     "$(FAKE_SEAT_CONVERSATION=$cid lib_run resume_and_show dev1@team-a "" --model x)"
-check "  it was given the relaunch value and the list" "ccy-teams internal seat-resume --relaunch= dev1@team-a" "$(bus_calls)"
-check "a relaunch passes its value on" "ccy-teams internal seat-resume --relaunch=1 dev1@team-a" \
+check "  it was given the relaunch value, the list and the list as given" \
+    "ccy-teams internal seat-resume --relaunch= dev1@team-a --given=dev1@team-a" "$(bus_calls)"
+check "a relaunch passes its value on" "ccy-teams internal seat-resume --relaunch=1 dev1@team-a --given=dev1@team-a" \
     "$(lib_run resume_and_show dev1@team-a 1 --resume abc >/dev/null; bus_calls)"
 check "a refusal is the launch's code (64), CLAUDE_ARGS untouched" "|--continue|rc=64" "$(lib_run resume_and_show dev1@team-a "" --continue)"
 check "  the refusal names the plain launch" "yes" "$(has '    ccy --teams dev1@team-a' "$work/lib.err")"
@@ -731,7 +733,7 @@ run_ccy with-bus --headless --teams ' dev1@team-a , qa2@team-b'
 check "an accepted list: the launch goes on to its next check" "1" "$RC"
 check "  which is the one after the parsing" "yes" "$(has "--headless flag requires --prompt" "$work/ccy.err")"
 check "  seat check got the list as given, and take was not called yet" \
-    "seat check  dev1@team-a , qa2@team-b --resolved|ccy-teams internal seat-resume --relaunch= dev1@team-a,qa2@team-b" "$(bus_calls)"
+    "seat check  dev1@team-a , qa2@team-b --resolved|ccy-teams internal seat-resume --relaunch= dev1@team-a,qa2@team-b --given= dev1@team-a , qa2@team-b" "$(bus_calls)"
 
 run_ccy with-bus --headless --prompt go --teams team-a
 check "a team alone with nobody to choose (headless): refused, 64" "64" "$RC"

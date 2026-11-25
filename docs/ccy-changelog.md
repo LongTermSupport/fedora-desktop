@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.46 — container 2.84.77
+
+A seat picked in the `ccy --teams` chooser that no session ever used starts a new conversation,
+said, instead of the 64 refusal 3.124.45 gave it; a picked seat with a recorded conversation
+resumes it, and a seat named in `--teams` keeps the refusal naming `--fresh` (issue #423 with
+#417). The image is unchanged.
+
 ## 3.124.45 — container 2.84.77
 
 **Default changed: a plain `ccy --teams <seats>` now resumes the seats' conversation.** Before,

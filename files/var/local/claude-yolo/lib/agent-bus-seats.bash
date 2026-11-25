@@ -53,7 +53,7 @@ ccy_seats_check() {
     printf '%s\n' "$canonical"
 }
 
-# ccy_seats_resume <canonical> <relaunch> — the conversation the seated launch runs (issue 417),
+# ccy_seats_resume <canonical> <relaunch> <given> — the conversation the seated launch runs (issue 417),
 # decided by `ccy-teams internal seat-resume` from CLAUDE_ARGS and the seats' records. ccy's
 # --fresh and --rebind reach CLAUDE_ARGS through the parse's last branch; ccy-teams takes them out
 # of the words before any `--` and prints that count, then the new CLAUDE_ARGS: with
@@ -62,13 +62,14 @@ ccy_seats_check() {
 # It refuses --continue (the owner's ruling Q67), seats with no conversation that can be named
 # (naming the repair and --fresh) and --resume <id> other than the record without --rebind.
 # relaunch is non-empty for a restore, a team restart or the supervisor's relaunch, whose
-# --resume <id> is the session's own and moves the record.
+# --resume <id> is the session's own and moves the record. given is the --teams list as the
+# person gave it: seats the chooser picked, never used, start fresh (issue 423).
 #   status 0   CLAUDE_ARGS and CLAUDE_ARGS_BEFORE_SEPARATOR carry the conversation
 #   otherwise  ccy-teams' code (64 refused, 1 a record that cannot be read or written), or 78
 #              for an answer with no count
 ccy_seats_resume() {
     local words=()
-    mapfile -d '' -t words < <(ccy-teams internal seat-resume "--relaunch=$2" \
+    mapfile -d '' -t words < <(ccy-teams internal seat-resume "--relaunch=$2" "--given=${3?ccy_seats_resume requires the list as given}" \
         "--before=${CLAUDE_ARGS_BEFORE_SEPARATOR:-${#CLAUDE_ARGS[@]}}" "$1" -- "${CLAUDE_ARGS[@]}")
     wait "$!" || return
     [[ "${words[0]-}" =~ ^[0-9]+$ ]] || { print_error "ccy-teams internal seat-resume did not print the count of claude's words; update ccy-teams (play-claude-yolo.yml)." && return 78; }
