@@ -568,6 +568,23 @@ filled in as each cause is known.
 - **Severity:** high (every gate a commit is meant to pass locally is silently absent).
   **Issue:** #427. **State:** open, outside v2.
 
+## R62: `project_walk_open` does not take a regular-file check written as a switch case
+
+- **Seen:** this seat, batch 10's CI (25 Nov 20:30Z) and a by-hand run of the project rules
+  (`go vet -vettool` with the `qa/driver` build).
+- **What:** in a `filepath.WalkDir` callback, a guard written as a switch case,
+  `case !d.Type().IsRegular() || …: return nil`, followed by the open, is still reported as an
+  unguarded open. The rule's doc (`qa/rules/walkopen.go:35-40`) accepts a check only in an `if`
+  (`if check { open }`, or `if !check { continue/break/return/panic }` before it). The switch form
+  leaves the callback on a failed check exactly as the `if` does, so this is a false positive. It
+  took two CI-length rounds to find, because the message names the open, not the form it wants.
+- **Interim:** batch 10's guard is the `if` form (`a607fca45`).
+- **Fix:** the rule accepts a switch case whose condition is the failed check (alone or joined by
+  `||`) and whose body leaves, with a fixture in `rules/testdata`. Its message names the forms it
+  takes.
+- **Severity:** low (a correct guard refused; a by-hand run finds the accepted form). **Issue:**
+  TBF. **State:** open, QA tooling.
+
 ## R61: a terminal launch beside a declared session makes a second record under a new name
 
 - **Seen:** the coordinator's question before taking batch 9 (R15), 25 Nov 19:45Z, read in the
