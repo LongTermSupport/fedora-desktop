@@ -35,14 +35,10 @@ func asks(t *testing.T, tm *Team, txn string) int64 {
 	return n
 }
 
-// ownQuestion is the coordinator's question content numbered n, as its composer builds it.
-func (w *world) ownQuestion(n int64) proto.Value {
+// ownQuestion is the coordinator's question content numbered Q1, as its composer builds it.
+func (w *world) ownQuestion() proto.Value {
 	w.t.Helper()
 	idx := proto.NewQuestionIndex(server, 0)
-	for range n - 1 {
-		check(w.t, idx.PlaceQuestion("tcfill"+proto.QuestionName(int(idx.Next())), user(w.self),
-			proto.Question{N: idx.Next(), Why: "decision"}, proto.QuestionName(int(idx.Next()))+" "+askText))
-	}
 	out, err := proto.Composer{Server: server, Self: user(w.self), Token: w.tokens[w.self], Roster: w.readRoster(), Questions: idx}.
 		Question(proto.QuestionPost{Text: askText})
 	check(w.t, err)
@@ -129,7 +125,7 @@ func TestAFailedComposePlacesNothing(t *testing.T) {
 func TestQX3QueuedQuestionsArePlacedAgainBeforeACompose(t *testing.T) {
 	w := newWorld(t)
 	w.asCoordinator()
-	content := w.ownQuestion(1)
+	content := w.ownQuestion()
 	w.preStore(func(s *state.Store) {
 		s.Outbox.Sending = append(s.Outbox.Sending, state.Sending{
 			Txn: "tc0123456789abcdef0123456789abcdef", Room: proto.PurposeQuestions, Kind: state.SendQuestion,
@@ -202,7 +198,7 @@ func TestQX3TheEchoReplacesThePlacementAndAnUncountedEchoIsCounted(t *testing.T)
 	asks(t, rt.tm, "tcmine")
 	admins := w.adminQuestion(1)
 	w.batchWith(lastIs(admins))
-	echo := w.sayIn(w.qroom(), w.self, rawContent(t, w.ownQuestion(1)))
+	echo := w.sayIn(w.qroom(), w.self, rawContent(t, w.ownQuestion()))
 	b := w.batchWith(lastIs(echo))
 	if len(b.QuestionsUncounted) != 1 || b.QuestionsUncounted[0].N != 1 || b.QuestionsUncounted[0].Thread || !slices.Contains(b.QuestionsFolded, echo) {
 		t.Errorf("uncounted %v, folded %v: want the echo folded and counted uncounted once", b.QuestionsUncounted, b.QuestionsFolded)
@@ -218,7 +214,7 @@ func TestQX3APostWhoseNumberIsTakenIsNotPostable(t *testing.T) {
 	w := newWorld(t)
 	w.inQuestions(alice, false)
 	rt := w.readyWith(w.main, nil)
-	content := w.ownQuestion(1)
+	content := w.ownQuestion()
 	check(t, rt.tm.QuestionsPostable(content))
 	rt.r.settled(t, w.batchWith(lastIs(w.adminQuestion(1))))
 	if err := rt.tm.QuestionsPostable(content); err == nil || errors.Is(err, team.ErrQuestionsNotReady) {

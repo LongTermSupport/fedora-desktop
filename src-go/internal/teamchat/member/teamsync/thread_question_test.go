@@ -11,7 +11,7 @@ func TestR34AHumanReplyInTheOwnQuestionsThreadIsAttached(t *testing.T) {
 	w.inQuestions(alice, false)
 	rt := w.readyWith(w.main, nil)
 	asks(t, rt.tm, "tcmine")
-	echo := w.sayIn(w.qroom(), w.self, rawContent(t, w.ownQuestion(1)))
+	echo := w.sayIn(w.qroom(), w.self, rawContent(t, w.ownQuestion()))
 	rt.r.settled(t, w.batchWith(lastIs(echo)))
 	answer := w.sayIn(w.qroom(), alice, inThread("MIT", echo))
 	b := w.batchWith(lastIs(answer))
