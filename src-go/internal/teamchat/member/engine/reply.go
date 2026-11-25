@@ -26,6 +26,8 @@ const (
 	msgFormerMember   exits.Template = "the carried item's sender {} is not a member of team {}"
 	msgOwnEvent       exits.Template = "{} is this member's own event"
 	msgNoSuchItem     exits.Template = "team {} has no item {} in main"
+	msgOverheard      exits.Template = "team {}'s {} was not addressed to this member, so it is no item to reply to (history's `for_me` is false); write to its sender with teamchat say --to {}"
+	msgJudgedOut      exits.Template = "team {}'s {} is no item of this member: its link {} it by rule `{}`, so it was never delivered"
 	msgFetchFailed    exits.Template = "team {}'s homeserver did not answer for {}; try again later"
 	msgReplyQuestions exits.Template = "a reply to a post in questions takes neither --verb nor --to-coordinator"
 	msgReplyRoom      exits.Template = "{} is a post in a room reply does not answer in; reply answers in main or questions"
@@ -199,7 +201,7 @@ func (e *Engine) fetched(ctx context.Context, st sendTeam, id string) (replied, 
 	case v.Event.Sender == st.self:
 		return replied{}, exits.New(exits.CodeUsage, &st.id, msgOwnEvent, exits.Name(id))
 	case v.Outcome != proto.Deliver && v.Outcome != proto.Record:
-		return replied{}, exits.New(exits.CodeNotFound, &st.id, msgNoSuchItem, exits.Team(st.id), exits.Name(id))
+		return replied{}, notAnItem(st, id, v)
 	case v.Carried:
 		k := v.Content.Carried
 		if _, member := st.roster.Members[k.From]; !member && !st.roster.IsHuman(k.From) {
@@ -208,6 +210,24 @@ func (e *Engine) fetched(ctx context.Context, st sendTeam, id string) (replied, 
 		return replied{room: proto.PurposeMain, from: k.From, ping: k.Kind == proto.CarriedPing, verb: k.Verb}, nil
 	}
 	return replied{room: proto.PurposeMain, from: v.Event.Sender, ping: v.Kind == proto.KindPing, verb: v.Content.Ping.Verb}, nil
+}
+
+// notAnItem is 23 for a fetched event this member's judge does not take, saying why (issue
+// #422): history lists the whole room, so an id it shows may be overheard or judged out.
+func notAnItem(st sendTeam, id string, v proto.Verdict) error {
+	switch {
+	case v.Outcome == proto.Ignore && v.Reason == proto.IgnoreNotAddressed:
+		from := v.Event.Sender
+		if local, ok := proto.Localpart(from, st.anchors.Server); ok {
+			from = local
+		}
+		return exits.New(exits.CodeNotFound, &st.id, msgOverheard, exits.Team(st.id), exits.Name(id), exits.Name(from))
+	case v.Outcome == proto.Drop && v.Reason != "":
+		return exits.New(exits.CodeNotFound, &st.id, msgJudgedOut, exits.Team(st.id), exits.Name(id), exits.Words("dropped"), exits.Words(v.Reason))
+	case v.Outcome == proto.Ignore && v.Reason != "":
+		return exits.New(exits.CodeNotFound, &st.id, msgJudgedOut, exits.Team(st.id), exits.Name(id), exits.Words("ignored"), exits.Words(v.Reason))
+	}
+	return exits.New(exits.CodeNotFound, &st.id, msgNoSuchItem, exits.Team(st.id), exits.Name(id))
 }
 
 // fetchErr is a failed fetch's exit: the team's own refusal, 23 for a 404, the request's end as

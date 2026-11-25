@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -119,6 +120,30 @@ func TestHistory(t *testing.T) {
 	}
 	if p, ok := got[1].Item.(records.Peer); !ok || got[1].Dir != "out" || p.Text != "two" {
 		t.Errorf("second = %+v", got[1])
+	}
+}
+
+// Issue #422: history reads the whole room, so each entry names its addressees (handles on the
+// team's server) and whether this member is one: an overheard say is told from one to me.
+func TestHistoryNamesAddressees(t *testing.T) {
+	w := newWorld(t)
+	tm := w.newTeam()
+	w.agentText(peer, "overheard", user(coord))
+	w.agentText(coord, "for me", user(me))
+	w.say(alice, human("to me and peer", user(me), user(peer)))
+	got, err := tm.History(t.Context(), proto.PurposeMain, 3)
+	check(t, err)
+	if len(got) != 3 {
+		t.Fatalf("history = %+v", got)
+	}
+	want := []struct {
+		to    []string
+		forMe bool
+	}{{[]string{coord}, false}, {[]string{me}, true}, {[]string{me, peer}, true}}
+	for i, h := range got {
+		if !slices.Equal(h.To, want[i].to) || h.ForMe != want[i].forMe {
+			t.Errorf("entry %d: to %v for_me %t, want %v %t", i, h.To, h.ForMe, want[i].to, want[i].forMe)
+		}
 	}
 }
 

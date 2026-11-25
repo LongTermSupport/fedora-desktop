@@ -216,11 +216,14 @@ type Answer struct {
 	Late bool    `json:"late"`
 }
 
-// Sent is a send's event; ID is null exactly when the send is Queued (n3d-D2, n3d-D21).
+// Sent is a send's event; ID is null exactly when the send is Queued (n3d-D2, n3d-D21). To is
+// the addressees the send's names resolved to (handles on the team's server, else user IDs;
+// none for a report or a questions post), so a sender sees who it reached (issue #422).
 type Sent struct {
 	Team   paths.TeamID
 	ID     *string
 	Room   string
+	To     []string
 	Queued bool
 }
 
@@ -229,12 +232,17 @@ func (s Sent) MarshalJSON() ([]byte, error) {
 	if (s.ID == nil) != s.Queued {
 		return nil, errors.New("a sent record whose id is not null exactly when it is queued")
 	}
+	to := s.To
+	if to == nil {
+		to = []string{}
+	}
 	return marshal(struct {
 		Team   paths.TeamID `json:"team"`
 		ID     *string      `json:"id"`
 		Room   string       `json:"room"`
+		To     []string     `json:"to"`
 		Queued bool         `json:"queued"`
-	}{s.Team, s.ID, s.Room, s.Queued})
+	}{s.Team, s.ID, s.Room, to, s.Queued})
 }
 
 // Queued is a send the link holds until its homeserver answers (n3d-D21): Send is text, ping or
@@ -339,11 +347,17 @@ type Unattached struct {
 	SentMS int64        `json:"sent_ms"`
 }
 
-// History is one item received ("in") or sent ("out"), the item a record of its own kind.
+// History is one item of the room received ("in") or sent ("out"), the item a record of its own
+// kind. History reads the whole room, so To names the event's addressees (an agent item's `to`,
+// a human's mentions, `@room`; handles on the team's server, else user IDs) and ForMe whether
+// this member is one of them: an item not for it was overheard, never delivered, and cannot be
+// replied to (issue #422).
 type History struct {
-	Team paths.TeamID
-	Dir  string
-	Item Record
+	Team  paths.TeamID
+	Dir   string
+	To    []string
+	ForMe bool
+	Item  Record
 }
 
 // MarshalJSON writes the history record with its item encoded as a record.
@@ -355,11 +369,17 @@ func (h History) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	to := h.To
+	if to == nil {
+		to = []string{}
+	}
 	return marshal(struct {
-		Team paths.TeamID    `json:"team"`
-		Dir  string          `json:"dir"`
-		Item json.RawMessage `json:"item"`
-	}{h.Team, h.Dir, item})
+		Team  paths.TeamID    `json:"team"`
+		Dir   string          `json:"dir"`
+		To    []string        `json:"to"`
+		ForMe bool            `json:"for_me"`
+		Item  json.RawMessage `json:"item"`
+	}{h.Team, h.Dir, to, h.ForMe, item})
 }
 
 // Verified is one event re-fetched from the homeserver, with its full text and its hash.
@@ -410,16 +430,28 @@ type Team struct {
 // TeamCounts are a team's events this link judged and did not deliver, by why (SPEC-n3 LN5,
 // UH1), since the link started.
 type TeamCounts struct {
-	Ignored  int64 `json:"ignored"`
-	Dropped  int64 `json:"dropped"`
-	Unheard  int64 `json:"unheard"`
-	Gaps     int64 `json:"gaps"`
-	Redacted int64 `json:"redacted"`
+	Ignored int64 `json:"ignored"`
+	Dropped int64 `json:"dropped"`
+	// DroppedBy splits Dropped by its reason (A 7.6), an object, empty for none (issue #422):
+	// the link log has each drop's id.
+	DroppedBy map[string]int64 `json:"dropped_by"`
+	Unheard   int64            `json:"unheard"`
+	Gaps      int64            `json:"gaps"`
+	Redacted  int64            `json:"redacted"`
 	// SeenTwice is P9's count of items recv already showed when a missing delivery is found
 	// later; n3e's proof sets it, and until then it is 0.
 	SeenTwice int64 `json:"seen_twice"`
 	// Unsent are queued sends the current roster refused at their post (n3d-D27).
 	Unsent int64 `json:"unsent"`
+}
+
+// MarshalJSON writes the counts with `dropped_by` an object, empty for no drop.
+func (c TeamCounts) MarshalJSON() ([]byte, error) {
+	type plain TeamCounts
+	if c.DroppedBy == nil {
+		c.DroppedBy = map[string]int64{}
+	}
+	return marshal(plain(c))
 }
 
 // Member is one member of a team.

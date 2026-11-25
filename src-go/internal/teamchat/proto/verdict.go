@@ -520,6 +520,9 @@ func probeCheckOf(lookup Lookup, r Roster, c Content) bool {
 	return ok && root.Verb == VerbCheck && r.Members[root.Sender].Role == RoleProbe
 }
 
+// Addressees is the content's `to`, as rule 09 reads it.
+func (c Content) Addressees() []string { return addressees(c) }
+
 // addressees is the content's `to`.
 func addressees(c Content) []string {
 	switch c.Key {

@@ -251,6 +251,23 @@ func TestSD1_4AnUnknownIDIsFetched(t *testing.T) {
 	f.setRefetchErr(exits.New(exits.CodeUntrusted, &ops, "not authentic"))
 	refusedCode(t, "an unauthentic event", firstOf(w.reply(wire.ReplyArgs{ID: evID(unknownEv)}, new("x"))), exits.CodeUntrusted)
 
+	// Issue #422: history shows the whole room, so a reply to an event this member was never
+	// given says why: not addressed to it (and what to do instead), or judged out, with the rule.
+	f.setRefetchErr(nil)
+	f.setVerdict(evID(96), proto.Verdict{Outcome: proto.Ignore, Reason: proto.IgnoreNotAddressed, Event: proto.Event{ID: evID(96), Sender: agent(ops, 2)}})
+	d := firstOf(w.reply(wire.ReplyArgs{ID: evID(96)}, new("x")))
+	refusedCode(t, "an overheard event", d, exits.CodeNotFound)
+	if m := d.Error.Message; !strings.Contains(m, "not addressed to this member") || !strings.Contains(m, "teamchat say --to") {
+		t.Errorf("an overheard event's refusal does not say why: %q", m)
+	}
+	f.setVerdict(evID(95), proto.Verdict{Outcome: proto.Drop, Reason: proto.ReasonStale, Event: proto.Event{ID: evID(95), Sender: agent(ops, 2)}})
+	d = firstOf(w.reply(wire.ReplyArgs{ID: evID(95)}, new("x")))
+	refusedCode(t, "a dropped event", d, exits.CodeNotFound)
+	if m := d.Error.Message; !strings.Contains(m, "dropped") || !strings.Contains(m, proto.ReasonStale) {
+		t.Errorf("a dropped event's refusal does not name the rule: %q", m)
+	}
+	f.setRefetchErr(matrix.ErrNotFound)
+
 	w.sending(tid(t, "dev"))
 	refusedCode(t, "two teams", firstOf(w.reply(wire.ReplyArgs{ID: evID(unknownEv)}, new("x"))), exits.CodeAmbiguousTeam)
 	f.setRefetchErr(nil)
