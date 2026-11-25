@@ -35,6 +35,7 @@ const (
 	msgAddressees      exits.Template = "name the addressees with exactly one of --to, --to-coordinator"
 	msgUnknownMember   exits.Template = "no team held has a member {}; run status for the members"
 	msgNoCoordinator   exits.Template = "team {} has no coordinator; run status for the members"
+	msgSelfCoordinator exits.Template = "this member is the coordinator of team {}, so --to-coordinator there would send to itself; name the addressees with --to"
 	msgAmbiguousMember exits.Template = "{} is more than one member of team {}; use the full handle"
 	msgNoRoster        exits.Template = "team {} has not been verified yet, so its members are not known; the link keeps trying"
 	msgNoStore         exits.Template = "team {} has not synced yet; the link keeps trying"
@@ -182,10 +183,11 @@ type resolution struct {
 	to        []string
 	missing   string // a name the team has no member for; "" with noCoord for --to-coordinator
 	noCoord   bool
+	selfCoord bool   // --to-coordinator in a team this member coordinates (register R42)
 	ambiguous string // a name that is two members of the team
 }
 
-func (r resolution) whole() bool { return r.missing == "" && !r.noCoord }
+func (r resolution) whole() bool { return r.missing == "" && !r.noCoord && !r.selfCoord }
 
 // addressed resolves a send's team and addressees (SD2, CL6): with --team that team, else the
 // one team in which every name is a member; a human by localpart, an agent by its short name or
@@ -218,6 +220,8 @@ func (e *Engine) addressed(ctx context.Context, flag *paths.TeamID, names []stri
 	case unverified != nil:
 		// The names may be that team's, so the agent waits for it rather than fixes them.
 		return sendTeam{}, nil, exits.New(exits.CodeUnreachable, unverified, msgNoRoster, exits.Team(*unverified))
+	case first.selfCoord:
+		return sendTeam{}, nil, exits.New(exits.CodeUsage, &first.st.id, msgSelfCoordinator, exits.Team(first.st.id))
 	case first.noCoord:
 		return sendTeam{}, nil, exits.New(exits.CodeUnknownMember, &first.st.id, msgNoCoordinator, exits.Team(first.st.id))
 	}
@@ -289,7 +293,7 @@ func resolve(st sendTeam, names []string, toCoordinator bool) resolution {
 	res := resolution{st: st}
 	if toCoordinator {
 		c, ok := st.roster.Coordinator()
-		res.to, res.noCoord = []string{c}, !ok
+		res.to, res.noCoord, res.selfCoord = []string{c}, !ok, ok && c == st.self
 		return res
 	}
 	for _, name := range names {
