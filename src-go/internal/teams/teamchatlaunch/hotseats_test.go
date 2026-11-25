@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
@@ -78,6 +79,12 @@ func (w *hotWorld) onDisk(t *testing.T) state.Desired {
 // names the seat's handle.
 func (w *hotWorld) writeReport(t *testing.T, team paths.TeamID, seatPart, handle string, generation int64) {
 	t.Helper()
+	w.writeReportAs(t, team, seatPart, handle, state.ReportDesired{Generation: generation, State: state.DesiredApplied})
+}
+
+// writeReportAs writes the keeper's report of the seat with its verdict on a generation.
+func (w *hotWorld) writeReportAs(t *testing.T, team paths.TeamID, seatPart, handle string, verdict state.ReportDesired) {
+	t.Helper()
 	run, err := paths.ParseRunID("0123456789abcdef")
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +92,7 @@ func (w *hotWorld) writeReport(t *testing.T, team paths.TeamID, seatPart, handle
 	r := state.Report{
 		Run: run, StartedMS: 1, Seat: state.SeatRef{Team: team, Seat: seatPart}, Handle: handle,
 		Link: state.LinkRunning, Delivery: "socket", Store: state.StoreOK,
-		Desired: state.ReportDesired{Generation: generation, State: state.DesiredApplied},
+		Desired: verdict,
 	}
 	data, err := r.Encode()
 	if err != nil {
@@ -133,8 +140,8 @@ func TestVerbsHotSeatsOpensTheSessionInTheCheckoutsStore(t *testing.T) {
 	if err != nil || !found || seats.Desired().Generation != 1 {
 		t.Fatalf("got %v %v", found, err)
 	}
-	if err := seats.Release(context.Background(), "alpha"); err != nil || !w.holder.closed {
-		t.Fatalf("release: %v, closed %v", err, w.holder.closed)
+	if released, err := seats.Release(context.Background(), "alpha"); err != nil || released || !w.holder.closed {
+		t.Fatalf("release: %v %v, closed %v", released, err, w.holder.closed)
 	}
 	for _, name := range []string{"s2", "not a session"} {
 		if _, found, err := w.verbs.HotSeats(w.checkout, name); err != nil || found {
@@ -237,14 +244,249 @@ func TestLeaveWritesTheFarewellThenReleasesTheSeat(t *testing.T) {
 		d.Farewell[0] != (state.Farewell{Team: w.alpha, Seat: "1", Reason: state.FarewellReleased}) {
 		t.Fatalf("desired %+v", d)
 	}
-	if err := w.seats.Release(context.Background(), "alpha"); err != nil {
-		t.Fatal(err)
+	if released, err := w.seats.Release(context.Background(), "alpha"); err != nil || !released {
+		t.Fatalf("release: %v %v", released, err)
 	}
 	if len(w.holder.released) != 1 || w.holder.released[0] != (seat.Release{Seat: seat.Seat{Team: w.alpha, Name: name}, Session: w.session, Leaving: true}) || !w.holder.closed {
 		t.Fatalf("released %+v closed %v", w.holder.released, w.holder.closed)
 	}
 	if _, err := w.seats.Leave("beta"); !errors.Is(err, ErrNotJoined) {
 		t.Fatalf("a team the session is not on: %v", err)
+	}
+}
+
+// A join whose take succeeded but whose generation cannot be written releases the seat it took,
+// so a failed add leaves no seat held for a session that does not name it (batch 4 review 3).
+func TestJoinReleasesTheTakeWhenTheGenerationCannotBeWritten(t *testing.T) {
+	w := newHotWorld(t)
+	name := mustSeat(t, "repo.2+site.podman")
+	w.holder.holdings = []seat.Holding{{
+		Seat: seat.Seat{Team: w.beta, Name: name}, Complete: true, Record: seat.HeldRecord{Session: w.session},
+	}}
+	desired := w.launch.Store.DesiredFile(w.session)
+	if err := os.Remove(desired); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(desired, "blocks-the-rename"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.seats.Join(context.Background(), "beta", "2"); err == nil {
+		t.Fatal("a generation that could not be written was not an error")
+	}
+	if len(w.taker.took) != 1 {
+		t.Fatalf("took %+v", w.taker.took)
+	}
+	if len(w.holder.released) != 1 || w.holder.released[0] != (seat.Release{Seat: seat.Seat{Team: w.beta, Name: name}, Session: w.session, Leaving: true}) {
+		t.Fatalf("released %+v", w.holder.released)
+	}
+	if w.seats.Desired().Generation != 1 {
+		t.Fatalf("the session's view is generation %d", w.seats.Desired().Generation)
+	}
+}
+
+// A release of a team the seat store holds no seat of for the session releases nothing and says
+// so (released false), so its caller never reports a seat freed that it did not free (review 4).
+func TestReleaseOfASeatTheSessionDoesNotHoldReleasesNothing(t *testing.T) {
+	w := newHotWorld(t)
+	w.holder.holdings = []seat.Holding{{
+		Seat: seat.Seat{Team: w.alpha, Name: mustSeat(t, "repo.1+site.podman")}, Complete: true,
+		Record: seat.HeldRecord{Session: mustSession(t, "other")},
+	}}
+	released, err := w.seats.Release(context.Background(), "alpha")
+	if err != nil || released || len(w.holder.released) != 0 || !w.holder.closed {
+		t.Fatalf("release: %v %v, released %+v closed %v", released, err, w.holder.released, w.holder.closed)
+	}
+}
+
+// A report of an older generation is named as older, whatever its verdict: a refusal of an
+// earlier generation is not this one's (review nit 2).
+func TestAppliedNamesAnOlderReportsGenerationBeforeItsRefusal(t *testing.T) {
+	w := newHotWorld(t)
+	if err := w.seats.Join(context.Background(), "beta", "2"); err != nil {
+		t.Fatal(err)
+	}
+	code := state.CodeSeat
+	w.writeReportAs(t, w.beta, "2", "repo.2+site.podman", state.ReportDesired{Generation: 1, State: state.DesiredRefused, Code: &code})
+	if ok, why := w.applied(t); ok || why != "the session's keeper has reported generation 1, not 2 yet" {
+		t.Fatalf("got %v %q", ok, why)
+	}
+	w.writeReportAs(t, w.beta, "2", "repo.2+site.podman", state.ReportDesired{Generation: 2, State: state.DesiredRefused, Code: &code})
+	if ok, why := w.applied(t); ok || why != "the session's keeper refused the desired membership (seat)" {
+		t.Fatalf("got %v %q", ok, why)
+	}
+}
+
+// The release a failed generation write makes says when it could not release the seat taken, or
+// found none to release.
+func TestJoinSaysWhenTheTakeCouldNotBeReleased(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		listErr error
+		want    string
+	}{
+		{"store unreadable", errors.New("the store is unreadable"), "the seat taken is still held"},
+		{"nothing held", nil, "the seat taken was not found in the seat store to release"},
+	} {
+		w := newHotWorld(t)
+		w.holder.listErr = tc.listErr
+		desired := w.launch.Store.DesiredFile(w.session)
+		if err := os.Remove(desired); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(desired, "blocks-the-rename"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		err := w.seats.Join(context.Background(), "beta", "2")
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: got %v", tc.name, err)
+		}
+	}
+}
+
+// A seat part that names no seat is refused before any take.
+func TestJoinOfASeatNotInThePoolTakesNothing(t *testing.T) {
+	w := newHotWorld(t)
+	if err := w.seats.Join(context.Background(), "beta", "9"); err == nil || len(w.taker.took) != 0 {
+		t.Fatalf("got %v, took %+v", err, w.taker.took)
+	}
+}
+
+// A team name v2 cannot give is ErrSeat for Choose and an error for Applied.
+func TestATeamNameV2CannotGiveIsRefused(t *testing.T) {
+	w := newHotWorld(t)
+	if _, _, err := w.seats.Choose("Not A Team", ""); !errors.Is(err, ErrSeat) {
+		t.Fatalf("choose: %v", err)
+	}
+	if ok, why, err := w.seats.Applied("Not A Team", "1"); ok || why != "" || err == nil {
+		t.Fatalf("applied: %v %q %v", ok, why, err)
+	}
+}
+
+// Applied fails on what it cannot read (the keeper's lock, the report) and names a report of
+// another seat as not this one.
+func TestAppliedFailsOnWhatItCannotRead(t *testing.T) {
+	w := newHotWorld(t)
+	if err := w.seats.Join(context.Background(), "beta", "2"); err != nil {
+		t.Fatal(err)
+	}
+	w.writeReport(t, w.beta, "1", "repo.1+site.podman", 2)
+	if ok, why := w.applied(t); ok || why != "the session's report names seat 1, not 2" {
+		t.Fatalf("another seat: %v %q", ok, why)
+	}
+	report := w.launch.Store.SessionSeat(w.session, w.beta).Report()
+	if err := os.WriteFile(report, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := w.seats.Applied("beta", "2"); err == nil || !strings.Contains(err.Error(), "the report of beta") {
+		t.Fatalf("garbage report: %v", err)
+	}
+	if err := os.Remove(report); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(report, "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := w.seats.Applied("beta", "2"); err == nil || !strings.Contains(err.Error(), "the report of beta") {
+		t.Fatalf("unreadable report: %v", err)
+	}
+	w.seats.parts.Keeper = func(paths.Store, paths.SessionName, paths.TeamID) (seat.Keeper, error) {
+		return seat.KeeperRunning, errors.New("permission denied")
+	}
+	if _, _, err := w.seats.Applied("beta", "2"); err == nil || !strings.Contains(err.Error(), "the seat lock of beta: permission denied") {
+		t.Fatalf("keeper: %v", err)
+	}
+}
+
+// Release fails when the seat store cannot be opened or listed, releasing nothing.
+func TestReleaseFailsWhenTheStoreCannotBeRead(t *testing.T) {
+	w := newHotWorld(t)
+	w.holder.listErr = errors.New("the store is unreadable")
+	if released, err := w.seats.Release(context.Background(), "alpha"); err == nil || released || !w.holder.closed {
+		t.Fatalf("list: %v %v closed %v", released, err, w.holder.closed)
+	}
+	w.seats.parts.Holder = func() (Holder, error) { return nil, errors.New("no seat store") }
+	if released, err := w.seats.Release(context.Background(), "alpha"); err == nil || released {
+		t.Fatalf("open: %v %v", released, err)
+	}
+}
+
+// A desired.json that cannot be read or decoded is an error, not "no v2 session".
+func TestOpenHotSeatsFailsOnAnUnreadableDesired(t *testing.T) {
+	w := newLaunchWorld(t)
+	session := mustSession(t, "s1")
+	desired := w.launch.Store.DesiredFile(session)
+	if err := os.MkdirAll(filepath.Dir(desired), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(desired, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := OpenHotSeats(HotParts{Launch: w.launch}, session); err == nil || found {
+		t.Fatalf("garbage: %v %v", found, err)
+	}
+	if err := os.Remove(desired); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(desired, "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := OpenHotSeats(HotParts{Launch: w.launch}, session); err == nil || found {
+		t.Fatalf("unreadable: %v %v", found, err)
+	}
+}
+
+// WriteDesired fails when the session's control directory cannot be made.
+func TestWriteDesiredFailsWhenTheControlDirectoryCannotBeMade(t *testing.T) {
+	w := newLaunchWorld(t)
+	session := mustSession(t, "s1")
+	control := w.launch.Store.Control(session)
+	if err := os.MkdirAll(filepath.Dir(control), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(control, []byte("a file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d := state.Desired{Session: session, Generation: 1, Seats: []state.DesiredSeat{}, Farewell: []state.Farewell{}, Inbound: state.InboundAccept}
+	if err := WriteDesired(w.launch.Store, d); err == nil || !strings.Contains(err.Error(), "make the control directory") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// The launcher's HotSeats fails when the seat store cannot be found (no HOME).
+func TestVerbsHotSeatsFailsWithNoStateHome(t *testing.T) {
+	w := newVerbs(t)
+	w.verbs.Getenv = func(string) string { return "" }
+	if _, found, err := w.verbs.HotSeats(w.checkout, "s1"); err == nil || found {
+		t.Fatalf("got %v %v", found, err)
+	}
+}
+
+// A join of a seat the session said goodbye to drops that farewell, and a put-back drops the
+// farewells of the seats it names: neither leaves a farewell for a seat the session holds.
+func TestJoinAndPutDropTheFarewellsOfTheSeatsTheyName(t *testing.T) {
+	w := newHotWorld(t)
+	ctx := context.Background()
+	if err := w.seats.Join(ctx, "beta", "2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.seats.Leave("beta"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.seats.Join(ctx, "beta", "2"); err != nil {
+		t.Fatal(err)
+	}
+	if d := w.onDisk(t); !d.Holds(w.beta, "2") || len(d.Farewell) != 0 {
+		t.Fatalf("rejoin: %+v", d)
+	}
+	before := w.seats.Desired().Seats
+	if _, err := w.seats.Leave("alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.seats.Put(before); err != nil {
+		t.Fatal(err)
+	}
+	if d := w.onDisk(t); !d.Holds(w.alpha, "1") || len(d.Farewell) != 0 {
+		t.Fatalf("put back: %+v", d)
 	}
 }
 

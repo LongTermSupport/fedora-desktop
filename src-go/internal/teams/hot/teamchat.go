@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
@@ -22,7 +23,7 @@ type TeamchatSeats interface {
 	Leave(team string) (state.DesiredSeat, error)
 	Put(seats []state.DesiredSeat) error
 	Applied(team, seat string) (bool, string, error)
-	Release(ctx context.Context, team string) error
+	Release(ctx context.Context, team string) (bool, error)
 }
 
 // The refusals of what is not built for a v2 session yet (register R41): each names teamchat
@@ -33,18 +34,56 @@ const (
 	v2RemoveNotBuilt = "--park and --coordinator are not built for a teamchat (v2) session's remove yet: the member stays in the team with its role; park or hand over the role in ccy-teams"
 )
 
-// teamchatSeats is the running session's v2 seats in checkout, found false when it has none
-// (or when v2 is not wired); a cc session's are not hot-controlled here.
-func (x *Hot) teamchatSeats(t *target, checkout string) (TeamchatSeats, bool, error) {
-	if x.Teamchat == nil || t.cc() {
-		return nil, false, nil
+// v2CCNotBuilt refuses a cc session on teamchat: it has no v1 membership to find it by, and hot
+// control of one is not built (register R41).
+const v2CCNotBuilt = "a cc session on a teamchat (v2) team is not changed while it runs yet: end it and start it again with cc --teams naming the seats it should have"
+
+// openV2 opens the running session's v2 seats in checkout, under its change lock (the generation
+// read is the one the next write follows); a session with none is v1's "launched without the
+// kit", and one whose desired membership cannot be read is refused as a configuration.
+func (x *Hot) openV2(t *target, checkout string) (term.ExitCode, bool) {
+	if x.Teamchat == nil {
+		x.notKit(t.session, os.ErrNotExist)
+		return exitConfig, false
 	}
 	seats, found, err := x.Teamchat(checkout, t.session)
-	if err != nil || !found {
-		return nil, false, err
+	if err != nil {
+		x.mark(markFailed, "session "+t.session+": it has no agent-bus membership, and whether it runs on teamchat (v2) could not be read: "+
+			err.Error()+"; relaunch it from ccy's tmux to change it while it runs")
+		return exitConfig, false
 	}
-	t.desired.Checkout = checkout
-	return seats, true, nil
+	if !found {
+		x.notKit(t.session, os.ErrNotExist)
+		return exitConfig, false
+	}
+	t.v2, t.desired.Checkout = seats, checkout
+	return term.ExitOK, true
+}
+
+// ccOnTeamchat is whether a session with no container and no cc membership is a running cc
+// session launched on teamchat: a cc record, its tmux pane live and a v2 desired membership in
+// its checkout. It only reads; locate refuses such a session by name. A session with no record
+// is not one, and its record is reported where resolve reads it.
+func (x *Hot) ccOnTeamchat(ctx context.Context, session string) (bool, error) {
+	if x.Teamchat == nil {
+		return false, nil
+	}
+	store, err := x.Host.Registry()
+	if err != nil {
+		return false, err
+	}
+	if rec, recErr := store.Get(session); recErr == nil && rec.Prefix == membership.KindCC {
+		pid, err := x.panePID(ctx, session)
+		if err != nil || pid == 0 {
+			return false, err
+		}
+		_, found, err := x.Teamchat(rec.Dir, session)
+		if err != nil {
+			return false, fmt.Errorf("whether it runs on teamchat (v2) could not be read: %w", err)
+		}
+		return found, nil
+	}
+	return false, nil
 }
 
 // changeV2 runs a verb on a v2 session: add and remove act on its desired.json; the others are
@@ -146,9 +185,13 @@ func (x *Hot) putBackV2(ctx context.Context, t *target, before []state.DesiredSe
 	} else {
 		x.step(markDone, stepMembership, fmt.Sprintf(withNote, fmt.Sprintf(generationWritten, t.v2.Desired().Generation), "restored"))
 	}
-	if err := t.v2.Release(ctx, team); err != nil {
+	released, err := t.v2.Release(ctx, team)
+	switch {
+	case err != nil:
 		x.mark(markFailed, "seat: "+err.Error())
 		errs = append(errs, err)
+	case !released:
+		x.mark(markSkip, "seat: "+notHeld(team, t.session))
 	}
 	if errors.Join(errs...) != nil {
 		next := "run the same command again, or remove the team from the session"
@@ -190,14 +233,25 @@ func (x *Hot) removeV2(ctx context.Context, t *target, r request) term.ExitCode 
 		return term.ExitFailure
 	}
 	x.step(markDone, stepMembership, fmt.Sprintf(withNote, fmt.Sprintf(generationWritten, t.v2.Desired().Generation), "farewell "+r.team+"/"+seatPart))
-	if err := t.v2.Release(ctx, r.team); err != nil {
+	released, err := t.v2.Release(ctx, r.team)
+	if err != nil {
 		x.mark(markFailed, "session: seat "+seatPart+" not released: "+err.Error()+
 			"; the seat sweep releases it once the session's keeper lets it go")
 		return seatCode(err)
 	}
+	if !released {
+		x.mark(markSkip, "session: seat "+seatPart+": "+notHeld(r.team, t.session))
+		x.say("Removed. " + t.session + " is no longer in " + r.team + ".")
+		return term.ExitOK
+	}
 	x.step(markDone, stepSession, "seat "+seatPart+" released")
 	x.say("Removed. " + t.session + " is no longer in " + r.team + "; seat " + seatPart + " is free.")
 	return term.ExitOK
+}
+
+// notHeld says a release found no seat of team held for the session in the seat store.
+func notHeld(team, session string) string {
+	return "the seat store holds no seat of " + team + " for " + session + ", so none was released"
 }
 
 // seatCode is the exit of a seat store refusal: 75 for a seat held or the store busy, 1 otherwise.

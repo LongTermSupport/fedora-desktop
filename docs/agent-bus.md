@@ -768,9 +768,10 @@ cc --teams 1@<team>,2@<team2>   # name the seats
 cc --bus                        # on no team: add it to teams later, while it runs
 ```
 
-Started either way inside ccy's tmux (as `cc` always is from a terminal), the session can be
-put in a team, taken out, moved and re-roled while it runs, from `ccy-teams session add`,
-`remove`, `move` and `role`, as a ccy session can; `ccy-teams session list` shows it with
+Started either way inside ccy's tmux (as `cc` always is from a terminal), a cc session on
+agent-bus teams can be put in a team, taken out, moved and re-roled while it runs, from
+`ccy-teams session add`, `remove`, `move` and `role`, as a ccy session can (on teamchat, see
+below); `ccy-teams session list` shows it with
 kind `cc`. It runs as you, so unlike a ccy session it could change its own desired membership
 (`$XDG_RUNTIME_DIR/pingbus/membership/<session>/`): for cc this is guidance, not a wall, as
 below. Its prompt line names no team: its teams are in the session context and the latest
@@ -801,6 +802,15 @@ outside ccy's tmux: cc then moves itself into a tmux session ccy manages, which 
 session and writes its session record. A cc started with no terminal, or inside ccy's tmux in a
 session no record names, has no record, and its take is refused (78), because the seat sweep releases the seat of a session
 with no record. A list on both systems, and `cc --bus`, stay agent-bus only.
+
+**Changing a teamchat (v2) session while it runs.** Only `ccy-teams session add` and `remove`
+work on a running ccy session launched on teamchat: add takes the seat and writes the next
+generation of the session's desired membership, which its keeper follows; remove writes the
+generation without the seat, the member says goodbye, and the seat is released. `move`, `role`,
+`repair`, `add --role`/`--demote-current` and `remove --park`/`--coordinator` are refused naming
+teamchat (a move is an add, then a remove; set a role in `ccy-teams`). A cc session on teamchat
+is not changed while it runs: it is refused by name; end it and start it again with
+`cc --teams` naming its seats.
 Design: Plan 00209 `DESIGN-host-cc-v2.md`.
 
 **A seat of a team whose server is gone for good** (issue #386). Releasing a teamchat seat (a

@@ -17,6 +17,22 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.47 — container 2.84.78
+
+The image is rebuilt for its `teamchat` (Plan 00265 R49), and `ccy-teams` changes a running
+teamchat session (R41).
+
+- **A worker's failed questions join is named.** When a worker reading a question cannot join
+  the team's questions room, the refusal is `forbidden`, naming the event and pointing at the
+  session's `link.log`, instead of a not-found that read as "workers cannot verify".
+- **`ccy-teams session add` and `remove` work on a running teamchat (v2) session.** Add takes
+  the seat and writes the next generation of the session's desired membership, read under the
+  session's change lock so two adds never overwrite each other; a generation that cannot be
+  written releases the seat taken. Remove writes the generation without the seat and releases
+  it, and says so when the seat store held no seat to release instead of calling it free.
+  `move`, `role`, `repair` and the role and park options are refused naming teamchat, and so is
+  a cc session on teamchat, instead of v1's "launched without the kit" or "not running".
+
 ## 3.124.46 — container 2.84.77
 
 A seat picked in the `ccy --teams` chooser that no session ever used starts a new conversation,
