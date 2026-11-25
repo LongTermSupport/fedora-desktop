@@ -47,12 +47,15 @@ when, who hit it, how to reproduce it, its severity, issue, unit and state.
 
 ### Phase 2: threads, procedure and authority
 
-- [ ] ⬜ **Task 2.1**: R7, R9, R10, R11, R12.
+- [ ] 🔄 **Task 2.1** (U6): R10, R12: reply to an edited human message; a worker can verify a
+  relayed human answer.
+- [ ] ⬜ **Task 2.3**: R7, R9, R11.
 - [ ] ⬜ **Task 2.2**: R8, R17, #420.
 
 ### Phase 3: what misleads, and comfort
 
-- [ ] ⬜ **Task 3.1**: R13, R14, R15, R16.
+- [ ] 🔄 **Task 3.1** (U7): R14: presence reflects a live link.
+- [ ] ⬜ **Task 3.3**: R13, R15, R16.
 - [ ] ⬜ **Task 3.2**: R19 (#424), R20.
 
 ## Success Criteria
