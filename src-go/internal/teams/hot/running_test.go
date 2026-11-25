@@ -276,6 +276,9 @@ func v1ReaderCalls(t *testing.T) map[string]bool {
 			case d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go"):
 				return nil
 			}
+			if !d.Type().IsRegular() {
+				return nil
+			}
 			return v1ReaderCallsIn(path, rel, found)
 		})
 		if err != nil {
