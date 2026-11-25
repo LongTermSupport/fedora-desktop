@@ -339,6 +339,25 @@ filled in as each cause is known.
   it, or have the gate judge only the merges a push adds to the protected line.
 - **Severity:** medium. **Issue:** TBF. **State:** open; workaround known.
 
+## R44: the standard coordinator procedure ships with the team tooling
+
+- **Seen:** the owner, lts-ops questions room 13:55Z (F20): "this needs to be standardised and
+  the ballicom team coordinator needs the same instructions".
+- **What:** a team's coordinator learns its procedure from a hand-over note in its own
+  repository; another team's coordinator has none. The infrastructure repository has written one
+  standard procedure with no project facts in it, plus a project-layer template.
+- **Where it will live:** a second skill in the teamchat plugin the kit already ships,
+  `files/opt/claude-yolo/optional/teamchat/plugin/teamchat/skills/coordinator/SKILL.md`, beside
+  the `teamchat` skill.
+- **How a coordinator finds it:** the SessionStart frame's coordinator line
+  (`member/hooktext/hooktext.go`, `tmplRoleCoordinator`) names the skill, so it reaches only the
+  seats that coordinate a team, at every launch. A project adds its layer in its own repository.
+- **Upkeep:** every `teamchat` verb and flag the skill names is checked against the code when
+  it lands. A test will hold the skill's verbs to the CLI's verb table, so a renamed verb fails
+  QA.
+- **Severity:** medium. **Issue:** TBF. **State:** open; after the container blocker's steps and
+  R41, before any new team.
+
 ## R39: a seat starts on the account's default model
 
 - **Seen:** the owner (laptop host seat) and the hooks-daemon seat, 2026-11-25 (F14).
