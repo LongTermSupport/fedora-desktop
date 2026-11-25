@@ -52,6 +52,7 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"raw-prune-tests", "raw-prune deletes files and had no suite; the #295 sweep found it deleting a RAW whose JPG sat in a folder find could not read"},
 	{"ccy-allowed-hostnames", "issue #293, Defence Before Fix: an unreadable allowed-hostnames rule file stops the launch instead of looping over nothing, and its own suite proves it"},
 	{"ccy-merge-commits", "issue #311: CI judges every merge commit of a run by the pre-commit ccy version gates, and its own suite proves it"},
+	{"ccy-version-bump", "issue #428: qa-changed judges the change from its base by the pre-commit ccy version gates, and its own suite proves it"},
 	{"gitleaks", "issue #329: CI's gitleaks secret scan, run before the push over a copy of what a commit would carry"},
 	{"gitleaks-tests", "issue #329: the local gitleaks gate fails on a planted fake token and never scans an ignored file, and its own suite proves it"},
 	{"teamchat-play-jinja", "Plan 00209 Task 3.3: play-teamchat.yml's LXC Jinja rendered by the real ansible over good and bad inputs"},

@@ -28,7 +28,8 @@ filled in as each cause is known.
 - **Reproduce:** coordinator `say --to <worker>` to a worker whose roster entry has
   `human_text: false`.
 - **Severity:** critical. **Issue:** #422. **Unit:** U2. **State:** fixed (U2), merged into
-  `v2-smoke` and on F44 at c1b20004f (the home pin). The live check is in `reports/U2.md`.
+  `v2-smoke` and on F44 at c1b20004f (the home pin), but in no image until container 2.84.78
+  (`09c383f5b`; R54). The live check is in `reports/U2.md`.
   The owner confirmed the new meaning (lts-ops Q11, A12): `human_text` gates a human's words
   only. Plan 00209 A 7.6 rule 08 and Plan 00161 D63 now say so.
 
@@ -489,7 +490,52 @@ filled in as each cause is known.
   on-host guest ops keep `Establish`. The doc's off-host requirement is "not root, a home only it
   can write"; L7 dropped. On-host K15 is unchanged (it does not touch this route).
 - **Severity:** high (blocked the container route, P1). **Issue:** #425 (A1). **State:** fixed
-  on `v2-smoke`; lands right after batch 3.
+  on F44 (batch 3, 9d37999ce).
+
+## R52: the git hooks run on one checkout only
+
+- **Seen:** U10's review fixes, 2026-11-25: batch 4 changed an image source with no CCY bump,
+  and no pre-commit gate stopped it.
+- **What:** `play-git-hooks-security.yml` sets `core.hooksPath` on the `repo_path` checkout
+  alone. This seat's checkout has it unset and only git's `*.sample` files in `.git/hooks`, so pre-commit (secret,
+  private-name and version gates), commit-msg and pre-push (the protected-branch gate) never
+  ran here. `SecurityRules.md`'s "Enforced by Ansible on every main playbook run" holds for that
+  one checkout.
+- **Interim:** the review caught the missing bump, CI caught the coverage; this seat runs
+  `scripts/git-hooks/pre-commit` by hand before committing. No manual `git config` (IaC only).
+- **Severity:** high (every gate a commit is meant to pass locally is silently absent).
+  **Issue:** #427. **State:** open, outside v2.
+
+## R54: fixes landed on F44 without reaching any image (no container bump, no CI gate)
+
+- **Seen:** F27 (coordinator, 15:47Z): seat 7, relaunched on ccy 3.124.43, still drops every
+  coordinator `say`. This seat traced it, 2026-11-25.
+- **What:** ccy rebuilds its image only when the container version or the Dockerfile hash
+  changes (`validate_container_version`, `lib/common.bash`). Container 2.84.77 came in at
+  `ffa5e86c8` (Nov 24 12:31), whose src-go tree is the `2f5c69f0…` digest every session
+  reports. U2 (R1, `c1b20004f`) and batch 3 (`9d37999ce`) changed teamchat image sources and
+  kept 2.84.77, so no session ran R1's, R12's or any batch 3 fix. The version gate for image
+  sources lives only in `scripts/git-hooks/pre-commit`, which this checkout does not run (R52),
+  and no QA script or CI job runs it.
+- **Fix:** batch 4 part 2 (`09c383f5b`, container 2.84.78) is the first bump since, so a deploy
+  and a relaunch bring every fix so far. The class: `scripts/qa-ccy-version-bump.bash BASE [REV]`
+  runs the pre-commit hook itself (`--ccy-version-only`, so the same libraries and
+  `image-source-paths`) over the change from BASE in a shared clone, as one commit.
+  `qa-changed.bash` runs it as the `ccy-version-bump` check (so CI's diff mode does), and CI's
+  full run judges the pushed range. Red on U2's landing, on `c1b20004f` and on batch 3; green on
+  batch 4 (`reports/R54.md`).
+- **Severity:** critical (hid R1's fix for a day; the owner's second team deadlocked, F27).
+  **Issue:** #428. **State:** fixed on v2-smoke; it reaches F44 with the next batch.
+
+## R53: the by-hand Go QA cannot see go-qa's module coverage floor
+
+- **Seen:** batch 4's first CI run (45643448881): "statement coverage 89.7% is below
+  fail_under_statements = 90". Per-package `go test -cover` on arm64 read above 86% per package
+  and gave no module figure in go-qa's terms (`-coverpkg`, diff mode).
+- **What:** the third gap of R26's class after R47: go-qa cannot run on arm64 (#426), and each
+  hand-picked substitute misses one of its checks.
+- **Fix:** R26's (#426). Until then, a unit's by-hand QA reports "module coverage unchecked", and
+  CI is the coverage gate. **Severity:** low (CI catches it). **Issue:** #426. **State:** open.
 
 ## R47: the by-hand Go QA missed the launcher's parity oracle
 

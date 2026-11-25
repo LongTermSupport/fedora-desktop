@@ -87,7 +87,7 @@ func (r *scriptedRunner) argv() []string {
 func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 	want := []string{
 		"toolchain", "bash-syntax", "shellcheck", "shell-directives", "semgrep", "ready-wait-files", "stt-rules-files", "hook-handler-rules-files", "walk-open-files", "stdin-wait-files", "ruff", "unit-tests", "ansible-syntax",
-		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "teamchat-keeps-off-v1", "ansible-pause", "gh-scopes", "find-race", "arch-pin", "argv-leak", "place-issued-token", "boot-hold", "gh-poll", "secret-screen", "ready-wait", "hidden-bindings", "lxc-attach-streams", "plan-script-logging", "stt-rules", "walk-open", "stdin-wait", "hook-handler-rules", "version-pins", "go-deps", "go-vuln", "hook-handlers", "plan-tests", "vmtest-manifest", "gitleaks", "deployed-drift", "node-check", "eslint",
+		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "teamchat-keeps-off-v1", "ansible-pause", "gh-scopes", "find-race", "arch-pin", "argv-leak", "place-issued-token", "boot-hold", "gh-poll", "secret-screen", "ready-wait", "hidden-bindings", "lxc-attach-streams", "plan-script-logging", "stt-rules", "walk-open", "stdin-wait", "hook-handler-rules", "version-pins", "go-deps", "go-vuln", "hook-handlers", "plan-tests", "vmtest-manifest", "gitleaks", "ccy-version-bump", "deployed-drift", "node-check", "eslint",
 	}
 	got := make([]string, 0, len(checkDefs))
 	for _, d := range checkDefs {
@@ -136,6 +136,7 @@ func TestSummaries(t *testing.T) {
 		"walk-open":             "walk-opens-non-regular-file rule, whole gate",
 		"stdin-wait":            "stdin-read-unbounded rule, whole gate",
 		"gitleaks":              "whole gate (no secret gitleaks finds in what a commit would carry)",
+		"ccy-version-bump":      "the change from the base by the pre-commit ccy version gates",
 		"find-race":             "find-race-negated-stat-test rule, whole gate",
 		"arch-pin":              "arch-pinned-artefact rule, whole gate",
 		"argv-leak":             "secret-in-argv rules, whole gate",
@@ -442,6 +443,27 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 	s.cleanup()
 	if _, err := os.Stat(strings.TrimPrefix(runner.calls[3].Env[0], "QA_JSON_OUT=")); !os.IsNotExist(err) {
 		t.Fatalf("the report file must be removed on cleanup: %v", err)
+	}
+}
+
+// B68 (issue #428): the ccy version check judges the change from the same base qa-changed diffed
+// against (CI's diff mode: the protected line's tip), so the pre-commit version gates hold in CI
+// where no hook ran; its verdict is the gate's.
+func TestCcyVersionBumpJudgesTheChangeFromTheBase(t *testing.T) {
+	runner := &scriptedRunner{replies: map[string]proc.Result{}}
+	s := newTestSession(t, runner)
+	s.opts.base = "origin/F44"
+	gate := "bash " + filepath.Join(s.scripts, "qa-ccy-version-bump.bash") + " origin/F44"
+	runner.replies[gate] = proc.Result{Stdout: "COMMIT REJECTED [CCY-IMAGE-INPUT]\n", Code: 1}
+	res, err := lookupCheck("ccy-version-bump").run(context.Background(), s, &checkPlan{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.code != 1 || !strings.Contains(res.output, "CCY-IMAGE-INPUT") {
+		t.Fatalf("got %+v", res)
+	}
+	if !reflect.DeepEqual(runner.argv(), []string{gate}) || !runner.calls[0].Merge {
+		t.Fatalf("one gate run against the base, output merged: %+v", runner.calls)
 	}
 }
 

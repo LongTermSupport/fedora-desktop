@@ -331,7 +331,10 @@ jobs:
       # (scripts/qa-ccy-merge-commits.bash): in diff mode the scope's base, a pull request's own
       # merge commit included; on a push of a protected line (F43 and F44-arm as well as F44), the
       # tip before the push; else, a new ref with no tip before it, the base found above. The rest
-      # part judges them; the run's verdict needs that part.
+      # part judges them; the run's verdict needs that part. A full run (no qa-changed, whose
+      # ccy-version-bump check judges a diff-mode range) also judges the whole range from that tip
+      # as one change by the same gates (scripts/qa-ccy-version-bump.bash, issue #428), so a push
+      # that bypassed the ci/ branch still shows an image source landed without its bump.
       - name: Judge merge commits by the ccy version rule
         if: matrix.part == 'rest'
         env:
@@ -345,6 +348,9 @@ jobs:
             tip="$PUSH_BEFORE"
           fi
           ./scripts/qa-ccy-merge-commits.bash "$tip" "$tip..HEAD"
+          if [ "$MODE" = full ]; then
+            ./scripts/qa-ccy-version-bump.bash "$tip" HEAD
+          fi
 
       # The ONE exemption, and it is made here, in the open, not by the gate. The hook-handlers
       # gate (scripts/qa-hook-handlers.bash) runs the project's hooks-daemon handler tests under
