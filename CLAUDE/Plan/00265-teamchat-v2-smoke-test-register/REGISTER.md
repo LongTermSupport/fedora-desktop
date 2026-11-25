@@ -307,8 +307,11 @@ filled in as each cause is known.
   never leaves out the sender (`engine/send.go`, `resolve`), so a session that coordinates team A
   and works on team B always gets the ambiguous-team refusal, though only B's coordinator is
   someone else. `--team <B>` works.
-- **Fix:** a team whose coordinator is this session is not a candidate for `--to-coordinator`.
-- **Severity:** medium. **Issue:** TBF. **Unit:** U10. **State:** open.
+- **Fix:** a team whose coordinator is this session is not a candidate for `--to-coordinator`;
+  with `--team` naming that team, the refusal (64) says this member is its coordinator and to
+  use `--to`. `reply --to-coordinator` already left the session out.
+- **Severity:** medium. **Issue:** TBF. **Unit:** U10. **State:** fixed on `v2-smoke`
+  (cdac15584, red then green); lands with batch 4.
 
 ## R40: a `ci/<topic>` push of a commit GitHub already has runs no CI
 
