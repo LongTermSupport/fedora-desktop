@@ -1,6 +1,7 @@
 package state
 
 import (
+	"bytes"
 	"errors"
 	"slices"
 	"strings"
@@ -126,13 +127,38 @@ func (r Report) Encode() ([]byte, error) {
 	return encode(reportFile, r, DecodeReport)
 }
 
-// DecodeReport reads report.json strictly.
+// DecodeReport reads report.json strictly. A keeper built before R60 writes no "down", and the
+// host is updated before a running session's image, so that report is read with down null.
 func DecodeReport(data []byte) (Report, error) {
+	data, limit := withDownNull(data)
 	var r Report
-	if err := decodeStrict(reportFile, data, MaxReport, &r, func(c *rules) { r.check(c) }); err != nil {
+	if err := decodeStrict(reportFile, data, limit, &r, func(c *rules) { r.check(c) }); err != nil {
 		return Report{}, err
 	}
 	return r, nil
+}
+
+// downNull is the member withDownNull adds to a report that has no "down".
+const downNull = `,"down":null`
+
+// withDownNull is data with "down":null added when it is an object within MaxReport that has
+// other members and no "down", and the cap to read it by; any other data is left to the
+// strict decode to judge.
+func withDownNull(data []byte) ([]byte, int) {
+	if len(data) > MaxReport {
+		return data, MaxReport
+	}
+	v, err := proto.Parse(data)
+	if err != nil || v.Kind() != proto.KindObject || len(v.Members()) == 0 {
+		return data, MaxReport
+	}
+	if _, ok := v.Get("down"); ok {
+		return data, MaxReport
+	}
+	end := bytes.LastIndexByte(data, '}')
+	out := make([]byte, 0, len(data)+len(downNull))
+	out = append(append(append(out, data[:end]...), downNull...), data[end:]...)
+	return out, MaxReport + len(downNull)
 }
 
 func (r Report) check(c *rules) {

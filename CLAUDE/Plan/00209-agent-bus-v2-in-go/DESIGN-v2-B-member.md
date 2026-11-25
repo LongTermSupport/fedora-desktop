@@ -806,7 +806,9 @@ timer.
 `last_sync_ok_ms` is `null` until the first sync succeeds; `seat`'s `<seat>` is the handle's seat.
 `down` is `null` while the team is up, else why the link has it down: `stopped: <code>` for a
 stopped team, else the cause link.log named at the down mark (Plan 00265 R60), at most 512 bytes
-as written. A hot join is joined only with `last_sync_ok_ms` set and `down` null.
+as written. A hot join is joined only with `last_sync_ok_ms` set and `down` null. A report with
+no `down` key, as a keeper built before R60 writes it, is read as `down: null`: the host's reader
+is updated before a running session's image.
 `why` is `null`; `crash-loop` or `config` exactly when `link` is `failed`, as in `keeper.json`; or
 `launch-failed` after a launch failure (2.4.1 step 7). CMD's own text is never in it. The keeper
 writes `report.json` only for a seat it holds, once the link's first `state` for that seat has given

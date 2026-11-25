@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.59 — container 2.84.81
+
+- **The host reads a running session's older report.** `ccy-teams` reads a seat's `report.json`
+  with no `down` key, as a session started on an image before 2.84.81 writes it, as a team that
+  is not down. The play updates `ccy-teams` at once, while a running session keeps its image
+  until it is relaunched, so without this every such session's `session add`, `remove` and
+  `list` failed until it restarted (Plan 00265 R60).
+
 ## 3.124.58 — container 2.84.81
 
 `ccy-teams` and teamchat changes (Plan 00265 R60); the image is rebuilt, because the teamchat

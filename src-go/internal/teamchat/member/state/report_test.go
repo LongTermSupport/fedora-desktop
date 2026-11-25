@@ -31,6 +31,15 @@ func TestDecodeReport(t *testing.T) {
 	if err != nil || r.Seat.Team.String() != "alpha" || r.Seat.Seat != "2" {
 		t.Fatalf("DecodeReport = %+v, %v", r, err)
 	}
+	// A keeper built before R60 writes no "down": the host reads it as null, so a host updated
+	// before a running session's image still reads that session's report.
+	legacy, err := DecodeReport([]byte(strings.Replace(reportApplied, `"down":null,`, "", 1)))
+	if err != nil || legacy.Down != nil || legacy.LastSyncOKMS == nil {
+		t.Fatalf("DecodeReport of a report without down = %+v, %v", legacy, err)
+	}
+	if _, err := DecodeReport([]byte(strings.Replace(reportApplied, `"down":null,`, `"down":null,"down":null,`, 1))); !errors.Is(err, ErrInvalid) {
+		t.Errorf("a report with down twice was read: %v", err)
+	}
 	strictRefusals(t, reportFile, reportApplied, "pending", MaxReport, DecodeReport)
 	refusesAll(t, reportFile, reportApplied, DecodeReport, []refusal{
 		{`"started_ms":1760000000000`, `"started_ms":-1`, CodeSchema},
@@ -56,7 +65,8 @@ func TestDecodeReport(t *testing.T) {
 		{`"down":null`, `"down":"` + strings.Repeat("d", MaxDown-1) + `"`, CodeSchema},
 		// The bound is the written form's: one escaped character is six bytes there.
 		{`"down":null`, `"down":"` + strings.Repeat("<", (MaxDown+5)/6) + `"`, CodeSchema},
-		{`"down":null,`, ``, CodeSchema},
+		// A report without down is a pre-R60 keeper's and is read (above); another case is not.
+		{`"down":null,`, `"DOWN":null,`, CodeSchema},
 	})
 	refusesAll(t, reportFile, refused, DecodeReport, []refusal{
 		{`"code":"missing"`, `"code":null`, CodeSchema},
