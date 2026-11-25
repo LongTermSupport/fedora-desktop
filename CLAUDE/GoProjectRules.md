@@ -97,6 +97,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_foreign_strict_parse`    | input from outside teamchat's protocol (stdin, an environment variable) decoded whole by the wire's strict parser `proto.Parse`, so a field the program never reads refuses the fields it reads                                | teamchat `hook`: every Claude Code SessionStart payload unusable, no `started`, every `/exit` ending 78 (fedora-desktop#394)                                                                                            |
 | `project_selector_parse`          | claude's conversation selectors (`--resume`, `-r`, `--continue`, `-c`, `--session-id`) read from a recorded launch outside registry's `selectorOf`, so two readers of one grammar disagree on what a bare `--resume` takes     | `ccy-sessions` restore: `ResumeID` named `--teams` the conversation of a session launched `ccy --resume --teams <seats>` (fedora-desktop#411)                                                                           |
 | `project_refusal_reason_text`     | a teamchat refusal's reason code put into its message, so the agent is told only the code the object already carries and not the cause or the next step                                                                        | teamchat `engine` `refusal`: "the send was refused (ref); fix the message" for `done` with no `--ref` (fedora-desktop#421)                                                                                              |
+| `project_question_unresolved`     | which question a questions-room event is in shown by a path that does not ask the one resolver (`proto.QuestionIndex.QuestionIn`, through `team.InQuestion`), so two paths derive the same fact differently, or one not at all | teamchat delivery and `recv`: a human's in-thread reply delivered `question: none` while `verify` named its question (Plan 00265 R34)                                                                                   |
 | `project_floor_by_time`           | an event-ordering floor in teamchat's member tree held as a millisecond alone, or a wall-clock since bound cut by `<=` or `>`, so the events sharing its millisecond are dropped                                               | `teamsync` qtake and relays: an owner's answer posted in the millisecond of the post before it was skipped as below the questions floor (Plan 00209 R0 step 7)                                                          |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
@@ -4037,3 +4038,40 @@ reference refusal's `proto.RefCause*`), that names what is wrong and what to do.
   `engine/refusal.go` with a template per reason; the composer's reference refusals carry their
   cause (`proto.Roster.RefCause`), and `reply --verb` and `ping` name the verb, how a reference
   is given, the forms the verb takes and, for an answer to a fetched ping, the ping's reference.
+
+### project_question_unresolved
+
+**What it is about.** Which question of the questions room an event is in (a question root, a
+human's post in a question's thread, a reply to a thread post, a `Q<n>` prefix) is one fact.
+`proto.QuestionIndex.QuestionIn` decides it; `team.InQuestionOf` hands it on as a
+`team.InQuestion`, whose `Entry`, `Name` and `HeadlineName` are the forms the delivery's entry and
+the `recv`, `history` and `verify` records show.
+
+**Why it exists.** Plan 00265 R34: a human's reply inside a numbered question's thread was
+delivered with `question: none` (the delivery's item and `recv`'s record were built with no
+question asked), while `verify` derived the question on a path of its own and named it. The
+coordinator took the reply as unattached and answered in the wrong thread.
+
+**What it flags**, under `internal/teamchat`, outside `_test.go`: a composite literal of
+`records.Human`, `records.Verified` or `deliver.Item` with elements and no `Question` key; and a
+`Question` or `Headline` value of one of those types, in a literal or an assignment (a tuple
+assignment from one call included), that is not a call of a `team.InQuestion` method. An empty
+literal (a zero value returned beside an error) is not flagged.
+
+**Not caught:** the fact derived by hand into a `team.InQuestion` (`team.QuestionNamed` is for a
+source other than the index: a relay's account, or verify's read of a question root for a member
+that holds no index); a carrier type added later and not listed in `questionCarriers`.
+
+**How to fix:** ask `team.InQuestionOf` (in the engine, the team's `QuestionIn`) and set
+`Question` and `Headline` from its methods.
+
+- Red, fixture: `testdata/src/qres/internal/teamchat/member/engine` (the delivery's item and the
+  record built bare, a question decided by hand in a literal, by assignment and by a tuple
+  assignment: 9 findings; the resolver's answer everywhere, an empty literal and a test file:
+  clean).
+- Red, real tree (the driver as `go vet -vettool`, `./internal/teamchat/...`): 6 findings,
+  `engine/deliver.go` `deliveryItems`, `engine/render.go` `itemRecord`, `teamsync/verbs.go`
+  `historyOf` and `verifiedRecord` (its literal, and its `Question` and `Headline` from
+  `questionOf`).
+- Green, the fix: 0 findings. Every path takes `team.InQuestion`; `verify` keeps its read of the
+  question root only for a member with no index, through `team.QuestionNamed`.

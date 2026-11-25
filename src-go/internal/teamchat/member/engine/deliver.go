@@ -196,22 +196,38 @@ func takePending(s *state.Store, ids []string) []state.Pending {
 
 // deliveryItems are h's deliverable items for deliver.Build, in the store's order: a verdict
 // from memory (nil for a restored item not fetched again), a TIMEOUT from its key and the
-// outbox. Question is nil (`question: none`): the engine holds no question index yet.
+// outbox. Question is the question the item is in, as the team's index places it (R34).
 func deliveryItems(h *held) []deliver.Item {
 	var out []deliver.Item
 	for _, p := range h.store.Pending {
 		if p.Handed != nil || p.Held {
 			continue
 		}
-		it := deliver.Item{Pending: p}
+		v, known := h.content[p.ID]
+		it := deliver.Item{Pending: p, Question: itemQuestion(h, p, v).Entry()}
 		if p.Item == records.KindTimeout {
 			it.Timeout = timeoutOf(p, h.store.Outbox.Pings)
-		} else if v, ok := h.content[p.ID]; ok {
+		} else if known {
 			it.Verdict = &v
 		}
 		out = append(out, it)
 	}
 	return out
+}
+
+// itemQuestion is the question a pending item of the questions room is in, from the team's
+// index (team.Team.QuestionIn, the one resolver): a human post by its id and relations, a
+// reminder by its question's id (its key's event); nothing for main's items or with no team. A
+// relayed item is placed by no index here: its relay's account names its question (deliver).
+func itemQuestion(h *held, p state.Pending, v proto.Verdict) team.InQuestion {
+	if p.Room == proto.PurposeMain || h.team == nil {
+		return team.InQuestion{}
+	}
+	id := p.ID
+	if i := strings.IndexByte(id, '~'); i >= 0 {
+		id = id[:i]
+	}
+	return h.team.QuestionIn(id, v.Human)
 }
 
 // timeoutOf is a TIMEOUT's account from its key (proto.TimeoutKey); nil for a key without one,

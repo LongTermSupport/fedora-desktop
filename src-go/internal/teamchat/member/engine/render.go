@@ -5,6 +5,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -58,12 +59,13 @@ func trust(v proto.Verdict) string {
 
 // itemRecord is a pending item's record, from its verdict in memory (B 2.7.3 "Content"); a
 // TIMEOUT is made from the store alone, its key and the outbox ping it names.
-func itemRecord(t paths.TeamID, p state.Pending, v proto.Verdict, n namer, pings []state.Ping) records.Record {
+// in is the question the item is in (itemQuestion).
+func itemRecord(t paths.TeamID, p state.Pending, v proto.Verdict, in team.InQuestion, n namer, pings []state.Ping) records.Record {
 	switch p.Item {
 	case records.KindHuman:
 		return records.Human{
 			Team: t, ID: p.ID, From: n.name(p.From), FromID: p.From, SentMS: p.SentMS, Room: p.Room,
-			Text: v.Human.Body, Revises: optional(v.Human.Revises), Restored: p.Restored,
+			Text: v.Human.Body, Question: in.Name(), Headline: in.HeadlineName(), Revises: optional(v.Human.Revises), Restored: p.Restored,
 		}
 	case records.KindPeer:
 		text := v.Content.Text.Text
