@@ -530,7 +530,7 @@ func (s *sess) qjudge(ctx context.Context, j *judged, since string, a answer) er
 	case !reached:
 		return s.qcatchup(ctx, q)
 	}
-	jr, err := s.judgeRoom(ctx, j, roomJudge{room: q.room, purpose: proto.PurposeQuestions, events: events, res: s.t.qres, floor: q.floor})
+	jr, err := s.judgeRoom(ctx, j, roomJudge{room: q.room, purpose: proto.PurposeQuestions, events: events, res: s.t.qres, floor: q.floor, replayed: q.floor.Covers})
 	if err != nil {
 		return err
 	}

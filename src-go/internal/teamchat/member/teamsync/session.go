@@ -257,7 +257,9 @@ func (s *sess) resume(ctx context.Context) (string, error) {
 		events, gap = append(older, events...), g
 	}
 	kept, restored := s.cut(events, bd)
-	if err := s.handle(ctx, "", answer{resp: resp, events: kept, first: true, gap: gap, restored: restored, qheld: held}); err != nil {
+	// Kept past the release time, an event the marker covers, or one restored, is history.
+	replayed := func(ts int64, id string) bool { return bd.hasFloor && bd.floor.Covers(ts, id) || restored(ts) }
+	if err := s.handle(ctx, "", answer{resp: resp, events: kept, first: true, gap: gap, restored: restored, replayed: replayed, qheld: held}); err != nil {
 		return "", err
 	}
 	return resp.NextBatch, nil
@@ -526,12 +528,13 @@ func (t *Team) answeredAt() {
 	t.setHealth(func(h *team.Health) { h.LastSyncOKMS = t.cfg.Clock.WallMS() })
 }
 
-// answer is one sync answer to handle; events and restored are SY1 (b)'s, which reads main
-// before the answer is handled.
+// answer is one sync answer to handle; events, restored and replayed are SY1 (b)'s, which reads
+// main before the answer is handled.
 type answer struct {
 	resp     matrix.SyncResponse
 	events   []json.RawMessage
 	restored func(int64) bool
+	replayed func(int64, string) bool
 	first    bool
 	gap      bool
 	// qheld is the request's filter holding the questions room (QS4), whose events only then
@@ -575,7 +578,7 @@ func (s *sess) handleHeld(ctx context.Context, since string, a answer) error {
 	if err != nil {
 		return err
 	}
-	j, err := s.judgeAll(ctx, events, a.restored)
+	j, err := s.judgeAll(ctx, events, a.restored, a.replayed)
 	if err != nil {
 		return err
 	}
@@ -770,10 +773,10 @@ type judged struct {
 // judgeAll is SY4 with SY4a's resolve first: main's events judged oldest first over a Lookup
 // that answers from memory; a transient failure of a related fetch is the error, before any
 // verdict.
-func (s *sess) judgeAll(ctx context.Context, events []json.RawMessage, restored func(int64) bool) (judged, error) {
+func (s *sess) judgeAll(ctx context.Context, events []json.RawMessage, restored func(int64) bool, replayed func(int64, string) bool) (judged, error) {
 	t := s.t
 	j := judged{flood: copyWindow(t.flood), budget: copyWindow(t.budget), now: t.cfg.Clock.WallMS()}
-	jr, err := s.judgeRoom(ctx, &j, roomJudge{room: s.a.MainRoom, purpose: proto.PurposeMain, events: events, res: t.res, floor: s.floor})
+	jr, err := s.judgeRoom(ctx, &j, roomJudge{room: s.a.MainRoom, purpose: proto.PurposeMain, events: events, res: t.res, floor: s.floor, replayed: replayed})
 	if err != nil || len(jr.evs) == 0 {
 		return j, err
 	}
@@ -799,12 +802,15 @@ func (s *sess) judgeAll(ctx context.Context, events []json.RawMessage, restored 
 }
 
 // roomJudge is one room's events to judge: the room, its purpose, and the resolver of its
-// relations (a room's own, so a relation naming another room's event poisons nothing there).
+// relations (a room's own, so a relation naming another room's event poisons nothing there);
+// replayed, nil for none, names the events that are history this link reads again, which count
+// nothing toward the receive flood window.
 type roomJudge struct {
 	room, purpose string
 	events        []json.RawMessage
 	res           *resolver
 	floor         state.Floor
+	replayed      func(ts int64, id string) bool
 }
 
 type parsed struct {
@@ -866,7 +872,13 @@ func (s *sess) judgeRoom(ctx context.Context, j *judged, rj roomJudge) (roomJudg
 	}
 	out := roomJudged{evs: evs, lk: lk, floor: rj.floor, vs: make([]proto.Verdict, 0, len(evs))}
 	for _, e := range evs {
-		out.vs = append(out.vs, t.judge(judge, e.v))
+		ej := judge
+		if rj.replayed != nil && rj.replayed(originTs(e.v), e.id) {
+			// Replayed history is judged against a window of its own, so it never fills the
+			// flood window a new post is admitted by (R64).
+			ej.Flood = &proto.Window{}
+		}
+		out.vs = append(out.vs, t.judge(ej, e.v))
 		if e.id != "" {
 			lk.judged[e.id] = true
 		}

@@ -313,7 +313,7 @@ func (s *sess) buildPage(ctx context.Context, r *buildRun, events []json.RawMess
 			return err
 		}
 		j := judged{flood: copyWindow(t.flood), budget: copyWindow(t.budget), now: t.cfg.Clock.WallMS()}
-		jr, err := s.judgeRoom(ctx, &j, roomJudge{room: r.room, purpose: proto.PurposeQuestions, events: events, res: t.qres, floor: r.floor})
+		jr, err := s.judgeRoom(ctx, &j, roomJudge{room: r.room, purpose: proto.PurposeQuestions, events: events, res: t.qres, floor: r.floor, replayed: r.floor.Covers})
 		if err != nil {
 			return err
 		}
