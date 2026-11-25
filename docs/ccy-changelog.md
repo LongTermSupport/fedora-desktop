@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.61 — container 2.84.83
+
+- **A link restart no longer drops a person's posts as `rate`.** When a teamchat link starts it
+  reads the questions room again (and, after a seat's release, part of main). That history used
+  to count toward the per-sender receive limit (60 a minute), so a person's old posts were
+  dropped `rate`, and a new post in the same burst was dropped for good. History the link reads
+  again now counts nothing toward that limit (Plan 00265 R64).
+
 ## 3.124.60 — container 2.84.82
 
 - The image is rebuilt for the reader below: its `report.json` reader is the same code the
