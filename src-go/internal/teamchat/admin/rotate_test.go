@@ -127,6 +127,28 @@ func TestX33TheVerbRotatesAndListsOnlyTheSeatsTheHostDoesNotPlace(t *testing.T) 
 	w.lockIsFree(t)
 }
 
+// Issue 425 A1: an LXC seat on another host (enrolled, held by no entry of this host's LXC record)
+// is placed by its owner, so it is listed with the owner's seats, and stderr names its own pipe:
+// a token reissue into `seat place-lxc`, never the pool's password pipe for it.
+func TestX33TheVerbListsAnOffHostLXCSeat(t *testing.T) {
+	w := rotatable(t)
+	const offHost = "thing.2+desk.lxc"
+	w.srv.AddUser(offHost, "pw", false)
+	w.ok(t, "", "member", "add", "--team", "alpha", "--prefix", rotLXCPrefix, "--seat", "2", "--kind", "lxc", "--human-text", "false", "--credential", "token")
+	out := w.ok(t, "", rotateArgs...)
+	if out.stdout != placed+"\n"+offHost+"\n" {
+		t.Fatalf("stdout %q, want %s and %s", out.stdout, placed, offHost)
+	}
+	for _, want := range []string{
+		"seat place-issued",
+		"member reissue --team alpha --handle <handle> --credential token | [ssh <alias>] teamchat seat place-lxc --user <user> --checkout <dir>",
+	} {
+		if !strings.Contains(out.stderr, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, out.stderr)
+		}
+	}
+}
+
 // X33: a failure at each write, landed or not, leaves the CA, the leaf and the LXC record as
 // they were, prints no handle, and says nothing was replaced.
 func TestX33TheVerbFailingAtEachWriteChangesNothing(t *testing.T) {

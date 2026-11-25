@@ -30,7 +30,9 @@ carries, so the cut is hard: every seat is cut off until its bundle carries the 
 stdout is the handles of the seats this host does not place itself (placed by the owner's
 ` + "`seat place-issued`" + ` pipe, here or over ssh), one per line: place each again with
   sudo ` + paths.AdminBinary + ` member reissue --team <team> --handle <handle> --credential password | [ssh <alias>] teamchat seat place-issued --checkout <dir>
-The LXC seats are reissued with the new CA by the next lxc apply (` + paths.PlayFile + `).
+An LXC handle among them is a container on another host, placed again with a token:
+  sudo ` + paths.AdminBinary + ` member reissue --team <team> --handle <handle> --credential token | [ssh <alias>] teamchat seat place-lxc --user <user> --checkout <dir>
+The LXC seats this host's record holds are reissued with the new CA by the next lxc apply (` + paths.PlayFile + `).
 Run the Element play (` + paths.ElementPlayFile + `) again afterwards: the CA it placed is the old one.
 
 The team's backups hold its CA. A backup taken before a rotation holds the old CA and leaf, and
@@ -41,6 +43,7 @@ restoring it undoes the rotation: run team rotate-ca again after restoring one.
 type rotation struct {
 	ca         host.RotatedCA
 	byOwner    []string
+	offHostLXC bool
 	lxcReissue []string
 }
 
@@ -100,10 +103,17 @@ func rotateCA(ctx context.Context, sys *System, team paths.TeamID) (rotation, er
 	if err != nil {
 		return rotation{}, err
 	}
+	rec, _, err := lxcstate.ReadRecord(sys.Host.Root, team)
+	if err != nil {
+		return rotation{}, err
+	}
 	var r rotation
 	for _, m := range view.Members {
-		if m.State == apply.MemberEnrolled && m.Kind != status.KindLXC {
+		// A seat this host's LXC record holds is reissued by the next lxc apply; every other
+		// enrolled seat, an LXC seat on another host included, is placed again by its owner.
+		if _, hostPlaced := rec.ByHandle(m.Handle); m.State == apply.MemberEnrolled && !hostPlaced {
 			r.byOwner = append(r.byOwner, m.Handle)
+			r.offHostLXC = r.offHostLXC || m.Kind == status.KindLXC
 		}
 	}
 	slices.Sort(r.byOwner)
@@ -166,6 +176,11 @@ func rotatedText(team paths.TeamID, r rotation) string {
 		say("each handle on stdout holds a bundle with the old CA: place it again with the pipe it was placed by: " +
 			"sudo " + paths.AdminBinary + " member reissue --team " + team.String() + " --handle <handle> --credential password" +
 			" | [ssh <alias>] teamchat seat place-issued --checkout <dir>")
+	}
+	if r.offHostLXC {
+		say("an LXC handle on stdout (a container on another host) is placed again with a token: " +
+			"sudo " + paths.AdminBinary + " member reissue --team " + team.String() + " --handle <handle> --credential token" +
+			" | [ssh <alias>] teamchat seat place-lxc --user <user> --checkout <dir>")
 	}
 	if len(r.lxcReissue) > 0 {
 		say("the LXC seats " + strings.Join(r.lxcReissue, ", ") + " are reissued with the new CA by the next lxc apply (" + paths.PlayFile + ")")
