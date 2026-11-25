@@ -82,8 +82,8 @@ filled in as each cause is known.
 - **Severity:** critical. **Issue:** #416. **Unit:** U5. **State:** first slice merged (751bdeab3),
   `ccy-teams seats add <team>` on the homeserver's machine (derived handle, one sudo, issue and
   place; worker seats take no human text by default); seat creation in the launch follows U3;
-  the rest waits on the owner (Q6, [reports/U5.md](reports/U5.md)). **Fixed on v2-smoke; batch
-  7** (ccy 3.124.50): a bare `ccy --teams <team>` / `cc --teams <team>` with no free seat of its
+  the rest waits on the owner (Q6, [reports/U5.md](reports/U5.md)). **Fixed on F44 (batch
+  7, `800d9eed7`)** (ccy 3.124.51): a bare `ccy --teams <team>` / `cc --teams <team>` with no free seat of its
   kind (and the chooser's new-seat row) runs the same add in process (`seatadd.Adder.NewSeat`,
   wired as the chooser's `NewSeat`) and launches the new seat instead of ending 78; a team served
   on another machine is still 78, naming the route ([reports/R5.md](reports/R5.md)). Live proof
@@ -555,8 +555,8 @@ filled in as each cause is known.
   whose seat part is N (`teamchatlaunch.ChooseSeat`), also with no kind check.
 - **Fix:** with R5: the pool offered and the seat named are those of the launcher's kind; a
   named seat of the other kind is refused, naming the kind. **Severity:** medium (a host agent
-  can start on a podman seat's identity). **Issue:** TBF. **State:** fixed on v2-smoke; batch 7
-  (ccy 3.124.50). Every pool read a launch chooses from takes the kind (the handle's type, a
+  can start on a podman seat's identity). **Issue:** TBF. **State:** fixed on F44 (batch 7,
+  `800d9eed7`, ccy 3.124.51). Every pool read a launch chooses from takes the kind (the handle's type, a
   plain string) as a parameter (`system.PoolState`, `Cmd.Handles`/`SeatCount`/`PoolState`, the
   chooser's `Teamchat` fields, `teamchatlaunch.ChooseSeat`), so every caller passes one, though
   nothing at compile time checks its value. `Launch.Kind` is a plain field, so `Launch.Run` and
