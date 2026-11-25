@@ -28,6 +28,7 @@ func TestStatusShowsEachTeamItsMembersRoomsAndTheRuntime(t *testing.T) {
 		},
 		Rooms: proto.SideRooms{Questions: qRoom},
 	})
+	f.notices.setPresence(map[string]string{agent(ops, 1): "online", agent(ops, 2): "unavailable"}, nil)
 	w.persistBatch(team.Batch{Team: ops, NextBatch: "s1", Counts: team.Counts{Ignored: 2, Gaps: 1}})
 	check(t, w.e.Refuse(t.Context(), dev, w.run))
 	d, out := w.serve(t.Context(), wire.OpStatus, wire.TeamsArgs{})
@@ -54,10 +55,10 @@ func checkOpsStatus(t *testing.T, out *recorder) {
 	if out.recs[0] != records.Record(want) {
 		t.Fatalf("the team record = %+v, want %+v", out.recs[0], want)
 	}
-	if m, ok := out.recs[1].(records.Member); !ok || !m.Present || m.Role != "worker" {
+	if m, ok := out.recs[1].(records.Member); !ok || !m.Present || m.Presence != presenceOnline || m.Role != "worker" {
 		t.Fatalf("self = %+v", out.recs[1])
 	}
-	if m, ok := out.recs[2].(records.Member); !ok || m.Present {
+	if m, ok := out.recs[2].(records.Member); !ok || m.Present || m.Presence != "unavailable" {
 		t.Fatalf("the other agent = %+v", out.recs[2])
 	}
 	for i, st := range []string{roomJoined, roomNotCoordinator, roomAbsent} {
@@ -67,6 +68,60 @@ func checkOpsStatus(t *testing.T, out *recorder) {
 	}
 	if r, ok := out.recs[6].(records.Team); !ok || r.Team.String() != "dev" || !r.Down || r.Delivery != state.DeliveryNone {
 		t.Fatalf("the refused add = %+v", out.recs[6])
+	}
+}
+
+// R14 (Plan 00265): a member record's presence is the homeserver's for that account (A 6.6),
+// asked of every agent in the roster, this member included; present is presence online, so a
+// peer whose link syncs shows present. None recorded, or a read that failed, is unknown, never
+// a guess; a human in the roster is not asked.
+func TestStatusShowsEachMembersPresenceAsTheHomeserverReadsIt(t *testing.T) {
+	w := newWorld(t, state.DeliveryWait)
+	ops := tid(t, "ops")
+	f := w.held(ops)
+	f.notices.set(proto.Roster{Members: map[string]proto.RosterMember{
+		agent(ops, 1): {Role: "worker"}, agent(ops, 2): {Role: "coordinator"}, agent(ops, 3): {Role: "worker"}, alice(ops): {},
+	}})
+	f.notices.setPresence(map[string]string{agent(ops, 1): "online", agent(ops, 2): "online"}, nil)
+	want := map[string]string{"repo.1+site.podman": presenceOnline, "repo.2+site.podman": presenceOnline, "repo.3+site.podman": presenceUnknown}
+	checkPresence(t, w, want)
+	f.notices.mu.Lock()
+	asked := strings.Join(f.notices.asked, " ")
+	f.notices.mu.Unlock()
+	if wantAsked := strings.Join([]string{agent(ops, 1), agent(ops, 2), agent(ops, 3)}, " "); asked != wantAsked {
+		t.Errorf("asked %q, want %q (no human)", asked, wantAsked)
+	}
+	f.notices.setPresence(map[string]string{agent(ops, 1): "online", agent(ops, 2): "offline", agent(ops, 3): "unavailable"}, nil)
+	want = map[string]string{"repo.1+site.podman": presenceOnline, "repo.2+site.podman": "offline", "repo.3+site.podman": "unavailable"}
+	checkPresence(t, w, want)
+	f.notices.setPresence(nil, errors.New("the homeserver is away"))
+	want = map[string]string{"repo.1+site.podman": presenceUnknown, "repo.2+site.podman": presenceUnknown, "repo.3+site.podman": presenceUnknown}
+	checkPresence(t, w, want)
+	if logged := w.log.String(); !strings.Contains(logged, "the homeserver is away") {
+		t.Errorf("a failed presence read was not logged: %s", logged)
+	}
+}
+
+// checkPresence serves status and checks each member record's presence, and present with it.
+func checkPresence(t *testing.T, w *world, want map[string]string) {
+	t.Helper()
+	_, out := w.serve(t.Context(), wire.OpStatus, wire.TeamsArgs{})
+	got := map[string]string{}
+	for _, r := range out.recs {
+		if m, ok := r.(records.Member); ok {
+			got[m.Handle] = m.Presence
+			if m.Present != (m.Presence == presenceOnline) {
+				t.Errorf("%s: present %v beside presence %q", m.Handle, m.Present, m.Presence)
+			}
+		}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("members %v, want %v", got, want)
+	}
+	for h, p := range want {
+		if got[h] != p {
+			t.Errorf("%s presence = %q, want %q", h, got[h], p)
+		}
 	}
 }
 

@@ -513,6 +513,14 @@ func (n notices) SetPresence(ctx context.Context, userID, presence string) error
 	return c.SetPresence(ctx, userID, presence)
 }
 
+func (n notices) Presence(ctx context.Context, userID string) (string, bool, error) {
+	c, _, err := n.t.current()
+	if err != nil {
+		return "", false, err
+	}
+	return c.Presence(ctx, userID)
+}
+
 // Anchors are the pair's, empty when it cannot be read.
 func (n notices) Anchors() proto.Anchors {
 	p, err := n.t.readPair(n.t.cfg.Root, n.t.cfg.Seat)

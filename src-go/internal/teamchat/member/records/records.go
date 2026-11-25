@@ -422,12 +422,16 @@ type TeamCounts struct {
 	Unsent int64 `json:"unsent"`
 }
 
-// Member is one member of a team.
+// Member is one member of a team. Presence is the homeserver's Matrix presence for the account
+// as `status` read it (A 6.6: display, not liveness): online while its link's sync runs,
+// unavailable then offline by the server's timers once it stops, offline at a clean end, and
+// unknown when none is recorded or the read failed. Present is Presence online.
 type Member struct {
-	Team    paths.TeamID `json:"team"`
-	Handle  string       `json:"handle"`
-	Role    string       `json:"role"`
-	Present bool         `json:"present"`
+	Team     paths.TeamID `json:"team"`
+	Handle   string       `json:"handle"`
+	Role     string       `json:"role"`
+	Present  bool         `json:"present"`
+	Presence string       `json:"presence"`
 }
 
 // Room is one of a team's side rooms. Check names the failed check of an untrusted room, or the
