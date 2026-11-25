@@ -194,8 +194,11 @@ func Wire(h *host.Host) *App {
 			Stdout: h.Payload, Stderr: h.Stderr, Getenv: h.Getenv, Getwd: os.Getwd,
 		},
 		SeatAdd: &seatadd.Cmd{
-			Stdout: h.Payload, Stderr: h.Stderr, Getenv: h.Getenv, Getwd: os.Getwd, Status: system.StatusRecord,
-			Origin: h.Git.RemoteURL, Site: seatadd.HostVarsSite(h.HostVars), Sudo: h.Sudo, Place: placeissued.Place,
+			Stdout: h.Payload, Stderr: h.Stderr, Getwd: os.Getwd,
+			Adder: &seatadd.Adder{
+				Getenv: h.Getenv, Status: system.StatusRecord, Origin: h.Git.RemoteURL, Site: seatadd.HostVarsSite(h.HostVars),
+				Issuer: seatadd.SudoIssuer{Sudo: h.Sudo}, Place: placeissued.Place,
+			},
 		},
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)

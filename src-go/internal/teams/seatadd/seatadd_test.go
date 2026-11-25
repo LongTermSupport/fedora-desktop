@@ -70,15 +70,15 @@ func newWorld(t *testing.T) *world {
 	return &world{
 		t: t, checkout: checkout,
 		env:    map[string]string{"HOME": root, "XDG_STATE_HOME": filepath.Join(root, "state"), "XDG_RUNTIME_DIR": filepath.Join(root, "run")},
-		record: status.Record{Team: team(t, "alpha")}, found: true,
+		record: status.Record{Team: alpha(t)}, found: true,
 		origin: "git@github.com:owner/Fedora-Desktop.git",
 		sudo:   &fakeSudo{res: execx.Result{Stdout: []byte(issuedAnswer + "\n")}},
 	}
 }
 
-func team(t *testing.T, s string) paths.TeamID {
+func alpha(t *testing.T) paths.TeamID {
 	t.Helper()
-	id, err := paths.ParseTeamID(s)
+	id, err := paths.ParseTeamID("alpha")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func (w *world) pool(name string) {
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	if err := os.MkdirAll(store.PoolSeat(key, team(w.t, "alpha"), seatName).Dir(), 0o700); err != nil {
+	if err := os.MkdirAll(store.PoolSeat(key, alpha(w.t), seatName).Dir(), 0o700); err != nil {
 		w.t.Fatal(err)
 	}
 }
@@ -113,8 +113,15 @@ func (w *world) run(args ...string) term.ExitCode {
 
 func (w *world) cmd() *Cmd {
 	return &Cmd{
-		Stdout: &w.out, Stderr: &w.err, Getenv: w.getenv,
-		Getwd:  func() (string, error) { return w.checkout, nil },
+		Stdout: &w.out, Stderr: &w.err,
+		Getwd: func() (string, error) { return w.checkout, nil },
+		Adder: w.adder(),
+	}
+}
+
+func (w *world) adder() *Adder {
+	return &Adder{
+		Getenv: w.getenv,
 		Status: func(paths.TeamID) (status.Record, bool, error) { return w.record, w.found, nil },
 		Origin: func(_ context.Context, dir string) (string, error) {
 			if dir != w.checkout {
@@ -122,8 +129,8 @@ func (w *world) cmd() *Cmd {
 			}
 			return w.origin, nil
 		},
-		Site: func() (string, error) { return w.site, nil },
-		Sudo: w.sudo,
+		Site:   func() (string, error) { return w.site, nil },
+		Issuer: SudoIssuer{Sudo: w.sudo},
 		Place: func(_ context.Context, d placeissued.Deps, doc io.Reader) (placeissued.Placed, error) {
 			data, err := io.ReadAll(doc)
 			if err != nil {
@@ -142,7 +149,7 @@ func (w *world) cmd() *Cmd {
 			if err != nil {
 				return placeissued.Placed{}, err
 			}
-			return placeissued.Placed{Team: team(w.t, "alpha"), Seat: seatName}, nil
+			return placeissued.Placed{Team: alpha(w.t), Seat: seatName}, nil
 		},
 	}
 }
@@ -164,7 +171,7 @@ func TestAddDerivesIssuesAndPlaces(t *testing.T) {
 	}
 	want := []string{
 		paths.AdminBinaryPath, "member", "add", "--team", "alpha", "--prefix", "fedora-desktop+local.podman",
-		"--seat", "1", "--kind", "podman", "--human-text", "true", "--credential", "password",
+		"--seat", "1", "--kind", "podman", "--human-text", "false", "--credential", "password",
 	}
 	if !slices.Equal(w.sudo.argv, want) {
 		t.Errorf("argv %q\nwant %q", w.sudo.argv, want)
@@ -219,15 +226,15 @@ func TestAddSiteAndRepoSources(t *testing.T) {
 	}
 }
 
-// --host is a host cc seat: type and kind host, launched with cc. --no-human-text issues a seat
-// that takes no human text.
+// --host is a host cc seat: type and kind host, launched with cc. --human-text issues a seat
+// that takes the humans' text (a worker seat does not by default, the owner's word).
 func TestAddHostSeat(t *testing.T) {
 	w := newWorld(t)
-	if code := w.run("--host", "alpha", "--no-human-text"); code != term.ExitOK {
+	if code := w.run("--host", "alpha", "--human-text"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, w.err.String())
 	}
 	argv := strings.Join(w.sudo.argv, " ")
-	for _, s := range []string{"--prefix fedora-desktop+local.host", "--kind host", "--human-text false"} {
+	for _, s := range []string{"--prefix fedora-desktop+local.host", "--kind host", "--human-text true"} {
 		if !strings.Contains(argv, s) {
 			t.Errorf("argv %q lacks %q", argv, s)
 		}
@@ -313,12 +320,12 @@ func TestAddStopsOnASeamFailure(t *testing.T) {
 	for name, spoil := range map[string]func(*Cmd){
 		"working directory": func(c *Cmd) { c.Getwd = func() (string, error) { return "", boom } },
 		"status record": func(c *Cmd) {
-			c.Status = func(paths.TeamID) (status.Record, bool, error) { return status.Record{}, false, boom }
+			c.Adder.Status = func(paths.TeamID) (status.Record, bool, error) { return status.Record{}, false, boom }
 		},
-		"origin": func(c *Cmd) { c.Origin = func(context.Context, string) (string, error) { return "", boom } },
-		"site":   func(c *Cmd) { c.Site = func() (string, error) { return "", boom } },
+		"origin": func(c *Cmd) { c.Adder.Origin = func(context.Context, string) (string, error) { return "", boom } },
+		"site":   func(c *Cmd) { c.Adder.Site = func() (string, error) { return "", boom } },
 		"repo": func(c *Cmd) {
-			c.Origin = func(context.Context, string) (string, error) { return "https://example.com/---.git", nil }
+			c.Adder.Origin = func(context.Context, string) (string, error) { return "https://example.com/---.git", nil }
 		},
 	} {
 		w := newWorld(t)
@@ -330,6 +337,34 @@ func TestAddStopsOnASeamFailure(t *testing.T) {
 		if w.sudo.readied {
 			t.Errorf("%s: sudo was asked", name)
 		}
+	}
+}
+
+// The launcher's chooser runs the same add in process: Add takes the request, says its progress
+// through Note only, writes nothing else, and answers the seat to launch.
+func TestAdderInProcess(t *testing.T) {
+	w := newWorld(t)
+	a := w.adder()
+	var notes []string
+	a.Note = func(s string) { notes = append(notes, s) }
+	got, err := a.Add(context.Background(), Request{Team: alpha(t), Checkout: w.checkout, Host: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Handle.String() != "fedora-desktop.1+local.host" || got.List != "1@alpha" || got.Launcher != "cc" {
+		t.Errorf("added %+v", got)
+	}
+	if len(notes) != 2 || w.out.Len() != 0 || w.err.Len() != 0 {
+		t.Errorf("notes %q, out %q, err %q", notes, w.out.String(), w.err.String())
+	}
+	if !strings.Contains(strings.Join(w.sudo.argv, " "), "--human-text false") {
+		t.Errorf("argv %q: a request with no HumanText issues false", w.sudo.argv)
+	}
+	a.Note = nil
+	w.sudo.argv = nil
+	w.member("fedora-desktop.1+local.host", "enrolled")
+	if _, err = a.Add(context.Background(), Request{Team: alpha(t), Checkout: w.checkout, Host: true}); err != nil {
+		t.Fatalf("a nil Note: %v", err)
 	}
 }
 
@@ -358,6 +393,7 @@ func TestAddUsage(t *testing.T) {
 		"two teams":    {"alpha", "beta"},
 		"bad team":     {"Alpha!"},
 		"unknown flag": {"alpha", "--seat"},
+		"old spelling": {"alpha", "--no-human-text"},
 	} {
 		w := newWorld(t)
 		if code := w.run(args...); code != term.ExitUsage {

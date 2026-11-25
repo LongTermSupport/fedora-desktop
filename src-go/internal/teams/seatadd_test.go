@@ -11,7 +11,8 @@ import (
 func TestDispatchSeatsAdd(t *testing.T) {
 	h := newHarness(t)
 	c := h.app.SeatAdd
-	if c == nil || c.Getwd == nil || c.Status == nil || c.Origin == nil || c.Site == nil || c.Sudo == nil || c.Place == nil {
+	if c == nil || c.Getwd == nil || c.Adder == nil || c.Adder.Status == nil || c.Adder.Origin == nil ||
+		c.Adder.Site == nil || c.Adder.Issuer == nil || c.Adder.Place == nil {
 		t.Fatalf("seats add is not wired: %+v", c)
 	}
 	if code := h.app.Run([]string{"seats", "add"}); code != term.ExitUsage {
