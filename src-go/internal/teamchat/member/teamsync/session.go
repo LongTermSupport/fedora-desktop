@@ -665,7 +665,7 @@ func (s *sess) commitJudged(j judged) {
 
 func empty(b team.Batch) bool {
 	return len(b.Items) == 0 && len(b.Redacts) == 0 && len(b.Floors) == 0 && len(b.Answered) == 0 &&
-		len(b.Echoes) == 0 && !b.Gap && b.Counts == team.Counts{} && len(b.HeldBack) == 0 &&
+		len(b.Echoes) == 0 && !b.Gap && b.Counts.IsZero() && len(b.HeldBack) == 0 &&
 		b.Questions == nil && !b.DropQuestions
 }
 
@@ -830,8 +830,7 @@ func (s *sess) judgeRoom(ctx context.Context, j *judged, rj roomJudge) (roomJudg
 	for _, raw := range rj.events {
 		v, err := proto.Parse(raw)
 		if err != nil {
-			j.batch.Counts.Dropped++
-			j.lines = append(j.lines, "an event that does not parse was dropped")
+			j.drop("", proto.ReasonSchema)
 			continue
 		}
 		if _, isState := v.Get("state_key"); isState {
@@ -915,8 +914,7 @@ func (s *sess) take(j *judged, v proto.Verdict, id string, restored func(int64) 
 	case proto.Ignore:
 		s.ignored(j, v, id, lk, counted)
 	case proto.Drop:
-		j.batch.Counts.Dropped++
-		j.lines = append(j.lines, fmt.Sprintf("dropped %s: %s", id, v.Reason))
+		j.drop(id, v.Reason)
 	case proto.Redact:
 		j.batch.Redacts = append(j.batch.Redacts, v.Redacts)
 		j.batch.Counts.Redacted++
@@ -941,6 +939,17 @@ func (s *sess) ignored(j *judged, v proto.Verdict, id string, lk proto.Lookup, c
 		j.unheard = append(j.unheard, id)
 		j.lines = append(j.lines, fmt.Sprintf("unheard %s: %s", id, v.Reason))
 	}
+}
+
+// drop is the one way an event is counted dropped: under its reason (status's `dropped_by`)
+// and with a log line naming the event, "" for one that does not parse (issue #422).
+func (j *judged) drop(id, reason string) {
+	j.batch.Counts.Drop(reason)
+	if id == "" {
+		j.lines = append(j.lines, "an event that does not parse was dropped: "+reason)
+		return
+	}
+	j.lines = append(j.lines, fmt.Sprintf("dropped %s: %s", id, reason))
 }
 
 // answered is SY4's answer to an own ping (A 8.2): a recorded ack or stale answer, or a

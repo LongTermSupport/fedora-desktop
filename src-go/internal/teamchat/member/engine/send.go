@@ -398,10 +398,21 @@ func (e *Engine) send(ctx context.Context, st sendTeam, kind string, compose com
 		return doneOf(exits.New(exits.CodeStore, &st.id, msgStoreWrite, exits.Team(st.id)))
 	}
 	failpoint.Hit(failpoint.LinkAfterChargeBeforeSend)
+	to := sentTo(st.namer(), o.Content)
 	if queuedNow {
-		return answerSent(out, st.id, entry.Room, nil)
+		return answerSent(out, st.id, entry.Room, to, nil)
 	}
-	return e.awaitSend(ctx, out, st.id, entry, wait)
+	return e.awaitSend(ctx, out, st.id, entry, to, wait)
+}
+
+// sentTo is the composed content's addressees as full handles, for the sent record.
+func sentTo(n namer, content proto.Value) []string {
+	ids := contentTo(content)
+	to := make([]string, 0, len(ids))
+	for _, id := range ids {
+		to = append(to, n.from(id))
+	}
+	return to
 }
 
 // fitEntry is a composed send's store entry, or its refusal before anything is spent: a content
@@ -425,11 +436,11 @@ func fitEntry(st sendTeam, kind string, o proto.Outgoing) (state.Sending, wire.D
 }
 
 // awaitSend is a charged send's answer: posted when the sender answers by ctx's end, else queued.
-func (e *Engine) awaitSend(ctx context.Context, out RecordWriter, t paths.TeamID, entry state.Sending, wait chan sendResult) wire.Done {
+func (e *Engine) awaitSend(ctx context.Context, out RecordWriter, t paths.TeamID, entry state.Sending, to []string, wait chan sendResult) wire.Done {
 	if r, ok := e.awaitResult(ctx, t, entry.Txn, wait); ok {
-		return e.answerResult(out, t, entry.Room, r)
+		return e.answerResult(out, t, entry.Room, to, r)
 	}
-	return answerSent(out, t, entry.Room, nil)
+	return answerSent(out, t, entry.Room, to, nil)
 }
 
 // awaitResult is the sender's answer to a charged send by ctx's end; false for a send still
@@ -443,17 +454,17 @@ func (e *Engine) awaitResult(ctx context.Context, t paths.TeamID, txn string, wa
 	return e.unwait(context.WithoutCancel(ctx), t, txn, wait)
 }
 
-func (e *Engine) answerResult(out RecordWriter, t paths.TeamID, room string, r sendResult) wire.Done {
+func (e *Engine) answerResult(out RecordWriter, t paths.TeamID, room string, to []string, r sendResult) wire.Done {
 	if r.err != nil {
 		return doneOf(r.err)
 	}
-	return answerSent(out, t, room, &r.id)
+	return answerSent(out, t, room, to, &r.id)
 }
 
-// answerSent is the sent record: the event id, or null for a send the link holds, and the room
-// it goes to.
-func answerSent(out RecordWriter, t paths.TeamID, room string, id *string) wire.Done {
-	if err := out.Record(records.Sent{Team: t, ID: id, Room: room, Queued: id == nil}); err != nil {
+// answerSent is the sent record: the event id, or null for a send the link holds, the room it
+// goes to and its addressees.
+func answerSent(out RecordWriter, t paths.TeamID, room string, to []string, id *string) wire.Done {
+	if err := out.Record(records.Sent{Team: t, ID: id, Room: room, To: to, Queued: id == nil}); err != nil {
 		return internal(err)
 	}
 	if err := out.Flush(); err != nil {

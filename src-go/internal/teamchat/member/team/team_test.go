@@ -14,6 +14,31 @@ import (
 // gap 14: Judge reads the engine's View as its Lookup, from memory.
 var _ proto.Lookup = team.View{}
 
+// Issue #422: a drop is counted under its reason, and two counts add reason by reason without
+// sharing a map with either.
+func TestCountsDropAndAdd(t *testing.T) {
+	var a team.Counts
+	if !a.IsZero() {
+		t.Fatal("the zero counts are not zero")
+	}
+	a.Drop(proto.ReasonStale)
+	b := team.Counts{Ignored: 1}
+	b.Drop(proto.ReasonStale)
+	b.Drop(proto.ReasonRate)
+	sum := a.Add(b)
+	want := team.Counts{Ignored: 1, Dropped: 3, DroppedBy: map[string]int64{proto.ReasonStale: 2, proto.ReasonRate: 1}}
+	if !reflect.DeepEqual(sum, want) || a.IsZero() {
+		t.Errorf("sum = %+v, want %+v", sum, want)
+	}
+	sum.DroppedBy[proto.ReasonStale] = 9
+	if a.DroppedBy[proto.ReasonStale] != 1 || b.DroppedBy[proto.ReasonStale] != 1 {
+		t.Error("the sum shares a map with an operand")
+	}
+	if (team.Counts{}).Add(team.Counts{}).DroppedBy != nil {
+		t.Error("no drop made a map")
+	}
+}
+
 func TestViewIsJudgesLookup(t *testing.T) {
 	related := proto.Related{Sender: "@repo.2+site.podman:ops.teamchat.internal", RoomID: "!main", Verb: "ask"}
 	ping := proto.OwnPing{Verb: "ask", To: []string{"repo.3+site.lxc"}, OriginTs: 1_760_000_000_000}

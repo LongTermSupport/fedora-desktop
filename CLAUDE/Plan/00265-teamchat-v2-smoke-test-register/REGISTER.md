@@ -27,7 +27,9 @@ filled in as each cause is known.
   Decision: fix it in teamchat (the flag gates human text only), not by issuing seats true.
 - **Reproduce:** coordinator `say --to <worker>` to a worker whose roster entry has
   `human_text: false`.
-- **Severity:** critical. **Issue:** #422. **Unit:** U2. **State:** in progress (U2).
+- **Severity:** critical. **Issue:** #422. **Unit:** U2. **State:** fixed (U2, branch
+  `v2-smoke-u2-peer-delivery`). The live check and the owner question on `human_text` are in
+  `reports/U2.md`.
 
 ## R2: `reply` refuses an item `history` lists
 
@@ -36,7 +38,9 @@ filled in as each cause is known.
   has no item <id> in main". History shows the whole main room, overheard items included, and no
   `to`.
 - **Reproduce:** reply to a PEER id from history that was dropped (R1) or overheard.
-- **Severity:** high. **Issue:** #422. **Unit:** U2. **State:** in progress (U2).
+- **Severity:** high. **Issue:** #422. **Unit:** U2. **State:** fixed (U2). A dropped PEER is
+  now delivered, and `reply` to an overheard or judged-out event says why it refuses. The live
+  check is in `reports/U2.md`.
 
 ## R3: a launch with a team and no seat takes a held seat
 
@@ -279,7 +283,9 @@ before the move to v2. Filled in as causes are found.
 - **What:** the coordinator saw `ignored: 26` and `unsent: 1`, this seat `dropped: 10`; a drop's
   reason goes only to the link log.
 - **Reproduce:** `teamchat status`; compare with `history`.
-- **Severity:** high. **Issue:** #422. **Unit:** U2. **State:** in progress (U2).
+- **Severity:** high. **Issue:** #422. **Unit:** U2. **State:** partly fixed (U2): drops now carry
+  their reason (`counts.dropped_by`), and history records carry `to` and `for_me`. `ignored`
+  is still not split by reason, and `unsent` is untouched.
 
 ## R22: LXC containers on another host cannot join a v2 team
 

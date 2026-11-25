@@ -272,7 +272,7 @@ var table = []Verb{
 	{
 		Name: "history", Team: TeamMulti, Agent: true,
 		Flags: []Flag{{Name: "room", Value: "main|questions", check: checkRoom}, {Name: "limit", Value: "N", check: checkCount}},
-		Does:  "what this member received and sent, read from the room, newest first",
+		Does:  "the room's recent messages, oldest first, each with its addressees and whether it was for this member",
 	},
 	{Name: "verify", Team: TeamOne, Agent: true, Args: []Arg{eventArg}, Flags: []Flag{{Name: "room", Value: "main|questions", check: checkRoom}}, Does: "re-fetches one event from the homeserver: its verified kind, sender, team, room, full text and SHA-256"},
 	{Name: "status", Team: TeamMulti, Agent: true, Does: "this session's teams, roles, members, side rooms, delivery state, open pings and runtime"},

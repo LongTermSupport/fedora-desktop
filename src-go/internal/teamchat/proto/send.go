@@ -462,7 +462,30 @@ func (c Composer) checkMain(class SenderClass, content Value) (*ForgeCheck, erro
 	default:
 		return nil, refused(reason, "")
 	}
+	if err := c.addresseesTake(dc); err != nil {
+		return nil, err
+	}
 	return forge, nil
+}
+
+// addresseesTake refuses the addressees a receiver would not take (issue #422): the sender
+// itself, whose own event its receiver ignores, and, for a relay (a human's post passed on), an
+// agent whose roster entry says `human_text: false`, which takes no human text (rule 08).
+// Either would be "sent" and never seen.
+func (c Composer) addresseesTake(dc Content) error {
+	to := addressees(dc)
+	if slices.Contains(to, c.Self) {
+		return refused(ReasonTarget, "the addressees name this member itself, which never receives its own message")
+	}
+	if dc.Key != KeyText || dc.Text.Relay == nil {
+		return nil
+	}
+	for _, id := range to {
+		if _, agent := c.Roster.Members[id]; agent && !c.Roster.HumanText(id) {
+			return refused(ReasonTarget, id+" takes no human text (its roster entry says human_text false), so it would drop this relayed human post")
+		}
+	}
+	return nil
 }
 
 // checkNotice is a notice judged by the rules for its sender: the admin's under rule 06, never

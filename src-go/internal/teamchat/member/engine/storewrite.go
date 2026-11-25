@@ -258,7 +258,7 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (state.Floor, error)
 		}
 		e.afterQuestions(h, b.Team, dropped)
 		h.keepUncounted(b)
-		h.counts = addCounts(h.counts, b.Counts)
+		h.counts = h.counts.Add(b.Counts)
 		h.delivery.hold(b, lines)
 		h.note(notes, pruned)
 		for _, id := range unknown {
@@ -373,13 +373,6 @@ func raiseFloors(s *state.Store, left []state.Pending) (state.Floor, bool) {
 // would refuse an outage's events, sent before it was made, when the server returns.
 func fromServer(p state.Pending) bool {
 	return p.Item != records.KindTimeout
-}
-
-func addCounts(a, b team.Counts) team.Counts {
-	return team.Counts{
-		Ignored: a.Ignored + b.Ignored, Dropped: a.Dropped + b.Dropped, Unheard: a.Unheard + b.Unheard,
-		Gaps: a.Gaps + b.Gaps, Redacted: a.Redacted + b.Redacted,
-	}
 }
 
 // wake ends every wait's sleep and pokes the delivery loop; on the state goroutine.

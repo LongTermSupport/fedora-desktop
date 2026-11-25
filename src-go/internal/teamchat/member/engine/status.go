@@ -341,7 +341,7 @@ func teamRecords(v teamView, delivery string) []records.Record {
 		Team: v.id, Name: v.id.String(), Handle: v.handle, Role: v.health.Role, Trust: trustUnverified,
 		Delivery: delivery, Pending: v.pending, Down: v.health.Down || v.health.Stopped != "",
 		Counts: records.TeamCounts{
-			Ignored: v.counts.Ignored, Dropped: v.counts.Dropped, Unheard: v.counts.Unheard,
+			Ignored: v.counts.Ignored, Dropped: v.counts.Dropped, DroppedBy: droppedBy(v.counts), Unheard: v.counts.Unheard,
 			Gaps: v.counts.Gaps, Redacted: v.counts.Redacted, Unsent: v.unsent,
 			SeenTwice: v.seenTwice,
 		},
@@ -366,6 +366,15 @@ func teamRecords(v teamView, delivery string) []records.Record {
 	n := namer{server: server, roster: roster, verified: verified}
 	out = append(out, outboxRecords(v.id, v.pings, v.answers, n)...)
 	return append(out, queuedRecords(v.id, v.sending, n)...)
+}
+
+// droppedBy is the team's drops by reason as status shows them: a copy, empty for none.
+func droppedBy(c team.Counts) map[string]int64 {
+	out := maps.Clone(c.DroppedBy)
+	if out == nil {
+		out = map[string]int64{}
+	}
+	return out
 }
 
 // memberRecords are a verified team's member and room records.

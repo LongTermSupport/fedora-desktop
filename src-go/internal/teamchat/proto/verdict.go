@@ -451,10 +451,12 @@ func (j Judge) agent(v Verdict) Verdict {
 	switch {
 	case reason != "":
 		return drop(v, reason)
-	case kind == KindPeer && !j.Roster.HumanText(j.Self):
-		return drop(v, ReasonSender)
 	case !slices.Contains(addressees(c), j.Self):
 		return ignore(v, IgnoreNotAddressed)
+	case c.Key == KeyText && c.Text.Relay != nil && !j.Roster.HumanText(j.Self):
+		// human_text gates a human's words only (issue #422): a relay carries a human's post,
+		// an agent's own text (PEER) is taken by any member it addresses.
+		return drop(v, ReasonSender)
 	}
 	v.Forge = forge
 	answer, stale, isAnswer := j.answer(v)
@@ -517,6 +519,9 @@ func probeCheckOf(lookup Lookup, r Roster, c Content) bool {
 	root, ok := lookup.Event(c.Relation.Root)
 	return ok && root.Verb == VerbCheck && r.Members[root.Sender].Role == RoleProbe
 }
+
+// Addressees is the content's `to`, as rule 09 reads it.
+func (c Content) Addressees() []string { return addressees(c) }
 
 // addressees is the content's `to`.
 func addressees(c Content) []string {

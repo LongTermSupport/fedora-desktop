@@ -443,10 +443,10 @@ Records (all also carry `"v": 1`; `team` is always present, B5):
 {"kind":"notice","team":"<team>","id":"$<43>","from":"admin","sent_ms":1760000000000,"event":"added","subject":"<repo>.4+<site>.lxc","reason":"worker","carried":null}
 {"kind":"fact","team":"<team>","fact":"held-back","from":"<repo>.2+<site>.podman","count":12,"id":null}
 {"kind":"outbox","team":"<team>","id":"$<43>","verb":"review","ref":"pr:<owner>/<repo>#12@<sha40>","to":["<repo>.3+<site>.lxc"],"due_ms":1760000900000,"answers":[{"from":"<repo>.3+<site>.lxc","verb":"ack","id":"$<43>","late":false}],"timed_out":[]}
-{"kind":"sent","team":"<team>","id":"$<43>","room":"main"}
+{"kind":"sent","team":"<team>","id":"$<43>","room":"main","to":["<repo>.3+<site>.lxc"],"queued":false}
 {"kind":"pending","team":"<team>","id":"$<43>","from":"alice","item":"human","sent_ms":1760000000000}
 {"kind":"question","team":"<team>","n":4,"state":"open","id":"$<43>","asked_by":["<repo>.2+<site>.podman"],"unanswered":["$<43>"]}
-{"kind":"history","team":"<team>","dir":"in","item":{"kind":"human","...":"..."}}
+{"kind":"history","team":"<team>","dir":"in","to":["<repo>.2+<site>.podman"],"for_me":true,"item":{"kind":"human","...":"..."}}
 {"kind":"verified","team":"<team>","id":"$<43>","item":"human","from":"alice","room":"main","text":"Please push the branch.","body_sha256":"<64 hex>","sent_ms":1760000000000}
 {"kind":"more","team":null,"pending":14}
 {"kind":"team","team":"<team>","name":"<display name>","handle":"<repo>.2+<site>.podman","role":"worker","about":"Release work for the desktop","trust":"trusted","delivery":"socket","pending":0,"down":false}
