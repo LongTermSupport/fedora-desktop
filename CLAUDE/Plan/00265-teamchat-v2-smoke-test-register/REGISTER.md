@@ -69,7 +69,10 @@ workaround; medium misleads; low is cosmetic.
 - **What:** "the send was refused (ref); fix the message" does not say that `--ref` is missing
   or what it must be.
 - **Reproduce:** answer a fetch PING with `teamchat reply <id> --verb done` and no `--ref`.
-- **Severity:** medium. **Issue:** #421. **Unit:** U1. **State:** in progress (U1).
+- **Severity:** medium. **Issue:** #421. **Unit:** U1.
+  **State:** fixed (merge ea576bbbf): each refusal reason has its own message naming the cause
+  and the next step; a ref refusal names the verb, `--ref`, the forms it takes and the pinged ref.
+  Defence: project rule `project_refusal_reason_text` (red on 3 real sites, green after).
 
 ## R7: no reply in the thread of a human's top-level post
 
@@ -154,6 +157,22 @@ workaround; medium misleads; low is cosmetic.
 - **What:** after a reply to an edited human post, the edit stays in the unanswered list.
 - **Severity:** medium. **Issue:** TBF. **State:** open.
 
+## R29: repository tooling that slowed the units (not v2 itself)
+
+- **Seen:** U1, U6 and this seat, 2026-11-25, with eight units running at once.
+- **What:**
+  - the QA lock lets a later run overtake one already waiting, so a unit's `qa-changed` never
+    got the lock;
+  - `lint_on_edit` denies Go edits with "parallel golangci-lint is running" (a lock clash, not a
+    finding);
+  - lint runs over the `analysistest` fixtures, which are meant to hold defects;
+  - error-hiding and secret guards fired false positives on the units' code;
+  - the branch pool counts unit branches merged into the integration branch as open, so the
+    owner's one-integration-branch pattern exceeds the cap and the stop guard recorded the active
+    `v2-smoke` as abandoned.
+- **Severity:** medium. **Issue:** TBF (each to its owner: this repository's QA, the hooks
+  daemon). **State:** open.
+
 ## R13: restore's dry run says only "already running"
 
 - **Seen:** the devops seat, home dev VM, 2026-11-25.
@@ -201,7 +220,9 @@ workaround; medium misleads; low is cosmetic.
 - **Seen:** the devops seat, 2026-11-25.
 - **What:** `teamchat help ping` lists neither the closed verbs nor which take `--ref`.
 - **Reproduce:** `teamchat help ping`.
-- **Severity:** low. **Issue:** with #421. **Unit:** U1. **State:** in progress (U1).
+- **Severity:** low. **Issue:** with #421. **Unit:** U1.
+  **State:** fixed (merge ea576bbbf): `help ping` and `help reply` list the verbs and which take a
+  reference, built from `proto.Verbs`.
 
 ## R19: a human's messages are not batched
 
