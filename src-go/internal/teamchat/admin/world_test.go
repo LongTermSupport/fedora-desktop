@@ -97,6 +97,7 @@ type world struct {
 	status  []bool
 	statErr error
 	bundled []string
+	reaches []Reach
 	crash   *crashing
 	lie     func(*Answer) // a child that answers what it was not asked
 	regKeys []string
@@ -216,11 +217,12 @@ func (c inProcessChild) Ask(ctx context.Context, req Request) (Answer, error) {
 }
 
 // Bundle is the seat side's bundle as a test reads it: the handle and the credential.
-func (w *world) Bundle(_ context.Context, team declare.Team, handle, mainRoom string, c apply.Credential) (proto.Value, error) {
+func (w *world) Bundle(_ context.Context, team declare.Team, handle, mainRoom string, c apply.Credential, reach Reach) (proto.Value, error) {
 	if mainRoom != w.rooms(w.t).Main {
 		return proto.Value{}, errors.New("the bundle's main room is not the team's")
 	}
 	w.bundled = append(w.bundled, handle)
+	w.reaches = append(w.reaches, reach)
 	return proto.Obj(
 		proto.M("team", proto.Str(team.ID.String())), proto.M("handle", proto.Str(handle)),
 		proto.M("kind", proto.Str(c.Kind)), proto.M("secret", proto.Str(c.Secret)),

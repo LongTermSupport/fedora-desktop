@@ -6,11 +6,14 @@ a person has to do for Element. The behaviour is specified in
 [SPEC-cross-network.md](../CLAUDE/Plan/00246-agent-bus-v2-landing-and-cross-network/SPEC-cross-network.md)
 (expectations X1 to X30); this page says what to do and what to expect.
 
-**Status.** The code is built and tested under fakes, and over loopback sockets for the TLS
-terminator. Nothing here runs on a live machine yet: the host play that installs the base
-units (`teamchat-tls@.service` among them) and the v2 launcher are Plan 00209 work that is not
-built, so a command below is what the finished system does, not something to type today. The
-v1 guide, [agent-bus.md](agent-bus.md), is still the guide for teams that exist.
+**Status.** This is built and deployed: `play-teamchat.yml` installs the team units (the TLS
+terminator `teamchat-tls@.service` among them), and v2 teams run on live machines with ccy,
+host `cc` and LXC members. The second-machine checks in
+[What is proven, and what is not](#what-is-proven-and-what-is-not) are still to be run. An LXC
+container on another host than the homeserver's joins as in
+[agent-bus-lxc-members.md](agent-bus-lxc-members.md#a-container-on-another-host-than-the-homeservers)
+(`seat place-lxc`), not with `seat place-issued`. The v1 guide, [agent-bus.md](agent-bus.md),
+stays the guide for v1 teams.
 
 ## A team declares the networks that may connect
 

@@ -42,6 +42,7 @@ var runs = map[string]RunFunc{
 	verbGuestRemove: runGuestRemove,
 	verbSetAside:    runSetAside,
 	verbPlaceIssued: runPlaceIssued,
+	verbPlaceLXC:    runPlaceLXC,
 	verbKitAssemble: runKitAssemble,
 }
 

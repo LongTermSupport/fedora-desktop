@@ -413,8 +413,8 @@ teamchat_lxc_members:
   for the run that adds or changes the entry.
 - **LXC seats reach the team on the bridge.** A team with a present LXC member is served on the
   bridge as well as its declared networks, and the homeserver's certificate names the bridge's
-  address. Each LXC seat is given `https://<bridge address>:<port>`; every other seat is given
-  the team's `url`, which may therefore be a name or any address the other machines reach. The
+  address. Each LXC seat the play places is given `https://<bridge address>:<port>`; every other
+  seat (an LXC container on another host included) is given the team's `url`, which may therefore be a name or any address the other machines reach. The
   `url` must be https. `team apply` and `lxc apply` refuse a team whose listen set has no address
   inside the bridge's subnet, or whose `url` is plain http, since no guest could reach it.
   `teamchat_address` (the `teamchat0` bus address) is not built in the play, which refuses it.
@@ -437,3 +437,68 @@ teamchat_lxc_members:
   run while the team stays declared absent. `team remove` itself refuses a team whose record
   still holds a seat that has not left, naming it.
 - `teamchat_only_teams` scopes both LXC phases to the teams it names, as it scopes the teams.
+- **The agent user's uid must not be a desktop account's.** A guest user whose uid is also a
+  user's on the host is refused (a privileged container shares the host's uids, so that user's
+  files would be the agent's); the play says `the user's uid is a host account's (K15)`. A
+  container that gives its agent user the host user's uid cannot
+  join: give it a dedicated agent user with a uid no host account has.
+
+### Starting a v2 LXC session by hand or from the container's own launcher
+
+The session unit's line is the one to run by hand as the agent user in the checkout (a
+`service: false` seat), with the seat key from the play's `lxc apply` lines:
+
+```bash
+teamchat run --claude --kind lxc --key <seat key> -- claude
+```
+
+`--key` gives the seat's files (`~/.config/teamchat/lxc/<seat key>/`), placed by the play or by
+`seat place-lxc` (below). A container repository's own launcher may put its wrapper between
+`teamchat run` and `claude`, so its own sign-in choice and supervisor keep working:
+
+```bash
+teamchat run --claude --kind lxc --key <seat key> [--resume-recorded] -- <its wrapper> [its flags] claude [claude's flags]
+```
+
+The command after `--` must hold an argument named `claude` (the wrapper may take one bare `--`,
+directly before it), and must not hold `--settings` or `--plugin-dir`: `teamchat run` appends
+those, and its resume, after the last argument, so the wrapper passes every argument after
+`claude` to Claude Code unchanged and runs it as its child or by `exec`.
+
+**Signing in to Claude Code.** teamchat sets no credential. The session's `claude` (or the
+wrapper) is given the environment `teamchat run` was started with, so it signs in as Claude Code
+always does as that user: the agent user's own stored login (`claude` run once as that user, its
+`/login`), or a token in the environment the launcher sets (for example
+`CLAUDE_CODE_OAUTH_TOKEN`, exported by the wrapper; never put a token on a command line). The
+play's session unit sets only `HOME`, `XDG_RUNTIME_DIR` and `PATH`, so a unit-started session
+uses the stored login; a container that chooses a token per session starts its sessions with
+its own launcher, as above, and leaves `service` off.
+
+### A container on another host than the homeserver's
+
+An LXC container on a machine other than the team's homeserver host joins as an ordinary
+off-host client: nothing on the homeserver host reaches into it. It is not declared in
+`teamchat_lxc_members` (those are the homeserver host's own containers). It needs:
+
+- the member kit in the container: the kit directory a `play-teamchat.yml --tags member` run
+  assembles (`/usr/local/lib/teamchat/kit/<digest>/` and its `current` link), with
+  `/usr/local/bin/teamchat` linked to the kit's program; the program is static, so any Linux
+  distribution of the same architecture runs it;
+- a route to the team's `url` (a name or address that machine reaches), inside one of the
+  team's `networks`; the bundle carries the team CA, so nothing else is trusted;
+- an agent user that is not root, with a uid no account on the container's host has.
+
+The seat is issued on the homeserver host and piped into the container as the agent user, the
+token credential for an LXC seat, with the seat number the key is made from:
+
+```bash
+ssh <bus> sudo -S -p '' teamchat-admin member add --team <team> --prefix <repo>+<site>.lxc --seat <n> --kind lxc --human-text true --credential token | ssh <agent-user>@<container> teamchat seat place-lxc --user <agent-user> --checkout <checkout>
+```
+
+(the sudo password goes on the first ssh's stdin, as in
+[agent-bus-cross-network.md](agent-bus-cross-network.md#a-member-on-another-machine)). Every seat a
+person issues carries the team's `url`, never the bridge address the homeserver host's own LXC
+seats are given. `seat place-lxc` places the seat as the play would place it and prints its
+seat key on stdout; start the session with the line above and that key. A lost or exposed
+token, or a team CA rotation, is fixed with the same pipe with `member reissue --team <team> --handle <handle> --credential token` in place of `member add`; the key stays the same. `team rotate-ca` lists such a seat's handle
+among those to place again by hand, and names this pipe for it.

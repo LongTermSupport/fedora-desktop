@@ -86,7 +86,7 @@ func TestSeatBundlesIsTheIssuedBundle(t *testing.T) {
 	}
 	for name, c := range cases {
 		team := alphaTeam(t, c.url)
-		v, err := seatBundlesWith(t, ca.get).Bundle(t.Context(), team, sampleHandle, sampleRoom, c.cred)
+		v, err := seatBundlesWith(t, ca.get).Bundle(t.Context(), team, sampleHandle, sampleRoom, c.cred, ReachURL)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -125,32 +125,57 @@ func (l *lxcURLs) get(team declare.Team) (string, error) {
 	return l.url, l.err
 }
 
-// TestSeatBundlesGivesAnLXCSeatTheBridgeURL is X5: a seat of kind lxc is given the LXC seats'
-// url, the team's listen address on the bridge, pinned to the same team CA; every other seat
-// kind is given the team's url, and the LXC url is never asked for it.
+// TestSeatBundlesGivesAnLXCSeatTheBridgeURL is X5: a seat the host's lxc apply places in a guest
+// on this host (ReachBridge) is given the LXC seats' url, the team's listen address on the
+// bridge, pinned to the same team CA. Every seat a person issues (ReachURL) goes to another
+// machine through a pipe, an LXC container on another host included (issue 425 A1), and is
+// given the team's url; the LXC url is never asked for it.
 func TestSeatBundlesGivesAnLXCSeatTheBridgeURL(t *testing.T) {
 	ca := newTeamCA(t)
 	team := alphaTeam(t, httpsURL)
 	cred := apply.Credential{Kind: apply.CredToken, Secret: "syt_tok~1"}
-	for handle, want := range map[string]string{lxcHandle: "https://198.51.100.1:8448", sampleHandle: httpsURL, "thing.1+desk.host": httpsURL, "thing.1+lab.vm": httpsURL} {
-		urls := &lxcURLs{url: "https://198.51.100.1:8448"}
+	const bridge = "https://198.51.100.1:8448"
+	cases := []struct {
+		handle string
+		reach  Reach
+		want   string
+	}{
+		{lxcHandle, ReachBridge, bridge},
+		{lxcHandle, ReachURL, httpsURL},
+		{sampleHandle, ReachURL, httpsURL},
+		{"thing.1+desk.host", ReachURL, httpsURL},
+		{"thing.1+lab.vm", ReachURL, httpsURL},
+	}
+	for _, c := range cases {
+		urls := &lxcURLs{url: bridge}
 		sb := seatBundlesWith(t, ca.get)
 		sb.LXCURL = urls.get
-		v, err := sb.Bundle(t.Context(), team, handle, sampleRoom, cred)
+		v, err := sb.Bundle(t.Context(), team, c.handle, sampleRoom, cred, c.reach)
 		if err != nil {
-			t.Fatalf("%s: %v", handle, err)
+			t.Fatalf("%s %v: %v", c.handle, c.reach, err)
 		}
 		issued, err := seat.DecodeIssued(v.Compact())
 		if err != nil {
-			t.Fatalf("%s: %v", handle, err)
+			t.Fatalf("%s: %v", c.handle, err)
 		}
-		if issued.Seat.BaseURL != want || issued.Seat.TLSCA != ca.pem {
-			t.Errorf("%s: base_url %q, want %q; tls_ca the team's: %t", handle, issued.Seat.BaseURL, want, issued.Seat.TLSCA == ca.pem)
+		if issued.Seat.BaseURL != c.want || issued.Seat.TLSCA != ca.pem {
+			t.Errorf("%s %v: base_url %q, want %q; tls_ca the team's: %t", c.handle, c.reach, issued.Seat.BaseURL, c.want, issued.Seat.TLSCA == ca.pem)
 		}
-		wantAsked := map[bool]int{true: 1, false: 0}[handle == lxcHandle]
+		wantAsked := map[bool]int{true: 1, false: 0}[c.reach == ReachBridge]
 		if len(urls.asked) != wantAsked || (wantAsked == 1 && urls.asked[0].ID != team.ID) {
-			t.Errorf("%s: the LXC url was asked for %v, want %d asks", handle, urls.asked, wantAsked)
+			t.Errorf("%s %v: the LXC url was asked for %v, want %d asks", c.handle, c.reach, urls.asked, wantAsked)
 		}
+	}
+}
+
+// TestSeatBundlesPlacesOnlyAnLXCSeatOnTheBridge: the bridge is for an LXC guest's seat alone;
+// any other handle asked for it is issued no bundle.
+func TestSeatBundlesPlacesOnlyAnLXCSeatOnTheBridge(t *testing.T) {
+	sb := seatBundles(t)
+	sb.LXCURL = (&lxcURLs{url: "https://198.51.100.1:8448"}).get
+	cred := apply.Credential{Kind: apply.CredToken, Secret: "syt_tok~1"}
+	if _, err := sb.Bundle(t.Context(), alphaTeam(t, httpsURL), sampleHandle, sampleRoom, cred, ReachBridge); err == nil {
+		t.Fatal("a seat that is not of kind lxc was placed on the bridge")
 	}
 }
 
@@ -166,7 +191,7 @@ func TestSeatBundlesFailsWithoutTheLXCURL(t *testing.T) {
 	} {
 		sb := seatBundles(t)
 		sb.LXCURL = provider
-		_, err := sb.Bundle(t.Context(), alphaTeam(t, httpsURL), lxcHandle, sampleRoom, cred)
+		_, err := sb.Bundle(t.Context(), alphaTeam(t, httpsURL), lxcHandle, sampleRoom, cred, ReachBridge)
 		if err == nil || strings.Contains(err.Error(), cred.Secret) {
 			t.Errorf("%s: %v", name, err)
 		}
@@ -183,7 +208,7 @@ func TestSeatBundlesAsksForTheCAOnlyForHTTPS(t *testing.T) {
 	for url, wantAsked := range map[string]int{loopbackURL: 0, "http://[::1]:8448": 0, httpsURL: 1} {
 		ca := newTeamCA(t)
 		team := alphaTeam(t, url)
-		if _, err := seatBundlesWith(t, ca.get).Bundle(t.Context(), team, sampleHandle, sampleRoom, cred); err != nil {
+		if _, err := seatBundlesWith(t, ca.get).Bundle(t.Context(), team, sampleHandle, sampleRoom, cred, ReachURL); err != nil {
 			t.Fatalf("%s: %v", url, err)
 		}
 		if len(ca.asked) != wantAsked || (wantAsked == 1 && ca.asked[0] != team.ID) {
@@ -207,7 +232,7 @@ func TestSeatBundlesFailsWhenTheTeamCAFails(t *testing.T) {
 		"no provider": seatBundlesWith(t, nil),
 	}
 	for name, sb := range cases {
-		_, err := sb.Bundle(t.Context(), alphaTeam(t, httpsURL), sampleHandle, sampleRoom, cred)
+		_, err := sb.Bundle(t.Context(), alphaTeam(t, httpsURL), sampleHandle, sampleRoom, cred, ReachURL)
 		if err == nil {
 			t.Errorf("%s: no error", name)
 			continue
@@ -245,7 +270,7 @@ func TestSeatBundlesRefusesWhatSeatWouldRefuse(t *testing.T) {
 		"url":              {sb, alphaTeam(t, "http://[::1"), sampleHandle, sampleRoom, good},
 	}
 	for name, c := range cases {
-		_, err := c.sb.Bundle(t.Context(), c.team, c.handle, c.room, c.cred)
+		_, err := c.sb.Bundle(t.Context(), c.team, c.handle, c.room, c.cred, ReachURL)
 		if err == nil {
 			t.Errorf("%s: no error", name)
 			continue

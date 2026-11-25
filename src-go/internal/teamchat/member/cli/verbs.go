@@ -170,6 +170,7 @@ const (
 	verbGuestRemove = "guest remove"
 	verbSetAside    = "seat set-aside"
 	verbPlaceIssued = "seat place-issued"
+	verbPlaceLXC    = "seat place-lxc"
 	verbKitAssemble = "kit assemble"
 )
 
@@ -309,6 +310,11 @@ var table = []Verb{
 		Name:  verbPlaceIssued,
 		Flags: []Flag{{Name: "checkout", Value: valueDir, Required: true, check: checkDir}},
 		Does:  "places the issued seat on stdin in this user's seat pool for the checkout",
+	},
+	{
+		Name:  verbPlaceLXC,
+		Flags: []Flag{userFlag, {Name: "checkout", Value: valueDir, Required: true, check: checkDir}},
+		Does:  "places the issued LXC token seat on stdin as this user's keyed seat for the checkout, in a container on another host than the homeserver's; prints the key for run --kind lxc --key",
 	},
 	{
 		Name:  verbKitAssemble,

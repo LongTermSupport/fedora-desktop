@@ -33,12 +33,26 @@ type TeamCA func(team paths.TeamID) (string, error)
 // LXC bridge, a function of the host's files (host.AppliedLXCURL, X5).
 type LXCURL func(team declare.Team) (string, error)
 
-// seatBaseURL is the base url the seat handle is given: the LXC seats' url for a handle of type
-// lxc, which is the member's kind (MO3), and the team's url for every other kind.
-func seatBaseURL(lxcURL LXCURL, team declare.Team, handle string) (string, error) {
-	h, ok := proto.ParseHandle(handle)
-	if !ok || h.Type != status.KindLXC {
+// Reach is how an issued seat reaches its team, decided by who places the seat, never by its
+// kind: an LXC container on another host is of kind lxc too (issue 425 A1).
+type Reach int
+
+const (
+	// ReachURL is a seat a person issues and pipes to the machine that uses it: the team's url.
+	ReachURL Reach = iota
+	// ReachBridge is a seat the host's lxc apply places in a guest on this host: the team's
+	// address on the LXC bridge (X5). Only a handle of type lxc is placed so.
+	ReachBridge
+)
+
+// seatBaseURL is the base url the seat is given: the LXC seats' url for a seat the lxc apply
+// places, which must be of kind lxc (MO3), and the team's url for every other seat.
+func seatBaseURL(lxcURL LXCURL, team declare.Team, handle string, reach Reach) (string, error) {
+	if reach != ReachBridge {
 		return team.URL, nil
+	}
+	if h, ok := proto.ParseHandle(handle); !ok || h.Type != status.KindLXC {
+		return "", fmt.Errorf("only an LXC seat is placed on the bridge, not %q", handle)
 	}
 	if lxcURL == nil {
 		return "", errors.New("the LXC seats' url has no provider")
@@ -51,7 +65,7 @@ func seatBaseURL(lxcURL LXCURL, team declare.Team, handle string) (string, error
 }
 
 // Bundle implements Bundles. No error quotes the credential's secret.
-func (s SeatBundles) Bundle(_ context.Context, team declare.Team, handle, mainRoom string, c apply.Credential) (proto.Value, error) {
+func (s SeatBundles) Bundle(_ context.Context, team declare.Team, handle, mainRoom string, c apply.Credential, reach Reach) (proto.Value, error) {
 	kind, err := seatKind(c.Kind)
 	if err != nil {
 		return proto.Value{}, err
@@ -60,7 +74,7 @@ func (s SeatBundles) Bundle(_ context.Context, team declare.Team, handle, mainRo
 	if err != nil {
 		return proto.Value{}, errors.New("the credential is not one seat.json can carry")
 	}
-	base, err := seatBaseURL(s.LXCURL, team, handle)
+	base, err := seatBaseURL(s.LXCURL, team, handle, reach)
 	if err != nil {
 		return proto.Value{}, err
 	}
