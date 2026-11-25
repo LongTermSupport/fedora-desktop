@@ -73,6 +73,13 @@ func TestTheDesignsLaunchLinesParse(t *testing.T) {
 			Launch{Mode: LaunchClaude, Kind: KindLXC, Key: lxcKey(t), Cmd: []string{"claude"}, Claude: 0},
 		},
 		{
+			// A container repository's own launcher (issue 425 A3): its wrapper, which chooses
+			// the sign-in and runs its supervisor, is CMD, and claude is its argument.
+			"lxc by a container's own launcher",
+			strings.Fields("teamchat run --claude --kind lxc --key KEY --resume-recorded -- /usr/local/bin/their-wrapper --supervise -- claude --model opus"),
+			Launch{Mode: LaunchClaude, Kind: KindLXC, Key: lxcKey(t), ResumeRecorded: true, Cmd: []string{"/usr/local/bin/their-wrapper", "--supervise", "--", "claude", "--model", "opus"}, Claude: 3},
+		},
+		{
 			"other, a shell around a wrapper",
 			strings.Fields("teamchat run --claude --kind other -- /usr/local/bin/my-wrapper -x /opt/bin/claude --resume abc"),
 			Launch{Mode: LaunchClaude, Kind: KindOther, Cmd: []string{"/usr/local/bin/my-wrapper", "-x", "/opt/bin/claude", "--resume", "abc"}, Claude: 2},
