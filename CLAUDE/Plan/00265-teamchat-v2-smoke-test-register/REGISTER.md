@@ -634,20 +634,23 @@ filled in as each cause is known.
     later request got no answer.
   - Even so, `session add` printed "seat 1 held, applied" and "The session is told it joined",
     and the seat's `report.json` said the link was running with no reason.
-  - `teamchat status` in the session did not list team B at all, not even as down.
-  - On remove, the leave notice was left "owed" for a team the container can never reach.
+  - `teamchat status` in the session did not list team B: **unproven**. The coordinator's status
+    sampler matched only team records with `"role":"<word>"`, and a team whose roster never
+    loaded has `"role":""`, so the sampler's filter would drop it.
+  - The leave notice left "owed": **withdrawn**. The coordinator's keeper.log has "its leave
+    notice is owed" and "seat ... released" in the same second; nothing stayed owed.
 - **Fix:**
-  - `HotSeats.Applied` waits for the link's first answer from the team (or its down state) and
-    reports a down team as such, naming the reach the session lacks.
-  - `report.json` carries the team's down reason.
-  - `status` lists a held team that is down.
-  - An owed leave notice for an unreachable team is dropped with a line in the log.
-  - Unchecked: why status omitted a held team. The engine's `load` puts the team in `e.teams`
-    before any network call (`engine/teams.go:162-197`), so this needs a test of a link that never
-    gets an answer.
+  - `HotSeats.Applied` reports a seat joined only once its `report.json` shows an answer from
+    the team's homeserver (`last_sync_ok_ms`) and the team not down, else names what is
+    missing, or "the session cannot reach team X's homeserver" with the link's cause.
+  - `report.json` (and the link's state message) carry `down`: null, or the link's cause.
+  - `status`: a test of a held team that never answered is green on the old code (listed, down,
+    name = team id, `"role":""`, trust unverified). No status change.
+  - The leave notice: no change (withdrawn).
 - **Not ours:** the session network policy has to admit a hot-joined team's port. That is the
   owner's host configuration.
-- **Severity:** high (a join reported done that never happened). **Issue:** TBF. **State:** open.
+- **Severity:** high (a join reported done that never happened). **Issue:** TBF. **State:** fixed
+  on v2-smoke, batch 12 (SHA_PENDING); not yet run live. Detail: `reports/R60.md`.
 
 ## R59: `session add` offers a purged team's dead seat as free
 

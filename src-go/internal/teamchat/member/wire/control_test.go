@@ -70,6 +70,9 @@ func sample(t *testing.T) []Msg {
 		{Kind: KindState, State: &State{
 			Team: ops, Handle: "repo.2+site.podman", Delivery: state.DeliveryNone, Store: state.StoreRefused,
 		}},
+		{Kind: KindState, State: &State{
+			Team: ops, Handle: "repo.2+site.podman", Down: new("the homeserver did not answer"), Delivery: state.DeliveryWait, Store: state.StoreOK,
+		}},
 		{Kind: KindRemoved, Removed: &Removed{Team: ops, UserID: agentID(ops)}},
 		{Kind: KindRemoved, Removed: &Removed{Team: ops}},
 		{Kind: KindLeft, Left: &Left{Team: ops}},
@@ -264,6 +267,8 @@ func TestBodyRules(t *testing.T) {
 		"state handle":         stateWith(t, func(s *State) { s.Handle = "repo" }),
 		"state sync":           stateWith(t, func(s *State) { s.LastSyncOKMS = new(int64(0)) }),
 		"state pending":        stateWith(t, func(s *State) { s.Pending = -1 }),
+		"state down empty":     stateWith(t, func(s *State) { s.Down = new("") }),
+		"state down long":      stateWith(t, func(s *State) { s.Down = new(strings.Repeat("d", state.MaxDown)) }),
 		"state delivery":       stateWith(t, func(s *State) { s.Delivery = "pigeon" }),
 		"state store":          stateWith(t, func(s *State) { s.Store = "gone" }),
 		"removed user":         {Kind: KindRemoved, Removed: &Removed{Team: ops, UserID: agentID(dev)}},

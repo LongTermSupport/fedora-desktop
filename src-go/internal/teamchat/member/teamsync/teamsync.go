@@ -338,10 +338,11 @@ func (t *Team) backoff(ctx context.Context, err error) bool {
 	case !t.health.Down && now-t.failStart >= downAfter:
 		t.log.Printf("down: %s", cause)
 		t.saidCause, t.saidAt = cause, now
-		t.setHealth(func(h *team.Health) { h.Down = true })
+		t.setHealth(func(h *team.Health) { h.Down, h.DownCause = true, cause })
 	case t.health.Down && cause != t.saidCause && now-t.saidAt >= causeEvery:
 		t.log.Printf("still down, the cause now: %s", cause)
 		t.saidCause, t.saidAt = cause, now
+		t.setHealth(func(h *team.Health) { h.DownCause = cause })
 	}
 	d := t.delay - t.cfg.Jitter(t.delay)
 	t.delay = min(2*t.delay, maxBackoff)
@@ -366,7 +367,7 @@ func (t *Team) recovered() {
 	t.failing = false
 	if t.health.Down {
 		t.log.Printf("back up")
-		t.setHealth(func(h *team.Health) { h.Down = false })
+		t.setHealth(func(h *team.Health) { h.Down, h.DownCause = false, "" })
 	}
 }
 

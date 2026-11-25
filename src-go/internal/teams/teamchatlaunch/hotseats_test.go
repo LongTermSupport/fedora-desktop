@@ -83,8 +83,15 @@ func (w *hotWorld) writeReport(t *testing.T, team paths.TeamID, seatPart, handle
 	w.writeReportAs(t, team, seatPart, handle, state.ReportDesired{Generation: generation, State: state.DesiredApplied})
 }
 
-// writeReportAs writes the keeper's report of the seat with its verdict on a generation.
+// writeReportAs writes the keeper's report of the seat with its verdict on a generation, the
+// team's homeserver having answered the link.
 func (w *hotWorld) writeReportAs(t *testing.T, team paths.TeamID, seatPart, handle string, verdict state.ReportDesired) {
+	t.Helper()
+	w.writeReportWith(t, team, seatPart, handle, verdict, func(r *state.Report) { r.LastSyncOKMS = new(int64(1)) })
+}
+
+// writeReportWith writes the keeper's report of the seat, change made to it first.
+func (w *hotWorld) writeReportWith(t *testing.T, team paths.TeamID, seatPart, handle string, verdict state.ReportDesired, change func(*state.Report)) {
 	t.Helper()
 	run, err := paths.ParseRunID("0123456789abcdef")
 	if err != nil {
@@ -95,6 +102,7 @@ func (w *hotWorld) writeReportAs(t *testing.T, team paths.TeamID, seatPart, hand
 		Link: state.LinkRunning, Delivery: "socket", Store: state.StoreOK,
 		Desired: verdict,
 	}
+	change(&r)
 	data, err := r.Encode()
 	if err != nil {
 		t.Fatal(err)
@@ -300,6 +308,40 @@ func TestAppliedIsTheLockHeldAndTheReportAtThisGeneration(t *testing.T) {
 	w.keeper = seat.KeeperRunning
 	if ok, why := w.applied(t); !ok {
 		t.Fatalf("not applied: %q", why)
+	}
+}
+
+// R60: a seat held and its generation applied is not yet joined: the keeper's report must show
+// the link had an answer from the team's homeserver. Until then the reason says it has not; a
+// team the link has down is named as one the session cannot reach, with the link's cause.
+func TestAppliedWaitsForAnAnswerFromTheTeamsHomeserver(t *testing.T) {
+	w := newHotWorld(t)
+	if err := w.seats.Join(context.Background(), "beta", "2"); err != nil {
+		t.Fatal(err)
+	}
+	gen := state.ReportDesired{Generation: 2, State: state.DesiredApplied}
+	const cause = "the homeserver did not answer (dial tcp: i/o timeout)"
+	for _, c := range []struct {
+		name   string
+		change func(*state.Report)
+		ok     bool
+		why    string
+	}{
+		{"never answered", func(*state.Report) {}, false, "the session's link has had no answer from team beta's homeserver yet"},
+		{
+			"down, never answered", func(r *state.Report) { r.Down = new(cause) }, false,
+			"the session cannot reach team beta's homeserver: its link has the team down (" + cause + ")",
+		},
+		{
+			"down after answering", func(r *state.Report) { r.LastSyncOKMS, r.Down = new(int64(5)), new(cause) }, false,
+			"the session cannot reach team beta's homeserver: its link has the team down (" + cause + ")",
+		},
+		{"answered", func(r *state.Report) { r.LastSyncOKMS = new(int64(5)) }, true, ""},
+	} {
+		w.writeReportWith(t, w.beta, "2", "repo.2+site.podman", gen, c.change)
+		if ok, why := w.applied(t); ok != c.ok || why != c.why {
+			t.Errorf("%s: applied %v %q, want %v %q", c.name, ok, why, c.ok, c.why)
+		}
 	}
 }
 

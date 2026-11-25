@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"slices"
@@ -348,6 +349,47 @@ func TestReports(t *testing.T) {
 	}
 	c.code(0)
 	ended(t, l, res, wire.EndExit, 0, 0)
+}
+
+// R60: every key of the link's state of a team reaches the seat's report.json under the same key
+// and value (team is the report's seat), so a fact of the team's reach the link knows, its down
+// cause above all, is never left out of what the host reads. A key added to wire.State and not
+// to the report fails here.
+func TestEveryKeyOfTheLinksStateReachesTheReport(t *testing.T) {
+	w := newWorld(t, claudeLaunch...)
+	alpha := w.seat("alpha")
+	w.writeDesired(desiredJSON(1, state.InboundAccept, "alpha/1"))
+	l, c, res := w.running(1)
+	st := wire.State{
+		Team: mustTeam(t, "alpha"), Handle: handleA, LastSyncOKMS: new(int64(1_760_000_000_000)),
+		Down: new("the homeserver did not answer (dial tcp: i/o timeout)"), Pending: 3,
+		Delivery: state.DeliveryWait, Store: state.StoreRefused,
+	}
+	l.send(t, wire.Msg{Kind: wire.KindState, State: &st})
+	w.eventually("alpha's report", func() bool { return exists(t, alpha.Report()) })
+	sent, written := jsonKeys(t, st), jsonKeys(t, w.report(alpha))
+	delete(sent, "team")
+	for k, v := range sent {
+		if got, ok := written[k]; !ok || got != v {
+			t.Errorf("the link's %s = %s; report.json's = %s (present %v)", k, v, got, ok)
+		}
+	}
+	c.code(0)
+	ended(t, l, res, wire.EndExit, 0, 0)
+}
+
+// jsonKeys is v's top-level keys and each value's JSON text.
+func jsonKeys(t *testing.T, v any) map[string]string {
+	t.Helper()
+	data, err := json.Marshal(v)
+	mustDo(t, err)
+	var m map[string]json.RawMessage
+	mustDo(t, json.Unmarshal(data, &m))
+	out := map[string]string{}
+	for k, raw := range m {
+		out[k] = string(raw)
+	}
+	return out
 }
 
 // The link's messages the keeper does not expect are logged and change nothing; the token is
