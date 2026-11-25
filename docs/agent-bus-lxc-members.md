@@ -500,4 +500,5 @@ ssh <bus> sudo -S -p '' teamchat-admin member add --team <team> --prefix <repo>+
 person issues carries the team's `url`, never the bridge address the homeserver host's own LXC
 seats are given. `seat place-lxc` places the seat as the play would place it and prints its
 seat key on stdout; start the session with the line above and that key. A lost or exposed
-token, or a team CA rotation, is fixed with the same pipe with `member reissue --team <team> --handle <handle> --credential token` in place of `member add`; the key stays the same.
+token, or a team CA rotation, is fixed with the same pipe with `member reissue --team <team> --handle <handle> --credential token` in place of `member add`; the key stays the same. `team rotate-ca` lists such a seat's handle
+among those to place again by hand, and names this pipe for it.
