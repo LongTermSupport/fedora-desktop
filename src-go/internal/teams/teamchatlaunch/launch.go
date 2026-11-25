@@ -240,7 +240,10 @@ type Launch struct {
 	Kind   string
 	Taker  Taker
 	Status func(paths.TeamID) (status.Record, bool, error)
-	NowMS  func() int64
+	// Life is nil for a team whose pool seats can be taken here, else why not (system.Life.Check,
+	// register R59): a removed team's seat is never chosen or taken. Nil refuses every seat.
+	Life  func(paths.TeamID) error
+	NowMS func() int64
 }
 
 // Taken is a launch's take: podman run's arguments for it, and the model its seats start on
@@ -307,7 +310,16 @@ func (l *Launch) checkKind() error {
 	return fmt.Errorf("%w (%q; want %q for ccy or %q for cc)", ErrKind, l.Kind, seatchoice.KindPodman, seatchoice.KindHost)
 }
 
-// choose reads the canonical list and finds each seat in the pool.
+// life is nil for a team whose pool seats can be taken here (Launch.Life); a Launch with no Life
+// refuses, so a removed team's seat is never taken for want of the wiring.
+func (l *Launch) life(team paths.TeamID) error {
+	if l.Life == nil {
+		return fmt.Errorf("whether team %s is still installed cannot be judged: the launch has no lifecycle wired", team)
+	}
+	return l.Life(team)
+}
+
+// choose reads the canonical list and finds each seat in the pool, each team's lifecycle first.
 func (l *Launch) choose(list string) ([]Chosen, []seat.Take, error) {
 	seats, err := membership.ParseSeats(list)
 	if err != nil {
@@ -322,6 +334,9 @@ func (l *Launch) choose(list string) ([]Chosen, []seat.Take, error) {
 		team, err := paths.ParseTeamID(s.Team)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%w: %w", ErrSeat, err)
+		}
+		if err = l.life(team); err != nil {
+			return nil, nil, err
 		}
 		pool, err := system.PoolSeats(l.Store, l.Checkout, team)
 		if err != nil {

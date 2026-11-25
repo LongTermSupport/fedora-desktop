@@ -3,6 +3,7 @@ package teamchatlaunch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,8 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatmodel"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/system"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 type hotWorld struct {
@@ -254,6 +257,67 @@ func TestChooseWithNoSeatIsTheLowestFreePoolSeat(t *testing.T) {
 	}
 	if _, _, err := w.seats.Choose("beta", "9"); !errors.Is(err, ErrSeat) {
 		t.Fatalf("a seat not in the pool: %v", err)
+	}
+}
+
+// removedBeta makes beta a team removed from this machine: no status record, and the host_vars
+// declare it absent (register R59).
+func (w *hotWorld) removedBeta() {
+	w.launch.Life = system.Life{
+		Status: w.launch.Status,
+		Declared: func(team paths.TeamID) (system.Declared, error) {
+			if team.String() == "beta" {
+				return system.DeclaredAbsent, nil
+			}
+			return system.NotDeclared, nil
+		},
+		HostVars: "host_vars/localhost.yml",
+	}.Check
+}
+
+// Register R59: a removed team's pool seats are never called free, and a named one is refused,
+// naming the removal and the way on; nothing is taken or written.
+func TestChooseNeverOffersARemovedTeamsSeat(t *testing.T) {
+	w := newHotWorld(t)
+	w.removedBeta()
+	for _, given := range []string{"", "1"} {
+		_, _, err := w.seats.Choose("beta", given)
+		if !errors.Is(err, system.ErrTeamGone) || !strings.Contains(err.Error(), "was removed from this machine") ||
+			!strings.Contains(err.Error(), "ccy-teams seats abandon beta") {
+			t.Errorf("Choose(beta, %q): %v", given, err)
+		}
+	}
+	if err := w.seats.Join(context.Background(), "beta", "1"); !errors.Is(err, system.ErrTeamGone) {
+		t.Fatalf("a join of a removed team's seat: %v", err)
+	}
+	if len(w.taker.took) != 0 {
+		t.Fatalf("a removed team's seat was taken: %+v", w.taker.took)
+	}
+	if d := w.onDisk(t); d.Generation != 1 {
+		t.Fatalf("a refused join wrote a generation: %+v", d)
+	}
+	if code := codeOf(fmt.Errorf("x: %w", system.ErrTeamGone)); code != term.ExitConfig {
+		t.Fatalf("a removed team's refusal is 78, got %d", code)
+	}
+}
+
+// Register R59: a team this machine does not declare and has no record of is served on another
+// machine (a placed member): its seat is still offered, and a Launch with no lifecycle refuses.
+func TestChooseOffersATeamServedElsewhere(t *testing.T) {
+	w := newHotWorld(t)
+	w.launch.Life = system.Life{
+		Status:   w.launch.Status,
+		Declared: func(paths.TeamID) (system.Declared, error) { return system.NotDeclared, nil },
+	}.Check
+	if seatPart, _, err := w.seats.Choose("beta", ""); err != nil || seatPart != "1" {
+		t.Fatalf("a team served elsewhere: %q %v", seatPart, err)
+	}
+	w.launch.Life = nil
+	if _, _, err := w.seats.Choose("beta", ""); err == nil {
+		t.Fatal("Choose with no lifecycle wired answered")
+	}
+	if err := w.seats.Join(context.Background(), "beta", "1"); err == nil {
+		t.Fatal("Join with no lifecycle wired took a seat")
 	}
 }
 

@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.64 — container 2.84.84
+
+- **A removed teamchat team's seats are no longer offered as free.** A team with no status
+  record on this machine that `teamchat_teams` in the host_vars declares `state: absent` was
+  removed. `ccy-teams session add`, the `--teams` chooser and a launch never offer its pool
+  seats, and one named is refused (exit 78) naming the removal and, for a seat a session still
+  holds, `ccy-teams seats abandon <team>`. A team declared present with no status record is
+  refused naming the teamchat play, and `ccy-teams seats add` names the removal instead of the
+  cross-machine pipe. A team this machine does not declare and has no record of is served
+  elsewhere and is offered as before (Plan 00265 R59).
+
 ## 3.124.63 — container 2.84.84
 
 - **A person's teamchat posts are never dropped for rate.** A team human is exempt from the

@@ -275,7 +275,7 @@ func (v *Verbs) ccRunTeamchat(ctx context.Context, l ccLaunch) (term.ExitCode, e
 	if err != nil {
 		return 0, err
 	}
-	launch := &Launch{Store: store, Checkout: key, Kind: seatchoice.KindHost, Taker: v.Taker(v.config(state, key)), Status: v.Status, NowMS: v.NowMS}
+	launch := &Launch{Store: store, Checkout: key, Kind: seatchoice.KindHost, Taker: v.Taker(v.config(state, key)), Status: v.Status, Life: v.Life, NowMS: v.NowMS}
 	taken, err := launch.Take(ctx, name, l.seats, nil, false)
 	if err != nil {
 		return 0, err

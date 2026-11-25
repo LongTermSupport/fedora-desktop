@@ -91,7 +91,7 @@ func (v *Verbs) HotSeats(checkout, session string) (*HotSeats, bool, error) {
 	cfg := v.config(home, key)
 	parts := HotParts{
 		// A podman seat: a cc session on teamchat is not changed while it runs (hot's v2CCNotBuilt).
-		Launch:   &Launch{Store: store, Checkout: key, Kind: seatchoice.KindPodman, Taker: v.Taker(cfg), Status: v.Status, NowMS: v.NowMS},
+		Launch:   &Launch{Store: store, Checkout: key, Kind: seatchoice.KindPodman, Taker: v.Taker(cfg), Status: v.Status, Life: v.Life, NowMS: v.NowMS},
 		Sessions: cfg.Sessions,
 		Holder:   func() (Holder, error) { return v.Holder(cfg) },
 		Keeper:   seat.KeeperOf,
@@ -111,13 +111,17 @@ func (h *HotSeats) Desired() state.Desired { return h.desired }
 
 // Choose is the seat a join of team takes: given, which must be a pool seat of the checkout, or
 // else the lowest free pool seat, as the launch's chooser offers it. It is the seat part and the
-// handle; no pool seat to take is ErrSeat, naming how to add one.
+// handle; no pool seat to take is ErrSeat, naming how to add one. A team whose seats cannot be
+// taken here (removed from this machine, register R59) is refused first, either way.
 func (h *HotSeats) Choose(team, given string) (string, string, error) {
 	id, err := paths.ParseTeamID(team)
 	if err != nil {
 		return "", "", fmt.Errorf("%w: %w", ErrSeat, err)
 	}
 	l := h.parts.Launch
+	if err = l.life(id); err != nil {
+		return "", "", err
+	}
 	if given != "" {
 		pool, err := system.PoolSeats(l.Store, l.Checkout, id)
 		if err != nil {

@@ -96,6 +96,7 @@ func newVerbs(t *testing.T) *verbsWorld {
 	w.verbs = &Verbs{
 		Stdout: w.out, Stderr: w.err, Getenv: func(k string) string { return env[k] },
 		Getwd: func() (string, error) { return checkout, nil },
+		Life:  func(paths.TeamID) error { return nil },
 		Resolve: func(_ context.Context, wd string, teams []string) ([]system.Line, error) {
 			if wd != checkout {
 				t.Errorf("resolved in %s", wd)

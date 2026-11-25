@@ -3,6 +3,7 @@ package teamchatlaunch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatchoice"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/system"
 )
 
 func mustSeat(t *testing.T, s string) paths.SeatName {
@@ -246,7 +248,25 @@ func newLaunchWorld(t *testing.T) launchWorld {
 	return launchWorld{home: home, taker: taker, launch: &Launch{
 		Store: store, Checkout: key, Kind: seatchoice.KindPodman, Taker: taker, NowMS: func() int64 { return 99 },
 		Status: func(paths.TeamID) (status.Record, bool, error) { return status.Record{}, false, nil },
+		Life:   func(paths.TeamID) error { return nil },
 	}}
+}
+
+// Register R59: a launch naming a seat of a removed team is refused before anything is taken,
+// naming the removal; a launch with no lifecycle wired is refused too.
+func TestLaunchRefusesASeatOfARemovedTeam(t *testing.T) {
+	w := newLaunchWorld(t)
+	w.launch.Life = func(team paths.TeamID) error { return fmt.Errorf("%w: team %s was removed", system.ErrTeamGone, team) }
+	if _, err := w.launch.Run(context.Background(), mustSession(t, "s1"), "1@alpha", nil, true); !errors.Is(err, system.ErrTeamGone) {
+		t.Fatalf("got %v", err)
+	}
+	w.launch.Life = nil
+	if _, err := w.launch.Run(context.Background(), mustSession(t, "s1"), "1@alpha", nil, true); err == nil {
+		t.Fatal("a launch with no lifecycle wired took a seat")
+	}
+	if len(w.taker.took) != 0 {
+		t.Fatalf("took %+v", w.taker.took)
+	}
 }
 
 func TestLaunchTakesWritesDesiredAndPrintsTheArgs(t *testing.T) {

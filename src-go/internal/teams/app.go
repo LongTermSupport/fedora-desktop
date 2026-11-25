@@ -189,7 +189,7 @@ func Wire(h *host.Host) *App {
 	membershipInit := membership.New(h)
 	sys := newSystem(h)
 	adder := &seatadd.Adder{
-		Getenv: h.Getenv, Status: system.StatusRecord, Origin: h.Git.RemoteURL, Site: seatadd.HostVarsSite(h.HostVars),
+		Getenv: h.Getenv, Status: system.StatusRecord, Life: teamLife(h), Origin: h.Git.RemoteURL, Site: seatadd.HostVarsSite(h.HostVars),
 		Issuer: seatadd.SudoIssuer{Sudo: h.Sudo}, Place: placeissued.Place,
 	}
 	chosen.Teamchat = &chooser.Teamchat{
@@ -479,7 +479,14 @@ func newSystem(h *host.Host) *system.Cmd {
 		},
 		Status:   system.StatusRecord,
 		Sessions: teamchatlaunch.RegistrySessions{Open: h.Registry},
+		Life:     teamLife(h),
 	}
+}
+
+// teamLife is every pool seat chooser's judgement of a team's lifecycle on this machine: its
+// status record, else what the host_vars' teamchat_teams declare (register R59).
+func teamLife(h *host.Host) func(paths.TeamID) error {
+	return system.Life{Status: system.StatusRecord, Declared: seatadd.HostVarsTeams(h.HostVars), HostVars: h.HostVars}.Check
 }
 
 // newLaunch is the launcher's verbs over h: membership-init for agent-bus, and for teamchat the
@@ -493,7 +500,7 @@ func newLaunch(h *host.Host, membershipInit *membership.Init, sys *system.Cmd) *
 			in.Getwd = func() (string, error) { return checkout, nil }
 			return in.Lines(ctx, teams)
 		},
-		Membership: membershipInit.Prepare, Status: system.StatusRecord, Exec: h.Echo.Execer(h.Execer),
+		Membership: membershipInit.Prepare, Status: system.StatusRecord, Life: teamLife(h), Exec: h.Echo.Execer(h.Execer),
 		NowMS: nowMS,
 		Parts: storeParts(h),
 		Taker: func(cfg seat.Config) teamchatlaunch.Taker {

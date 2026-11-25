@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -57,6 +58,8 @@ type world struct {
 	deps     placeissued.Deps
 	placeErr error
 	placeAs  string
+	life     error
+	noLife   bool
 	out, err bytes.Buffer
 }
 
@@ -120,9 +123,14 @@ func (w *world) cmd() *Cmd {
 }
 
 func (w *world) adder() *Adder {
+	var life func(paths.TeamID) error
+	if !w.noLife {
+		life = func(paths.TeamID) error { return w.life }
+	}
 	return &Adder{
 		Getenv: w.getenv,
 		Status: func(paths.TeamID) (status.Record, bool, error) { return w.record, w.found, nil },
+		Life:   life,
 		Origin: func(_ context.Context, dir string) (string, error) {
 			if dir != w.checkout {
 				w.t.Errorf("origin asked of %s, not the checkout", dir)
@@ -257,6 +265,32 @@ func TestAddRefusesATeamNotServedHere(t *testing.T) {
 	}
 	if !strings.Contains(w.err.String(), "place-issued") {
 		t.Errorf("the refusal does not name the cross-machine route:\n%s", w.err.String())
+	}
+}
+
+// Register R59: a team with no status record that the host_vars declare absent was removed from
+// this machine, not served on another: the refusal (78) names the removal, never the
+// cross-machine pipe. No sudo. With no lifecycle wired the add fails rather than guess.
+func TestAddRefusesARemovedTeamNamingTheRemoval(t *testing.T) {
+	w := newWorld(t)
+	w.found = false
+	w.life = fmt.Errorf("%w: team alpha was removed from this machine", system.ErrTeamGone)
+	if code := w.run("alpha"); code != term.ExitConfig {
+		t.Fatalf("exit %d, want 78", code)
+	}
+	if w.sudo.readied || w.sudo.argv != nil {
+		t.Error("sudo was used for a removed team")
+	}
+	if got := w.err.String(); !strings.Contains(got, "was removed from this machine") || strings.Contains(got, "place-issued") {
+		t.Errorf("the refusal does not name the removal:\n%s", got)
+	}
+	newSeat := w.adder().NewSeat(func() (string, error) { return w.checkout, nil }, func(string) {})
+	if _, code := newSeat(context.Background(), "alpha", "podman"); code != term.ExitConfig {
+		t.Errorf("the chooser's new seat of a removed team: exit %d, want 78", code)
+	}
+	w.life, w.noLife = nil, true
+	if code := w.run("alpha"); code != term.ExitFailure {
+		t.Errorf("an add with no lifecycle wired: exit %d, want 1", code)
 	}
 }
 

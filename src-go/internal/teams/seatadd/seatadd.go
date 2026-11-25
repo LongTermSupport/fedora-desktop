@@ -15,7 +15,8 @@
 // password on the terminal, never in argv. The answer, which holds the seat's password, is kept
 // in memory and handed to placeissued.Place for the checkout's pool, so it never reaches a
 // screen, a file outside the pool, or argv (C13). A team with no status record on this machine
-// is served elsewhere and is refused (78), naming the cross-machine pipe. A seat issued but not
+// is served elsewhere and is refused (78), naming the cross-machine pipe; one the host_vars
+// declare is refused (78) naming its removal or its missing install instead (register R59). A seat issued but not
 // placed names the reissue pipe for its handle. The allocation lock is taken by the placement,
 // not across the issue as C 3.7.3 draws it: a second checkout racing for the same number is
 // refused by member add (enrolled), which is reported, and nothing is placed twice.
@@ -112,6 +113,9 @@ type Adder struct {
 	Getenv func(string) string
 	// Status is the team's status record on this machine; false when it has none.
 	Status func(paths.TeamID) (status.Record, bool, error)
+	// Life tells a team with no status record that was removed from this machine (or declared
+	// and not installed) from one served on another (system.Life.Check, register R59).
+	Life func(paths.TeamID) error
 	// Origin is the checkout's origin URL, "" when it has none (gitx.Git.RemoteURL).
 	Origin func(ctx context.Context, dir string) (string, error)
 	// Site is the machine's declared teamchat_site, "" when undeclared.
@@ -134,6 +138,12 @@ func (a *Adder) Add(ctx context.Context, r Request) (Added, error) {
 		return Added{}, fmt.Errorf("the status record of team %s: %w", r.Team, err)
 	}
 	if !found {
+		if a.Life == nil {
+			return Added{}, fmt.Errorf("team %s has no status record here, and whether it was removed cannot be judged: no lifecycle is wired", r.Team)
+		}
+		if err = a.Life(r.Team); err != nil {
+			return Added{}, err
+		}
 		return Added{}, fmt.Errorf("%w: team %s has no status record on this machine, so its homeserver runs on another one. "+
 			"Issue the seat there and place it here: teamchat-admin member add ... --credential password | teamchat seat place-issued --checkout %s "+
 			"(docs/agent-bus-cross-network.md, A member on another machine)", ErrNotHere, r.Team, shellword.Quote(r.Checkout))
@@ -194,7 +204,7 @@ func (a *Adder) NewSeat(getwd func() (string, error), say func(string)) func(ctx
 		adder.Note = say
 		added, err := adder.Add(ctx, Request{Team: id, Checkout: checkout, Host: memberType == "host"})
 		switch {
-		case errors.Is(err, ErrNotHere):
+		case errors.Is(err, ErrNotHere), errors.Is(err, system.ErrTeamGone):
 			say("ccy-teams: no new seat of " + team + " could be added here: " + err.Error() + ".")
 			return "", term.ExitConfig
 		case err != nil:
@@ -290,7 +300,7 @@ func (c *Cmd) Run(ctx context.Context, args []string) term.ExitCode {
 		return term.ExitOK
 	case errors.Is(err, errUsage):
 		return c.say(term.ExitUsage, prefix+err.Error()+". Usage: "+usageLine+". See ccy-teams --help.")
-	case errors.Is(err, ErrNotHere):
+	case errors.Is(err, ErrNotHere), errors.Is(err, system.ErrTeamGone):
 		return c.say(term.ExitConfig, prefix+err.Error())
 	}
 	return c.say(term.ExitFailure, prefix+err.Error())
