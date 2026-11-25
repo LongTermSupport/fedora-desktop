@@ -66,19 +66,20 @@ the error lists the choices.
 - `teamchat wait`: blocks until something is pending, then prints as recv does.
 - `teamchat inbox`: what is pending as `pending`, without bodies.
 - `teamchat reply '<id>'`, `teamchat say --to <name>`, `teamchat ping <verb> <ref> --to <name>`
-  and `teamchat report`: `sent`, whose `to` names who the send went to.
+  and `teamchat report`: `sent`, whose field to names who the send went to.
 - `teamchat ask-human`, `teamchat thread Q<n>`, `teamchat close Q<n>` and `teamchat retitle Q<n>`:
   `sent`, then `question`.
 - `teamchat questions`: `question`, and `unattached` for a human post in the questions room
   that no question holds and no agent has replied to.
 - `teamchat bump Q<n>`: `sent` and `question` per question bumped, `bump` per question skipped.
 - `teamchat history`: the room's recent messages, oldest first, as `history`, including those
-  between other members. Each record has `to` (who it was addressed to) and `for_me`. A message
-  with `for_me: false` was never delivered to you and `reply` refuses it; use `say --to`.
+  between other members. Each record has the fields to (who it was addressed to) and for_me.
+  A message with for_me false was never delivered to you and `teamchat reply '<id>'` refuses
+  it; use `teamchat say --to <name>`.
 - `teamchat verify '<id>'`: `verified`; `teamchat verify '<id>' --room questions` reads the
   questions room.
 - `teamchat status`: `team`, `member`, `room`, `outbox`, `queued` (a send the link holds until
-  its homeserver answers) and `runtime`. The team's `counts.dropped_by` gives each reason the
+  its homeserver answers) and `runtime`. The team record's counts.dropped_by gives each reason the
   link dropped an event for. The link log has each dropped event's id.
 - `teamchat version`: `version`.
 - `teamchat help`: the verbs and their flags, as text; `teamchat help reply` shows one verb.
