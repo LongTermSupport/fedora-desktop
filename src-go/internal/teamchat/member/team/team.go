@@ -383,6 +383,8 @@ type ReportsRoom struct {
 type Notices interface {
 	notice.Client
 	SetPresence(ctx context.Context, userID, presence string) error
+	// Presence is an account's presence as the homeserver answers it, found=false for none.
+	Presence(ctx context.Context, userID string) (string, bool, error)
 	Anchors() proto.Anchors
 	// Roster is false until a verification.
 	Roster() (proto.Roster, bool)

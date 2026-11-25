@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"maps"
 	"math"
+	"net/http"
 	"slices"
 	"strconv"
 )
@@ -531,8 +532,27 @@ func (s *Server) send(r *request, args []string) (any, error) {
 		if err := s.authorise(rm, r.userID, eventType, nil); err != nil {
 			return nil, err
 		}
+		if nestedThread(rm, content) {
+			return nil, &apiError{status: http.StatusBadRequest, errcode: errUnknown, text: "Cannot start threads from an event with a relation."}
+		}
 		return s.appendEvent(rm, eventType, r.userID, content, nil, "", ref), nil
 	})
+}
+
+// nestedThread is Tuwunel 1.9.4's check_nested_thread (MSC3440): content in a thread whose
+// root is an event of the room whose own content names a rel_type (an edit, a thread post).
+func nestedThread(rm *room, content map[string]any) bool {
+	rel, isObj := content["m.relates_to"].(map[string]any)
+	if !isObj || rel["rel_type"] != "m.thread" {
+		return false
+	}
+	root, err := findEvent(rm, stringAt(rel, keyEventID))
+	if err != nil {
+		return false
+	}
+	rootRel, isObj := root.content["m.relates_to"].(map[string]any)
+	_, named := rootRel["rel_type"].(string)
+	return isObj && named
 }
 
 func (s *Server) putState(r *request, args []string) (any, error) {
@@ -641,10 +661,13 @@ func (s *Server) unsigned(e *event, r *request) map[string]any {
 	return out
 }
 
+// getEvent is the spec's GET /event. Tuwunel 1.9.4 answers an event the user cannot see as it
+// does one that does not exist, 404 M_NOT_FOUND, never 403; a member who left, whom shared
+// history still lets see what came before, is not modelled.
 func (s *Server) getEvent(r *request, args []string) (any, error) {
-	rm, err := s.joinedRoom(args[0], r.userID)
-	if err != nil {
-		return nil, err
+	rm, err := s.findRoom(args[0])
+	if err != nil || rm.membership(r.userID) != membershipJoin {
+		return nil, notFound("Event not found.")
 	}
 	e, err := findEvent(rm, args[1])
 	if err != nil {

@@ -211,8 +211,8 @@ is the shape the endpoint promises).
   check HC-A1's lasting regression, for the presence calls of M50: a default sync marks the member online, a sync with
   `set_presence=offline` sets it offline, a `SetPresence` of offline sets it, and a member that
   stops syncing goes `unavailable` and then `offline` by the server's timers, set short for the
-  test. The test reads presence through the client's call path, as the client has no presence
-  read. Its config is a team's key set (C 3.2.4) with v2's login limits (a seat cycle makes six
+  test. The test reads presence through the client's `Presence` (M54), the read `status` makes.
+  Its config is a team's key set (C 3.2.4) with v2's login limits (a seat cycle makes six
   password logins, past Tuwunel's default burst of five), plus `db_pool_workers = 4`, without
   which Tuwunel's default pool hits EAGAIN under a container's pids limit. Without the variable
   the test skips with its reason; without the tag it is not built.
@@ -287,6 +287,13 @@ is the shape the endpoint promises).
   another account named, or an auth type or shape beyond that is unmodelled. A sync whose `since` is ahead of the server (a token from before a
   restore) is held to its timeout and answered with the server's own lower `next_batch`, and is
   not given what lands at or below that `since`, as host check H-C14 recorded.
+- **M54.** `Presence` (`GET /presence/{u}/status`) reads any account's presence, a direct request
+  that touches no presence (A 6.6): the answer's `presence`, which must be `online`, `offline`
+  or `unavailable` or the answer is malformed; `found=false` for a 404 `M_NOT_FOUND` (none
+  recorded), any other 404 being `ErrNotFound`. A user ID that is not one path segment is
+  refused before a request. `fakehs` answers it from M51's kept presence, and a 404
+  `M_NOT_FOUND` for an account none was set for (the specification's answer; HC-A1 recorded the
+  read of a set presence only). It is how `status` shows each member's presence (Plan 00265 R14).
 
 A dropped `/sync` may be resent by net/http (once, a GET on a reused keep-alive connection closed
 before any answer byte). That is safe, because a sync with a `since` token is idempotent: the
