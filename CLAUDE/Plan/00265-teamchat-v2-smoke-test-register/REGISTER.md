@@ -257,8 +257,26 @@ filled in as each cause is known.
   question's thread, and `reply` answers in that thread.
 - **Reproduce:** a human replies in the thread of `Q<n>`; compare the envelope with
   `teamchat verify '<id>' --room questions`.
-- **Severity:** high (it misled the coordinator all day). **Issue:** TBF. **State:** open; next
-  unit. Same family as R9.
+- **Severity:** high (it misled the coordinator all day). **Issue:** TBF. **State:** fixed by U9,
+  merged into `v2-smoke` (b3044e711); live proof owed. One resolver
+  (`proto.QuestionIndex.QuestionIn`) now names the question for the delivery, recv, history and
+  verify; rule `project_question_unresolved` holds it ([reports/U9.md](reports/U9.md)). The
+  `unattached` listing was not reproduced offline: if a live check still shows an in-thread reply
+  there, record its id. Same family as R9.
+
+## R37: U7 spelled a liveness word outside its owner
+
+- **Seen:** U9's run of the project rules, 2026-11-25.
+- **What:** U7's presence constant spelled `"online"` in the member engine, which
+  `project_liveness_word` refuses. Batch 3 would have failed CI on it.
+- **State:** fixed on `v2-smoke` (9d521ef27): `matrix.PresenceOnline` is the one spelling.
+
+## R38: the Go lint hook denies a new project rule's fixture
+
+- **Seen:** U9, 2026-11-25 (dogfood).
+- **What:** the `lint_on_edit` hook vets `src-go/qa/rules/testdata/src/**` as module packages, so
+  every write of an analysistest GOPATH fixture is denied ("package … is not in std").
+- **Severity:** low. **Issue:** TBF. **State:** open.
 
 ## R35: the Lightning client setup for a team, with presets
 

@@ -59,6 +59,8 @@ when, who hit it, how to reproduce it, its severity, issue, unit and state.
 
 - [ ] 🔄 **Task 2.1** (U6): R10, R12: reply to an edited human message; a worker can verify a
   relayed human answer. Merged (c3c336cd4); live proof owed.
+- [ ] 🔄 **Task 2.4** (U9): R34: a human's in-thread answer is delivered with its question.
+  Merged (b3044e711); live proof owed.
 - [ ] ⬜ **Task 2.3**: R7, R9, R11.
 - [ ] ⬜ **Task 2.2**: R8, R17, #420.
 
