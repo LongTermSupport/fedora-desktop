@@ -19,7 +19,9 @@
 #     that already has one. A session is on ONE terminal or none; two terminals mirroring
 #     the same claude cannot happen, whoever races whom.
 #
-# Session names mirror container names: ccy-<project>, then ccy-<project>-2, and so on.
+# Session names mirror container names: ccy-<project>, then ccy-<project>-2, and so on; a
+# launch in team seats is named for them instead, ccy-<team>-<seat> (ccy-teams internal
+# session-name), so the tab, which tmux titles with the session name, shows the seat.
 # Running ccy in a project that has a detached session — the one a dead terminal left
 # behind — offers to re-attach it; a session open in another terminal is never offered
 # there. Taking one over from another terminal is the Go ccy-sessions' (Ctrl-T in its picker).
@@ -71,9 +73,12 @@ ccy_tmux_project_sessions() {
     done <<<"$listing"
 }
 
-# ccy_tmux_next_name <project> — the first free session name for a project.
+# ccy_tmux_next_name <project> [seats] — the first free session name for a project. A launch in
+# seats is named for them (team and seat, so the tab shows them) by ccy-teams internal
+# session-name, the one home of that form.
 ccy_tmux_next_name() {
     local base="${CCY_TMUX_SESSION_PREFIX}-$1" listing n=1 candidate
+    [[ -z "${2:-}" ]] || base=$(ccy-teams internal session-name "$CCY_TMUX_SESSION_PREFIX" "$1" "$2") || return 1
     listing=$(ccy_tmux_list) || return 1
     candidate="$base"
     while awk -v want="$candidate" '$1 == want { found = 1 } END { exit found ? 0 : 1 }' <<<"$listing"; do
@@ -356,9 +361,7 @@ ccy_tmux_insulate() {
         echo "Already inside a tmux server outside any terminal's scope; not wrapping again." >&2
         return 0
     fi
-    if [[ ! -t 0 ]]; then
-        return 0
-    fi
+    [[ -t 0 ]] || return 0
     if [[ ! -t 1 ]]; then
         echo "stdout is not a terminal (for example under --debug), so this session is NOT insulated from its terminal." >&2
         return 0
@@ -397,7 +400,7 @@ ccy_tmux_insulate() {
         ;;
     esac
 
-    name=$(ccy_tmux_next_name "$project") || return 1
+    name=$(ccy_tmux_next_name "$project" "$teams") || return 1
     echo "Starting session '$name' under tmux. If this terminal dies, run ${CCY_TMUX_SESSION_PREFIX} here again to re-attach." >&2
 
     # THE registry write that creates a record: this is the single place a session is

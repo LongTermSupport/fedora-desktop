@@ -349,6 +349,14 @@ func TestDispatchInternalGoCacheIsTheCacheCommand(t *testing.T) {
 	}
 }
 
+func TestDispatchInternalSessionNameIsTheNameCommand(t *testing.T) {
+	h := newHarness(t)
+	if code := h.app.Run([]string{"internal", "session-name", "ccy", "proj", "app.4@alpha"}); code != term.ExitOK ||
+		h.Out.String() != "ccy-alpha-app-4\n" {
+		t.Fatalf("exit %d: %q %s", code, h.Out.String(), h.ErrOut.String())
+	}
+}
+
 func TestDispatchSessionIsTheHotCommand(t *testing.T) {
 	h := newHarness(t)
 	if code := h.app.Run([]string{"session", "frob"}); code != term.ExitUsage ||

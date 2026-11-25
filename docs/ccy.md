@@ -230,6 +230,14 @@ The host `cc` wrapper does all of the same: its sessions are `cc-<project>` on t
 server, `cc` in a project directory offers a detached one back, and `ccy-sessions` lists
 both kinds. From the keyboard the two feel identical; only the container differs.
 
+A launch with `--teams` names its session for its seats instead: `<launcher>-<team>-<seat>`,
+so `ccy --teams fedora-desktop.4@team-a` starts `ccy-team-a-fedora-desktop-4`, and the tab,
+whose title is the session name, shows the team, the seat and the launcher. tmux keeps no `.`
+or `:` in a session name, so the seat's dots become `-`, and the launcher stays first because
+the `ccy-`/`cc-` prefix is how the re-attach offer and `ccy-sessions` tell the two kinds apart.
+A `cc --teams <team>` whose seat is chosen inside the session keeps `cc-<project>`. The form
+has one home, `ccy-teams internal session-name`.
+
 `cc` always starts its session at the top of a git repository, because Claude Code reads a
 project's `.claude/settings.json` (its hooks, its status line) only from the directory it
 starts in. Typed in a subdirectory, it starts at the repository's top. Typed outside any

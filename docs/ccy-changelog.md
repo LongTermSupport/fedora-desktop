@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.53 — container 2.84.80
+
+The launcher library and `ccy-teams` change (Plan 00265 R15); the image is unchanged.
+
+- **A seat's tmux session, and so its tab, names the seat.** A `ccy` or `cc` launch with
+  `--teams` starts its tmux session as `<launcher>-<team>-<seat>`, for example
+  `ccy-team-a-fedora-desktop-4` for `ccy --teams fedora-desktop.4@team-a`, instead of
+  `<launcher>-<project>`. The terminal's title is the session name (`files/etc/tmux.conf`), so
+  the tab shows the team, the seat and the launcher. tmux keeps no `.` or `:` in a session name,
+  so a seat's dots become `-`; several seats are joined with `_`. A launch with no seat, a `cc --teams <team>` whose seat is chosen inside the session, and a name over 120 characters keep
+  `<launcher>-<project>`. A session already running keeps its name, through a restore or a
+  restart too. The form lives in one place, `ccy-teams internal session-name`.
+
 ## 3.124.52 — container 2.84.80
 
 `ccy-teams` is rebuilt (Plan 00265 R39); the image is unchanged.
