@@ -324,6 +324,21 @@ filled in as each cause is known.
   before the work branch, or create it at the protected tip and fast-forward it.
 - **Severity:** medium. **Issue:** TBF. **State:** open; workaround known.
 
+## R43: one back-merge without a version bump stops a work branch landing by ancestry
+
+- **Seen:** this seat, batch 3's CI run 45625876657 ("QA (diff, rest)"), 2026-11-25 (dogfood).
+- **What:** `scripts/qa-ccy-merge-commits.bash` judges every merge commit in a run's range
+  against its parent on the protected line. `8a3b4af01` (F44 merged into `v2-smoke` for R23)
+  carried `v2-smoke`'s teamchat changes at the same `CCY_VERSION` as that F44 parent, so it is
+  refused. The commit is history and cannot be fixed without a force-push, so every later push of
+  `v2-smoke`'s ancestry fails the same way, although the tip's version (3.124.46) is above F44's.
+- **Workaround used:** batch 3 lands as one signed commit on F44 with `v2-smoke`'s tree
+  (`732effcb3`), as batches 1 and 2 did. The cost is ancestry: the unit branches do not show as
+  merged into F44.
+- **Fix direction:** bump `CCY_VERSION` in the work branch before merging the protected line into
+  it, or have the gate judge only the merges a push adds to the protected line.
+- **Severity:** medium. **Issue:** TBF. **State:** open; workaround known.
+
 ## R39: a seat starts on the account's default model
 
 - **Seen:** the owner (laptop host seat) and the hooks-daemon seat, 2026-11-25 (F14).
