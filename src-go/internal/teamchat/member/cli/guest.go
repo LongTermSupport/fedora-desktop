@@ -123,6 +123,27 @@ func runGuestRemove(e Env, inv Invocation) term.ExitCode {
 	})
 }
 
+// runPlaceLXC is `seat place-lxc --user U --checkout DIR` (issue 425 A1): guest.PlaceOffHost as
+// the identified caller; stdout the seat key alone, the payload a launcher's --key takes.
+func runPlaceLXC(e Env, inv Invocation) term.ExitCode {
+	checkout, given := inv.Flag("checkout")
+	if !given {
+		return exits.Write(e.Stderr, usage(msgPlaceCheckout))
+	}
+	id, err := identify(inv)
+	if err != nil {
+		return exits.Write(e.Stderr, err)
+	}
+	k, err := guest.PlaceOffHost(context.Background(), id, checkout, clock(), input(e))
+	if err = errors.Join(err, id.Close()); err != nil {
+		return exits.Write(e.Stderr, err)
+	}
+	if _, err := fmt.Fprintln(e.Stdout, k.String()); err != nil {
+		return exits.Write(e.Stderr, err)
+	}
+	return term.ExitOK
+}
+
 func runSetAside(e Env, inv Invocation) term.ExitCode {
 	dir, given := inv.Flag("state")
 	if !given {
