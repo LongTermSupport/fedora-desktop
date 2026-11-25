@@ -2016,7 +2016,12 @@ slice or closure built from those. A check is `X.IsRegular()` on the type or mod
 value (`d.Type()`, `info.Mode()` from `Lstat`/`Stat`/`Info()`). It guards an open in the branch it
 holds (also in an `&&`), in the clause of a tagless `switch` that lists only checks, and after an
 `if` whose failed check leaves the block (`return`, `continue`, `break`, a fatal call; also in an
-`||`). A name assigned where a check guards it carries the check with it, so a lister that keeps
+`||`). A tagless `switch` guards what follows it the same way when a clause leaves on a failed
+check (`case !d.Type().IsRegular() || …: return nil`, the check also listed beside other
+expressions) and every case clause before it leaves too or runs only on a passed check; clauses
+after it are guarded as well. In a switch clause `break` and `fallthrough` stay in the block, so
+they are no leave; a failed check joined by `&&` and a tagged `switch` guard nothing. The message
+names the guard forms the rule takes (R62 of Plan 00265: it named only the open). A name assigned where a check guards it carries the check with it, so a lister that keeps
 only regular files returns clean names; a listing taken there is still unchecked. In a summary of
 a function, a check of any of its parameters counts (a helper handed an entry and its path), and a
 parameter opens only what seeding it adds to the body's own opens. What a walked file says is
@@ -2040,9 +2045,13 @@ writer releases a reader at once, so a regression fails the test instead of hang
 
 - Red, fixture: `testdata/src/fix/internal/badwalk` (`TestWalkOpen`): each walk source and
   opener, a helper, a lister, a closure, a record's method, skip-and-warn, a check of another
-  name, a check joined by `||`, a case listed beside another condition, a tagged switch, a
+  name, a check joined by `||`, a case listed beside another condition, a tagged switch (also one
+  whose clause leaves on `!check`), a switch clause on a failed check that only warns, that only
+  `break`s, that is joined by `&&`, or that follows a clause that stays, a
   listing taken under another check, a flag that can wait; clean: each guarding position, a
-  checking lister, names kept where a check holds, a tagless switch case, a helper that checks
+  checking lister, names kept where a check holds, a tagless switch case, a tagless switch whose
+  clause leaves on a failed check (joined by `||`, or listed, after clauses that leave or hold the
+  check, with a clause and a `default` after it), a helper that checks
   its entry, a parameter that is only a label, `O_DIRECTORY`, an `O_NONBLOCK` file only closed,
   read after its own `Stat()` check or handed to a helper that checks it (declared before or after
   its caller), names read out of a walked file (through a checking helper, an unguarded read, a
@@ -2055,7 +2064,9 @@ writer releases a reader at once, so a regression fails the test instead of hang
   leaves 1 `want` unmet, the parameter attribution off and the parameter checks off 1 clean case
   red each; the content-read rule off makes 1 clean case red (also with only its package
   summary off), the pass-through summary off leaves 1 `want` unmet, the byte-slice rule off 1, the `O_NONBLOCK` read off leaves 3 `want`s unmet, every package helper taken as a reader 1
-  clean case red, and a helper's summary not yet computed taken as a reader 1.
+  clean case red, and a helper's summary not yet computed taken as a reader 1. The leaving switch
+  guard off makes 2 clean cases red, the guard of clauses after a leaving one off 1, and `break`
+  taken as a leave in a clause leaves 1 `want` unmet.
 - Red, real tree: 56 findings in 39 files at the defence commit, over `./...` untagged, with
   `busfailpoints`, `tuwunel`, `ccyteamstest`, `difftest` and the nested `qa` module. Four shapes
   among them were false positives, each fixed in the rule with a fixture case before the sweep

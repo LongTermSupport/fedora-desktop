@@ -34,10 +34,14 @@ Close, Fd, Name or SyscallConn is judged as the open: a method of it, or a call 
 
 A check is IsRegular() of the entry's mode (d.Type().IsRegular(), info.Mode().IsRegular(), on
 a value built from the walked name, such as the FileInfo of os.Stat of it). It guards an open in
-the branch it holds (if check { open }, also with more terms joined by &&), or an open after an
-if whose failed check leaves the block (if !check { continue, break, return or panic }, also with
-more terms joined by ||). A suffix, a name pattern, !IsDir() or a check that only warns and falls
-through is no check.
+the branch it holds (if check { open }, also with more terms joined by &&; or the clause of a
+switch with no tag that lists only such conditions), or an open after an if whose failed check
+leaves the block (if !check { continue, break, return or panic }, also with more terms joined by
+||), or after a switch with no tag whose clause does (case !check: return, also with more terms
+joined by || or listed beside it), when every case clause before that one also leaves or runs
+only on a passed check; a clause after it runs only on a passed check too. In a switch clause a
+break or fallthrough stays in the block, so it is no leave there. A suffix, a name pattern,
+!IsDir(), a failed check joined by && or a check that only warns and falls through is no check.
 
 A walk lists named pipes, sockets and devices as well as files, and opening a named pipe for
 reading blocks until something writes to it: play_text in helpers/play_ledger/group_vars.py
@@ -59,7 +63,9 @@ of sight.`,
 }
 
 const walkOpenMsg = "%s opens an entry a directory walk found without a regular-file check guarding it, and opening a " +
-	"named pipe blocks for ever (project_walk_open): skip the entry, or refuse it, unless its Type() or Mode() IsRegular()"
+	"named pipe blocks for ever (project_walk_open): skip the entry, or refuse it, unless its Type() or Mode() IsRegular(); " +
+	"the guards taken are if check { open }, if !check { return/continue } before the open, and a tagless switch " +
+	"case !check: return before it (|| may join other terms to a failed check, && to a passed one)"
 
 const walkReadMsg = "%s reads an entry a directory walk found, opened O_NONBLOCK, with no regular-file check of the open " +
 	"file: a named pipe with no writer reads as empty, one with a silent writer still blocks, and a device reads without " +
@@ -412,8 +418,11 @@ type walkScan struct {
 func (s *walkScan) block(list []ast.Stmt, guarded bool) {
 	for _, stmt := range list {
 		s.stmt(stmt, guarded)
-		if ifs, ok := stmt.(*ast.IfStmt); ok && s.leavingCheck(ifs) {
-			guarded = true
+		switch st := stmt.(type) {
+		case *ast.IfStmt:
+			guarded = guarded || s.leavingCheck(st)
+		case *ast.SwitchStmt:
+			guarded = guarded || s.leavingSwitch(st)
 		}
 	}
 }
@@ -483,13 +492,16 @@ func (s *walkScan) compound(stmt ast.Stmt, guarded bool) {
 			s.block(st.Body.List, guarded)
 			return
 		}
+		// A clause after one that leaves on a failed check is reached only when the check holds.
+		after := false
 		for _, clause := range st.Body.List {
 			cc, ok := clause.(*ast.CaseClause)
 			if !ok {
 				continue
 			}
-			s.exprs(cc.List, guarded)
-			s.block(cc.Body, guarded || s.positiveCase(cc))
+			s.exprs(cc.List, guarded || after)
+			s.block(cc.Body, guarded || after || s.positiveCase(cc))
+			after = after || s.leavingCase(cc)
 		}
 	case *ast.TypeSwitchStmt:
 		s.optional(st.Init, guarded)
@@ -973,13 +985,45 @@ func (s *walkScan) positiveCase(cc *ast.CaseClause) bool {
 // leavingCheck is whether an if leaves its block whenever a walked entry is not regular: a
 // negated check, or a disjunction with one among its terms, whose body ends by leaving.
 func (s *walkScan) leavingCheck(ifs *ast.IfStmt) bool {
-	if !leaves(ifs.Body) {
-		return false
-	}
-	for _, term := range splitBinary(ifs.Cond, token.LOR) {
+	return leaves(ifs.Body) && s.failedCheck(ifs.Cond)
+}
+
+// failedCheck is whether a condition holds whenever a walked entry is not regular: a negated
+// check, or a disjunction with one among its terms.
+func (s *walkScan) failedCheck(cond ast.Expr) bool {
+	for _, term := range splitBinary(cond, token.LOR) {
 		not, ok := ast.Unparen(term).(*ast.UnaryExpr)
 		if ok && not.Op == token.NOT && s.positiveCheck(not.X) {
 			return true
+		}
+	}
+	return false
+}
+
+// leavingCase is whether a clause of a switch with no tag leaves whenever a walked entry is not
+// regular: one expression it lists (they are joined by ||) is a failed check, and its body leaves.
+func (s *walkScan) leavingCase(cc *ast.CaseClause) bool {
+	return endsLeaving(cc.Body, true) && slices.ContainsFunc(cc.List, s.failedCheck)
+}
+
+// leavingSwitch is whether a switch with no tag leaves its block whenever a walked entry is not
+// regular, so it guards the statements after it: a clause leaves on a failed check, and every case
+// clause before it leaves too or runs only on a passed check. The default clause runs only when no
+// case matches, so where it stands does not matter.
+func (s *walkScan) leavingSwitch(st *ast.SwitchStmt) bool {
+	if st.Tag != nil {
+		return false
+	}
+	for _, clause := range st.Body.List {
+		cc, ok := clause.(*ast.CaseClause)
+		if !ok || cc.List == nil {
+			continue
+		}
+		if s.leavingCase(cc) {
+			return true
+		}
+		if !endsLeaving(cc.Body, true) && !s.positiveCase(cc) {
+			return false
 		}
 	}
 	return false
@@ -1022,12 +1066,20 @@ func splitBinary(e ast.Expr, op token.Token) []ast.Expr {
 // leaves is whether a block's last statement leaves it: a return, continue, break or goto, or a
 // call of panic, os.Exit, log.Fatal* or a test's Fatal* or Skip*.
 func leaves(body *ast.BlockStmt) bool {
-	if len(body.List) == 0 {
+	return endsLeaving(body.List, false)
+}
+
+// endsLeaving is whether a statement list's last statement leaves it (leaves). In a switch
+// clause a break or fallthrough stays in the statement after the switch, so it is no leave there.
+func endsLeaving(list []ast.Stmt, inCase bool) bool {
+	if len(list) == 0 {
 		return false
 	}
-	switch last := body.List[len(body.List)-1].(type) {
-	case *ast.ReturnStmt, *ast.BranchStmt:
+	switch last := list[len(list)-1].(type) {
+	case *ast.ReturnStmt:
 		return true
+	case *ast.BranchStmt:
+		return !inCase || last.Tok != token.BREAK && last.Tok != token.FALLTHROUGH
 	case *ast.ExprStmt:
 		call, ok := last.X.(*ast.CallExpr)
 		if !ok {
