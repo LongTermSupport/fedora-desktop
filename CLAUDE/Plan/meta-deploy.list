@@ -100,6 +100,15 @@
 # is no longer put in the restore manifest as resuming --teams. The image is unchanged.
 playbooks/imports/play-claude-yolo.yml
 
+# Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC
+# member's session can start at all (it was refused 78 "a lxc launch needs --desired", on the
+# homeserver's own host too). This run rebuilds and deploys the teamchat member kit on this host
+# and copies it into the declared same-host LXC member containers; play-claude-yolo above
+# rebuilds the ccy image for its teamchat. Nothing running is restarted: an LXC member session
+# started after the run (teamchat-admin lxc start --member <container>/<key>) starts, instead
+# of exiting 78.
+playbooks/imports/play-teamchat.yml
+
 # Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that
 # is running, the session units are present, not enabled and not linked in
 # multi-user.target.wants. A stopped container is reported offline and skipped. It then ASKS,
