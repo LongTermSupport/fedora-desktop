@@ -69,7 +69,7 @@ func (r *questionRoom) judged(id, sender string, ageMs int64, content string) Ve
 }
 
 // fold gives the index a verdict the way the build and the sync do: an index verdict is fed, a
-// human's post is attached whether it was delivered or dropped for rate (n3f-D18); for a human
+// human's post is attached whatever its delivery verdict (n3f-D18); for a human
 // post it gives the question the post is attached to, 0 for none.
 func (r *questionRoom) fold(v Verdict) int64 {
 	r.t.Helper()

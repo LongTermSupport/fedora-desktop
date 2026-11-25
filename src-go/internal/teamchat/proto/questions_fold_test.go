@@ -137,8 +137,8 @@ func TestQuestionIndexAttachesWhateverTheVerdict(t *testing.T) {
 	r.judge.Roster.Limits.RecvPerSenderMinute = 10
 	for i := range 12 {
 		v := r.judged(qid(byte('A'+i)), aliceID, 6000, humanPost("MIT", threadRel(q1)))
-		if dropped := v.Reason == ReasonRate; dropped != (i >= 10) {
-			t.Fatalf("post %d: verdict %v %q, want a rate drop from the 11th", i, v.Outcome, v.Reason)
+		if v.Outcome != Deliver || v.OverLimit != (i >= 10) {
+			t.Fatalf("post %d: verdict %v %q over %v, want delivered and over the limit from the 11th (A 11.1)", i, v.Outcome, v.Reason, v.OverLimit)
 		}
 		if n := r.fold(v); n != 1 {
 			t.Errorf("post %d (%s) attached to Q%d, want Q1", i, v.Reason, n)

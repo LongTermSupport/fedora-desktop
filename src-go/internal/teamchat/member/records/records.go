@@ -443,6 +443,9 @@ type TeamCounts struct {
 	SeenTwice int64 `json:"seen_twice"`
 	// Unsent are queued sends the current roster refused at their post (n3d-D27).
 	Unsent int64 `json:"unsent"`
+	// HumanOverLimit are a team human's posts delivered past recv_per_sender_minute (A 11.1): a
+	// human is not flood-limited, and the link log names each one.
+	HumanOverLimit int64 `json:"human_over_limit"`
 }
 
 // MarshalJSON writes the counts with `dropped_by` an object, empty for no drop.

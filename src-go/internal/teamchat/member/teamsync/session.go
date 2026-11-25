@@ -922,6 +922,9 @@ func (s *sess) take(j *judged, v proto.Verdict, id string, restored func(int64) 
 			}
 		}
 		j.batch.Items = append(j.batch.Items, team.Item{Pending: p, Verdict: v})
+		if v.OverLimit {
+			j.overLimit(v.Event.ID, s.roster.Limits.RecvPerSenderMinute)
+		}
 		answered(j, v)
 	case proto.Ignore:
 		s.ignored(j, v, id, lk, counted)
@@ -962,6 +965,15 @@ func (j *judged) drop(id, reason string) {
 		return
 	}
 	j.lines = append(j.lines, fmt.Sprintf("dropped %s: %s", id, reason))
+}
+
+// overLimit counts a team human's post delivered past recv_per_sender_minute (status's
+// `human_over_limit`), with a log line naming it: a human is never dropped for rate (A 11.1), so
+// one line per post is the same volume a drop would have logged, and names each post of a
+// runaway client.
+func (j *judged) overLimit(id string, limit int64) {
+	j.batch.Counts.HumanOverLimit++
+	j.lines = append(j.lines, fmt.Sprintf("human post %s over the flood limit (%d a minute), delivered", id, limit))
 }
 
 // answered is SY4's answer to an own ping (A 8.2): a recorded ack or stale answer, or a

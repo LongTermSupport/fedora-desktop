@@ -243,16 +243,17 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
   room with three human posts: none delivered, all three in `questions`; a restart within a term
   resumes from the floor; a re-promotion with a surviving floor resumes from the new join.
 - **QS6. The receive path** (A 7.6 rule 05): for the coordinator every human message in
-  questions is addressed (no mention needed), kind HUMAN, judged by `stale` never and by `rate`
-  as main's are. Each is attached by the index (A 10.4) whatever that verdict (n3f-D18); its
+  questions is addressed (no mention needed), kind HUMAN, judged by `stale` never and, since R64's
+  follow-up (A 11.1), by `rate` never either: a post past the limit is delivered, counted
+  (`human_over_limit`) and logged. Each is attached by the index (A 10.4) whatever that verdict (n3f-D18); its
   pending entry has `room: questions`. Another agent's event is dropped `sender`; an agent's
   `teamchat.question` or `teamchat.thread` is rule 03's `index` outcome and is folded (QX2). A
   human's edit in questions is an item with `revises` (A 7.5), attached by rule 4. An admin
   redaction in questions removes its target from the index completely, by QX7's rebuild. Tests: an unmentioned human
   post delivered with its question; a post in a question's thread, a reply to a thread post, a
   `Q3:` prefix, an edit of an attached post, an unattached post (`question: none`); a worker's post
-  dropped `sender`; a human post older than `human_max_age_s` still delivered; a post dropped
-  `rate` still attached.
+  dropped `sender`; a human post older than `human_max_age_s` still delivered; a post past the
+  flood limit delivered and attached.
 - **QS7. A limited timeline** in questions is filled as SY3 fills main's when the fill reaches
   the index's last folded event within SY3's page bound (one sync token covers both rooms: a
   transient failure holds the whole answer and persists nothing). Past that bound the index

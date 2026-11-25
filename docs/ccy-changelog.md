@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.63 — container 2.84.84
+
+- **A person's teamchat posts are never dropped for rate.** A team human is exempt from the
+  receive flood limit (`recv_per_sender_minute`) in main and in the questions room. A post past
+  the limit is still delivered; `teamchat status` counts it in `counts.human_over_limit`, and
+  the link log has a line naming it, so a runaway client shows. Agents are limited as before
+  (Plan 00265 R64 follow-up).
+
 ## 3.124.62 — container 2.84.83
 
 - **`ccy-sessions declare` no longer fails a converge on a running session.** If a session runs

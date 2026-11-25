@@ -123,11 +123,15 @@ type Item struct {
 type Counts struct {
 	Ignored, Dropped, Unheard, Gaps, Redacted int64
 	DroppedBy                                 map[string]int64
+	// HumanOverLimit counts a team human's posts delivered past recv_per_sender_minute: a human
+	// is not flood-limited (A 11.1), and the count is a runaway client's trace.
+	HumanOverLimit int64
 }
 
 // IsZero is whether nothing was counted.
 func (c Counts) IsZero() bool {
-	return c.Ignored == 0 && c.Dropped == 0 && c.Unheard == 0 && c.Gaps == 0 && c.Redacted == 0 && len(c.DroppedBy) == 0
+	return c.Ignored == 0 && c.Dropped == 0 && c.Unheard == 0 && c.Gaps == 0 && c.Redacted == 0 && len(c.DroppedBy) == 0 &&
+		c.HumanOverLimit == 0
 }
 
 // Drop counts one drop under its reason.
@@ -143,7 +147,7 @@ func (c *Counts) Drop(reason string) {
 func (c Counts) Add(b Counts) Counts {
 	sum := Counts{
 		Ignored: c.Ignored + b.Ignored, Dropped: c.Dropped + b.Dropped, Unheard: c.Unheard + b.Unheard,
-		Gaps: c.Gaps + b.Gaps, Redacted: c.Redacted + b.Redacted,
+		Gaps: c.Gaps + b.Gaps, Redacted: c.Redacted + b.Redacted, HumanOverLimit: c.HumanOverLimit + b.HumanOverLimit,
 	}
 	for _, m := range []map[string]int64{c.DroppedBy, b.DroppedBy} {
 		for reason, n := range m {

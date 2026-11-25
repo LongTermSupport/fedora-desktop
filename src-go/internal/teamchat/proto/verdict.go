@@ -161,6 +161,9 @@ type Verdict struct {
 	// Relayed is the relay a human post in questions was delivered through (A 10.6), nil for
 	// none.
 	Relayed *Relayed
+	// OverLimit marks a team human's post delivered past recv_per_sender_minute: a human is not
+	// flood-limited (A 11.1), and the link counts and logs such a post, a runaway client's trace.
+	OverLimit bool
 }
 
 // Relayed is the relay's account of the human post it named: the coordinator who relayed it and
@@ -367,9 +370,10 @@ func (j Judge) human(v Verdict, main bool) Verdict {
 		return ignore(v, IgnoreNotAddressed)
 	case main && TextStale(v.Event.OriginTs, j.NowMs, j.Roster.Limits):
 		return drop(v, ReasonStale)
-	case !j.admit(v.Event.Sender):
-		return drop(v, ReasonRate)
 	}
+	// A team human is not flood-limited (A 11.1): a human's words are never dropped for rate. A
+	// post past the limit is delivered and marked, for the link to count and log.
+	v.OverLimit = !j.admit(v.Event.Sender)
 	return deliver(v, KindHuman)
 }
 
@@ -398,7 +402,8 @@ func (j Judge) sentBySelf(id string) bool {
 	return ok && r.Sender == j.Self
 }
 
-// admit enters one event of sender in the receive flood window (A 11.1, P65).
+// admit enters one event of sender in the receive flood window (A 11.1, P65); a refusal is not
+// entered.
 func (j Judge) admit(sender string) bool {
 	return j.Flood.Admit(sender, j.Roster.Limits.RecvPerSenderMinute, ReceiveWindowMs, j.NowMs)
 }

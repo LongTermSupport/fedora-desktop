@@ -33,7 +33,7 @@ func (w *world) noRateDrop(bs []team.Batch) {
 	w.t.Helper()
 	for _, b := range bs {
 		if n := b.Counts.DroppedBy[proto.ReasonRate]; n != 0 {
-			w.t.Errorf("a batch dropped %d events `rate` (counts %+v): replayed history counted toward the flood window", n, b.Counts)
+			w.t.Errorf("a batch dropped %d events `rate` (counts %+v)", n, b.Counts)
 		}
 	}
 	if n := w.log.count(": " + proto.ReasonRate); n != 0 {
@@ -111,6 +111,73 @@ func TestR64APostInsideTheFloorIsNotDeliveredAgain(t *testing.T) {
 	if n := deliveredIn(bs, fresh); n != 1 {
 		t.Errorf("the new post delivered %d times, want once", n)
 	}
+}
+
+// humanBurst is a coordinator's link given alice's posts, n of them in one minute of the fake
+// clock: the first alone, the rest in one held answer. It gives the batches of both answers and
+// the posts' ids.
+func humanBurst(t *testing.T, w *world, n int, post func(i int) string) ([]team.Batch, []string) {
+	t.Helper()
+	var g *filterGate
+	rt := w.readyWith(w.main, func(tm *Team) { g = gateFilter(t, tm, w.filterFor(true)) })
+	release := g.armed()
+	ids := []string{post(0)}
+	first := w.batchWith(func(b team.Batch) bool { return slices.Contains(itemIDs(b), ids[0]) })
+	g.isHeld()
+	for i := 1; i < n; i++ {
+		ids = append(ids, post(i))
+	}
+	rt.drainPolls()
+	release()
+	return []team.Batch{first, w.persistedBefore(rt.r)}, ids
+}
+
+// checkHumanBurst holds A 11.1's human exemption over a burst: every post delivered once, none
+// dropped `rate`, the posts past recv_per_sender_minute counted and each logged.
+func checkHumanBurst(t *testing.T, w *world, bs []team.Batch, ids []string) {
+	t.Helper()
+	w.noRateDrop(bs)
+	for _, id := range ids {
+		if n := deliveredIn(bs, id); n != 1 {
+			t.Errorf("the post %s delivered %d times, want once", id, n)
+		}
+	}
+	over, want := int64(0), int64(len(ids))-w.roster.Limits.RecvPerSenderMinute
+	for _, b := range bs {
+		over += b.Counts.HumanOverLimit
+	}
+	if over != want {
+		t.Errorf("counted %d human posts over the limit, want %d", over, want)
+	}
+	if n := w.log.count("over the flood limit"); int64(n) != want {
+		t.Errorf("the log names %d posts over the flood limit, want %d:\n%s", n, want, w.log.String())
+	}
+	for _, id := range ids[len(ids)-int(want):] {
+		if w.log.count(id+" over the flood limit") != 1 {
+			t.Errorf("no log line names the post %s over the flood limit", id)
+		}
+	}
+}
+
+// A 11.1 (R64's follow-up): a team human is not flood-limited. 70 of a human's posts in the
+// questions room in one minute are each delivered to the coordinator once; the 10 past
+// recv_per_sender_minute are counted and logged, never dropped.
+func TestR64BHumanBurstInQuestionsIsDeliveredAndCounted(t *testing.T) {
+	w := newWorld(t)
+	w.inQuestions(alice, false)
+	bs, ids := humanBurst(t, w, w.replayed(), func(i int) string {
+		return w.sayIn(w.qroom(), alice, human(fmt.Sprintf("burst %d", i)))
+	})
+	checkHumanBurst(t, w, bs, ids)
+}
+
+// The same in main: 70 posts mentioning the coordinator in one minute.
+func TestR64BHumanBurstInMainIsDeliveredAndCounted(t *testing.T) {
+	w := newWorld(t)
+	bs, ids := humanBurst(t, w, w.replayed(), func(i int) string {
+		return w.say(alice, human(fmt.Sprintf("burst %d", i), user(coord)))
+	})
+	checkHumanBurst(t, w, bs, ids)
 }
 
 // R64 in main: SY1 (b)'s resume replays main's events after the seat's release time, even those

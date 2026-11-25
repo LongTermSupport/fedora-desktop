@@ -39,6 +39,18 @@ func TestCountsDropAndAdd(t *testing.T) {
 	}
 }
 
+// A 11.1 (R64's follow-up): a human post delivered over the flood limit is counted, is not
+// zero, and adds.
+func TestCountsHumanOverLimit(t *testing.T) {
+	over := team.Counts{HumanOverLimit: 2}
+	if over.IsZero() {
+		t.Error("counts holding a human over the limit are zero")
+	}
+	if got := over.Add(team.Counts{HumanOverLimit: 3}).HumanOverLimit; got != 5 {
+		t.Errorf("the sum's human over limit = %d, want 5", got)
+	}
+}
+
 func TestViewIsJudgesLookup(t *testing.T) {
 	related := proto.Related{Sender: "@repo.2+site.podman:ops.teamchat.internal", RoomID: "!main", Verb: "ask"}
 	ping := proto.OwnPing{Verb: "ask", To: []string{"repo.3+site.lxc"}, OriginTs: 1_760_000_000_000}
