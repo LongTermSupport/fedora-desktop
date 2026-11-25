@@ -28,8 +28,9 @@ filled in as each cause is known.
 - **Reproduce:** coordinator `say --to <worker>` to a worker whose roster entry has
   `human_text: false`.
 - **Severity:** critical. **Issue:** #422. **Unit:** U2. **State:** fixed (U2), merged into
-  `v2-smoke` and on F44 at c1b20004f (the home pin). The live check and the owner
-  question on `human_text` are in `reports/U2.md`.
+  `v2-smoke` and on F44 at c1b20004f (the home pin). The live check is in `reports/U2.md`.
+  The owner confirmed the new meaning (lts-ops Q11, A12): `human_text` gates a human's words
+  only. Plan 00209 A 7.6 rule 08 and Plan 00161 D63 now say so.
 
 ## R2: `reply` refuses an item `history` lists
 
@@ -167,8 +168,10 @@ filled in as each cause is known.
 ## R26: qa-changed's Go step cannot run on arm64
 
 - **Seen:** U6 and the other units, this seat's arm64 container, 2026-11-25.
-- **What:** go-qa pins ast-grep 0.50.0 for linux/amd64 only, so `./scripts/qa-changed.bash`
-  fails its Go step before any check; no Go change passes targeted QA locally on arm64. Also:
+- **What:** `./scripts/qa-changed.bash` fails its Go step before any check on arm64, so no Go
+  change passes targeted QA locally there. The units reported ast-grep 0.50.0 pinned for
+  linux/amd64 only as the cause; no such pin is in this tree (it would be inside go-qa itself),
+  so the cause is unchecked here and is for #426 to establish. Also:
   `lint_on_edit` denies Go edits with "parallel golangci-lint is running" when agents edit at once.
 - **Reproduce:** `./scripts/qa-changed.bash` with a Go change on an arm64 host.
 - **Severity:** high. **Issue:** #426. **State:** open.

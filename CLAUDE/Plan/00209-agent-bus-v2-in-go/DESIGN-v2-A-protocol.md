@@ -1114,9 +1114,8 @@ otherwise: `redact` (rule 01), `index` (rule 03), `fault` (rule 05) and `record`
     From the probe (6.7), anything but a `teamchat.ping`: drop `role`.
     Otherwise the typed-key rule (7.1), then by key: `teamchat.ping` the ping path (8.1), kind PING;
     `teamchat.text` kind PEER, after rule 09's addressing and whatever the member's
-    `human_text` (issue #422: `human_text` gates a human's words only; v1 and this text
-    before it dropped an agent's text `sender` too, so a worker issued `human_text: false`
-    never heard its coordinator), except one with `relay`, which a member with `human_text: false` drops `sender` and which otherwise takes the relay path (10.6) and, if it passes,
+    `human_text`: `human_text` gates a human's words only, and the agents of a team can always
+    message a seat (the owner, lts-ops Q11; issue #422), except one with `relay`, which a member with `human_text: false` drops `sender` and which otherwise takes the relay path (10.6) and, if it passes,
     kind HUMAN with the room lines of questions; `teamchat.notice` only
     `left`, `disconnected` or `back` with `subject` equal to `sender`, kind NOTICE; any other agent notice:
     drop `target`.
