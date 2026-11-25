@@ -570,6 +570,23 @@ filled in as each cause is known.
 - **Severity:** high (every gate a commit is meant to pass locally is silently absent).
   **Issue:** #427. **State:** open, outside v2.
 
+## R67: the status-line golden test reports a process that died as it was killed as outliving the render
+
+- **Seen:** CI run 45703604400 ("QA (diff, go)"), 25 Nov 21:32Z: `TestStatusLineGolden`'s
+  `cancel-sighup` and `cancel-sigint` failed with `kill <pid>: no such process` and
+  `grandchild.pid: process <pid> outlived the render`; a re-run passed.
+- **What:** `goneOne` polled the grandchild (already sent SIGKILL by the render's group kill) for
+  250 checks, then sent SIGKILL itself and reported "outlived" whatever the kill answered. The
+  process ended between the last check and the kill: ESRCH, so it never outlived anything, yet
+  the step drew two failures. The 5 s bound had also run out on a loaded runner.
+- **Fix:** `outlives` takes its probes (ended, kill, pause) as fields; a kill answered ESRCH is no
+  problem, any other refused kill is still an error. The bound is 1000 checks (at least 20 s,
+  well short of the grandchild's 60 s sleep); a passing step waits only until the process ends.
+  `TestOutlivesDecision` was red on the old decision. The sweep found no other instance
+  ([R67](reports/R67.md)).
+- **Severity:** low (a false red on an unrelated batch). **Issue:** TBF. **State:** fixed on
+  v2-smoke, batch 18 (6b300c2a0).
+
 ## R66: the edit-time lint hook lints the project-rule fixtures, which carry deliberate findings
 
 - **Seen:** the R62 agent, 25 Nov.
