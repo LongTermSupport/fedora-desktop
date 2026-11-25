@@ -218,7 +218,8 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   launch value branched on only in its agent seam, a teamchat send's room decided for each room
   by name (never main's path for every room but one), no Duration built from a number nothing bounds, one home abbreviation, a `WaitDelay` that names
   its error, stdin read only through `internal/stdinread` or a `ui` prompt (an open pipe never ends), tmux's "not there"
-  answer read only by tmuxccy's one classifier (lxc-attach and runuser print the same words), no action reachable only by a key (a key reaches fzf only as a `ui.Action`, and a Bubble Tea key only `internal/ui`, through a
+  answer read only by tmuxccy's one classifier (lxc-attach and runuser print the same words), a teamchat
+  refusal's message naming its cause and next step, never only its reason code, no action reachable only by a key (a key reaches fzf only as a `ui.Action`, and a Bubble Tea key only `internal/ui`, through a
   `key.Binding` with help; Tab completing a text input is navigation).
   [GoProjectRules.md](../CLAUDE/GoProjectRules.md) is the catalogue.
   A new defect class found here gets a rule there before its fix.
