@@ -63,12 +63,14 @@ const (
 	AdminBinaryPath  = "/usr/local/sbin/" + AdminBinary
 )
 
-// The Claude Code plugin, its skill, and the LXC session's tmux socket and session (D 3.4, 3.6).
+// The Claude Code plugin, its skills (every member's, and a coordinator's procedure: register
+// R44), and the LXC session's tmux socket and session (D 3.4, 3.6).
 const (
-	PluginName  = Product
-	SkillName   = PluginName + ":" + Product
-	TmuxSocket  = Product
-	TmuxSession = Product
+	PluginName           = Product
+	SkillName            = PluginName + ":" + Product
+	CoordinatorSkillName = PluginName + ":coordinator"
+	TmuxSocket           = Product
+	TmuxSession          = Product
 )
 
 // Users and the network interface (D 3.5).

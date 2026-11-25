@@ -94,6 +94,7 @@ func TestFixedNames(t *testing.T) {
 		{AdminBinaryPath, "/usr/local/sbin/teamchat-admin"},
 		{InstallBinary, "teamchat-install"},
 		{SkillName, "teamchat:teamchat"},
+		{CoordinatorSkillName, "teamchat:coordinator"},
 		{CtlUser, "teamchat-ctl"},
 		{Interface, "teamchat0"},
 		{ServerUnitTemplate, "teamchat-server@.service"},

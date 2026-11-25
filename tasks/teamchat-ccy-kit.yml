@@ -3,7 +3,8 @@
 # /opt/claude-yolo/optional/teamchat (Plan 00209 Task 4.1, DESIGN-v2-D-migration.md 3.6). The
 # Dockerfile's COPY of optional/ takes it into the image. Imported by the ccy image's task file.
 #
-# The kit is the binary, its plugin (hooks.json, plugin.json and the teamchat:teamchat skill)
+# The kit is the binary, its plugin (hooks.json, plugin.json, the teamchat:teamchat skill and
+# the coordinator's procedure, teamchat:coordinator)
 # and settings.json with the status line. Every file but the binary is kept in the repository
 # under files/opt/claude-yolo/optional/teamchat/, and a Go test of internal/teamchat/member/kit
 # holds those files equal to what kit.Assemble writes for this path. This file copies them.
@@ -29,6 +30,7 @@
     - plugin/teamchat/.claude-plugin
     - plugin/teamchat/hooks
     - plugin/teamchat/skills/teamchat
+    - plugin/teamchat/skills/coordinator
   tags:
     - scripts
     - skills
@@ -46,6 +48,7 @@
     - plugin/teamchat/.claude-plugin/plugin.json
     - plugin/teamchat/hooks/hooks.json
     - plugin/teamchat/skills/teamchat/SKILL.md
+    - plugin/teamchat/skills/coordinator/SKILL.md
   tags:
     - scripts
     - skills

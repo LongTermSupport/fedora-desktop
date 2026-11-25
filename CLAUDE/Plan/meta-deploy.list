@@ -98,6 +98,9 @@
 # #411 (ccy 3.124.43): ccy-sessions is rebuilt and the launcher's session-registry library deployed so
 # a session launched with a bare ccy --resume (the picker), such as ccy --resume --teams <seats>,
 # is no longer put in the restore manifest as resuming --teams. The image is unchanged.
+# Plan 00265 R44 (ccy 3.124.48, container 2.84.79): the image is rebuilt so its teamchat kit
+# carries the coordinator's standard procedure (the teamchat:coordinator skill) and a coordinator
+# seat's SessionStart names it; sessions started after the rebuild see it.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC
@@ -106,7 +109,8 @@ playbooks/imports/play-claude-yolo.yml
 # and copies it into the declared same-host LXC member containers; play-claude-yolo above
 # rebuilds the ccy image for its teamchat. Nothing running is restarted: an LXC member session
 # started after the run (teamchat-admin lxc start --member <container>/<key>) starts, instead
-# of exiting 78.
+# of exiting 78. R44: the host kit it assembles carries the coordinator skill too, and the kit
+# check now requires it.
 playbooks/imports/play-teamchat.yml
 
 # Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that

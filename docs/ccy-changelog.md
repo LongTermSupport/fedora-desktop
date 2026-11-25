@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.48 — container 2.84.79
+
+The image is rebuilt for its `teamchat` kit (Plan 00265 R44).
+
+- **A coordinator finds its procedure at launch.** The kit's plugin carries a second skill,
+  `teamchat:coordinator`: the standard procedure every team's coordinator follows (dispatching
+  and tracking seats, the questions room's threads, writing for a human, when to ask, authority
+  and secrets), each `teamchat` command in it checked against the binary's verbs by a test. The
+  SessionStart frame's line for a coordinator seat names the skill; a worker's does not. A
+  project's own coordinator layer stays in that project's repository; the skill says what it
+  holds.
+
 ## 3.124.47 — container 2.84.78
 
 The image is rebuilt for its `teamchat` (Plan 00265 R49), and `ccy-teams` changes a running

@@ -463,6 +463,8 @@
             - {part: plugin/teamchat/skills, kind: dir}
             - {part: plugin/teamchat/skills/teamchat, kind: dir}
             - {part: plugin/teamchat/skills/teamchat/SKILL.md, kind: file}
+            - {part: plugin/teamchat/skills/coordinator, kind: dir}
+            - {part: plugin/teamchat/skills/coordinator/SKILL.md, kind: file}
           loop_control:
             label: "{{ item.part }}"
           register: tc_kit_parts

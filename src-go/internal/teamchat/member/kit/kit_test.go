@@ -59,13 +59,15 @@ func TestAssembleBuildsTheKit(t *testing.T) {
 		"plugin":                         fs.ModeDir | 0o755,
 		"plugin/teamchat":                fs.ModeDir | 0o755,
 		"plugin/teamchat/.claude-plugin": fs.ModeDir | 0o755,
-		"plugin/teamchat/.claude-plugin/plugin.json": 0o644,
-		"plugin/teamchat/hooks":                      fs.ModeDir | 0o755,
-		"plugin/teamchat/hooks/hooks.json":           0o644,
-		"plugin/teamchat/skills":                     fs.ModeDir | 0o755,
-		"plugin/teamchat/skills/teamchat":            fs.ModeDir | 0o755,
-		"plugin/teamchat/skills/teamchat/SKILL.md":   0o644,
-		"settings.json":                              0o644,
+		"plugin/teamchat/.claude-plugin/plugin.json":  0o644,
+		"plugin/teamchat/hooks":                       fs.ModeDir | 0o755,
+		"plugin/teamchat/hooks/hooks.json":            0o644,
+		"plugin/teamchat/skills":                      fs.ModeDir | 0o755,
+		"plugin/teamchat/skills/teamchat":             fs.ModeDir | 0o755,
+		"plugin/teamchat/skills/teamchat/SKILL.md":    0o644,
+		"plugin/teamchat/skills/coordinator":          fs.ModeDir | 0o755,
+		"plugin/teamchat/skills/coordinator/SKILL.md": 0o644,
+		"settings.json":                               0o644,
 	}
 	got := map[string]fs.FileMode{}
 	err := filepath.WalkDir(into, func(p string, d fs.DirEntry, err error) error {
@@ -111,6 +113,12 @@ func TestAssembleWritesTheSkill(t *testing.T) {
 	}
 	if strings.TrimPrefix(Skill(kit), kit.PluginDir()+"/") != "skills/teamchat/SKILL.md" {
 		t.Errorf("skill path %s", Skill(kit))
+	}
+	if data := testfiles.Read(t, into, "plugin/teamchat/skills/coordinator/SKILL.md"); !bytes.Equal(data, coordinatorSkill) {
+		t.Error("the coordinator skill is not the embedded one")
+	}
+	if strings.TrimPrefix(CoordinatorSkill(kit), kit.PluginDir()+"/") != "skills/coordinator/SKILL.md" {
+		t.Errorf("coordinator skill path %s", CoordinatorSkill(kit))
 	}
 	if strings.TrimPrefix(kit.PluginHooks(), kit.String()+"/") != "plugin/teamchat/hooks/hooks.json" ||
 		strings.TrimPrefix(kit.Settings(), kit.String()+"/") != "settings.json" ||
@@ -184,10 +192,14 @@ func TestTheSettingsAreTheStatusLineOnly(t *testing.T) {
 	}
 }
 
-// B 2.12: the plugin's one skill is teamchat:teamchat, so its directory is the product's name.
+// B 2.12: the plugin's skills are teamchat:teamchat and teamchat:coordinator (R44), each
+// named for its directory.
 func TestTheSkillIsNamedForThePlugin(t *testing.T) {
 	if paths.SkillName != paths.PluginName+":"+filepath.Base(filepath.Dir(Skill(hostKit(t)))) {
 		t.Errorf("%s at %s", paths.SkillName, Skill(hostKit(t)))
+	}
+	if paths.CoordinatorSkillName != paths.PluginName+":"+filepath.Base(filepath.Dir(CoordinatorSkill(hostKit(t)))) {
+		t.Errorf("%s at %s", paths.CoordinatorSkillName, CoordinatorSkill(hostKit(t)))
 	}
 }
 

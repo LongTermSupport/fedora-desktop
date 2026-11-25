@@ -389,8 +389,12 @@ filled in as each cause is known.
 - **Upkeep:** every `teamchat` verb and flag the skill names is checked against the code when
   it lands. A test will hold the skill's verbs to the CLI's verb table, so a renamed verb fails
   QA.
-- **Severity:** medium. **Issue:** TBF. **State:** open; after the container blocker's steps and
-  R41, before any new team.
+- **Severity:** medium. **Issue:** TBF. **State:** built on `v2-smoke` (CCY 3.124.48, container
+  2.84.79): the kit ships `teamchat:coordinator` (source `member/kit/coordinator.txt`, image copy
+  held equal by test), the coordinator frame line names it, and a test parses every command it
+  names. Ten command corrections against the source are listed in
+  [reports/R44.md](reports/R44.md). Live once the image is rebuilt on the host; the delivery
+  note's U2, U5 and U6 (project-layer path, whoami listing, membership notice) stay open.
 
 ## R39: a seat starts on the account's default model
 

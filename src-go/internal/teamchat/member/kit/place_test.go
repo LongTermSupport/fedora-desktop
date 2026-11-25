@@ -44,6 +44,7 @@ func TestPartsNamesEveryEntryOfTheKit(t *testing.T) {
 	wanted := []string{
 		"bin/teamchat", "settings.json", "plugin/teamchat/.claude-plugin/plugin.json",
 		"plugin/teamchat/hooks/hooks.json", "plugin/teamchat/skills/teamchat/SKILL.md",
+		"plugin/teamchat/skills/coordinator/SKILL.md",
 	}
 	for _, want := range wanted {
 		if !slices.Contains(parts, want) {

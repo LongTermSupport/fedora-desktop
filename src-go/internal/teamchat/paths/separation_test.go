@@ -140,7 +140,7 @@ func constNames() map[string][]string {
 		"LeafCertCredential": LeafCertCredential, "LeafKeyCredential": LeafKeyCredential, "MemberBinary": MemberBinary,
 		"AdminBinary": AdminBinary, "InstallBinary": InstallBinary,
 		"MemberBinaryPath": MemberBinaryPath, "AdminBinaryPath": AdminBinaryPath,
-		"PluginName": PluginName, "SkillName": SkillName, "TmuxSocket": TmuxSocket,
+		"PluginName": PluginName, "SkillName": SkillName, "CoordinatorSkillName": CoordinatorSkillName, "TmuxSocket": TmuxSocket,
 		"TmuxSession": TmuxSession, "CtlUser": CtlUser, "Interface": Interface,
 		"LibDir": LibDir, "ShareDir": ShareDir, "ResolverDir": ResolverDir, "ResolverStubFile": ResolverStubFile, "ResolverFile": ResolverFile, "EtcDir": EtcDir,
 		"OwnerGroupFile": OwnerGroupFile, "ServerDir": ServerDir, "ServerPinFile": ServerPinFile,

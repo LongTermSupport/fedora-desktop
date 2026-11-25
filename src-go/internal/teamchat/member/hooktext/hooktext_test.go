@@ -64,13 +64,17 @@ func TestFrame(t *testing.T) {
 	}, state.DeliverySocket)
 	want := proto.FrameText + "\n\n" +
 		"team alpha: you are myrepo.2+desk.podman, the coordinator (coordinator: myrepo.2+desk.podman). Builds the thing.\n" +
-		"In team alpha you direct the team's agents; ask the humans with teamchat ask-human --team alpha, and follow up with teamchat questions --team alpha.\n" +
+		"In team alpha you direct the team's agents: load the teamchat:coordinator skill, your procedure, now and at every launch; ask the humans with teamchat ask-human --team alpha, and follow up with teamchat questions --team alpha.\n" +
 		"team beta: you are myrepo.3+desk.podman, the worker; the team has no coordinator now.\n" +
 		"In team beta take direction from the team's humans and its coordinator; report with teamchat report --team beta.\n" +
 		"team gamma: you are ?, the member (coordinator: ?).\n" +
 		"Deliveries arrive in this conversation by themselves."
 	if got != want {
 		t.Fatalf("frame:\n%s\nwant:\n%s", got, want)
+	}
+	// R44: the coordinator's line names the kit's coordinator skill by its real name.
+	if !strings.Contains(string(tmplRoleCoordinator), " "+paths.CoordinatorSkillName+" skill") {
+		t.Errorf("the coordinator line does not name %s", paths.CoordinatorSkillName)
 	}
 	for mode, line := range map[string]string{
 		state.DeliveryWait: "Keep teamchat wait running in the background",
