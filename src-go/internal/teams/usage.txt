@@ -369,6 +369,14 @@ Usage:
                                    podman) or while another running process claimed it; the
                                    owner's own earlier claim is given up. ccy calls it at each
                                    launch
+  ccy-teams internal session-name <ccy|cc> <project> <seats>
+                                   print the name of the tmux session a launch starts: for
+                                   <seats> (the canonical <seat>@<team>,... list)
+                                   <launcher>-<team>-<seat>, '.' and '+' made '-', several seats
+                                   joined with '_'; with no seat, a team alone or a name over 120
+                                   characters, <launcher>-<project>. The first of the name,
+                                   <name>-2, <name>-3 ... no session on ccy's tmux server has.
+                                   ccy and cc call it each time they start a session
   ccy-teams internal go-cache <project> [z]
                                    make ~/.cache/ccy/<project>/go, the project's Go caches
                                    (build, module, golangci-lint, go-qa's tools), and print the

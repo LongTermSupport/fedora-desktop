@@ -17,6 +17,27 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.54 — container 2.84.80
+
+The launcher library and `ccy-teams` change (Plan 00265 R15); the image is unchanged.
+
+- **The free session name is found in Go.** `ccy-teams internal session-name` now also does the
+  `-2`, `-3` ... search on ccy's tmux server that the library did in bash, so the library
+  shrinks under its bash-limits record instead of growing past it. Every interactive `ccy` or
+  `cc` start runs `ccy-teams`; one that cannot find it says to run `play-claude-yolo.yml`.
+
+## 3.124.53 — container 2.84.80
+
+The launcher library and `ccy-teams` change (Plan 00265 R15); the image is unchanged.
+
+- **A seat's tmux session, and so its tab, names the seat.** A `ccy` or `cc` launch with
+  `--teams` starts its tmux session as `<launcher>-<team>-<seat>`, for example
+  `ccy-team-a-fedora-desktop-4` for `ccy --teams fedora-desktop.4@team-a`, instead of
+  `<launcher>-<project>`. The terminal's title is the session name (`files/etc/tmux.conf`), so
+  the tab shows the team, the seat and the launcher. tmux keeps no `.` or `:` in a session name,
+  so a seat's dots become `-`; several seats are joined with `_`. A launch with no seat, a `cc --teams <team>` whose seat is chosen inside the session, and a name over 120 characters keep
+  `<launcher>-<project>`. A session already running keeps its name. The form lives in one place, `ccy-teams internal session-name`.
+
 ## 3.124.52 — container 2.84.80
 
 `ccy-teams` is rebuilt (Plan 00265 R39); the image is unchanged.

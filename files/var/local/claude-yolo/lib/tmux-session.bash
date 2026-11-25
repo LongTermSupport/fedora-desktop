@@ -19,7 +19,9 @@
 #     that already has one. A session is on ONE terminal or none; two terminals mirroring
 #     the same claude cannot happen, whoever races whom.
 #
-# Session names mirror container names: ccy-<project>, then ccy-<project>-2, and so on.
+# Session names mirror container names: ccy-<project>, then ccy-<project>-2, and so on; a
+# launch in team seats is named for them instead, ccy-<team>-<seat> (ccy-teams internal
+# session-name), so the tab, which tmux titles with the session name, shows the seat.
 # Running ccy in a project that has a detached session — the one a dead terminal left
 # behind — offers to re-attach it; a session open in another terminal is never offered
 # there. Taking one over from another terminal is the Go ccy-sessions' (Ctrl-T in its picker).
@@ -71,16 +73,11 @@ ccy_tmux_project_sessions() {
     done <<<"$listing"
 }
 
-# ccy_tmux_next_name <project> — the first free session name for a project.
+# ccy_tmux_next_name <project> [seats] — the first free session name for a project, or for the
+# seats of a --teams launch (named for them, so the tab shows them). ccy-teams internal
+# session-name is the one home of both forms and of the -2, -3 ... search.
 ccy_tmux_next_name() {
-    local base="${CCY_TMUX_SESSION_PREFIX}-$1" listing n=1 candidate
-    listing=$(ccy_tmux_list) || return 1
-    candidate="$base"
-    while awk -v want="$candidate" '$1 == want { found = 1 } END { exit found ? 0 : 1 }' <<<"$listing"; do
-        n=$((n + 1))
-        candidate="${base}-${n}"
-    done
-    printf '%s\n' "$candidate"
+    ccy-teams internal session-name "$CCY_TMUX_SESSION_PREFIX" "$1" "${2:-}"
 }
 
 # ccy_tmux_is_detached <name> — true only if the session exists and no client is on it, as
@@ -364,10 +361,10 @@ ccy_tmux_insulate() {
         return 0
     fi
     local tool
-    for tool in tmux systemd-run; do
+    for tool in tmux systemd-run ccy-teams; do
         if [[ -z "$(command -v "$tool")" ]]; then
             print_error "$tool is not installed, so this session could not be insulated from its terminal."
-            echo "Deploy it with playbooks/imports/play-tmux-sessions.yml (part of playbook-main.yml)." >&2
+            echo "Deploy it with playbooks/imports/play-tmux-sessions.yml and play-claude-yolo.yml (both part of playbook-main.yml)." >&2
             return 1
         fi
     done
@@ -397,7 +394,7 @@ ccy_tmux_insulate() {
         ;;
     esac
 
-    name=$(ccy_tmux_next_name "$project") || return 1
+    name=$(ccy_tmux_next_name "$project" "$teams") || return 1
     echo "Starting session '$name' under tmux. If this terminal dies, run ${CCY_TMUX_SESSION_PREFIX} here again to re-attach." >&2
 
     # THE registry write that creates a record: this is the single place a session is

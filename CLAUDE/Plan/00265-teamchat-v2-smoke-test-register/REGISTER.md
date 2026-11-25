@@ -422,8 +422,9 @@ filled in as each cause is known.
   `launch-args` adds `-e ANTHROPIC_MODEL=<model>` to podman's arguments, so a host-shell
   `ANTHROPIC_MODEL` does not reach a ccy container, only the seat's recorded model; `cc-run`
   puts it in the session's environment unless the person's has one. Both say it on stderr.
-  claude ranks a `--model` above `ANTHROPIC_MODEL`, so the person's wins with no argument
-  parsing; a project `ccy.env` (sourced after) wins too. Child claudes the session starts
+  claude is taken to rank a `--model` above `ANTHROPIC_MODEL`, so the person's wins with no
+  argument parsing, and a project `ccy.env` to win too (sourced after the image ENV; that it
+  also comes after `podman run -e` is unchecked): both are the live check after deploy. Child claudes the session starts
   inherit `ANTHROPIC_MODEL`. With several seats, the first seat with a model decides: its own,
   else its team's (`seatmodel.Settings.For`). A hot-seat join (`ccy-teams session add`) launches
   nothing, so the seat's model is not used; `HotSeats.Join` says so on stderr before the take.
@@ -432,9 +433,9 @@ filled in as each cause is known.
   (`lib/session-registry.bash`; a `--model opus` is kept as an unknown flag's value), never the
   model a launch adds, and the replayed launch takes its seats again, so it re-reads the same
   setting and starts on the same model.
-- **Severity:** medium. **Issue:** TBF. **State:** fixed on v2-smoke; batch 8 (CCY 3.124.52,
-  container 2.84.80 unchanged; live after `play-claude-yolo.yml` rebuilds `ccy-teams`, already
-  queued).
+- **Severity:** medium. **Issue:** TBF. **State:** on F44 (batch 8, `10a63a7f0`, CCY 3.124.52,
+  container 2.84.80 unchanged); live after `play-claude-yolo.yml` rebuilds `ccy-teams`, already
+  queued. Live check: a seat with a model starts on it; `--model` on the command line wins.
 
 ## R35: the Lightning client setup for a team, with presets
 
@@ -706,7 +707,13 @@ before the move to v2. Filled in as causes are found.
   is given, and reads only. A container seat has no tmux client inside, so it cannot.
   Unchecked on the laptop.
 - **Reproduce:** switch tmux sessions between seats.
-- **Severity:** low. **Issue:** TBF. **State:** open.
+- **Severity:** low. **Issue:** TBF. **State:** fixed on v2-smoke (batch 9, commit in
+  reports/R15.md; ccy 3.124.53 and 3.124.54): a `ccy`/`cc` launch with `--teams` names its tmux session
+  `<launcher>-<team>-<seat>` (`.` and `+` made `-`, seats joined with `_`), built in one place,
+  `ccy-teams internal session-name`; the tab follows. The launcher leads, not trails, and no `·`
+  or `.`: see reports/R15.md. Open: a `cc --teams <team>` whose seat is chosen inside the session,
+  and sessions already running, keep `<launcher>-<project>`; that restored and restarted
+  sessions keep their recorded names is unchecked. Live proof owed.
 
 ## R16: history labels an unproven reference `external`
 

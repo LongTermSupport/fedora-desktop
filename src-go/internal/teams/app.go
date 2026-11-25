@@ -60,6 +60,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatmodel"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatsweep"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/sessionname"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/settings"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/shutdown"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/system"
@@ -417,6 +418,8 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 			return a.ContainerName.Run(ctx, rest[1:])
 		case "go-cache":
 			return a.GoCache.Run(ctx, rest[1:])
+		case "session-name":
+			return sessionname.Command{Server: a.Host.Tmux, Stdout: a.Payload, Stderr: a.Stderr}.Run(ctx, rest[1:])
 		case verbSeatResume:
 			return a.SeatResume.Run(rest[1:])
 		case verbLaunchArgs, verbSeatCheck, "seat-take", "bus-disconnected", "cc-run":
@@ -425,7 +428,8 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 	}
 	return a.usageError("'internal' takes a command: internal membership-init [--kind=cc] <session> <checkout> <seats>, " +
 		"internal restart-args <session>, internal claim-container-name <project> <suffix> <owner-pid>, " +
-		"internal go-cache <project> [z], internal launch-args <session> <checkout> <seats> <Z or empty> -- <mounts...>, " +
+		"internal go-cache <project> [z], internal session-name <ccy|cc> <project> <seats>, " +
+		"internal launch-args <session> <checkout> <seats> <Z or empty> -- <mounts...>, " +
 		"internal seat-check <list> [--resolved], internal seat-take <list> [--no-prompt], " +
 		seatResumeUsage + ", " +
 		"internal bus-disconnected <status> <pingbus> <pingbus arguments>, " +

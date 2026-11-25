@@ -57,7 +57,7 @@ files/var/local/claude-yolo/lib/restart-request.bash	318	8	316	data
 files/var/local/claude-yolo/lib/session-lifecycle.bash	185	8	223	-
 files/var/local/claude-yolo/lib/session-registry.bash	805	35	826	data
 files/var/local/claude-yolo/lib/ssh-handling.bash	1376	40	1684	-
-files/var/local/claude-yolo/lib/tmux-session.bash	313	19	370	ui
+files/var/local/claude-yolo/lib/tmux-session.bash	306	19	360	ui
 files/var/local/claude-yolo/lib/token-management.bash	1008	27	1078	-
 files/var/local/colours	65	16	65	-
 files/var/local/docker-in-lxc	665	20	524	-

@@ -123,6 +123,11 @@ while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
 shift
 exec "$@"
 EOF
+# ccy-teams: only the session name is asked here (internal session-name <prefix> <project> ...).
+cat >"$BIN/ccy-teams" <<'EOF'
+#!/usr/bin/env bash
+printf '%s-%s\n' "$3" "$4"
+EOF
 cat >"$BIN/systemd-escape" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "${!#}"
