@@ -316,6 +316,71 @@ func TestSeatCheckOnTeamchatPrintsTheCanonicalList(t *testing.T) {
 	}
 }
 
+// recorded is a fake of the session records: a name in it is restorable.
+type recorded map[string]bool
+
+func (r recorded) Restorable(n paths.SessionName) (bool, error) { return r[n.String()], nil }
+
+// hold writes a complete held/ on alpha's pool seat name, naming session, as a take leaves it.
+func (w *verbsWorld) hold(name, session string) {
+	w.t.Helper()
+	id, err := paths.ParseTeamID("alpha")
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	seatName, err := paths.ParseSeatName(name)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	pool := w.store.PoolSeat(w.key, id, seatName)
+	if err := os.MkdirAll(pool.Held(), 0o700); err != nil {
+		w.t.Fatal(err)
+	}
+	rec := `{"v":1,"session":"` + session + `","claim":"0123456789abcdef","since_ms":1}`
+	if err := os.WriteFile(pool.HeldRecord(), []byte(rec), 0o600); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// Issue 423: with nobody to choose (a restore, a headless launch), a teamchat team named alone
+// prompts nothing and is refused naming its seats, which are held, and the command for each way
+// on; and a named seat a running session holds is refused (75) the same way, not with the bare
+// "the seat is held".
+func TestARefusalOnTeamchatNamesTheSeatsAndEachWayOn(t *testing.T) {
+	w := newVerbs(t)
+	w.pool("repo.1+site.podman")
+	w.pool("repo.2+site.podman")
+	w.hold("repo.1+site.podman", "ccy-repo")
+	w.verbs.Parts.Sessions = recorded{"ccy-repo": true}
+	if code := w.run("seat-check", "alpha", "--resolved"); code != term.ExitUsage || w.out.Len() != 0 {
+		t.Fatalf("a team alone: exit %d, out %q", code, w.out)
+	}
+	for _, want := range []string{
+		"<seat>@<team>", "held by session ccy-repo", "take free seat 2: ccy --teams 2@alpha",
+		"re-attach session ccy-repo (seat 1): ccy-sessions", "place-issued",
+	} {
+		if !strings.Contains(w.err.String(), want) {
+			t.Errorf("a team alone: stderr lacks %q:\n%s", want, w.err)
+		}
+	}
+
+	w.taker.err = fmt.Errorf("take seat repo.1+site.podman of team alpha: %w: by session ccy-repo", seat.ErrHeld)
+	if code := w.run("launch-args", "s1", w.checkout, "1@alpha", "", "--"); code != term.ExitBusy || w.out.Len() != 0 {
+		t.Fatalf("a held seat: exit %d, out %q", code, w.out)
+	}
+	for _, want := range []string{"the seat is held", "take free seat 2: ccy --teams 2@alpha", "re-attach session ccy-repo"} {
+		if !strings.Contains(w.err.String(), want) {
+			t.Errorf("a held seat: stderr lacks %q:\n%s", want, w.err)
+		}
+	}
+
+	w.verbs.Parts.Sessions = nil
+	if code := w.run("launch-args", "s1", w.checkout, "1@alpha", "", "--"); code != term.ExitBusy ||
+		!strings.Contains(w.err.String(), "The seats could not be read, so no way on is named") {
+		t.Errorf("unreadable holders keep the refusal and say so: exit %d:\n%s", code, w.err)
+	}
+}
+
 func holding(t *testing.T, session, name string) seat.Holding {
 	t.Helper()
 	team, err := paths.ParseTeamID("alpha")

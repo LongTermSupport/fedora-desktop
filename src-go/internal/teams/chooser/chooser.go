@@ -103,7 +103,7 @@ func (c *Chooser) Run(ctx context.Context, args []string) term.ExitCode {
 	}
 	if !c.attended() && !allSeats(list) {
 		c.say("ccy-teams: 'choose-teams' asks its questions on a terminal; with none, name the seats: --teams SEAT@TEAM.")
-		return term.ExitUsage
+		return c.unattendedWays(ctx, memberType, list)
 	}
 	if list != "" {
 		return c.resolve(ctx, memberType, list)
@@ -227,7 +227,7 @@ func (c *Chooser) alone(ctx context.Context, memberType string, i int, items, re
 	}
 	var ref string
 	if v2 {
-		ref, code = c.teamchatSeat(ctx, flow.LaunchTeam(i+1, len(items), item), item)
+		ref, code = c.teamchatSeat(ctx, flow.LaunchTeam(i+1, len(items), item), item, memberType)
 	} else {
 		team, next, knownCode := c.known(ctx, flow.LaunchTeam(i+1, len(items), item), item, slices.Concat(refs, items[i:]))
 		if knownCode != term.ExitOK || next != take {

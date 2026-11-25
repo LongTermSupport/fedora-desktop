@@ -139,9 +139,7 @@ func (c *Chooser) seats(ctx context.Context, memberType string, taken []entry) t
 	for i, e := range taken {
 		seat := c.Seat
 		if e.teamchatSeats > 0 {
-			seat = func(ctx context.Context, h ui.Heading, team, _ string) (string, term.ExitCode) {
-				return c.teamchatSeat(ctx, h, team)
-			}
+			seat = c.teamchatSeat
 		}
 		ref, code := seat(ctx, flow.LaunchTeam(i+1, len(taken), e.Team), e.Team, memberType)
 		if code != term.ExitOK {
