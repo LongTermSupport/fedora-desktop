@@ -239,6 +239,15 @@ the re-attach offer and `ccy-sessions` tell the two kinds apart. A `cc --teams <
 is chosen inside the session keeps `cc-<project>`. The form has one home,
 `ccy-teams internal session-name`.
 
+A launch that would start a new session takes over a stopped record of its own instead: when
+the session registry holds exactly one record of the same folder and launcher, for the same
+seats (in any order; none for a launch in none), whose session is not running, the session gets
+that record's name. So `ccy --teams 4@team-a` beside a session declared as `ccy-fixed` with
+`ccy-sessions declare` starts `ccy-fixed`, and its record replaces the declared one rather than
+standing beside it for the next restore to start too. The declared record's
+`fresh-if-no-conversation` mark is kept; its arguments become this launch's. Two such records
+are neither taken, and the launcher says so. A running one is offered back as above.
+
 The name is fixed when the session starts. After `ccy-teams session add` or `remove` changes a
 running session's seats, its name and tab still show the seats it was launched with, and a
 later session launched in one of those seats gets the same name with `-2`.

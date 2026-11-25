@@ -123,10 +123,12 @@ while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
 shift
 exec "$@"
 EOF
-# ccy-teams: only the session name is asked here (internal session-name <prefix> <project> ...).
+# ccy-teams: only the session name is asked here (internal session-name <prefix> <project> <seats>
+# <checkout>); T_TAKEOVER is its answer for a launch that takes over a stopped record (R61).
 cat >"$BIN/ccy-teams" <<'EOF'
 #!/usr/bin/env bash
-printf '%s-%s\n' "$3" "$4"
+printf 'NAMEDIR %s\n' "$6" >>"$T_LOG"
+if [ -n "${T_TAKEOVER:-}" ]; then printf '%s\n' "$T_TAKEOVER"; else printf '%s-%s\n' "$3" "$4"; fi
 EOF
 cat >"$BIN/systemd-escape" <<'EOF'
 #!/usr/bin/env bash
@@ -151,6 +153,7 @@ printf 'INNER GH_TOKEN=%s HANDOFF=%s CHILD=%s\n' "${GH_TOKEN-unset}" "${CCY_GH_T
     "$(bash -c 'printf %s "${GH_TOKEN-unset}/${CCY_GH_TOKEN_HANDOFF-unset}"')"
 printf 'PANEPIDS %s\n' "${CCY_PIDS_LIMIT-unset}"
 printf 'HOSTVARS %s\n' "${CCY_TEAMS_HOST_VARS-unset}"
+printf 'RECORD %s\n' "$(grep -h -E '^(name|fresh-if-no-conversation)=' "$CCY_STATE_DIR"/sessions/* | tr '\n' ' ')"
 EOF
 # The outer launcher: the libraries, the caller's token as the launcher holds it after its
 # first line (a plain variable), then the entry point.
@@ -269,6 +272,23 @@ check "the inner launcher has the caller's CCY_TEAMS_HOST_VARS" "HOSTVARS $SCRAT
 check "  and the token as before" "INNER GH_TOKEN=$TOKEN HANDOFF=unset CHILD=unset/unset" "$(line 'INNER ')"
 drive terminal ""
 check "without it, the inner launcher has none" "HOSTVARS unset" "$(line HOSTVARS)"
+
+echo ""
+echo "=== a launch beside a stopped record of its seats takes it over, keeping its fresh mark (R61) ==="
+# ccy-teams internal session-name answers "<name> yes" for a declared record marked
+# fresh-if-no-conversation: the launch's record is written under that name, with the mark.
+rm -f "$T_STATE"
+drive terminal ""
+check "the name is asked for this checkout" "NAMEDIR $PROJ" "$(line NAMEDIR)"
+check "a new name: the record has no mark" "RECORD name=ccy-proj " "$(line RECORD)"
+rm -f "$T_STATE"
+T_TAKEOVER="ccy-fixed yes" drive terminal ""
+check "a record taken over: its name, and the mark kept" \
+    "RECORD name=ccy-fixed fresh-if-no-conversation=yes " "$(line RECORD)"
+check "  and the session is started under that name" "1" "$(grep -c '^ARGV.* new-session -d -s ccy-fixed ' "$T_LOG")"
+rm -f "$T_STATE"
+T_TAKEOVER="ccy-fixed" drive terminal ""
+check "a record with no mark taken over: no mark" "RECORD name=ccy-fixed " "$(line RECORD)"
 
 echo ""
 echo "=== the session record names the program that started the launch ==="

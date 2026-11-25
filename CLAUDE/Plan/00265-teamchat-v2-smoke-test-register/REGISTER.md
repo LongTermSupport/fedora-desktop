@@ -582,7 +582,11 @@ filled in as each cause is known.
 - **Fix:** a terminal launch in a checkout with a declared record for the same seats takes that
   record's name.
 - **Severity:** medium (an inventory addressed by fixed names gains a stray session). **Issue:**
-  TBF. **State:** open; after R51, which the coordinator agreed (not blocking).
+  TBF. **State:** fixed on v2-smoke (batch 11; ccy 3.124.57; commits in reports/R61.md):
+  `ccy-teams internal session-name` takes the checkout and reads the registry; exactly one
+  stopped record of the same checkout, launcher and seats (canonical, any order; none matches
+  none), in the file its name names, is taken over, its `fresh-if-no-conversation` mark kept;
+  two are neither taken, said on stderr. Live proof owed.
 
 ## R60: a hot join to a team the container cannot reach reports success, and status hides it
 

@@ -35,6 +35,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/placeissued"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
@@ -408,6 +409,15 @@ const (
 	subSession  = "session"
 )
 
+// readRegistry reads every record of the session registry the launcher writes.
+func (a *App) readRegistry() (registry.Reading, error) {
+	store, err := registry.Locate(a.Getenv)
+	if err != nil {
+		return registry.Reading{}, err
+	}
+	return store.ReadAll()
+}
+
 // internal dispatches `ccy-teams internal <command>`.
 func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 	if len(rest) > 0 {
@@ -421,7 +431,7 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 		case "go-cache":
 			return a.GoCache.Run(ctx, rest[1:])
 		case "session-name":
-			return sessionname.Command{Server: a.Host.Tmux, Stdout: a.Payload, Stderr: a.Stderr}.Run(ctx, rest[1:])
+			return sessionname.Command{Server: a.Host.Tmux, Records: a.readRegistry, Stdout: a.Payload, Stderr: a.Stderr}.Run(ctx, rest[1:])
 		case verbSeatResume:
 			return a.SeatResume.Run(rest[1:])
 		case verbLaunchArgs, verbSeatCheck, "seat-take", "bus-disconnected", "cc-run":
@@ -430,7 +440,7 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 	}
 	return a.usageError("'internal' takes a command: internal membership-init [--kind=cc] <session> <checkout> <seats>, " +
 		"internal restart-args <session>, internal claim-container-name <project> <suffix> <owner-pid>, " +
-		"internal go-cache <project> [z], internal session-name <ccy|cc> <project> <seats>, " +
+		"internal go-cache <project> [z], internal session-name <ccy|cc> <project> <seats> <checkout>, " +
 		"internal launch-args <session> <checkout> <seats> <Z or empty> -- <mounts...>, " +
 		"internal seat-check <list> [--resolved], internal seat-take <list> [--no-prompt], " +
 		seatResumeUsage + ", " +

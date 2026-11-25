@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -352,9 +353,33 @@ func TestDispatchInternalGoCacheIsTheCacheCommand(t *testing.T) {
 func TestDispatchInternalSessionNameIsTheNameCommand(t *testing.T) {
 	h := newHarness(t)
 	h.On("tmux -L ccy list-sessions", "ccy-alpha-proj-4 0 /elsewhere\n", 0)
-	if code := h.app.Run([]string{"internal", "session-name", "ccy", "proj", "4@alpha"}); code != term.ExitOK ||
+	if code := h.app.Run([]string{"internal", "session-name", "ccy", "proj", "4@alpha", "/w/proj"}); code != term.ExitOK ||
 		h.Out.String() != "ccy-alpha-proj-4-2\n" {
 		t.Fatalf("exit %d: %q %s", code, h.Out.String(), h.ErrOut.String())
+	}
+}
+
+// The name command reads the session registry the launcher writes ($CCY_STATE_DIR/sessions), so a
+// launch beside a declared record takes that record's name (R61).
+func TestDispatchInternalSessionNameReadsTheRegistry(t *testing.T) {
+	h := newHarness(t)
+	state := t.TempDir()
+	h.Env["CCY_STATE_DIR"] = state
+	rec := registry.Record{
+		Name: "ccy-fixed", Dir: "/w/proj", Launcher: "/l/claude-yolo", Prefix: "ccy", Restore: true,
+		FreshIfNoConversation: true, Args: []string{"--teams", "4@alpha"},
+	}
+	if err := registry.New(filepath.Join(state, "sessions")).Write(rec); err != nil {
+		t.Fatal(err)
+	}
+	h.On("tmux -L ccy list-sessions", "", 0)
+	if code := h.app.Run([]string{"internal", "session-name", "ccy", "proj", "4@alpha", "/w/proj"}); code != term.ExitOK ||
+		h.Out.String() != "ccy-fixed yes\n" {
+		t.Fatalf("exit %d: %q %s", code, h.Out.String(), h.ErrOut.String())
+	}
+	h.Env["CCY_STATE_DIR"] = "relative"
+	if code := h.app.Run([]string{"internal", "session-name", "ccy", "proj", "4@alpha", "/w/proj"}); code != term.ExitFailure {
+		t.Fatalf("a registry with no location: exit %d: %s", code, h.ErrOut.String())
 	}
 }
 

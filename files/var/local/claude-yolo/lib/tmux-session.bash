@@ -75,11 +75,13 @@ ccy_tmux_project_sessions() {
     done <<<"$listing"
 }
 
-# ccy_tmux_next_name <project> [seats] — the first free session name for a project, or for the
-# seats of a --teams launch (named for them, so the tab shows them). ccy-teams internal
-# session-name is the one home of both forms and of the -2, -3 ... search.
+# ccy_tmux_next_name <project> [seats] — "<name>[ yes]": the first free session name for a
+# project, or for the seats of a --teams launch (named for them, so the tab shows them), or the
+# name of the one stopped record of this directory, launcher and seats (a declared session), which
+# the launch then takes over; " yes" when that record is marked fresh-if-no-conversation, a mark
+# the new record keeps. ccy-teams internal session-name is the one home of all of it.
 ccy_tmux_next_name() {
-    ccy-teams internal session-name "$CCY_TMUX_SESSION_PREFIX" "$1" "${2:-}"
+    ccy-teams internal session-name "$CCY_TMUX_SESSION_PREFIX" "$1" "${2:-}" "$PWD"
 }
 
 # ccy_tmux_is_detached <name> — true only if the session exists and no client is on it, as
@@ -362,7 +364,7 @@ ccy_tmux_insulate() {
         echo "stdout is not a terminal (for example under --debug), so this session is NOT insulated from its terminal." >&2
         return 0
     fi
-    local tool
+    local tool decision action name teams fresh
     for tool in tmux systemd-run ccy-teams; do
         if [[ -z "$(command -v "$tool")" ]]; then
             print_error "$tool is not installed, so this session could not be insulated from its terminal."
@@ -373,7 +375,6 @@ ccy_tmux_insulate() {
 
     # A launch with --teams is offered only the sessions in its seats (ccy_tmux_offer). By here
     # the launcher has replaced the list with its canonical form, every seat named.
-    local decision action name teams
     teams=$(ccy_tmux_teams_arg "${@:2}")
     decision=$(ccy_tmux_offer "$project" "$teams") || return 1
     read -r action name <<<"$decision"
@@ -396,7 +397,8 @@ ccy_tmux_insulate() {
         ;;
     esac
 
-    name=$(ccy_tmux_next_name "$project" "$teams") || return 1
+    decision=$(ccy_tmux_next_name "$project" "$teams") || return 1
+    read -r name fresh <<<"$decision"
     echo "Starting session '$name' under tmux. If this terminal dies, run ${CCY_TMUX_SESSION_PREFIX} here again to re-attach." >&2
 
     # THE registry write that creates a record: this is the single place a session is
@@ -418,7 +420,7 @@ ccy_tmux_insulate() {
     mapfile -s $((${#args_text} == 1)) -t launch <<<"${args_text%$'\n.'}"
     args_text=$(ccy_registry_replay_args "$CCY_TMUX_SESSION_PREFIX" "${launch[@]}" -- .) || { echo "Could not build the replay arguments for session '$name'." >&2; return 1; }
     mapfile -s $((${#args_text} == 4 ? 2 : 0)) -t replay <<<"${args_text%$'\n--\n.'}"
-    ccy_registry_write "$name" "$PWD" "$launcher" "$CCY_TMUX_SESSION_PREFIX" "$restore" "${replay[@]}" || return 1
+    ccy_registry_write --fresh "$fresh" "$name" "$PWD" "$launcher" "$CCY_TMUX_SESSION_PREFIX" "$restore" "${replay[@]}" || return 1
 
     # A record with no session behind it would be restored at the next boot as a session
     # that was never running, so a failed start takes its record with it. A GitHub token
