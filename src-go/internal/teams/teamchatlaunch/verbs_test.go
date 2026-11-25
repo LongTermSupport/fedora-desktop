@@ -172,7 +172,7 @@ func TestBusDisconnectedRecordsTheSeatsConversationFirst(t *testing.T) {
 // session is still ended.
 func TestBusDisconnectedSaysWhatItCouldNotRecord(t *testing.T) {
 	w := newVerbs(t)
-	w.syncErr = fmt.Errorf("%w (no transcript)", conversation.ErrNothingToSync)
+	w.sync = conversation.Synced{List: "1@alpha", Nothing: "the session recorded no conversation (no transcript)"}
 	if code := w.disconnect("0"); code != term.ExitOK || !strings.Contains(w.err.String(), "no transcript") {
 		t.Fatalf("exit %d: %s", code, w.err)
 	}

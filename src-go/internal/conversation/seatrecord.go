@@ -211,23 +211,29 @@ func fromSeatRecords(checkout, canonical string, seats []membership.Seat) (Seate
 	return got, true, nil
 }
 
-// Synced is what SyncSession carried: the conversation and the seats it now names.
+// Synced is what SyncSession carried: the conversation and the seats it now names, or why nothing
+// was carried (Nothing, with ID empty), which is an answer and not a failure.
 type Synced struct {
 	ID, List string
+	Nothing  string
 }
 
 // SyncSession is SyncSeats for the seats session holds by its own state, read before the session's
 // end removes it: its teamchat desired membership, else its v1 keeper's report. A session that
-// holds no seat is ErrNothingToSync.
+// holds no seat, or recorded no conversation it can resume, carries nothing and says why in
+// Synced.Nothing; an error is only a state or record that could not be read or written.
 func SyncSession(checkout, session string, where Where, nowMS int64) (Synced, error) {
 	list, err := sessionSeats(checkout, session, where.Getenv)
 	if err != nil {
 		return Synced{}, err
 	}
 	if list == "" {
-		return Synced{}, fmt.Errorf("%w (session %s holds no seat)", ErrNothingToSync, session)
+		return Synced{Nothing: fmt.Sprintf("session %s holds no seat", session)}, nil
 	}
 	id, err := SyncSeats(checkout, session, list, where, nowMS)
+	if errors.Is(err, errNothingToSync) {
+		return Synced{List: list, Nothing: err.Error()}, nil
+	}
 	return Synced{ID: id, List: list}, err
 }
 
@@ -263,12 +269,13 @@ func sessionSeats(checkout, session string, getenv func(string) string) (string,
 	return strings.Join(items, ","), nil
 }
 
-// ErrNothingToSync is SyncSeats' answer when the session recorded no conversation it can resume.
-var ErrNothingToSync = errors.New("the session recorded no conversation to carry into its seats")
+// errNothingToSync is SyncSeats' answer when the session recorded no conversation it can resume.
+// It stays in this package: a caller reads SyncSession's Synced.Nothing.
+var errNothingToSync = errors.New("the session recorded no conversation to carry into its seats")
 
 // SyncSeats carries the conversation session ended in (its own record, read as a restore reads it)
 // into the records of the seats of list it held, and is that id. A session with no conversation
-// (none recorded, or one that never took a turn) is ErrNothingToSync, and the seats' records stay
+// (none recorded, or one that never took a turn) is errNothingToSync, and the seats' records stay
 // as they were.
 func SyncSeats(checkout, session, list string, where Where, nowMS int64) (string, error) {
 	seats, err := parseList(list)
@@ -279,7 +286,7 @@ func SyncSeats(checkout, session, list string, where Where, nowMS int64) (string
 	rec := registry.Record{Name: session, Dir: checkout, Prefix: membership.KindCcy, Args: []string{ccyenv.FlagTeams, canonical}}
 	r, err := readRecorded(rec, where)
 	if errors.Is(err, errNotRecorded) || errors.Is(err, errNoTranscript) {
-		return "", fmt.Errorf("%w (%w)", ErrNothingToSync, err)
+		return "", fmt.Errorf("%w (%w)", errNothingToSync, err)
 	}
 	if err != nil {
 		return "", fmt.Errorf("the conversation of session %s: %w", session, err)

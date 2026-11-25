@@ -203,8 +203,8 @@ func TestSyncSeatsWithNothingRecordedChangesNothing(t *testing.T) {
 	w.transcriptFor(otherID)
 	w.record("1@alpha", otherID, SourceLaunch)
 	_, err := SyncSeats(w.checkout, "ccy-proj", "1@alpha", w.where(), recordMS)
-	if !errors.Is(err, ErrNothingToSync) {
-		t.Fatalf("SyncSeats: %v, want ErrNothingToSync", err)
+	if !errors.Is(err, errNothingToSync) {
+		t.Fatalf("SyncSeats: %v, want errNothingToSync", err)
 	}
 	seated, err := w.forSeats("1@alpha")
 	if err != nil || seated.ID != otherID {
@@ -230,8 +230,27 @@ func TestSyncSessionFindsTheSeatsTheSessionHeld(t *testing.T) {
 	if seated, err := w.forSeats("2@alpha"); err != nil || seated.ID != otherID {
 		t.Fatalf("2@alpha: %+v, %v", seated, err)
 	}
-	if _, err := SyncSession(w.checkout, "ccy-none", w.where(), recordMS); !errors.Is(err, ErrNothingToSync) {
-		t.Fatalf("a session holding no seat: %v", err)
+	if got, err := SyncSession(w.checkout, "ccy-none", w.where(), recordMS); err != nil || !strings.Contains(got.Nothing, "holds no seat") || got.ID != "" {
+		t.Fatalf("a session holding no seat: %+v, %v", got, err)
+	}
+}
+
+// Nothing to carry is SyncSession's answer, not an error: a caller reads Synced.Nothing and never
+// matches an error of this package (rule project_start_decision).
+func TestSyncSessionWithNothingRecordedSaysWhy(t *testing.T) {
+	w := newWorld(t)
+	w.v2Session("ccy-proj", id, 1791000000000, "1@beta")
+	w.transcriptFor(otherID)
+	w.record("1@beta", otherID, SourceLaunch)
+	if err := os.Remove(filepath.Join(w.checkout, ".claude/ccy/projects/-workspace", id+".jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := SyncSession(w.checkout, "ccy-proj", w.where(), recordMS)
+	if err != nil || got.Nothing == "" || got.ID != "" || got.List != "1@beta" {
+		t.Fatalf("SyncSession = %+v, %v; want nothing carried, said", got, err)
+	}
+	if seated, err := w.forSeats("1@beta"); err != nil || seated.ID != otherID {
+		t.Fatalf("1@beta: %+v, %v; the record moved", seated, err)
 	}
 }
 

@@ -248,10 +248,10 @@ func Selectors(args []string) Selection {
 			switch {
 			case read.resumes:
 				s.Resume = read.id
-			case args[i] == "-c" || args[i] == "--continue":
+			case read.continues:
 				s.Continue = true
 			default:
-				s.SessionID = strings.TrimPrefix(args[i], "--session-id=")
+				s.SessionID = read.id
 			}
 		case selectorMaybeValue:
 			if i+1 < len(args) && selectorValue(args[i+1]) {
@@ -287,12 +287,13 @@ const (
 	selectorWithValue                  // --session-id: the next word is its id
 )
 
-// selectorWord is one word read as a conversation selector: what it is, and for --resume=<id>
-// (resumes) the id it names.
+// selectorWord is one word read as a conversation selector: what it is, whether it is -c or
+// --continue (continues), and for --resume=<id> (resumes) or --session-id=<id> the id it names.
 type selectorWord struct {
-	kind    selector
-	resumes bool
-	id      string
+	kind      selector
+	resumes   bool
+	continues bool
+	id        string
 }
 
 // selectorOf is the one reader of claude's conversation selectors (rule project_selector_parse).
@@ -300,12 +301,15 @@ func selectorOf(w string) selectorWord {
 	if id, ok := strings.CutPrefix(w, "--resume="); ok {
 		return selectorWord{kind: selectorAlone, resumes: true, id: id}
 	}
-	switch {
-	case w == "-c", w == "--continue", strings.HasPrefix(w, "--session-id="):
-		return selectorWord{kind: selectorAlone}
-	case w == "-r", w == "--resume":
+	if id, ok := strings.CutPrefix(w, "--session-id="); ok {
+		return selectorWord{kind: selectorAlone, id: id}
+	}
+	switch w {
+	case "-c", "--continue":
+		return selectorWord{kind: selectorAlone, continues: true}
+	case "-r", "--resume":
 		return selectorWord{kind: selectorMaybeValue}
-	case w == "--session-id":
+	case "--session-id":
 		return selectorWord{kind: selectorWithValue}
 	}
 	return selectorWord{kind: selectorNone}

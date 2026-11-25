@@ -362,11 +362,11 @@ func (v *Verbs) busDisconnected(ctx context.Context, args []string) error {
 func (v *Verbs) syncSeats(checkout string, session paths.SessionName) error {
 	got, err := v.SyncSeats(checkout, session.String())
 	switch {
-	case errors.Is(err, conversation.ErrNothingToSync):
-		_, werr := fmt.Fprintf(v.Stderr, "ccy-teams: internal bus-disconnected: the seats' conversation records of session %s are left as they were: %v.\n", session, err)
-		return werr
 	case err != nil:
 		return fmt.Errorf("the seats' conversation records of session %s: %w", session, err)
+	case got.Nothing != "":
+		_, werr := fmt.Fprintf(v.Stderr, "ccy-teams: internal bus-disconnected: the seats' conversation records of session %s are left as they were: %s.\n", session, got.Nothing)
+		return werr
 	}
 	_, err = fmt.Fprintf(v.Stderr, "ccy-teams: the seats %s resume conversation %s on their next launch: ccy --teams %s\n", got.List, got.ID, got.List)
 	return err
