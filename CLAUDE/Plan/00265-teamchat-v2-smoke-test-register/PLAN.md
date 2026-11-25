@@ -1,0 +1,85 @@
+# Plan 00265: teamchat v2 smoke test register
+
+**Status**: In Progress
+**Created**: 2026-11-25
+**Owner**: dev
+**Priority**: Critical
+
+## Overview
+
+The owner is smoke testing v2 of the agent-team tooling (teamchat, `ccy --teams`, `ccy-teams`,
+`ccy-sessions`) and judges that today it is worse than v1. This plan is the single running register
+of every v2 fault found while it is used for real work, by this seat, its sub-agents, the other
+seats of the team and the owner. Every fault is logged the moment it is seen, however small, and
+stays open until a fix is proven.
+
+This repository's seat is the primary fixer. Faults are fixed one per unit, each unit in its own
+worktree and branch, in parallel. Each unit merges into the integration branch `v2-smoke`. CI runs
+on that branch when a batch is ready, and it lands on F44 after one review, as the owner's CI
+directive asks.
+
+## Goals
+
+- Every v2 fault seen is a row in the register below, with how to reproduce it.
+- Every row is fixed and proven, or explicitly deferred by the owner.
+- Nothing v1 did is lost in v2 (no degrade against v1).
+
+## Non-Goals
+
+- New features beyond what makes v2 at least as usable as v1.
+- The model-class refusal for coordinator and L2 seats (owner: later, not now).
+
+## Register
+
+Severity: **critical** stops real work or silently loses information; **high** forces a manual
+workaround; **medium** misleads; **low** is cosmetic. Source is who hit it. State is `open`,
+`in progress (unit)`, `fixed (commit)` or `proven (how)`.
+
+| #   | What was seen                                                                                                                                                                                                                         | Where / when                         | Source                 | Reproduce                                                                                    | Sev      | Issue | Unit | State |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ---------------------- | -------------------------------------------------------------------------------------------- | -------- | ----- | ---- | ----- |
+| R1  | A coordinator's `say` messages (PEER) are received by the link but never shown to the worker's session; only PINGs are delivered. `teamchat status` counts dropped:10, ignored:2, pending:0; `teamchat history` lists them as dir:in. | worker seat, 2026-11-25 11:42-11:51Z | this seat              | Coordinator `say --to <worker>`; the worker's conversation shows no delivery envelope.       | critical | #422  | U2   | open  |
+| R2  | `teamchat reply '<id>'` to a PEER message that `teamchat history` lists is refused, exit 23 "team ... has no item <id> in main".                                                                                                      | worker seat, 2026-11-25 ~11:55Z      | this seat              | Reply to a PEER id from history that was never delivered (R1).                               | high     | #422  | U2   | open  |
+| R3  | A launch with a team and no seat named takes a seat already held and exits 75. v1 listed the seats, defaulted to the lowest free or a new one, and offered re-attach for a held one.                                                  | a dev VM, `cc --teams`               | owner                  | `cc --teams` in a checkout whose seat is held by a running session.                          | critical | #423  | U3   | open  |
+| R4  | A session that joins a team loses its conversation: a clean `/exit` removes the session record, and `ccy-sessions restore --dry-run` proposes a fresh start with `--teams` and no `--resume`.                                         | home dev VM, 2026-11-25 11:36Z       | devops seat            | Session with no team, record only on the v1 path; join a team; `/exit`; `restore --dry-run`. | critical | #417  | U4   | open  |
+| R5  | A seat cannot be added ad hoc: an admin step must issue it on the bus and place it before the launcher takes it. Owner expects a couple of commands, the name derived by the launcher (`project.number+machine.type`).                | all machines                         | owner                  | Try to add a seat to a team without the admin issue and place steps.                         | critical | #416  | U5   | open  |
+| R6  | A refusal with code `ref` says only "the send was refused (ref); fix the message", not that `--ref` is missing or what it must be.                                                                                                    | worker seat, 2026-11-25 11:42Z       | this seat              | Answer a fetch PING with `teamchat reply <id> --verb done` and no `--ref`.                   | medium   | #421  | U1   | open  |
+| R7  | A coordinator cannot answer in the thread of a human's top-level post (`teamchat thread` takes only `Q<n>`); a tracker thread has no kind of its own (`ask-human` demands a decision).                                                | coordinator                          | coordinator            | Human posts top-level in questions; coordinator tries to reply in its thread.                | high     | TBF   | -    | open  |
+| R8  | Thread lifecycle (open, waiting, answered, closed with the first message edited, bump) and the coordinator procedure are not shipped with the tool or shown at session start.                                                         | coordinator                          | coordinator            | Start a coordinator seat; no procedure is shown.                                             | high     | #420  | -    | open  |
+| R9  | A human's top-level reply to a numbered question does not attach to it: `teamchat questions` shows the question as answered, or leaves the reply `unattached`.                                                                        | questions room                       | coordinator            | Human answers Q<n> with a top-level post instead of a thread reply.                          | high     | TBF   | -    | open  |
+| R10 | `teamchat reply` to an edited human message (the revising event's id) is refused "the homeserver refused the send; tell a human"; a reply to the original id works.                                                                   | coordinator                          | coordinator            | Human edits a message; reply to the id the delivery showed.                                  | high     | TBF   | -    | open  |
+| R11 | A hook reports "your thread post sent as Q0 was not counted" on later turns, with no Q0 in play.                                                                                                                                      | coordinator                          | coordinator            | Unchecked.                                                                                   | medium   | TBF   | -    | open  |
+| R12 | A worker seat cannot verify a human's message from the questions room (`teamchat verify` exit 23), so a relayed permission cannot be checked and the human is asked again.                                                            | worker seats                         | coordinator            | Worker runs `teamchat verify '<id>' --room questions` on a relayed human answer.             | high     | TBF   | -    | open  |
+| R13 | `ccy-sessions restore --dry-run` says only "already running" for a live session, so what the next restore will do cannot be checked.                                                                                                  | home dev VM, 2026-11-25              | devops seat            | `ccy-sessions restore --dry-run` while the session runs.                                     | high     | TBF   | -    | open  |
+| R14 | `teamchat status` shows `present:false` for every other member, so presence proves nothing.                                                                                                                                           | all seats, 2026-11-25                | devops seat, this seat | `teamchat status` in any seat while the others are running.                                  | medium   | TBF   | -    | open  |
+| R15 | The terminal tab title, the tmux session name and the team seat drift apart; the tab should show team and seat and follow a switch between tmux sessions.                                                                             | owner's terminal                     | owner                  | Switch tmux sessions between seats.                                                          | low      | TBF   | -    | open  |
+| R16 | A PING envelope shows `trust: trusted` while `teamchat history` records the same ping with `trust: external`.                                                                                                                         | worker seat, 2026-11-25 11:41Z       | this seat              | Compare a fetch PING's envelope with its `history` record.                                   | medium   | TBF   | -    | open  |
+
+TBF: to be filed as an issue before its unit starts.
+
+## Tasks
+
+### Phase 1: the faults that stop real work
+
+- [ ] 🔄 **Task 1.1** (U1): R6, #421: a refusal names its cause and the fix; detector first.
+- [ ] 🔄 **Task 1.2** (U2): R1, R2: every PEER message reaches the session; reply works on it.
+- [ ] 🔄 **Task 1.3** (U3): R3: seat choice at launch is at least v1's.
+- [ ] 🔄 **Task 1.4** (U4): R4, #417: a seat's conversation survives joining a team and `/exit`.
+- [ ] 🔄 **Task 1.5** (U5): R5, #416: a seat is added in a couple of commands with a derived name.
+
+### Phase 2: threads and procedure
+
+- [ ] ⬜ **Task 2.1**: R7, R9, R10, R11, R12.
+- [ ] ⬜ **Task 2.2**: R8, #420.
+
+### Phase 3: what misleads
+
+- [ ] ⬜ **Task 3.1**: R13, R14, R15, R16.
+
+## Success Criteria
+
+- [ ] Every register row is proven fixed or deferred by the owner.
+- [ ] `v2-smoke` has passed CI and one review, and has landed on F44.
+
+## Delivery & Milestones
+
+- Register opened on branch `v2-smoke`.
