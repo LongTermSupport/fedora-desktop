@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.56 — container 2.84.80
+
+`ccy-teams` changes (Plan 00265 R51); the image is unchanged.
+
+- **A running teamchat session is seen by every host verb.** `ccy-teams session list`, the
+  picker's Running sessions view and `ccy-teams restart` find a running session through the
+  same lookup as `session add`: v1's membership if it has one, else its teamchat
+  `desired.json`. A teamchat session is listed with its teams, seats and duties and a state
+  read from its keeper's report of each seat, instead of "old or --no-bus". A cc session on
+  teamchat is listed as one not changed while it runs. The picker offers a teamchat session's
+  removal from a team and names the command that adds it; restart refuses one by name.
+
 ## 3.124.55 — container 2.84.80
 
 The launcher library and `ccy-teams` change (Plan 00265 R15); the image is unchanged.

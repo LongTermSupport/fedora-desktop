@@ -116,6 +116,22 @@ func TestAddARunningSessionWhenNoneCanJoinSaysWhyForEach(t *testing.T) {
 	}
 }
 
+// Register R51: a running teamchat (v2) session is refused by name from an agent-bus (v1) team's
+// Add a running session, never offered as if it could take a v1 seat.
+func TestAddARunningSessionRefusesATeamchatSessionByName(t *testing.T) {
+	h := newRig(t)
+	v2 := h.other()
+	v2.V2 = true
+	h.ses.list = []hot.Session{h.seated(), v2}
+	r := h.run1(t)
+	if _, err := r.do(context.Background(), actAddRunning, h.row(t, r.snap, board.NoDescription)); err != nil {
+		t.Fatal(err)
+	}
+	h.wantErr(t, "No running session can be added to alpha:",
+		"ccy-other runs on teamchat (v2) teams, and alpha is an agent-bus (v1) team")
+	h.wantRuns(t)
+}
+
 // A3: a team that cannot be joined (homeserver down, or not installed) is refused before the
 // sessions are listed, in teamOptions' own words.
 func TestAddARunningSessionToATeamThatCannotBeJoinedRefusesBeforeListing(t *testing.T) {

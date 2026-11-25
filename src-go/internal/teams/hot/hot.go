@@ -166,7 +166,9 @@ A session launched on teamchat (v2) teams is changed through its desired members
 pool seat of the checkout (the one given, or the lowest free one; ccy-teams seats add <team> makes
 a new one) and waits for the session's keeper to hold it; remove writes the member's farewell
 (it posts its own goodbye and stays in the team) and releases the seat. --role, --park,
---coordinator, move, role and repair are not built for one yet, and say so.
+--coordinator, move, role and repair are not built for one yet, and say so. list shows one with
+its teams, seats and duties, and a state read from its keeper's report of each seat; a cc
+session on teamchat is listed as one not changed while it runs.
 
 Each change asks first; with no terminal, --yes is required. One change runs at a time per
 session, and one seat allocation at a time per checkout: a second one is refused (exit 75),
@@ -461,10 +463,7 @@ func (x *Hot) resolve(ctx context.Context, r request) (*target, term.ExitCode, b
 		x.notOnBus(t)
 		return nil, exitConfig, false
 	}
-	dir := membership.DirOf(runtime, t.kind, session)
-	t.dir, t.store = dir, store
-	info, statErr := os.Lstat(dir)
-	onV1 := statErr == nil && info.IsDir()
+	t.store = store
 	lockPath, err := changePath(runtime, session)
 	if err == nil {
 		t.lock, err = takeLock(lockPath, holderOf(r))
@@ -477,25 +476,28 @@ func (x *Hot) resolve(ctx context.Context, r request) (*target, term.ExitCode, b
 		x.mark(markFailed, "session "+session+": "+err.Error())
 		return nil, term.ExitFailure, false
 	}
-	if !onV1 {
-		if code, ok := x.openV2(t, rec.Dir); !ok {
-			x.letGo(t.lock)
-			return nil, code, false
+	// Under the change lock, so the generation read is the one the next write follows.
+	run, err := x.Lookup().Running(runtime, t.kind, rec)
+	switch {
+	case err != nil && run.Bus == BusV2:
+		x.mark(markFailed, "session "+session+": it has no agent-bus membership, and whether it runs on teamchat (v2) could not be read: "+
+			err.Error()+"; relaunch it from ccy's tmux to change it while it runs")
+	case err == nil && run.Bus == BusNone:
+		x.notKit(session, os.ErrNotExist)
+	case err == nil && run.Bus == BusV1 && run.V1.Kind != t.kind:
+		x.notKit(session, fmt.Errorf("its membership is a %s session's", run.V1.Kind))
+	case err != nil:
+		x.notKit(session, err)
+	default:
+		t.dir, t.desired, t.v2 = run.Dir, run.V1, run.V2
+		if run.Bus == BusV2 {
+			t.desired.Checkout = rec.Dir
 		}
 		x.step(markDone, fmt.Sprintf(stepSessionNamed, session), hotControlled)
 		return t, term.ExitOK, true
 	}
-	t.desired, err = membership.Read(dir)
-	if err == nil && t.desired.Kind != t.kind {
-		err = fmt.Errorf("its membership is a %s session's", t.desired.Kind)
-	}
-	if err != nil {
-		x.notKit(session, err)
-		x.letGo(t.lock)
-		return nil, exitConfig, false
-	}
-	x.step(markDone, fmt.Sprintf(stepSessionNamed, session), hotControlled)
-	return t, term.ExitOK, true
+	x.letGo(t.lock)
+	return nil, exitConfig, false
 }
 
 // locate finds the running session: its labelled container, or else a cc session's tmux pane.

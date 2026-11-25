@@ -116,6 +116,9 @@ type sessionChoice struct {
 // on; nothing is reached by a key alone. Removing it from a team is destructive, so it is last
 // (as in every menu of the picker: lastDestructive).
 func (r *run) sessionChoices(s hot.Session) []sessionChoice {
+	if s.V2 {
+		return r.teamchatChoices(s)
+	}
 	var cs []sessionChoice
 	if s.Controllable {
 		cs = append(cs, sessionChoice{"Add to a team", func(ctx context.Context) (flow.Result, error) { return r.addToTeam(ctx, s) }})
@@ -142,6 +145,32 @@ func (r *run) sessionChoices(s hot.Session) []sessionChoice {
 		}
 	}
 	return cs
+}
+
+// teamchatChoices is what can be done to a running teamchat (v2) session (register R51): what
+// is built for one (R41), its removal from each team as `session remove` (no coordinator
+// question: v2 refuses --coordinator, and the role stays with the member), and Attach. The
+// picker's add asks agent-bus (v1) seats, so adding it names the command that does it.
+func (r *run) teamchatChoices(s hot.Session) []sessionChoice {
+	var cs []sessionChoice
+	if s.Controllable {
+		why := teamchatAdd(s)
+		cs = append(cs, sessionChoice{unavailable("Add to a team", why), func(ctx context.Context) (flow.Result, error) { return r.p.Kit.Refuse(ctx, why+".") }})
+	}
+	cs = append(cs, sessionChoice{unavailable("Attach", r.sessionRefusal(s.Name)), func(ctx context.Context) (flow.Result, error) { return r.p.Seats.AttachSession(ctx, r.snap, s.Name) }})
+	if s.Controllable {
+		for _, c := range s.Teams {
+			cs = append(cs, sessionChoice{"Remove from " + c.Team, func(ctx context.Context) (flow.Result, error) {
+				return r.session(ctx, []string{"remove", s.Name, c.Team})
+			}})
+		}
+	}
+	return cs
+}
+
+// teamchatAdd is how a running teamchat (v2) session is added to a team.
+func teamchatAdd(s hot.Session) string {
+	return s.Name + " runs on teamchat (v2): ccy-teams session add " + s.Name + " <team> adds it to one"
 }
 
 // sessionMenu is Enter on a session: what can be done to it, in words. Leaving does nothing.

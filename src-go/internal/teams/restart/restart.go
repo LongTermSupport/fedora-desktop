@@ -29,6 +29,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/hot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
@@ -63,6 +64,9 @@ type Restart struct {
 	Runner   execx.Runner
 	Registry func() (*registry.Store, error)
 	Getenv   func(string) string
+	// Lookup finds a running session's membership, v1 or teamchat (register R51); its zero
+	// value finds v1 sessions only.
+	Lookup hot.Lookup
 
 	Term   *term.Term
 	Out    *term.Printer

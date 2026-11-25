@@ -231,10 +231,15 @@ func TestRemoveTakesARunningV2SessionOffTheTeam(t *testing.T) {
 	}
 }
 
-// Defence for R41's class (a host verb that writes one bus generation's file for a session of
+// Defence for R41's class (a host verb that acts on one bus generation's file for a session of
 // the other): every verb on a v2 session either acts on its desired.json or refuses naming
 // teamchat; none falls through to v1's "launched without the kit" or writes v1's membership.
+// Widened by R51 to the readers: list, the picker's view, SessionsIn and TakeOut act on a v2
+// session or refuse it by name, and no call reads a running session's v1 membership outside
+// the shared lookup unless v1Readers says why (running_test.go).
 func TestEveryVerbOnAV2SessionActsOrRefusesByName(t *testing.T) {
+	guardV2Readers(t)
+	guardV1ReaderCalls(t)
 	for _, args := range [][]string{
 		{"move", session, "alpha", "beta", "--yes"},
 		{"role", session, "alpha", "worker", "--yes"},

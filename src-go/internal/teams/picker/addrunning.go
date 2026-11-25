@@ -70,6 +70,12 @@ func (r *run) alreadyIn(s hot.Session, cell hot.Cell) string {
 	return s.Name + " is already in " + cell.Team + " as " + r.seatLabel(s.Checkout, cell) + ": one seat per team per session."
 }
 
+// onTeamchat is why a running teamchat (v2) session cannot take a seat of team, an agent-bus
+// (v1) team (register R51).
+func onTeamchat(s hot.Session, team string) string {
+	return s.Name + " runs on teamchat (v2) teams, and " + team + " is an agent-bus (v1) team."
+}
+
 // cannotChange is why s cannot be added to any team while it runs.
 func cannotChange(s hot.Session) string {
 	return s.Name + " cannot be changed while it runs (" + s.State + ")"
@@ -83,6 +89,9 @@ func (r *run) addRunningTo(ctx context.Context, team string) (flow.Result, error
 	refuse := func(s hot.Session) string {
 		if cell, in := cellOf(s, team); in {
 			return r.alreadyIn(s, cell)
+		}
+		if s.V2 {
+			return onTeamchat(s, team)
 		}
 		if !s.Controllable {
 			return cannotChange(s) + "."
@@ -119,6 +128,8 @@ func (r *run) addToSeat(ctx context.Context, row board.Row) (flow.Result, error)
 			return r.alreadyIn(s, cell)
 		}
 		switch {
+		case s.V2:
+			return onTeamchat(s, team)
 		case s.Kind != string(row.Kind):
 			return s.Name + " is a " + s.Kind + " session, and " + seat + " is a " + string(row.Kind) + " seat."
 		case s.Checkout != row.Dir:
