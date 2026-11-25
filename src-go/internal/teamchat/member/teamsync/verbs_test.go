@@ -79,8 +79,9 @@ func TestVerifyInTheQuestionsRoom(t *testing.T) {
 	}
 }
 
-// R10 and A 4.1: a worker the room holds no invite for cannot read it: its verify of a questions
-// post is 23 not-found. Invited, as every non-parked member is, its link joins the room at the
+// R10 and A 4.1: a worker the room holds no invite for cannot read it. Its verify of a questions
+// post is refused forbidden (tell a human), naming the failed join, never a bare not-found that
+// reads as "workers cannot verify" (Plan 00265 R49). Invited, as every non-parked member is, its link joins the room at the
 // refused read and reads the post (DESIGN-questions-v2 section 4), never syncing the room. The
 // refusal is Tuwunel's 404 for an event a non-member cannot see (Plan 00265 R12); the skill's
 // `--room questions` reads it as main-first does.
@@ -92,8 +93,11 @@ func TestAWorkersVerifyOfAQuestionsPost(t *testing.T) {
 	w.uninvited(me)
 	before := w.joinsOf(w.qroom())
 	tm := w.newTeam()
-	if _, err := tm.Verify(t.Context(), answer, nil); !isCode(err, exits.CodeNotFound) {
-		t.Fatalf("a worker with no invite: %v, want not-found", err)
+	for _, room := range []*string{nil, new(proto.PurposeQuestions)} {
+		_, err := tm.Verify(t.Context(), answer, room)
+		if !isCode(err, exits.CodeForbidden) || !strings.Contains(err.Error(), "could not join the questions room") {
+			t.Fatalf("a worker with no invite (room %v): %v, want forbidden naming the join", room, err)
+		}
 	}
 	w.invited(me)
 	got, err := tm.Verify(t.Context(), answer, nil)
@@ -101,8 +105,8 @@ func TestAWorkersVerifyOfAQuestionsPost(t *testing.T) {
 	if !got.Human || got.Question == nil || *got.Question != "Q3" {
 		t.Errorf("an invited worker verified %+v, want the human's post on Q3", got)
 	}
-	if n := w.joinsOf(w.qroom()) - before; n != 2 {
-		t.Errorf("%d joins of questions, want 2 (the refused one and the one that read)", n)
+	if n := w.joinsOf(w.qroom()) - before; n != 3 {
+		t.Errorf("%d joins of questions, want 3 (the two refused and the one that read)", n)
 	}
 	if got, err := tm.Verify(t.Context(), answer, new(proto.PurposeQuestions)); err != nil || !got.Human || got.Room != proto.PurposeQuestions {
 		t.Errorf("--room questions verified %+v, %v; want the human's post", got, err)

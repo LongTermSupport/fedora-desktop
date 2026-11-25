@@ -423,6 +423,23 @@ filled in as each cause is known.
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
   open.
 
+## R49: a worker's failed questions join was reported as "event not found"
+
+- **Seen:** the devops seat, Task 4.11 (lts-ops), 14:40Z, holding a write on owner words it
+  could not verify (F25).
+- **What:** a worker's `verify` of a questions post joins questions by its invite when refused
+  (`teamsync/verbs.go`, `getQuestionsEvent`). When that join failed, the cause went only to
+  `link.log` and the verb answered 23 not-found "not in the team's main room, nor in a questions
+  room this member reads", which reads as "workers cannot verify".
+- **Not yet explained:** this seat, on the same code (digest `2f5c69f0…` is the src-go git tree
+  of ffa5e86c8, which holds the join path), reproduced it on both owner ids (F26, in-thread
+  replies in Q8), with and without `--room questions`: 23 each time, and `link.log` has no join
+  line, so the join did not fail, yet the event still read 404 after it. The coordinator, in
+  questions since the room was made, verifies the same ids. The cause behind the 404 is open.
+- **Fix:** a failed join is now refused forbidden (exit 22, tell a human), naming the join and
+  `link.log`; not-found again means only that no readable event has the id. **Severity:** medium.
+  **Issue:** TBF. **State:** fixed on `v2-smoke`; batch 4.
+
 ## R48: the off-host route demanded a dedicated agent user (uid and groups)
 
 - **Seen:** the owner, lts-ops Q8, 14:31Z (F22): "we're still blocked - the whole uid thing is
