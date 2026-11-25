@@ -75,6 +75,11 @@ filled in as each cause is known.
   `ccy-teams seats add <team>` on the homeserver's machine (derived handle, one sudo, issue and
   place; worker seats take no human text by default); seat creation in the launch follows U3;
   the rest waits on the owner (Q6, [reports/U5.md](reports/U5.md)). Live proof owed.
+- **Owner's answer to Q6 (12:42Z, via the coordinator, A9):** a human adding a seat, even with
+  sudo, is fine for now. On the home and dc server VMs, seats are managed through IaC first.
+  Seats are numbered only, and named seats are dropped. So `seats add` serves a machine where the
+  human has sudo (the laptop). Two later ideas, not now: a route that adds a seat over ssh to the
+  bus host, and seats an agent requests.
 
 ## R6: a `ref` refusal names no cause
 
@@ -102,6 +107,11 @@ filled in as each cause is known.
 - **What:** the thread lifecycle (open, waiting, answered, closed with the first message edited,
   bump) and the coordinator procedure are not shipped with the tool or shown at session start.
 - **Reproduce:** start a coordinator seat; no procedure is shown.
+- **Owner's input (F9, 12:39Z):** messages to a human are walls of text. The procedure must say a
+  message to a human is short markdown: the point first in bold, then bullets, a status emoji, and
+  the ask last. Questions are closed when done and bumped while waiting. lts-infra's wording
+  ("The owner, and how they want to be spoken to" in its coordinator doc) is input for the
+  generic text.
 - **Severity:** high. **Issue:** #420. **State:** open.
 
 ## R9: a human's top-level answer does not attach to its question
@@ -203,8 +213,26 @@ filled in as each cause is known.
   every F44 tip, were signed by a different key. Whether the estate's allowed-signers list holds
   the container key cannot be seen from here.
 - **Reproduce:** compare `git log --format=%GF` on the batch commit and on the pinned commit.
-- **Severity:** high (could block every container-made fix from reaching the estate).
-  **Issue:** TBF. **State:** open; asked of the coordinator.
+- **Severity:** high (blocks every container-made fix from reaching the estate).
+  **Issue:** TBF. **State:** confirmed by the coordinator (A9). The estate accepts four keys, and
+  this container's key is not one of them, so the pin check and the dev VMs' self-update refuse
+  these commits. The owner decides (lts-ops Q10): countersign each batch, trust the key, or trust
+  it at home only. Who signs is not changed here.
+
+## R32: `close Q<n>` waits for stdin it does not need
+
+- **Seen:** the coordinator, 2026-11-25 (F9).
+- **What:** `teamchat close Q<n>` run with no stdin waits 60 s, then fails with a usage error.
+- **Reproduce:** `teamchat close Q<n>` at a terminal or with an open, silent stdin.
+- **Severity:** medium. **Issue:** TBF. **State:** open.
+
+## R33: `ask-human`'s form does not say markdown is rendered
+
+- **Seen:** the coordinator, 2026-11-25 (F9).
+- **What:** `ask-human --skeleton` and its checks do not say the questions room renders markdown,
+  so questions are sent as plain walls of text.
+- **Reproduce:** `teamchat ask-human --skeleton`.
+- **Severity:** low. **Issue:** #420 (with R8). **State:** open.
 
 ## Cause classes
 
