@@ -20,6 +20,9 @@ export CCY_TMUX_SESSION_PREFIX="cc"
 ccy_tmux_offer() { echo "new"; }
 ccy_tmux_next_name() { echo "t-1"; }
 ccy_registry_write() {
+    # --fresh <value> (the fresh mark of a record taken over, R61), then name, dir, launcher,
+    # prefix and restore before the replay arguments.
+    [ "$1" = --fresh ] && shift 2
     shift 5
     printf '%d:' "$#" >"$out.replay"
     printf '[%s]' "$@" >>"$out.replay"

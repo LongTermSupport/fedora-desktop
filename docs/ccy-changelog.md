@@ -17,6 +17,21 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.57 — container 2.84.80
+
+Launcher and `ccy-teams` changes (Plan 00265 R61); the image is unchanged.
+
+- **A terminal launch takes over its checkout's stopped record.** A `ccy` or `cc` launch from a
+  terminal that would start a new session first looks in the session registry. When exactly
+  one record there is of the same checkout and launcher, names the same seats (in any order,
+  or none for a launch in none), sits in the file its name names and has no running session,
+  the launch takes that record's name. So a launch beside a session declared with
+  `ccy-sessions declare --name` writes its record over the declared one instead of a second
+  record that a restore would start as well. The declared record's
+  `fresh-if-no-conversation` mark is kept; its arguments become the launch's. Two such
+  records are neither taken, and the launcher says so. `ccy-teams internal session-name` takes
+  the checkout as a fourth argument.
+
 ## 3.124.56 — container 2.84.80
 
 `ccy-teams` changes (Plan 00265 R51); the image is unchanged.

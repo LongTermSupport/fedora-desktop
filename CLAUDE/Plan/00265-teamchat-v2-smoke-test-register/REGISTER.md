@@ -360,7 +360,7 @@ filled in as each cause is known.
   inventory of every v1-membership read outside the lookup, so a new one fails it. ccy 3.124.56.
   Detail: `reports/R51.md`.
 - **Severity:** high (no-degrade, F19: v1's tools saw every session). **Issue:** TBF.
-  **Unit:** U11. **State:** fixed on v2-smoke, batch 10 (18d2565f6); not yet run live.
+  **Unit:** U11. **State:** on F44 (batch 10, `356506aee`, ccy 3.124.56); not yet run live.
 
 ## R42: `say --to-coordinator` is ambiguous in a session that coordinates one of its teams
 
@@ -568,6 +568,23 @@ filled in as each cause is known.
 - **Severity:** high (every gate a commit is meant to pass locally is silently absent).
   **Issue:** #427. **State:** open, outside v2.
 
+## R62: `project_walk_open` does not take a regular-file check written as a switch case
+
+- **Seen:** this seat, batch 10's CI (25 Nov 20:30Z) and a by-hand run of the project rules
+  (`go vet -vettool` with the `qa/driver` build).
+- **What:** in a `filepath.WalkDir` callback, a guard written as a switch case,
+  `case !d.Type().IsRegular() || …: return nil`, followed by the open, is still reported as an
+  unguarded open. The rule's doc (`qa/rules/walkopen.go:35-40`) accepts a check only in an `if`
+  (`if check { open }`, or `if !check { continue/break/return/panic }` before it). The switch form
+  leaves the callback on a failed check exactly as the `if` does, so this is a false positive. It
+  took two CI-length rounds to find, because the message names the open, not the form it wants.
+- **Interim:** batch 10's guard is the `if` form (`a607fca45`).
+- **Fix:** the rule accepts a switch case whose condition is the failed check (alone or joined by
+  `||`) and whose body leaves, with a fixture in `rules/testdata`. Its message names the forms it
+  takes.
+- **Severity:** low (a correct guard refused; a by-hand run finds the accepted form). **Issue:**
+  TBF. **State:** open, QA tooling.
+
 ## R61: a terminal launch beside a declared session makes a second record under a new name
 
 - **Seen:** the coordinator's question before taking batch 9 (R15), 25 Nov 19:45Z, read in the
@@ -582,7 +599,11 @@ filled in as each cause is known.
 - **Fix:** a terminal launch in a checkout with a declared record for the same seats takes that
   record's name.
 - **Severity:** medium (an inventory addressed by fixed names gains a stray session). **Issue:**
-  TBF. **State:** open; after R51, which the coordinator agreed (not blocking).
+  TBF. **State:** fixed on v2-smoke (batch 11, `bc75780d6`; ccy 3.124.57; reports/R61.md):
+  `ccy-teams internal session-name` takes the checkout and reads the registry; exactly one
+  stopped record of the same checkout, launcher and seats (canonical, any order; none matches
+  none), in the file its name names, is taken over, its `fresh-if-no-conversation` mark kept;
+  two are neither taken, said on stderr. Live proof owed.
 
 ## R60: a hot join to a team the container cannot reach reports success, and status hides it
 

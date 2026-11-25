@@ -1,4 +1,4 @@
-// Package sessionname is `ccy-teams internal session-name <launcher> <project> <seats>`: the
+// Package sessionname is `ccy-teams internal session-name <launcher> <project> <seats> <checkout>`: the
 // name of the tmux session a ccy or cc launch starts, which is also what the tab shows
 // (files/etc/tmux.conf titles the terminal with #S).
 //
@@ -23,8 +23,17 @@
 //   - N5. The name printed is the first free one on ccy's tmux server: the name, then
 //     `<name>-2`, `<name>-3` ..., matched exactly against every session there. A server that
 //     cannot be listed is exit 1 (no server yet is an empty list).
-//   - N6. A launcher other than ccy or cc, or a project that is not a session-name word, is
-//     exit 64; the name is the only line on stdout.
+//   - N6. A launcher other than ccy or cc, a project that is not a session-name word, or a
+//     checkout that is not an absolute path is exit 64; stdout is one line, the name.
+//   - N7. A launch takes over a stopped record of its own (R61): when the session registry holds
+//     exactly one record of the same checkout and launcher whose seats are the launch's (both
+//     read as N3 reads them, in any order; no seats matches no seats), whose file is its name and
+//     whose session is not running, that record's name is printed, so the launcher's record
+//     replaces it instead of standing beside it (a declared `ccy-sessions declare --name`, or one
+//     an earlier session left), and stderr says so. A record marked fresh-if-no-conversation
+//     adds ` yes` to the line, for the launcher to keep the mark. Two such records are neither
+//     taken, and stderr names them; an unreadable record is named on stderr and never taken; a
+//     registry that cannot be read is exit 1. The re-attach offer handles running sessions.
 package sessionname
 
 import (
@@ -32,10 +41,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
@@ -46,7 +59,7 @@ const MaxLen = 120
 
 var (
 	projectWord = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]*$`)
-	errUsage    = errors.New("internal session-name <ccy|cc> <project> <seats>")
+	errUsage    = errors.New("internal session-name <ccy|cc> <project> <seats> <checkout>")
 )
 
 // Name is the session name for a launch of launcher in project and seats (a canonical
@@ -104,20 +117,66 @@ type Server interface {
 	List(ctx context.Context) ([]tmuxccy.Session, error)
 }
 
+// canonicalSeats is a --teams list as N3 reads it, sorted, so two lists of the same seats are
+// equal in any order; "" for no list, and false for one the seat check would refuse.
+func canonicalSeats(list string) (string, bool) {
+	joined := strings.Join(strings.Fields(list), "")
+	if joined == "" {
+		return "", true
+	}
+	parsed, err := membership.ParseSeats(joined)
+	if err != nil || len(parsed) == 0 {
+		return "", false
+	}
+	refs := make([]string, 0, len(parsed))
+	for _, s := range parsed {
+		refs = append(refs, s.Seat+"@"+s.Team)
+	}
+	slices.Sort(refs)
+	return strings.Join(refs, ","), true
+}
+
+// Takeover is the stopped records of reading a launch of launcher in dir and seats would take
+// over (N7): same checkout, launcher and seats, the record's file named for it, its session not
+// among the running ones.
+func Takeover(reading registry.Reading, launcher, dir, seats string, running []tmuxccy.Session) []registry.Record {
+	want, ok := canonicalSeats(seats)
+	if !ok {
+		return nil
+	}
+	var found []registry.Record
+	for i, rec := range reading.Records {
+		held, readable := canonicalSeats(discover.RecordTeams(rec))
+		switch {
+		case rec.Prefix != launcher, rec.Dir != dir, !readable, held != want,
+			filepath.Base(reading.Files[i]) != rec.Name,
+			slices.ContainsFunc(running, func(s tmuxccy.Session) bool { return s.Name == rec.Name }):
+			continue
+		}
+		found = append(found, rec)
+	}
+	return found
+}
+
 // Command is `ccy-teams internal session-name`.
 type Command struct {
 	Server Server
-	Stdout io.Writer
-	Stderr io.Writer
+	// Records reads the session registry.
+	Records func() (registry.Reading, error)
+	Stdout  io.Writer
+	Stderr  io.Writer
 }
 
-// Run prints the first free session name for the launch, or refuses its arguments (64), or
-// fails (1) when the server cannot be listed.
+// Run prints the session name for the launch, or refuses its arguments (64), or fails (1) when
+// the server cannot be listed or the registry read.
 func (c Command) Run(ctx context.Context, args []string) term.ExitCode {
-	if len(args) != 3 {
+	if len(args) != 4 {
 		return c.say(term.ExitUsage, errUsage.Error()+". See ccy-teams --help.")
 	}
 	base, note, err := Name(args[0], args[1], args[2])
+	if err == nil && (!filepath.IsAbs(args[3]) || filepath.Clean(args[3]) != args[3]) {
+		err = fmt.Errorf("%w: the checkout %q is not an absolute path", errUsage, args[3])
+	}
 	if err != nil {
 		return c.say(term.ExitUsage, err.Error()+". See ccy-teams --help.")
 	}
@@ -130,10 +189,48 @@ func (c Command) Run(ctx context.Context, args []string) term.ExitCode {
 	if err != nil {
 		return c.say(term.ExitFailure, "no session name could be chosen: "+err.Error())
 	}
-	if _, err := fmt.Fprintln(c.Stdout, Free(base, sessions)); err != nil {
+	reading, err := c.Records()
+	if err != nil {
+		return c.say(term.ExitFailure, "no session name could be chosen: "+err.Error())
+	}
+	line, code := c.choose(reading, args, Free(base, sessions), sessions)
+	if code != term.ExitOK {
+		return code
+	}
+	if _, err := fmt.Fprintln(c.Stdout, line); err != nil {
 		return term.ExitFailure
 	}
 	return term.ExitOK
+}
+
+// choose is the stdout line: the one record taken over (N7) with its fresh mark, else name.
+func (c Command) choose(reading registry.Reading, args []string, name string, sessions []tmuxccy.Session) (string, term.ExitCode) {
+	for _, p := range reading.Problems {
+		if code := c.say(term.ExitOK, "the session record "+p.File+" cannot be read, so it is not taken over: "+p.Err.Error()); code != term.ExitOK {
+			return "", code
+		}
+	}
+	found := Takeover(reading, args[0], args[3], args[2], sessions)
+	switch len(found) {
+	case 0:
+		return name, term.ExitOK
+	case 1:
+	default:
+		names := make([]string, 0, len(found))
+		for _, rec := range found {
+			names = append(names, rec.Name)
+		}
+		return name, c.say(term.ExitOK, fmt.Sprintf("the session records %s are all stopped sessions of this checkout in these seats, so none is taken over; the session is named %s.",
+			strings.Join(names, ", "), name))
+	}
+	rec := found[0]
+	if code := c.say(term.ExitOK, fmt.Sprintf("the session takes over the stopped record %s, which is this checkout's in these seats, so it replaces that record.", rec.Name)); code != term.ExitOK {
+		return "", code
+	}
+	if rec.FreshIfNoConversation {
+		return rec.Name + " yes", term.ExitOK
+	}
+	return rec.Name, term.ExitOK
 }
 
 // say writes one ccy-teams line to stderr and returns code, or a failure when it cannot.
