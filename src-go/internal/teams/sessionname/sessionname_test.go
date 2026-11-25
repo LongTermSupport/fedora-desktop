@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -124,6 +125,29 @@ func TestRunFailsWhenTheServerCannotBeListed(t *testing.T) {
 	code, out, errOut := run(t, fakeServer{err: errors.New("tmux list-sessions failed: boom")}, "ccy", "proj", "")
 	if code != term.ExitFailure || out != "" || !strings.Contains(errOut, "boom") {
 		t.Fatalf("exit %d out %q err %q", code, out, errOut)
+	}
+}
+
+// failingWriter is a stream that cannot be written: a closed stdout or stderr.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("closed") }
+
+func TestRunFailsWhenItCannotWrite(t *testing.T) {
+	long := strings.Repeat("p", 120)
+	for _, tc := range []struct {
+		name           string
+		stdout, stderr io.Writer
+		args           []string
+	}{
+		{"the name", failingWriter{}, io.Discard, []string{"ccy", "proj", "1@alpha"}},
+		{"the note", io.Discard, failingWriter{}, []string{"ccy", long, "1@alpha"}},
+		{"a refusal", io.Discard, failingWriter{}, []string{"ccy"}},
+	} {
+		code := Command{Server: fakeServer{}, Stdout: tc.stdout, Stderr: tc.stderr}.Run(t.Context(), tc.args)
+		if code != term.ExitFailure {
+			t.Fatalf("%s: exit %d", tc.name, code)
+		}
 	}
 }
 
