@@ -309,6 +309,15 @@ filled in as each cause is known.
 - **Next:** move that setup into `agent-bus-lightning` (`internal/lightning`) with a per-team
   preset of client settings. What Lightning lets us set is to be read from a real client config
   by the team's host-level seat on the owner's laptop.
+- **What we write (F15, read from `internal/lightning`):** one instance per team under the
+  Lightning Flatpak's data (`~/.var/app/<app_id>/…/teams/<team>/{data,config,cache}`), one
+  settings file per instance, `config/MatrixClient/matrix-client.conf` (an INI file:
+  `[homeserver]` `url=`), written only when absent, after which Lightning rewrites and owns it
+  (L7); and a launcher per team. The team script in the infrastructure repository writes no
+  Lightning settings. No spaces-rail key is in what we write; its key name is unknown. To learn
+  it: untick *Show spaces rail* in one instance and read which line its `matrix-client.conf`
+  gains. A preset then means merging that one key into an existing file, which changes L7
+  ("only when absent").
 - **Severity:** low (after the container work). **Issue:** TBF. **State:** open.
 
 ## R36: an earlier #417 implementation sits on unmerged branches
@@ -370,6 +379,15 @@ before the move to v2. Filled in as causes are found.
   and seat number, and the seat type, which is the launcher used (`ccy` for a container seat,
   `cc` for a seat on the machine itself). Example: `lts-ops · fedora-desktop.4 · ccy`. The owner
   may still change the order.
+- **More (F15, the laptop host seat, 13:36Z):** that seat's tmux session is `cc-lts-lts-infra`,
+  which does not name its seat. The tab title inside tmux is tmux's own: `files/etc/tmux.conf`
+  sets `set-titles on` with `set-titles-string "tmux: #S  (F12 then Detach leaves it running)"`,
+  so the tab shows the session name, and ccy's own title (`CCY: <project>`) is overwritten while
+  tmux runs. So the fix is the session name: name it for the seat, and the tab follows.
+- **Reading the title from inside a seat:** for a seat on the machine itself, inside tmux,
+  `tmux display-message -p "$(tmux show-options -gv set-titles-string)"` prints the title the tab
+  is given, and reads only. A container seat has no tmux client inside, so it cannot.
+  Unchecked on the laptop.
 - **Reproduce:** switch tmux sessions between seats.
 - **Severity:** low. **Issue:** TBF. **State:** open.
 
