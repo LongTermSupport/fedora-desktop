@@ -183,9 +183,14 @@ func Wire(h *host.Host) *App {
 	chosen.Probe = pick.Probe
 	membershipInit := membership.New(h)
 	sys := newSystem(h)
+	adder := &seatadd.Adder{
+		Getenv: h.Getenv, Status: system.StatusRecord, Origin: h.Git.RemoteURL, Site: seatadd.HostVarsSite(h.HostVars),
+		Issuer: seatadd.SudoIssuer{Sudo: h.Sudo}, Place: placeissued.Place,
+	}
 	chosen.Teamchat = &chooser.Teamchat{
 		Live: sys.Live, SeatCount: sys.SeatCount, Handles: sys.Handles, Teams: sys.PoolTeams,
 		Pool: sys.PoolState, Reattach: chooser.TmuxReattach(h.Tmux, h.Getenv),
+		NewSeat: adder.NewSeat(sys.Getwd, func(msg string) { h.Print(h.Stderr, msg+"\n") }),
 	}
 	pick.Teamchat = sys.Live
 	launch := newLaunch(h, membershipInit, sys)
@@ -211,11 +216,7 @@ func Wire(h *host.Host) *App {
 			Stdout: h.Payload, Stderr: h.Stderr, Getenv: h.Getenv, Getwd: os.Getwd, NowMS: nowMS, NewID: NewConversationID,
 		},
 		SeatAdd: &seatadd.Cmd{
-			Stdout: h.Payload, Stderr: h.Stderr, Getwd: os.Getwd,
-			Adder: &seatadd.Adder{
-				Getenv: h.Getenv, Status: system.StatusRecord, Origin: h.Git.RemoteURL, Site: seatadd.HostVarsSite(h.HostVars),
-				Issuer: seatadd.SudoIssuer{Sudo: h.Sudo}, Place: placeissued.Place,
-			},
+			Stdout: h.Payload, Stderr: h.Stderr, Getwd: os.Getwd, Adder: adder,
 		},
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)

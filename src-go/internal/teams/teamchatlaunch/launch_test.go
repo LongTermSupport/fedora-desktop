@@ -14,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatchoice"
 )
 
 func mustSeat(t *testing.T, s string) paths.SeatName {
@@ -77,16 +78,37 @@ func TestGuardRefusesAMountThatReachesTheSeatStore(t *testing.T) {
 func TestChooseSeatIsThePoolSeatWithThatSeatPart(t *testing.T) {
 	pool := make([]paths.SeatName, 0, 3)
 	pool = append(pool, mustSeat(t, "repo.1+site.podman"), mustSeat(t, "repo.2+site.podman"))
-	got, err := ChooseSeat(pool, "2")
+	got, err := ChooseSeat(pool, "alpha", "2", seatchoice.KindPodman)
 	if err != nil || got.String() != "repo.2+site.podman" {
 		t.Fatalf("got %v %v", got, err)
 	}
-	if _, err := ChooseSeat(pool, "3"); !errors.Is(err, ErrSeat) || !strings.Contains(err.Error(), "repo.1+site.podman") {
+	if _, err := ChooseSeat(pool, "alpha", "3", seatchoice.KindPodman); !errors.Is(err, ErrSeat) || !strings.Contains(err.Error(), "repo.1+site.podman") {
 		t.Fatalf("no such seat: got %v", err)
 	}
-	pool = append(pool, mustSeat(t, "repo.2+site.host"))
-	if _, err := ChooseSeat(pool, "2"); !errors.Is(err, ErrSeat) {
+	pool = append(pool, mustSeat(t, "other.2+site.podman"))
+	if _, err := ChooseSeat(pool, "alpha", "2", seatchoice.KindPodman); !errors.Is(err, ErrSeat) {
 		t.Fatalf("two handles with seat 2: got %v", err)
+	}
+}
+
+// Register R55: a named seat is chosen from the launch's own kind only; a seat part only another
+// kind has is refused naming that kind and its launcher, and one both kinds have is the launch's.
+func TestChooseSeatTakesOnlyTheLaunchKindsSeat(t *testing.T) {
+	pool := []paths.SeatName{mustSeat(t, "repo.1+site.podman"), mustSeat(t, "repo.2+site.host"), mustSeat(t, "repo.1+site.host")}
+	if got, err := ChooseSeat(pool, "alpha", "1", seatchoice.KindHost); err != nil || got.String() != "repo.1+site.host" {
+		t.Fatalf("host seat 1: got %v %v", got, err)
+	}
+	if got, err := ChooseSeat(pool, "alpha", "1", seatchoice.KindPodman); err != nil || got.String() != "repo.1+site.podman" {
+		t.Fatalf("podman seat 1: got %v %v", got, err)
+	}
+	_, err := ChooseSeat(pool, "alpha", "2", seatchoice.KindPodman)
+	if !errors.Is(err, ErrSeat) || !strings.Contains(err.Error(), "is a host seat (repo.2+site.host)") || !strings.Contains(err.Error(), "cc --teams 2@") {
+		t.Fatalf("a host seat for ccy: got %v", err)
+	}
+	pool = append(pool, mustSeat(t, "repo.5+site.lxc"))
+	_, err = ChooseSeat(pool, "alpha", "5", seatchoice.KindPodman)
+	if !errors.Is(err, ErrSeat) || !strings.Contains(err.Error(), "is a lxc seat (repo.5+site.lxc)") || !strings.Contains(err.Error(), "neither ccy nor cc launches it") {
+		t.Fatalf("an lxc seat for ccy: got %v", err)
 	}
 }
 
@@ -222,7 +244,7 @@ func newLaunchWorld(t *testing.T) launchWorld {
 	}
 	taker := &fakeTaker{}
 	return launchWorld{home: home, taker: taker, launch: &Launch{
-		Store: store, Checkout: key, Taker: taker, NowMS: func() int64 { return 99 },
+		Store: store, Checkout: key, Kind: seatchoice.KindPodman, Taker: taker, NowMS: func() int64 { return 99 },
 		Status: func(paths.TeamID) (status.Record, bool, error) { return status.Record{}, false, nil },
 	}}
 }
@@ -268,6 +290,23 @@ func TestLaunchRefusesBeforeTakingAnything(t *testing.T) {
 	}
 	if w.taker.took != nil {
 		t.Fatalf("took %+v", w.taker.took)
+	}
+}
+
+// A Launch built without its launcher's kind, or with one no launcher has, is refused before
+// anything is read or taken, naming the kind it was given (register R55): it would otherwise
+// refuse every seat as another launcher's.
+func TestLaunchRefusesAMissingOrUnknownKind(t *testing.T) {
+	for _, kind := range []string{"", "lxc"} {
+		w := newLaunchWorld(t)
+		w.launch.Kind = kind
+		_, err := w.launch.Run(context.Background(), mustSession(t, "s1"), "1@alpha", nil, false)
+		if !errors.Is(err, ErrKind) || !strings.Contains(err.Error(), `"`+kind+`"`) {
+			t.Fatalf("kind %q: got %v", kind, err)
+		}
+		if w.taker.took != nil {
+			t.Fatalf("kind %q: took %+v", kind, w.taker.took)
+		}
 	}
 }
 

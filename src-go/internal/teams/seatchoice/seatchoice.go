@@ -11,6 +11,10 @@
 //	S4  WaysOn: every seat with its state, then a free seat's launch, a held seat's re-attach,
 //	    and a new seat (AddCommand, `ccy-teams seats add <team>`).
 //	S5  WaysOn with no seat names the way to have one.
+//	S7  A seat's kind is its handle's type (podman for ccy, host for cc); a launch is offered,
+//	    and its ways on name, only the seats of its own kind (OfKind; register R55).
+//	S8  WrongKind refuses a seat of another kind named for a launch: its kind, its launcher
+//	    (or that neither launcher takes it), and the add of a seat of the launch's kind.
 package seatchoice
 
 import (
@@ -18,6 +22,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
 // Seat is one pool seat of the checkout in a team.
@@ -75,14 +81,71 @@ func Row(s Seat) string {
 	return fmt.Sprintf("seat %-6s  %-40s  %s", s.Name, s.Handle, state)
 }
 
+// The kinds of pool seat: a handle's type, and the --type a launcher gives (ccy podman, cc host).
+// AnyKind is not a kind: asked for, it is every seat with a handle (no handle's type has a "*").
+const (
+	KindPodman = "podman"
+	KindHost   = "host"
+	AnyKind    = "*"
+)
+
+// IsKind is whether handle is a seat of kind (any handle, for AnyKind).
+func IsKind(handle, kind string) bool {
+	of := KindOf(handle)
+	return of != "" && (kind == AnyKind || of == kind)
+}
+
+// KindOf is the kind of the seat whose handle is handle, "" for a name that is not a handle.
+func KindOf(handle string) string {
+	h, ok := proto.ParseHandle(handle)
+	if !ok {
+		return ""
+	}
+	return h.Type
+}
+
+// OfKind is the seats of kind, in their order: the only pool a launch of kind is offered.
+func OfKind(seats []Seat, kind string) []Seat {
+	var out []Seat
+	for _, s := range seats {
+		if IsKind(s.Handle, kind) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// Launcher is the command that launches a seat of kind: cc for host, ccy for podman.
+func Launcher(kind string) string {
+	if kind == KindHost {
+		return "cc"
+	}
+	return "ccy"
+}
+
+// WrongKind is the refusal of seat@team, whose handle is of another kind, for a launch of kind:
+// the seat's kind, the launcher it belongs to (or that neither launches it, for a kind such as an
+// LXC member's), and the add of a seat of the launch's own kind.
+func WrongKind(seat, team, handle, kind string) string {
+	ref := seat + "@" + team
+	other := KindOf(handle)
+	way := "launch it with " + Launcher(other) + " --teams " + ref + ", or "
+	if other != KindPodman && other != KindHost {
+		way = "neither ccy nor cc launches it; "
+	}
+	return ref + " is a " + other + " seat (" + handle + "), and this is a " + Launcher(kind) + " (" + kind +
+		") launch: " + way + "add a " + kind + " seat with " + AddCommand(team, kind) + ", then " +
+		Launcher(kind) + " --teams <seat>@" + team
+}
+
 // WaysOn are the lines a refusal prints for team in checkout (as shown to a person): the seats
-// and their state, then the command for each way on. launcher is the command the person ran
-// (ccy or cc).
-func WaysOn(launcher, team, checkout string, seats []Seat) []string {
+// of kind and their state, then the command for each way on, through the launcher of kind.
+func WaysOn(kind, team, checkout string, seats []Seat) []string {
+	launcher := Launcher(kind)
 	ordered := Order(seats)
 	var lines []string
 	if len(ordered) == 0 {
-		lines = append(lines, "  This checkout ("+checkout+") has no seat of "+team+".")
+		lines = append(lines, "  This checkout ("+checkout+") has no "+kind+" seat of "+team+".")
 	} else {
 		lines = append(lines, "  Seats of "+team+" in this checkout ("+checkout+"):")
 		for _, s := range ordered {
@@ -98,12 +161,19 @@ func WaysOn(launcher, team, checkout string, seats []Seat) []string {
 		}
 		lines = append(lines, "    take free seat "+s.Name+": "+launcher+" --teams "+s.Name+"@"+team)
 	}
-	return append(lines, "    a new seat: "+AddCommand(team)+", then "+launcher+" --teams <seat>@"+team)
+	return append(lines, "    a new seat: "+AddCommand(team, kind)+", then "+launcher+" --teams <seat>@"+team)
 }
 
-// AddCommand is the command that adds a new seat of team to this checkout (`ccy-teams seats add`,
-// issue 416): the way on when no seat is free.
-func AddCommand(team string) string { return "ccy-teams seats add " + team }
+// AddCommand is the command that adds a new seat of kind of team to this checkout (`ccy-teams
+// seats add`, issue 416): the way on when no seat is free.
+func AddCommand(team, kind string) string {
+	if kind == KindHost {
+		return "ccy-teams seats add " + team + " --host"
+	}
+	return "ccy-teams seats add " + team
+}
 
-// NewRow is the chooser's row that asks for a new seat of team, offered when no seat is free.
-func NewRow(team string) string { return "new seat in " + team + " (" + AddCommand(team) + ")" }
+// NewRow is the chooser's row that asks for a new seat of kind of team.
+func NewRow(team, kind string) string {
+	return "new " + kind + " seat in " + team + " (" + AddCommand(team, kind) + ")"
+}

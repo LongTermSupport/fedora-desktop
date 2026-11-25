@@ -24,6 +24,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatchoice"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/system"
 )
 
@@ -35,11 +36,13 @@ const MembershipMount = paths.SessionMembershipMount
 // its seat lock's release before podman kills the container.
 const stopTimeout = "20"
 
-// The refusals of a launch: a mount that reaches the seat store (exit 78) and a seat list the
-// pool cannot answer (exit 64).
+// The refusals of a launch: a mount that reaches the seat store (exit 78), a seat list the
+// pool cannot answer (exit 64), and a Launch built without its launcher's kind of seat (a
+// defect in the launcher, exit 1).
 var (
 	ErrMount = errors.New("a mount reaches the seat store")
 	ErrSeat  = errors.New("no such seat")
+	ErrKind  = errors.New("internal error: the launch has no kind of seat")
 )
 
 // MountSources is the source of every bind in podman run arguments: -v and --volume (joined or
@@ -109,21 +112,31 @@ func Guard(root string, sources []string) error {
 	return nil
 }
 
-// ChooseSeat is the pool seat whose handle's seat part is seat (C 3.7.4's seat number, given by
-// the launch's <seat>@<team>), refused when none or more than one has it.
-func ChooseSeat(pool []paths.SeatName, seatPart string) (paths.SeatName, error) {
+// ChooseSeat is the pool seat of team of kind (the launcher's: podman for ccy, host for cc) whose
+// handle's seat part is seat (C 3.7.4's seat number, given by the launch's <seat>@<team>),
+// refused when none or more than one has it. A seat part only another kind has is refused naming
+// that kind and its launcher (register R55): a launch never takes another launcher's seat.
+func ChooseSeat(pool []paths.SeatName, team, seatPart, kind string) (paths.SeatName, error) {
 	var found []paths.SeatName
+	other := ""
 	names := make([]string, 0, len(pool))
 	for _, n := range pool {
 		names = append(names, n.String())
-		if h, ok := proto.ParseHandle(n.String()); ok && h.Seat == seatPart {
+		h, ok := proto.ParseHandle(n.String())
+		switch {
+		case !ok || h.Seat != seatPart:
+		case h.Type == kind:
 			found = append(found, n)
+		default:
+			other = n.String()
 		}
 	}
-	switch len(found) {
-	case 1:
+	switch {
+	case len(found) == 1:
 		return found[0], nil
-	case 0:
+	case len(found) == 0 && other != "":
+		return paths.SeatName{}, fmt.Errorf("%w: %s", ErrSeat, seatchoice.WrongKind(seatPart, team, other, kind))
+	case len(found) == 0:
 		return paths.SeatName{}, fmt.Errorf("%w: no pool seat of this checkout has seat %s (it has: %s)", ErrSeat, seatPart, strings.Join(names, ", "))
 	}
 	return paths.SeatName{}, fmt.Errorf("%w: more than one pool seat has seat %s (%v); remove the one you do not use", ErrSeat, seatPart, found)
@@ -220,15 +233,22 @@ type Taker interface {
 type Launch struct {
 	Store    paths.Store
 	Checkout paths.CheckoutKey
-	Taker    Taker
-	Status   func(paths.TeamID) (status.Record, bool, error)
-	NowMS    func() int64
+	// Kind is the launcher's kind of seat (seatchoice.KindPodman for ccy, KindHost for cc): the
+	// only pool seats the launch takes. The compiler does not hold it: Run and OpenHotSeats
+	// refuse any other value (ErrKind), so a Launch built without it fails at once.
+	Kind   string
+	Taker  Taker
+	Status func(paths.TeamID) (status.Record, bool, error)
+	NowMS  func() int64
 }
 
 // Run guards the mounts, takes the seats for session, writes desired.json and returns the run
 // arguments. Nothing is taken when the guard or a seat refuses; nothing is written when a take
 // fails.
 func (l *Launch) Run(ctx context.Context, session paths.SessionName, list string, mounts []string, relabel bool) ([]string, error) {
+	if err := l.checkKind(); err != nil {
+		return nil, err
+	}
 	if err := Guard(l.Store.Root(), MountSources(mounts)); err != nil {
 		return nil, err
 	}
@@ -251,6 +271,14 @@ func (l *Launch) Run(ctx context.Context, session paths.SessionName, list string
 	return RunArgs(l.Store, session, relabel), nil
 }
 
+// checkKind refuses a Launch whose Kind is not a launcher's kind of seat, naming the kind given.
+func (l *Launch) checkKind() error {
+	if l.Kind == seatchoice.KindPodman || l.Kind == seatchoice.KindHost {
+		return nil
+	}
+	return fmt.Errorf("%w (%q; want %q for ccy or %q for cc)", ErrKind, l.Kind, seatchoice.KindPodman, seatchoice.KindHost)
+}
+
 // choose reads the canonical list and finds each seat in the pool.
 func (l *Launch) choose(list string) ([]Chosen, []seat.Take, error) {
 	seats, err := membership.ParseSeats(list)
@@ -271,7 +299,7 @@ func (l *Launch) choose(list string) ([]Chosen, []seat.Take, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		name, err := ChooseSeat(pool, s.Seat)
+		name, err := ChooseSeat(pool, s.Team, s.Seat, l.Kind)
 		if err != nil {
 			return nil, nil, fmt.Errorf("team %s: %w", s.Team, err)
 		}

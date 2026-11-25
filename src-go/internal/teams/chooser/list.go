@@ -185,7 +185,7 @@ func describe(c declare.Choice) string {
 
 // standing is the standing column of a row.
 func standing(repo string, e entry) string {
-	if e.teamchatSeats > 0 {
+	if e.teamchat != "" {
 		return teamchatStanding(e)
 	}
 	var text string

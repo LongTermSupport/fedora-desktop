@@ -793,7 +793,7 @@ your `gh` must be logged in.
 
 **On a teamchat (v2) team** a cc session joins as a ccy session does: its seat is a pool seat of
 the checkout, issued with `--prefix <repo>+<site>.host` and placed with `teamchat seat place-issued --checkout <dir>` ([Issuing a seat](agent-bus-cross-network.md)), or on the homeserver's
-own machine by `ccy-teams seats add <team> --host` in the checkout, never made at launch; the chooser lists the checkout's teamchat teams and the consent names the pool seat's
+own machine by `ccy-teams seats add <team> --host` in the checkout, which a bare `cc --teams <team>` with no free host seat runs for you; the launch offers and takes host seats only (a podman seat is `ccy`'s, and is refused naming it); the chooser lists the checkout's teamchat teams and the consent names the pool seat's
 handle. `ccy-teams internal cc-run` runs the session under `teamchat run --kind host` with the
 seat store's directories for that session, so `ccy --stop`, `ccy-sessions` restore and a team
 restart read its conversation from the seat store, and its end releases the seats (a killed

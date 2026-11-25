@@ -126,6 +126,16 @@ func TestOpenHotSeatsFindsNoV2SessionWithoutDesired(t *testing.T) {
 	}
 }
 
+// A running session's seats are not opened through a Launch without its launcher's kind: its
+// joins would refuse every seat as another launcher's (register R55).
+func TestOpenHotSeatsRefusesALaunchWithNoKind(t *testing.T) {
+	w := newLaunchWorld(t)
+	w.launch.Kind = ""
+	if _, _, err := OpenHotSeats(HotParts{Launch: w.launch}, mustSession(t, "other")); !errors.Is(err, ErrKind) {
+		t.Fatalf("got %v", err)
+	}
+}
+
 // The launcher's verbs open a running session's seats in the checkout's seat store: the session
 // its launch wrote desired.json for is found, its release goes to the same store, and a session
 // with none, or a name v2 never gives a session, is not found.
@@ -187,6 +197,23 @@ func TestChooseWithNoSeatIsTheLowestFreePoolSeat(t *testing.T) {
 	}
 	if _, _, err := w.seats.Choose("beta", "9"); !errors.Is(err, ErrSeat) {
 		t.Fatalf("a seat not in the pool: %v", err)
+	}
+}
+
+// Register R55: a ccy session's join is offered its own kind's seats only: a host seat of the
+// team is neither the default nor taken by name, and with no podman seat the way on is a podman
+// seat's add.
+func TestChooseOffersAPodmanSessionOnlyPodmanSeats(t *testing.T) {
+	w := newHotWorld(t)
+	gamma := mustTeamID(t, "gamma")
+	if err := os.MkdirAll(filepath.Join(w.launch.Store.PoolTeam(w.launch.Checkout, gamma), "repo.1+site.host"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := w.seats.Choose("gamma", ""); !errors.Is(err, ErrSeat) || !strings.HasSuffix(err.Error(), "add one with ccy-teams seats add gamma") {
+		t.Fatalf("a team with only a host seat: %v", err)
+	}
+	if _, _, err := w.seats.Choose("gamma", "1"); !errors.Is(err, ErrSeat) || !strings.Contains(err.Error(), "is a host seat") {
+		t.Fatalf("a host seat by name: %v", err)
 	}
 }
 

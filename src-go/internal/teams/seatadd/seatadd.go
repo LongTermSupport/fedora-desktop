@@ -169,8 +169,41 @@ func (a *Adder) Add(ctx context.Context, r Request) (Added, error) {
 	if r.Host {
 		added.Launcher = "cc"
 	}
-	a.note("Seat " + added.List + " is in this checkout's pool. Launch it here: " + added.Launcher + " --teams " + added.List)
+	a.note("Seat " + added.List + " is in this checkout's pool.")
 	return added, nil
+}
+
+// NewSeat is the launcher's add of a seat (register R5), the chooser's Teamchat.NewSeat: when a
+// team named alone has no free seat of the launcher's kind (memberType podman for ccy, host for
+// cc), a seat of that kind is added to the working directory's checkout, as `ccy-teams seats
+// add` would, and its <seat>@<team> is the launch's. Progress and refusals go to say (stderr): a
+// team served on another machine is 78, naming the route there, anything else 1.
+func (a *Adder) NewSeat(getwd func() (string, error), say func(string)) func(ctx context.Context, team, memberType string) (string, term.ExitCode) {
+	return func(ctx context.Context, team, memberType string) (string, term.ExitCode) {
+		id, err := paths.ParseTeamID(team)
+		if err != nil {
+			say("ccy-teams: no new seat of " + team + " could be added: " + err.Error() + ".")
+			return "", term.ExitUsage
+		}
+		checkout, err := getwd()
+		if err != nil {
+			say("ccy-teams: no new seat of " + team + " could be added: the working directory: " + err.Error() + ".")
+			return "", term.ExitFailure
+		}
+		adder := *a
+		adder.Note = say
+		added, err := adder.Add(ctx, Request{Team: id, Checkout: checkout, Host: memberType == "host"})
+		switch {
+		case errors.Is(err, ErrNotHere):
+			say("ccy-teams: no new seat of " + team + " could be added here: " + err.Error() + ".")
+			return "", term.ExitConfig
+		case err != nil:
+			say("ccy-teams: no new seat of " + team + " could be added: " + err.Error() + ".")
+			return "", term.ExitFailure
+		}
+		say("This " + added.Launcher + " launch takes seat " + added.List + ".")
+		return added.List, term.ExitOK
+	}
 }
 
 func (a *Adder) note(msg string) {
@@ -277,6 +310,7 @@ func (c *Cmd) run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	c.note("Launch it here: " + added.Launcher + " --teams " + added.List)
 	if _, err = io.WriteString(c.Stdout, added.List+"\n"); err != nil {
 		return fmt.Errorf("could not print the seat: %w", err)
 	}

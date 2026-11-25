@@ -189,7 +189,7 @@ func TestAddDerivesIssuesAndPlaces(t *testing.T) {
 	if w.out.String() != "1@alpha\n" {
 		t.Errorf("stdout %q, want the seat to launch", w.out.String())
 	}
-	for _, s := range []string{"fedora-desktop.1+local.podman", "ccy --teams 1@alpha"} {
+	for _, s := range []string{"fedora-desktop.1+local.podman", "Launch it here: ccy --teams 1@alpha"} {
 		if !strings.Contains(w.err.String(), s) {
 			t.Errorf("stderr does not say %q:\n%s", s, w.err.String())
 		}
@@ -365,6 +365,57 @@ func TestAdderInProcess(t *testing.T) {
 	w.member("fedora-desktop.1+local.host", "enrolled")
 	if _, err = a.Add(context.Background(), Request{Team: alpha(t), Checkout: w.checkout, Host: true}); err != nil {
 		t.Fatalf("a nil Note: %v", err)
+	}
+}
+
+// Register R5: a bare `cc --teams <team>` or `ccy --teams <team>` with no free seat adds one
+// through the chooser's NewSeat: the seat of the launcher's kind, its progress said, its
+// <seat>@<team> the launch's; a team served elsewhere is refused (78) naming the route, any other
+// failure is 1, and nothing is printed but through say.
+func TestNewSeatAddsTheLaunchersSeat(t *testing.T) {
+	w := newWorld(t)
+	var said []string
+	say := func(s string) { said = append(said, s) }
+	getwd := func() (string, error) { return w.checkout, nil }
+	newSeat := w.adder().NewSeat(getwd, say)
+	got, code := newSeat(context.Background(), "alpha", "host")
+	if code != term.ExitOK || got != "1@alpha" {
+		t.Fatalf("host: %q %d; said %q", got, code, said)
+	}
+	// The launch goes on with the seat, so it is said as taken, not as a command to run.
+	text := strings.Join(said, "\n")
+	if !strings.Contains(strings.Join(w.sudo.argv, " "), "--kind host") || !strings.Contains(text, "This cc launch takes seat 1@alpha.") ||
+		strings.Contains(text, "Launch it here") {
+		t.Errorf("argv %q, said %q", w.sudo.argv, said)
+	}
+	w.pool("fedora-desktop.1+local.host")
+	if got, code = newSeat(context.Background(), "alpha", "podman"); code != term.ExitOK || got != "2@alpha" {
+		t.Fatalf("podman: %q %d; said %q", got, code, said)
+	}
+	if !strings.Contains(strings.Join(w.sudo.argv, " "), "--kind podman") {
+		t.Errorf("argv %q", w.sudo.argv)
+	}
+	if w.out.Len() != 0 || w.err.Len() != 0 {
+		t.Errorf("out %q, err %q", w.out.String(), w.err.String())
+	}
+
+	said = nil
+	w.found = false
+	if _, code = newSeat(context.Background(), "alpha", "podman"); code != term.ExitConfig ||
+		!strings.Contains(strings.Join(said, "\n"), "no new seat of alpha could be added here") || !strings.Contains(strings.Join(said, "\n"), "place-issued") {
+		t.Errorf("a team served elsewhere: %d, said %q", code, said)
+	}
+	w.found = true
+	w.sudo.readyErr = errors.New("no password")
+	if _, code = newSeat(context.Background(), "alpha", "podman"); code != term.ExitFailure {
+		t.Errorf("sudo refused: %d", code)
+	}
+	if _, code = newSeat(context.Background(), "not a team!", "podman"); code != term.ExitUsage {
+		t.Errorf("a bad team: %d", code)
+	}
+	broken := w.adder().NewSeat(func() (string, error) { return "", errors.New("gone") }, say)
+	if _, code = broken(context.Background(), "alpha", "podman"); code != term.ExitFailure {
+		t.Errorf("no working directory: %d", code)
 	}
 }
 

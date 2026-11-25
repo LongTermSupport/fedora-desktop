@@ -101,6 +101,10 @@
 # Plan 00265 R44 (ccy 3.124.49, container 2.84.80): the image is rebuilt so its teamchat kit
 # carries the coordinator's standard procedure (the teamchat:coordinator skill) and a coordinator
 # seat's SessionStart names it; sessions started after the rebuild see it.
+# Plan 00265 R5, R55 (ccy 3.124.50): ccy-teams is rebuilt so a bare ccy/cc --teams <team> with no
+# free seat of its kind adds one (one sudo) and launches it instead of exiting 78, and each
+# launcher is offered and given only its own kind's seats. The image is unchanged.
+# Its review fixes (ccy 3.124.51) ride the same run: a named LXC seat is refused naming its kind.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC

@@ -17,6 +17,30 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.51 — container 2.84.80
+
+`ccy-teams` is rebuilt (Plan 00265 R5, R55 review fixes); the image is unchanged.
+
+- **A seat neither launcher takes is named as such.** A seat named for `ccy` or `cc` whose
+  handle is of another kind, such as an LXC member's, is refused naming its kind and that
+  neither launcher starts it, instead of "not one of the seats".
+- **An automatic seat add no longer tells you to launch.** When a bare `--teams <team>` adds a
+  seat, it says the launch takes it; only `ccy-teams seats add` prints "Launch it here".
+
+## 3.124.50 — container 2.84.80
+
+`ccy-teams` is rebuilt (Plan 00265 R5, R55); the image is unchanged.
+
+- **A bare `--teams <team>` with no free seat adds one.** `ccy --teams <team>` or
+  `cc --teams <team>` on a teamchat team whose checkout has no free seat of the launcher's kind
+  (and the chooser's "new seat" row) now adds a seat as `ccy-teams seats add <team> [--host]`
+  does, through sudo on the machine that serves the team, and launches it, instead of ending
+  with exit 78. A team served by another machine is still refused (78), naming the route there.
+- **Each launcher sees only its own seats.** A pool seat's kind is its handle's type: `ccy`
+  is offered, counted and given podman seats only, `cc` host seats only, in the chooser, the
+  ways on, the list and the launch itself. A seat of the other kind named for a launch, such as
+  `cc --teams 2@<team>` for a podman seat, is refused naming its kind and its launcher.
+
 ## 3.124.49 — container 2.84.80
 
 The image is rebuilt for its `teamchat` kit (Plan 00265 R44, review fixes).

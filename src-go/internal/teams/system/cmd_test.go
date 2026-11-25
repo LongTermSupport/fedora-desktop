@@ -11,6 +11,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatchoice"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -72,20 +73,62 @@ func TestCmdAnswersTheChooserFromThisCheckoutsPool(t *testing.T) {
 			t.Fatalf("Live(%s): got %v %v, want %v", team, got, err, want)
 		}
 	}
-	if got, err := w.cmd.SeatCount("fresh"); err != nil || got != 1 {
+	if got, err := w.cmd.SeatCount("fresh", seatchoice.KindPodman); err != nil || got != 1 {
 		t.Fatalf("SeatCount: got %v %v, want 1", got, err)
 	}
-	if got, err := w.cmd.Handles("fresh"); err != nil || strings.Join(got, ",") != "repo.1+site.podman" {
+	if got, err := w.cmd.Handles("fresh", seatchoice.KindPodman); err != nil || strings.Join(got, ",") != "repo.1+site.podman" {
 		t.Fatalf("Handles: got %v %v, want [repo.1+site.podman]", got, err)
 	}
-	if got, err := w.cmd.SeatCount("old"); err != nil || got != 0 {
+	if got, err := w.cmd.SeatCount("old", seatchoice.KindPodman); err != nil || got != 0 {
 		t.Fatalf("SeatCount of a team with no seat here: got %v %v, want 0", got, err)
 	}
-	if _, err := w.cmd.SeatCount("not a team"); err == nil {
+	if _, err := w.cmd.SeatCount("not a team", seatchoice.KindPodman); err == nil {
 		t.Fatal("SeatCount took a name outside the team grammar")
 	}
 	if got, err := w.cmd.PoolTeams(); err != nil || strings.Join(got, ",") != "fresh,newer" {
 		t.Fatalf("PoolTeams: got %v %v, want [fresh newer]", got, err)
+	}
+}
+
+// Register R55: a launch is answered with the seats of its own kind only; a host seat beside a
+// podman one is counted, named and offered to cc alone.
+func TestCmdAnswersEachKindWithItsOwnSeats(t *testing.T) {
+	w := world(t)
+	checkout := filepath.Join(w.home, "repo")
+	placeSeat(t, w.home, checkout, "fresh")
+	placeHandle(t, w.home, checkout, "fresh", "repo.2+site.host")
+	w.cmd.Sessions = restorable{}
+	for kind, want := range map[string]string{seatchoice.KindPodman: "repo.1+site.podman", seatchoice.KindHost: "repo.2+site.host"} {
+		if got, err := w.cmd.SeatCount("fresh", kind); err != nil || got != 1 {
+			t.Errorf("SeatCount(%s): got %v %v, want 1", kind, got, err)
+		}
+		if got, err := w.cmd.Handles("fresh", kind); err != nil || strings.Join(got, ",") != want {
+			t.Errorf("Handles(%s): got %v %v, want %s", kind, got, err, want)
+		}
+		got, err := w.cmd.PoolState("fresh", kind)
+		if err != nil || len(got) != 1 || got[0].Handle != want {
+			t.Errorf("PoolState(%s): got %+v %v, want %s", kind, got, err, want)
+		}
+	}
+	// AnyKind is every seat, for the refusal of a named seat of another kind.
+	if got, err := w.cmd.Handles("fresh", seatchoice.AnyKind); err != nil || len(got) != 2 {
+		t.Errorf("Handles(AnyKind): got %v %v, want both seats", got, err)
+	}
+}
+
+// placeHandle makes the pool seat handle of team in checkout.
+func placeHandle(t *testing.T, home, checkout, team, handle string) {
+	t.Helper()
+	store, err := paths.SeatStore(filepath.Join(home, ".local", "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := paths.CheckoutKeyOf(checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(store.PoolTeam(key, mustTeam(t, team))+"/"+handle, 0o700); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -151,7 +194,7 @@ func TestCmdPoolStateNamesTheSessionHoldingEachSeat(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.cmd.Sessions = restorable{"ccy-repo": true}
-	got, err := w.cmd.PoolState("fresh")
+	got, err := w.cmd.PoolState("fresh", seatchoice.KindPodman)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,15 +214,15 @@ func TestCmdPoolStateNamesTheSessionHoldingEachSeat(t *testing.T) {
 	if held, ok := byName["2 repo.2+site.podman"]; !ok || held != "" {
 		t.Errorf("seat 2's session is over, so it is free: %+v", got)
 	}
-	if _, err := w.cmd.PoolState("not a team"); err == nil {
+	if _, err := w.cmd.PoolState("not a team", seatchoice.KindPodman); err == nil {
 		t.Error("PoolState took a name outside the team grammar")
 	}
 	w.cmd.Sessions = unreadable{}
-	if _, err := w.cmd.PoolState("fresh"); err == nil || !strings.Contains(err.Error(), "is seat repo.1+site.podman of fresh held") {
+	if _, err := w.cmd.PoolState("fresh", seatchoice.KindPodman); err == nil || !strings.Contains(err.Error(), "is seat repo.1+site.podman of fresh held") {
 		t.Errorf("a record that cannot be read made a seat free: %v", err)
 	}
 	w.cmd.Sessions = nil
-	if _, err := w.cmd.PoolState("fresh"); err == nil {
+	if _, err := w.cmd.PoolState("fresh", seatchoice.KindPodman); err == nil {
 		t.Error("PoolState with no session records answered, so a held seat could read as free")
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/matrixclients"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatchoice"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -287,31 +288,48 @@ func (c *Chooser) handles(ctx context.Context, memberType string, refs []string)
 	return handles, term.ExitOK
 }
 
-// poolHandle is the handle of seat@team from this checkout's pool, and whether the team has
-// a pool seat here at all (false: ask agent-bus). A pool with no seat whose seat part is seat is
-// refused (78).
+// poolHandle is the handle of seat@team from this checkout's pool seats of the launch's kind, and
+// whether the team has a pool seat of any kind here at all (false: ask agent-bus). A seat of
+// another kind (the other launcher's, or one neither takes) is refused naming its kind (register
+// R55), and a seat part no seat has is refused; both 78.
 func (c *Chooser) poolHandle(memberType, ref, seat, team string) (string, bool, term.ExitCode) {
 	tc := c.teamchatFor(memberType)
 	if tc == nil {
 		return "", false, term.ExitOK
 	}
-	pool, err := tc.Handles(team)
+	pool, err := tc.Handles(team, memberType)
 	if err != nil {
 		return "", false, c.failed(err)
 	}
-	if len(pool) == 0 {
+	every, err := tc.Handles(team, seatchoice.AnyKind)
+	if err != nil {
+		return "", false, c.failed(err)
+	}
+	if len(pool) == 0 && len(every) == 0 {
 		return "", false, term.ExitOK
 	}
-	at := slices.IndexFunc(pool, func(h string) bool {
+	if at := seatAt(pool, seat); at >= 0 {
+		return pool[at], true, term.ExitOK
+	}
+	if at := seatAt(every, seat); at >= 0 {
+		c.say("ccy-teams: " + seatchoice.WrongKind(seat, team, every[at], memberType) + ".")
+		return "", true, exitConfig
+	}
+	has := strings.Join(pool, ", ")
+	if has == "" {
+		has = "none"
+	}
+	c.say("ccy-teams: " + ref + " is not one of this checkout's teamchat " + memberType + " seats of " + team + " (it has: " +
+		has + "); choose one of them, or leave the seat out to be asked.")
+	return "", true, exitConfig
+}
+
+// seatAt is the index of the handle in handles whose seat part is seat, or -1.
+func seatAt(handles []string, seat string) int {
+	return slices.IndexFunc(handles, func(h string) bool {
 		parsed, ok := proto.ParseHandle(h)
 		return ok && parsed.Seat == seat
 	})
-	if at < 0 {
-		c.say("ccy-teams: " + ref + " is not one of this checkout's teamchat seats of " + team + " (it has: " +
-			strings.Join(pool, ", ") + "); choose one of them, or leave the seat out to be asked.")
-		return "", true, exitConfig
-	}
-	return pool[at], true, term.ExitOK
 }
 
 // record writes the acceptance of ids: the folder the owner's alone (0700), the record

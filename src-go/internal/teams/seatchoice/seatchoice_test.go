@@ -60,7 +60,7 @@ func TestRowsSayFreeOrHeldAndOfferTheReattach(t *testing.T) {
 // S4: the ways on name every seat, which are held, and the command for each: a free seat's
 // launch, a held seat's re-attach, and another seat issued to this checkout.
 func TestWaysOnNameEverySeatAndTheCommandForEach(t *testing.T) {
-	text := strings.Join(WaysOn("ccy", team, "~/proj", seats()), "\n")
+	text := strings.Join(WaysOn(KindPodman, team, "~/proj", seats()), "\n")
 	for _, want := range []string{
 		"Seats of " + team + " in this checkout (~/proj):",
 		"seat 2", "held by session ccy-proj",
@@ -76,22 +76,96 @@ func TestWaysOnNameEverySeatAndTheCommandForEach(t *testing.T) {
 	if strings.Contains(text, "ccy --teams 2@"+team) {
 		t.Errorf("a held seat is offered as a launch:\n%s", text)
 	}
-	if !strings.Contains(strings.Join(WaysOn("cc", team, "~/proj", seats()), "\n"), "cc --teams 3@"+team) {
-		t.Error("the launcher's own name is not the one in the command")
+	host := strings.Join(WaysOn(KindHost, team, "~/proj", seats()), "\n")
+	if !strings.Contains(host, "cc --teams 3@"+team) || !strings.Contains(host, "a new seat: ccy-teams seats add "+team+" --host, then cc --teams") {
+		t.Errorf("a host launch's ways on do not name cc and a host seat's add:\n%s", host)
 	}
 }
 
-// S5: with no seat at all, the ways on still name the way to have one.
+// S5: with no seat at all, the ways on still name the way to have one, of the launch's kind.
 func TestWaysOnWithNoSeatNameTheWayToHaveOne(t *testing.T) {
-	text := strings.Join(WaysOn("ccy", team, "~/proj", nil), "\n")
-	if !strings.Contains(text, "has no seat of "+team) || !strings.Contains(text, AddCommand(team)) {
+	text := strings.Join(WaysOn(KindPodman, team, "~/proj", nil), "\n")
+	if !strings.Contains(text, "has no podman seat of "+team) || !strings.Contains(text, AddCommand(team, KindPodman)) {
 		t.Errorf("no seat:\n%s", text)
 	}
 }
 
-// S6: the new-seat row names the command that adds the seat.
+// S6: the new-seat row names the command that adds a seat of the launch's kind.
 func TestTheNewSeatRowNamesItsCommand(t *testing.T) {
-	if got := NewRow(team); !strings.Contains(got, "ccy-teams seats add "+team) {
+	if got := NewRow(team, KindPodman); !strings.Contains(got, "ccy-teams seats add "+team+")") {
 		t.Errorf("new row %q", got)
+	}
+	if got := NewRow(team, KindHost); !strings.Contains(got, "new host seat") || !strings.Contains(got, "ccy-teams seats add "+team+" --host") {
+		t.Errorf("host new row %q", got)
+	}
+}
+
+// S7 (register R55): a seat's kind is its handle's type; a launch is offered only the seats of
+// its own kind, and its launcher is ccy for podman, cc for host.
+func TestOnlyTheLaunchKindsSeatsAreOffered(t *testing.T) {
+	mixed := append(seats(), Seat{Name: "4", Handle: "proj.4+site.host"}, Seat{Name: "x", Handle: "not a handle"})
+	var podman, host []string
+	for _, s := range OfKind(mixed, KindPodman) {
+		podman = append(podman, s.Name)
+	}
+	for _, s := range OfKind(mixed, KindHost) {
+		host = append(host, s.Name)
+	}
+	if want := []string{"10", "lead", "2", "3"}; !slices.Equal(podman, want) {
+		t.Errorf("podman seats %v, want %v", podman, want)
+	}
+	if want := []string{"4"}; !slices.Equal(host, want) {
+		t.Errorf("host seats %v, want %v", host, want)
+	}
+	if KindOf("proj.4+site.host") != KindHost || KindOf("not a handle") != "" {
+		t.Error("KindOf does not read the handle's type")
+	}
+	if Launcher(KindHost) != "cc" || Launcher(KindPodman) != "ccy" {
+		t.Error("the launcher of a kind is wrong")
+	}
+}
+
+// S8 (register R55): a seat named for a launch of the other kind is refused naming its kind, the
+// launcher it belongs to, and the add of a seat of the launch's own kind.
+func TestASeatOfTheOtherKindIsRefusedNamingIt(t *testing.T) {
+	got := WrongKind("2", team, "proj.2+site.podman", KindHost)
+	for _, want := range []string{
+		"2@" + team + " is a podman seat (proj.2+site.podman)", "this is a cc (host) launch",
+		"ccy --teams 2@" + team, "ccy-teams seats add " + team + " --host",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the refusal lacks %q: %s", want, got)
+		}
+	}
+	if got := WrongKind("4", team, "proj.4+site.host", KindPodman); !strings.Contains(got, "cc --teams 4@"+team) || !strings.Contains(got, "a ccy (podman) launch") {
+		t.Errorf("podman launch refusal %s", got)
+	}
+}
+
+// S8: a seat of a kind neither launcher takes (an LXC member's) is refused naming its kind, and
+// names no launcher for it.
+func TestASeatOfAKindNoLauncherTakesIsRefusedNamingIt(t *testing.T) {
+	got := WrongKind("5", team, "proj.5+site.lxc", KindPodman)
+	for _, want := range []string{
+		"5@" + team + " is a lxc seat (proj.5+site.lxc)", "neither ccy nor cc launches it", "this is a ccy (podman) launch",
+		"ccy-teams seats add " + team + ", then ccy --teams <seat>@" + team,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the refusal lacks %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "launch it with") {
+		t.Errorf("the refusal names a launcher for an lxc seat: %s", got)
+	}
+}
+
+// S7: AnyKind is every seat with a handle, whatever its kind.
+func TestAnyKindIsEverySeat(t *testing.T) {
+	mixed := []Seat{{Name: "1", Handle: "proj.1+site.podman"}, {Name: "2", Handle: "proj.2+site.lxc"}, {Name: "x", Handle: "not a handle"}}
+	if got := OfKind(mixed, AnyKind); len(got) != 2 || got[1].Name != "2" {
+		t.Errorf("OfKind(AnyKind) %+v", got)
+	}
+	if !IsKind("proj.2+site.lxc", AnyKind) || IsKind("not a handle", AnyKind) || IsKind("proj.2+site.lxc", KindHost) {
+		t.Error("IsKind does not match a handle's kind, or AnyKind every handle")
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatchoice"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/system"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -272,7 +273,7 @@ func (v *Verbs) ccRunTeamchat(ctx context.Context, l ccLaunch) (term.ExitCode, e
 	if err != nil {
 		return 0, err
 	}
-	launch := &Launch{Store: store, Checkout: key, Taker: v.Taker(v.config(state, key)), Status: v.Status, NowMS: v.NowMS}
+	launch := &Launch{Store: store, Checkout: key, Kind: seatchoice.KindHost, Taker: v.Taker(v.config(state, key)), Status: v.Status, NowMS: v.NowMS}
 	if _, err := launch.Run(ctx, name, l.seats, nil, false); err != nil {
 		return 0, err
 	}
