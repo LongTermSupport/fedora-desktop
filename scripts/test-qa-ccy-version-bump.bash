@@ -80,6 +80,16 @@ versions "$m" 1.0.1 1.0.1 1.0.1
 commit "$m" bump
 check "the bump in a later commit of the range passes" "0 yes" "$(judge "$m" "$base" HEAD) $(has 'container version bumped: 1.0.0 → 1.0.1')"
 
+# The reverse: the source change and the bump in one commit, the bump reverted in a later one.
+m=$(repo)
+base=$(git -C "$m" rev-parse HEAD)
+echo 'echo two' >"$m/$CTX/entrypoint.sh"
+versions "$m" 1.0.1 1.0.1 1.0.1
+commit "$m" "fix the entrypoint with the bump"
+versions "$m" 1.0.0 1.0.0 1.0.0
+commit "$m" "revert the bump"
+check "a bump reverted later in the range is refused" "1 yes" "$(judge "$m" "$base" HEAD) $(has 'CCY-IMAGE-INPUT')"
+
 # The LABEL moved but REQUIRED_CONTAINER_VERSION did not.
 m=$(repo)
 base=$(git -C "$m" rev-parse HEAD)
