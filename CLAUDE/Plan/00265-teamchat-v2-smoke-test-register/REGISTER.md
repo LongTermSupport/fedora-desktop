@@ -496,12 +496,12 @@ filled in as each cause is known.
 - **Seen:** U10's review fixes, 2026-11-25: batch 4 changed an image source with no CCY bump,
   and no pre-commit gate stopped it.
 - **What:** `play-git-hooks-security.yml` sets `core.hooksPath` on the `repo_path` checkout
-  alone. This seat's checkout has it unset and `.git/hooks` empty, so pre-commit (secret,
+  alone. This seat's checkout has it unset and only git's `*.sample` files in `.git/hooks`, so pre-commit (secret,
   private-name and version gates), commit-msg and pre-push (the protected-branch gate) never
   ran here. `SecurityRules.md`'s "Enforced by Ansible on every main playbook run" holds for that
   one checkout.
-- **Interim:** CI's diff-mode QA caught what the hooks would have (version, coverage), and
-  review caught the bump; no manual `git config` (IaC only).
+- **Interim:** the review caught the missing bump, CI caught the coverage; this seat runs
+  `scripts/git-hooks/pre-commit` by hand before committing. No manual `git config` (IaC only).
 - **Severity:** high (every gate a commit is meant to pass locally is silently absent).
   **Issue:** #427. **State:** open, outside v2.
 
