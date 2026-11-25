@@ -650,7 +650,7 @@ filled in as each cause is known.
 - **Not ours:** the session network policy has to admit a hot-joined team's port. That is the
   owner's host configuration.
 - **Severity:** high (a join reported done that never happened). **Issue:** TBF. **State:** fixed
-  on v2-smoke, batch 12 (SHA_PENDING); not yet run live. Detail: `reports/R60.md`.
+  on v2-smoke, batch 12 (`b239a00a6`); not yet run live. Detail: `reports/R60.md`.
 
 ## R59: `session add` offers a purged team's dead seat as free
 
