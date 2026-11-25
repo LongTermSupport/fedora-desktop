@@ -62,7 +62,7 @@ ccy: resuming the conversation 0f1e2d3c-4b5a-4968-8776-655443322110 that the sea
 Note: docker did not list its networks; none was checked for this project.
 === calls
 ccy-teams internal seat-check dev1@team-a --resolved
-ccy-teams internal seat-resume --relaunch= --before=0 dev1@team-a --
+ccy-teams internal seat-resume --relaunch= --given=dev1@team-a --before=0 dev1@team-a --
 getenforce
 podman info --format '{{.Host.Security.SELinuxEnabled}}'
 gh auth token

@@ -8,7 +8,7 @@ ccy: no conversation of the seats dev1@team-a can be resumed: no recorded conver
   Fresh:  start a new conversation on purpose:    ccy --teams dev1@team-a --fresh
 === calls
 ccy-teams internal seat-check dev1@team-a --resolved
-ccy-teams internal seat-resume --relaunch= --before=0 dev1@team-a --
+ccy-teams internal seat-resume --relaunch= --given=dev1@team-a --before=0 dev1@team-a --
 === files
 dir  home/.claude-tokens 0700
 dir  home/.claude-tokens/ccy 0700

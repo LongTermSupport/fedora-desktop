@@ -10,7 +10,7 @@ ccy: refuses --continue in a team seat: it resumes this checkout's newest conver
     ccy --teams dev1@team-a --fresh
 === calls
 ccy-teams internal seat-check dev1@team-a --resolved
-ccy-teams internal seat-resume --relaunch= --before=1 dev1@team-a -- --continue
+ccy-teams internal seat-resume --relaunch= --given=dev1@team-a --before=1 dev1@team-a -- --continue
 === files
 dir  home/.claude-tokens 0700
 dir  home/.claude-tokens/ccy 0700
