@@ -24,6 +24,9 @@ const (
 	qHumanThreadEv
 	qLooseEv
 	qLooseThreadEv
+	qLooseEditEv
+	qLooseThreadEditEv
+	qHumanTopEditEv
 )
 
 // coordinating is team ops held with this member (agent 1) its coordinator and an empty
@@ -291,6 +294,58 @@ func TestReplyToAnUnattachedPostIsAThreadPost(t *testing.T) {
 	in := sentContent(t, f, 1)
 	if in.Rel.RelType != "m.thread" || in.Rel.EventID != evID(qLooseEv) || in.Rel.FallingBack == nil || in.fallingBack() || in.Rel.InReplyTo.EventID != evID(qLooseThreadEv) {
 		t.Errorf("the reply in a human's thread = %+v", in.Rel)
+	}
+}
+
+// humanEdit attaches alice's edit id of her post original (A 7.5: no thread root of its own,
+// `revises` the original) and gives the fake's refetch its verdict.
+func humanEdit(t *testing.T, f *fakeTeam, ops paths.TeamID, id, original, body string, ts int64) {
+	t.Helper()
+	ev := proto.Event{ID: id, Type: proto.MessageType, Sender: alice(ops), OriginTs: ts}
+	h := proto.Human{Body: body, Revises: original}
+	f.q.mu.Lock()
+	f.q.idx.Attach(ev, h)
+	f.q.mu.Unlock()
+	f.setVerdict(id, proto.Verdict{Outcome: proto.Deliver, Kind: proto.KindHuman, Class: proto.SenderHuman, Event: ev, Human: h})
+}
+
+// R10 (Plan 00265): a human's edit is delivered under its own id, and a reply to that id answers
+// the post it revises. The homeserver refuses a thread rooted at an edit (MSC3440, Tuwunel's
+// check_nested_thread), so the reply's thread and in-reply-to are the original's, exactly as a
+// reply to the original's id is: top level, in a human's thread, and attached to a question.
+func TestReplyToAnEditAnswersTheOriginal(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	f := w.coordinating(ops, qLooseEv, qLooseThreadEv, qLooseEditEv, qLooseThreadEditEv, qHumanTopEv, qHumanTopEditEv)
+	countQuestion(t, f, ops, evID(qOwnEv), agent(ops, 1), startWall)
+	humanPost(t, f, ops, evID(qLooseEv), "about the docs", "", startWall)
+	humanPost(t, f, ops, evID(qLooseThreadEv), "the licence part", evID(qLooseEv), startWall+1)
+	humanEdit(t, f, ops, evID(qLooseEditEv), evID(qLooseEv), "about the docs site", startWall+2)
+	humanEdit(t, f, ops, evID(qLooseThreadEditEv), evID(qLooseThreadEv), "the licence part, again", startWall+3)
+	humanPost(t, f, ops, evID(qHumanTopEv), "Q1: MIT", "", startWall+4)
+	humanEdit(t, f, ops, evID(qHumanTopEditEv), evID(qHumanTopEv), "Q1: MIT, please", startWall+5)
+
+	if a := w.reply(wire.ReplyArgs{ID: evID(qLooseEditEv)}, new("Which question?")); a.d.Error != nil {
+		t.Fatalf("reply to a top-level post's edit = %v", a.d.Error)
+	}
+	if top := sentContent(t, f, 0).Rel; top.RelType != "m.thread" || top.EventID != evID(qLooseEv) || !sentContent(t, f, 0).fallingBack() ||
+		top.InReplyTo.EventID != evID(qLooseEv) {
+		t.Errorf("the reply to a top-level post's edit = %+v, want the original's thread", top)
+	}
+	if a := w.reply(wire.ReplyArgs{ID: evID(qLooseThreadEditEv)}, new("Which one?")); a.d.Error != nil {
+		t.Fatalf("reply to an edit in a thread = %v", a.d.Error)
+	}
+	if in := sentContent(t, f, 1); in.Rel.RelType != "m.thread" || in.Rel.EventID != evID(qLooseEv) || in.fallingBack() ||
+		in.Rel.InReplyTo.EventID != evID(qLooseThreadEv) {
+		t.Errorf("the reply to an edit in a human's thread = %+v, want the original's thread", in.Rel)
+	}
+	a := w.reply(wire.ReplyArgs{ID: evID(qHumanTopEditEv)}, new("MIT it is."))
+	if a.d.Error != nil || a.out.kinds() != "sent,sent" {
+		t.Fatalf("reply to an attached post's edit = %v, records %s", a.d.Error, a.out.kinds())
+	}
+	answer, link := sentContent(t, f, 2), sentContent(t, f, 3)
+	if answer.Rel.EventID != evID(qOwnEv) || answer.Rel.InReplyTo.EventID != evID(qHumanTopEv) || link.Rel.InReplyTo.EventID != evID(qHumanTopEv) {
+		t.Errorf("the answer %+v and link-back %+v, want both to the original", answer.Rel, link.Rel)
 	}
 }
 

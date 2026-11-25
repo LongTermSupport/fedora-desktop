@@ -239,10 +239,12 @@ func (t *Team) getEvent(ctx context.Context, c *matrix.Client, purpose, roomID, 
 	}
 }
 
-// getQuestionsEvent is getEvent of id in the questions room roomID.
+// getQuestionsEvent is getEvent of id in the questions room roomID. Tuwunel answers an event a
+// member that has not joined cannot see 404, as it does one that is not there (R12, Plan 00265),
+// so either refusal is the cue to join.
 func (t *Team) getQuestionsEvent(ctx context.Context, c *matrix.Client, roomID, id string, r proto.Roster, self string) (json.RawMessage, error) {
 	raw, err := c.GetEvent(ctx, roomID, id)
-	if !errors.Is(err, matrix.ErrForbidden) {
+	if !errors.Is(err, matrix.ErrForbidden) && !errors.Is(err, matrix.ErrNotFound) {
 		return raw, err
 	}
 	if coordinator, ok := r.Coordinator(); ok && coordinator == self {

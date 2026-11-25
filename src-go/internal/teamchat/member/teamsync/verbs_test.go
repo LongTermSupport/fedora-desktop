@@ -80,7 +80,9 @@ func TestVerifyInTheQuestionsRoom(t *testing.T) {
 
 // R10 and A 4.1: a worker the room holds no invite for cannot read it: its verify of a questions
 // post is 23 not-found. Invited, as every non-parked member is, its link joins the room at the
-// refused read and reads the post (DESIGN-questions-v2 section 4), never syncing the room.
+// refused read and reads the post (DESIGN-questions-v2 section 4), never syncing the room. The
+// refusal is Tuwunel's 404 for an event a non-member cannot see (Plan 00265 R12); the skill's
+// `--room questions` reads it as main-first does.
 func TestAWorkersVerifyOfAQuestionsPost(t *testing.T) {
 	w := newWorld(t)
 	w.inQuestions(alice, false)
@@ -100,6 +102,9 @@ func TestAWorkersVerifyOfAQuestionsPost(t *testing.T) {
 	}
 	if n := w.joinsOf(w.qroom()) - before; n != 2 {
 		t.Errorf("%d joins of questions, want 2 (the refused one and the one that read)", n)
+	}
+	if got, err := tm.Verify(t.Context(), answer, new(proto.PurposeQuestions)); err != nil || !got.Human || got.Room != proto.PurposeQuestions {
+		t.Errorf("--room questions verified %+v, %v; want the human's post", got, err)
 	}
 }
 
