@@ -40,8 +40,6 @@ const (
 	msgNoStore         exits.Template = "team {} has not synced yet; the link keeps trying"
 	msgStopped         exits.Template = "team {} is stopped; run status and tell a human"
 	msgTooMany         exits.Template = "a ping names at most {} addressees"
-	msgRefused         exits.Template = "the send was refused ({}); fix the message"
-	msgRole            exits.Template = "this member's role may not send that ({})"
 	msgDuplicate       exits.Template = "it was already sent within 60 s; do not resend"
 	msgRate            exits.Template = "team {}'s send rate is spent; wait, do not loop"
 	msgProvenance      exits.Template = "the reference's provenance failed at the forge"
@@ -133,8 +131,10 @@ func (e *Engine) ping(ctx context.Context, a wire.PingArgs, stdin *string, out R
 		p.Branch = *a.Branch
 	}
 	body := pingBody(p, st.namer())
+	asked := refAsked{verb: p.Verb, how: refArg, sent: p.Ref}
 	return e.send(ctx, st, state.SendPing, func(c proto.Composer) (proto.Outgoing, error) {
-		return c.Ping(p, "", body)
+		o, err := c.Ping(p, "", body)
+		return o, refusalFor(st.id, err, asked)
 	}, out)
 }
 
@@ -512,30 +512,6 @@ func stoppedErr(h *held) error {
 		code = exits.CodeInternal
 	}
 	return exits.New(code, &h.id, msgStopped, exits.Team(h.id))
-}
-
-// refusal is a composer's or Admit's refusal as the send's exit (A 7.6's send refusals, B
-// 2.2.4): role for the sender's class, 15 and 14 for the gate, else 10 with its reason.
-func refusal(t paths.TeamID, err error) error {
-	re, ok := errors.AsType[*proto.RefusalError](err)
-	if !ok {
-		return err
-	}
-	switch re.Reason {
-	case proto.ReasonSender, proto.ReasonRole:
-		return exits.New(exits.CodeRole, &t, msgRole, exits.Words(re.Reason))
-	case proto.ReasonDuplicate:
-		return exits.New(exits.CodeDuplicate, &t, msgDuplicate)
-	case proto.ReasonRate:
-		return exits.New(exits.CodeRate, &t, msgRate, exits.Team(t))
-	case proto.ReasonAllowlist, proto.ReasonExcluded:
-		return exits.New(exits.CodeRef, &t, msgRefused, exits.Words(re.Reason))
-	}
-	code := exits.CodeSchema
-	if exit, known := exits.ExitOf(re.Reason); known && exit == exits.ExitRefused {
-		code = re.Reason
-	}
-	return exits.New(code, &t, msgRefused, exits.Words(re.Reason))
 }
 
 // forgeCheck is step 6 (n3d-D11), off the state goroutine; nothing is spent by a refusal. It is

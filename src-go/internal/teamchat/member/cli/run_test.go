@@ -3,10 +3,12 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -160,6 +162,52 @@ func TestHelpOfOneVerb(t *testing.T) {
 		v, ok := lookup(strings.Join(args[1:], " "))
 		if !ok || !strings.HasPrefix(w.out.String(), Usage(v)+"\n") || !strings.Contains(w.out.String(), v.Does) {
 			t.Errorf("%q: %q", args, w.out.String())
+		}
+	}
+}
+
+// fedora-desktop#421: help ping and help reply list the closed verbs each takes, and for each
+// verb whether it needs, may take or takes no reference, and the forms it takes, all read from
+// the protocol's verb table so help cannot drift from what a send accepts.
+func TestHelpOfPingAndReplyListsTheVerbsAndTheirReferences(t *testing.T) {
+	for verb, answer := range map[string]bool{"ping": false, "reply": true} {
+		var w world
+		if w.run(digest, "help", verb) != term.ExitOK {
+			t.Fatal(w.err.String())
+		}
+		listed := 0
+		for name, rule := range proto.Verbs {
+			if proto.IsAnswerVerb(name) == answer && name != proto.VerbCheck {
+				listed++
+				helpSaysVerbRef(t, verb, w.out.String(), name, rule)
+			}
+		}
+		if listed == 0 {
+			t.Errorf("help %s listed no verb", verb)
+		}
+	}
+	var w world
+	if w.run(digest, "help", "ping") != term.ExitOK || strings.Contains(w.out.String(), "      check: ") {
+		t.Errorf("help ping lists the probe's check:\n%s", w.out.String())
+	}
+}
+
+// helpSaysVerbRef checks help's line for name: its need of a reference and each form it takes.
+func helpSaysVerbRef(t *testing.T, verb, help, name string, rule proto.VerbRule) {
+	t.Helper()
+	needWords := map[proto.Need]string{proto.Required: "needs", proto.Optional: "may take", proto.Forbidden: "takes no"}
+	lines := strings.Split(help, "\n")
+	i := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "      "+name+": ") })
+	if i < 0 {
+		t.Errorf("help %s does not list %s:\n%s", verb, name, help)
+		return
+	}
+	if !strings.Contains(lines[i], needWords[rule.Ref]) {
+		t.Errorf("help %s: %q does not say %q", verb, lines[i], needWords[rule.Ref])
+	}
+	for _, form := range rule.RefForms() {
+		if !strings.Contains(lines[i], proto.RefSpellings[form]) {
+			t.Errorf("help %s: %q does not name the form %s", verb, lines[i], form)
 		}
 	}
 }
