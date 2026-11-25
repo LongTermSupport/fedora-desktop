@@ -14,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -104,6 +105,41 @@ func TestGuestVerbsRunTheirOps(t *testing.T) {
 				t.Errorf("%q: %+v", c.args, e)
 			}
 		}
+	}
+}
+
+// Issue 425 A1: `seat place-lxc` places an issued LXC token seat as the caller and prints its
+// key, the launcher's --key; a document that is not one is refused 78 bundle with no stdout.
+func TestSeatPlaceLXC(t *testing.T) {
+	g := newGuestWorld(t)
+	team := mustTeam(t, "alpha")
+	issuer, err := paths.ParseDigest("0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, err := seat.ParseSecret("syt_tok~1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := paths.ServerName(team)
+	data, err := seat.Issued{Seat: seat.Bundle{
+		V: seat.BundleVersion, Team: team, ServerName: server, UserID: "@thing.2+site.lxc:" + server, AdminID: "@admin:" + server,
+		MainRoom: "!" + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ", BaseURL: "http://127.0.0.1:8448", DeviceID: paths.SeatDevice, IssuedMS: 1, Issuer: issuer,
+	}, Kind: seat.KindToken, Secret: secret}.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"seat", "place-lxc", "--user", "dev", "--checkout", "/srv/thing"}
+	if got := g.runIn(string(data), args...); got != term.ExitOK || g.out.String() != paths.LXCSeatKey(team, "/srv/thing", 2).String()+"\n" {
+		t.Fatalf("exit %d stdout %q stderr %q", got, g.out.String(), g.err.String())
+	}
+	g.out.Reset()
+	if got := g.runIn("{", args...); got != exits.ExitConfig || g.out.Len() != 0 || g.lastError(t).Code != exits.CodeBundle {
+		t.Fatalf("refused: exit %d stdout %q stderr %q", got, g.out.String(), g.err.String())
+	}
+	identify = func(Invocation) (*guest.Identity, error) { return nil, errors.New("not this user") }
+	if got := g.runIn(string(data), args...); got == term.ExitOK {
+		t.Fatal("placed with no identity")
 	}
 }
 

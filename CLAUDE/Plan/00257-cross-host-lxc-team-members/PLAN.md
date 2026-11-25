@@ -125,8 +125,11 @@ Related plans:
     Coordinator ruling (under the owner's "all weaknesses resolved"): HOST-4 is not deferred; it
     is this task.
 - [ ] ⬜ **Task B.3**: join codes (`member invite`, `seat join`).
-- [ ] ⬜ **Task B.4**: LXC on another host as an ordinary client (static binary plus user unit,
-  installed by a play).
+- [ ] 🔄 **Task B.4**: LXC on another host as an ordinary client (static binary plus user unit,
+  installed by a play). Built on `v2-smoke-u8-xhost-lxc` (Plan 00265 U8, issue #425): the seat
+  is issued with `member add --kind lxc --credential token`, piped into `teamchat seat place-lxc`, which places it in the keyed LXC layout, and started with `teamchat run --kind lxc --key`. Its url is the team's (a seat's url follows who places it). The keeper's `--key`
+  fix is part of it. Open: who installs the kit and unit in the container (owner question 1 in
+  `CLAUDE/Plan/00265-teamchat-v2-smoke-test-register/reports/U8.md`); live proof.
 - [x] ✅ **Task B.5**: host units and the TLS terminator (`subagent-reports/b5-report.md`); the
   review's fixes in `subagent-reports/b5-fix-report.md`. HOST-4 is Task B.2d. Coordinator
   ruling (under the owner's "all weaknesses resolved"): the terminator's per-source connection
