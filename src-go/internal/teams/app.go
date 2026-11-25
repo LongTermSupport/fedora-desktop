@@ -55,6 +55,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/picker"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/restart"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatadd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatsweep"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/settings"
@@ -106,6 +107,8 @@ type App struct {
 	Sweep *seatsweep.Cmd
 	// SeatConversation is `ccy-teams seats conversation`, the id a seat's session recorded.
 	SeatConversation *SeatConversation
+	// SeatAdd is `ccy-teams seats add`, one teamchat seat issued and placed for this checkout.
+	SeatAdd *seatadd.Cmd
 	// Interrupted makes the run's context: Ctrl-C cancels it instead of ending the process,
 	// so the sudo credential is still dropped (review L-A).
 	Interrupted func(context.Context) (context.Context, context.CancelFunc)
@@ -190,6 +193,13 @@ func Wire(h *host.Host) *App {
 		SeatConversation: &SeatConversation{
 			Stdout: h.Payload, Stderr: h.Stderr, Getenv: h.Getenv, Getwd: os.Getwd,
 		},
+		SeatAdd: &seatadd.Cmd{
+			Stdout: h.Payload, Stderr: h.Stderr, Getwd: os.Getwd,
+			Adder: &seatadd.Adder{
+				Getenv: h.Getenv, Status: system.StatusRecord, Origin: h.Git.RemoteURL, Site: seatadd.HostVarsSite(h.HostVars),
+				Issuer: seatadd.SudoIssuer{Sudo: h.Sudo}, Place: placeissued.Place,
+			},
+		},
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
 		},
@@ -260,6 +270,9 @@ func (a *App) run(ctx context.Context, args []string) term.ExitCode {
 	case subSeats:
 		if len(args) > 1 && args[1] == verbSeatConversation {
 			return a.SeatConversation.Run(args[2:])
+		}
+		if len(args) > 1 && args[1] == seatadd.Verb {
+			return a.SeatAdd.Run(ctx, args[2:])
 		}
 		return a.Sweep.Run(ctx, args[1:])
 	}
