@@ -152,6 +152,7 @@ type State struct {
 	Team         paths.TeamID `json:"team"`
 	Handle       string       `json:"handle"`
 	LastSyncOKMS *int64       `json:"last_sync_ok_ms"`
+	Down         *string      `json:"down"`
 	Pending      int64        `json:"pending"`
 	Delivery     string       `json:"delivery"`
 	Store        string       `json:"store"`
@@ -397,6 +398,8 @@ func (s *State) check() string {
 	switch {
 	case s.LastSyncOKMS != nil && *s.LastSyncOKMS <= 0:
 		return "last_sync_ok_ms is not a time or null"
+	case !state.ValidDown(s.Down):
+		return "down is not null or a cause within its bound"
 	case s.Pending < 0:
 		return "pending is negative"
 	case !slices.Contains(deliveries, s.Delivery):

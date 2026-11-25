@@ -198,6 +198,42 @@ func TestStatusOfAnUntrustedOrUnverifiedTeam(t *testing.T) {
 	}
 }
 
+// R60: a held team whose homeserver never answered (no roster, no sync, marked down by its
+// backoff) is still listed by status, as down, beside a team that answers. Its team record
+// carries the team id as its name, its own handle, an empty role (no roster was read to give
+// one) and trust unverified; status.json's row is down with a null role.
+func TestStatusListsAHeldTeamThatNeverAnswered(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops, dev := tid(t, "ops"), tid(t, "dev")
+	f := w.held(ops)
+	f.notices.set(proto.Roster{Name: "Operations", Members: map[string]proto.RosterMember{agent(ops, 1): {Role: "worker"}}})
+	w.e.SetHealth(ops, team.Health{Role: "worker", LastSyncOKMS: 77, Verified: true})
+	w.held(dev)
+	w.e.SetHealth(dev, team.Health{Down: true})
+	_, out := w.serve(t.Context(), wire.OpStatus, wire.TeamsArgs{})
+	var never *records.Team
+	for _, r := range out.recs {
+		if tr, ok := r.(records.Team); ok && tr.Team == dev {
+			never = &tr
+		}
+	}
+	want := records.Team{
+		Team: dev, Name: "dev", Handle: "repo.1+site.podman", Role: "", Trust: trustUnverified,
+		Delivery: state.DeliverySocket, Down: true, Counts: records.TeamCounts{DroppedBy: map[string]int64{}},
+	}
+	if never == nil || !reflect.DeepEqual(*never, want) {
+		t.Fatalf("status = %s; the never-answered team = %+v, want %+v", out.kinds(), never, want)
+	}
+	_, only := w.serve(t.Context(), wire.OpStatus, wire.TeamsArgs{Team: &dev})
+	if only.kinds() != "team,runtime" {
+		t.Fatalf("status --team of the never-answered team = %s", only.kinds())
+	}
+	st := w.status()
+	if len(st.Teams) != 2 || st.Teams[0].Team != dev || !st.Teams[0].Down || st.Teams[0].Role != nil {
+		t.Fatalf("status.json rows = %+v", st.Teams)
+	}
+}
+
 func TestStatusFailures(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops, dev := tid(t, "ops"), tid(t, "dev")
@@ -357,6 +393,91 @@ func TestStatusJSONThatCannotBeWrittenIsLogged(t *testing.T) {
 	}
 }
 
+// R60: the keeper's report of a team carries why the link has it down: the cause the team
+// goroutine named, the generic one when it named none, a stop's code, clipped to what
+// report.json takes; a team up carries none.
+func TestTheKeepersReportCarriesADownTeamsCause(t *testing.T) {
+	long := strings.Repeat("x", 2*state.MaxDown)
+	for _, c := range []struct {
+		health team.Health
+		want   *string
+	}{
+		{team.Health{LastSyncOKMS: 5}, nil},
+		{team.Health{Down: true, DownCause: "the homeserver did not answer (dial tcp: i/o timeout)"}, new("the homeserver did not answer (dial tcp: i/o timeout)")},
+		{team.Health{Down: true}, new(state.DownNoAnswer)},
+		{team.Health{Down: true, DownCause: long}, new(state.ClipDown(long))},
+		{team.Health{Stopped: exits.CodeToken}, new("stopped: " + exits.CodeToken)},
+		{team.Health{Down: true, DownCause: "x", Stopped: exits.CodeUntrusted}, new("stopped: " + exits.CodeUntrusted)},
+	} {
+		t.Run(deref(c.want), func(t *testing.T) {
+			w := newWorld(t, state.DeliverySocket)
+			ops := tid(t, "ops")
+			w.held(ops)
+			w.e.SetHealth(ops, c.health)
+			w.status()
+			sent := w.sentStates()
+			got := sent[len(sent)-1].Down
+			if (got == nil) != (c.want == nil) || got != nil && *got != *c.want {
+				t.Errorf("health %+v: the report's down = %v, want %v", c.health, deref(got), deref(c.want))
+			}
+		})
+	}
+}
+
+// healthInReport is every field of team.Health, each either carried to the keeper's report (a
+// pair of healths whose reports differ only through that field) or named with why not. The
+// class it guards (R60): a seat reported joined on local proof alone, because a fact of the
+// team's reach that status shows never reached report.json, which the host reads. A new field
+// of Health fails TestEveryHealthFieldReachesTheReportOrSaysWhyNot until it is placed here.
+var healthInReport = map[string]struct {
+	base, changed team.Health
+	why           string
+}{
+	"LastSyncOKMS": {base: team.Health{}, changed: team.Health{LastSyncOKMS: 9}},
+	"Down":         {base: team.Health{}, changed: team.Health{Down: true}},
+	"DownCause":    {base: team.Health{Down: true, DownCause: "a"}, changed: team.Health{Down: true, DownCause: "b"}},
+	"Stopped":      {base: team.Health{}, changed: team.Health{Stopped: exits.CodeToken}},
+	"Role":         {why: "the seat's role in its team, not whether the team is reached"},
+	"Colour":       {why: "a drawing fact of the status line"},
+	"Description":  {why: "a drawing fact of the status line"},
+	"Coordinator":  {why: "a hook fact, the roster's coordinator"},
+	"Verified":     {why: "main is verified before the first sync answer, which last_sync_ok_ms carries"},
+	"Questions":    {why: "the questions room, a room record of status; a seat is joined without it"},
+}
+
+func TestEveryHealthFieldReachesTheReportOrSaysWhyNot(t *testing.T) {
+	fields := map[string]bool{}
+	for f := range reflect.TypeFor[team.Health]().Fields() {
+		fields[f.Name] = true
+		if _, ok := healthInReport[f.Name]; !ok {
+			t.Errorf("team.Health.%s is neither carried to report.json nor said why not in healthInReport", f.Name)
+		}
+	}
+	for name, c := range healthInReport {
+		if !fields[name] {
+			t.Errorf("healthInReport names %s, which team.Health has not", name)
+			continue
+		}
+		if c.why != "" {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t, state.DeliverySocket)
+			ops := tid(t, "ops")
+			w.held(ops)
+			w.e.SetHealth(ops, c.base)
+			w.status()
+			before := w.sentStates()
+			w.e.SetHealth(ops, c.changed)
+			w.status()
+			after := w.sentStates()
+			if len(after) == len(before) || sameState(before[len(before)-1], after[len(after)-1]) {
+				t.Errorf("team.Health.%s changed and the keeper's report did not: %+v", name, after[len(after)-1])
+			}
+		})
+	}
+}
+
 func TestSameStateComparesTheSyncTime(t *testing.T) {
 	one, two := int64(1), int64(2)
 	a := wire.State{Pending: 1}
@@ -374,5 +495,10 @@ func TestSameStateComparesTheSyncTime(t *testing.T) {
 	d.LastSyncOKMS = &two
 	if !sameState(c, d) {
 		t.Fatal("equal sync times differ")
+	}
+	e, f, g := d, d, d
+	e.Down, f.Down, g.Down = new("x"), new("y"), new("x")
+	if sameState(d, e) || sameState(e, f) || !sameState(e, g) {
+		t.Fatal("a down cause is not compared by its text")
 	}
 }

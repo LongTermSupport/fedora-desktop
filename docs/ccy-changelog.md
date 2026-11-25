@@ -17,6 +17,36 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.60 — container 2.84.82
+
+- The image is rebuilt for the reader below: its `report.json` reader is the same code the
+  host runs.
+
+## 3.124.59 — container 2.84.81
+
+- **The host reads a running session's older report.** `ccy-teams` reads a seat's `report.json`
+  with no `down` key, as a session started on an image before 2.84.81 writes it, as a team that
+  is not down. The play updates `ccy-teams` at once, while a running session keeps its image
+  until it is relaunched, so without this every such session's `session add`, `remove` and
+  `list` failed until it restarted (Plan 00265 R60).
+
+## 3.124.58 — container 2.84.81
+
+`ccy-teams` and teamchat changes (Plan 00265 R60); the image is rebuilt, because the teamchat
+member's `report.json` gains a key.
+
+- **A hot join is reported done only once the team answered.** `ccy-teams session add` on a
+  running teamchat session used to say "seat N held, applied" and "The session is told it
+  joined" as soon as the session's keeper held the seat, before the session had asked the
+  team's homeserver anything. It now waits, within the add's usual wait (10 s), for the
+  seat's report to show an answer from that homeserver. With none by then it says
+  "seat N not joined after 10 s:" and what is missing, and puts the seat back as before.
+- **A team the session cannot reach is named.** Each seat's `report.json` gains `down`: null
+  while the team is up, else why the session's link has the team down (the cause its log
+  names, or a stop's code). `session add` and `session list` show it as "the session cannot
+  reach team X's homeserver" with that cause. The host and the image read the file strictly,
+  so both must come from this release: rebuild the image.
+
 ## 3.124.57 — container 2.84.80
 
 Launcher and `ccy-teams` changes (Plan 00265 R61); the image is unchanged.

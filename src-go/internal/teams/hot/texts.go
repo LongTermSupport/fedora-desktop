@@ -51,6 +51,8 @@ const (
 	alreadyIn      = "Nothing to do: %s is already in %s as seat %s."
 
 	doneJoinedNothingRestarted = "Done. The session is told it joined %s as %s. Nothing restarted."
+	// doneJoinedV2 is said only once the team's homeserver has answered the session (R60).
+	doneJoinedV2 = "Done. The session joined %s as %s; its homeserver answered. Nothing restarted."
 
 	routeReaches    = "this host reaches %s's homeserver"
 	ccNoInboundText = "%s is in %s as seat %s, but it started on no team (cc --bus), so team messages cannot reach it until cc is started again, and cc has nothing that can restart it: end it (/exit) and start it again from ccy-sessions, which starts it in seat %s"

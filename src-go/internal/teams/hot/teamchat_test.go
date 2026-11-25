@@ -29,6 +29,7 @@ type fakeV2 struct {
 	notHeld  bool // the seat store holds no seat of the team for the session
 	leaveErr error
 	appErr   error
+	why      string            // the reason Applied gives while not applied; "" is no report yet
 	onCall   func(call string) // runs as each change or check starts: the world moving meanwhile
 	calls    []string
 	released []string
@@ -93,6 +94,9 @@ func (f *fakeV2) Applied(team, seatPart string) (bool, string, error) {
 	}
 	if f.applied && f.desired.Holds(mustTeam(f.t, team), seatPart) {
 		return true, "", nil
+	}
+	if f.why != "" {
+		return false, f.why, nil
 	}
 	return false, "the session's keeper has written no report of the seat", nil
 }
@@ -161,8 +165,8 @@ func TestAddPutsARunningV2SessionOnTheTeam(t *testing.T) {
 		"✓ seat 2: free (proj.2+local.podman)",
 		"✓ record: --teams 1@alpha,2@beta",
 		"✓ membership: generation 2 written",
-		"✓ session: seat 2 held, applied (0.0 s)",
-		"Done. The session is told it joined beta as proj.2+local.podman. Nothing restarted.")
+		"✓ session: seat 2 held, its team's homeserver answered (0.0 s)",
+		"Done. The session joined beta as proj.2+local.podman; its homeserver answered. Nothing restarted.")
 	if !slices.Equal(v2.calls, []string{"join 2@beta"}) {
 		t.Fatalf("calls %v", v2.calls)
 	}
@@ -184,7 +188,7 @@ func TestAV2AddTheKeeperDoesNotApplyIsPutBack(t *testing.T) {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
 	wantLines(t, r.ErrOut.String(),
-		"✗ session: seat 2 not held after 10 s: the session's keeper has written no report of the seat",
+		"✗ session: seat 2 not joined after 10 s: the session's keeper has written no report of the seat",
 		"✓ record: restored (--teams 1@alpha)",
 		"✓ membership: generation 3 written (restored)")
 	if !slices.Equal(v2.calls, []string{"join 2@beta", "put 1@alpha"}) || !slices.Equal(v2.released, []string{"beta"}) {
@@ -192,6 +196,30 @@ func TestAV2AddTheKeeperDoesNotApplyIsPutBack(t *testing.T) {
 	}
 	if got := r.recordArgs(t); !slices.Equal(got, []string{"--no-ssh", "--teams", "1@alpha"}) {
 		t.Fatalf("record %v", got)
+	}
+}
+
+// R60: a seat held whose team's homeserver has not answered the session within the wait (the
+// add's Waits.Apply) is not reported joined: the line names what is missing (no answer yet, or a
+// team the session cannot reach), no "applied" and no "Done" is said, and the seat is put back.
+func TestAV2AddWhoseTeamNeverAnswersIsNotReportedJoined(t *testing.T) {
+	for _, why := range []string{
+		"the session's link has had no answer from team beta's homeserver yet",
+		"the session cannot reach team beta's homeserver: its link has the team down (the homeserver did not answer)",
+	} {
+		r, v2 := newV2Rig(t)
+		v2.applied, v2.why = false, why
+		if code := r.run(t, "add", session, "beta", "--yes"); code != term.ExitFailure {
+			t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+		}
+		out := r.ErrOut.String()
+		wantLines(t, out, "✗ session: seat 2 not joined after 10 s: "+why, "✓ record: restored (--teams 1@alpha)")
+		if strings.Contains(out, "applied") || strings.Contains(out, "Done.") || strings.Contains(out, "told it joined") {
+			t.Errorf("a join that had no answer is reported done:\n%s", out)
+		}
+		if !slices.Equal(v2.released, []string{"beta"}) {
+			t.Errorf("released %v", v2.released)
+		}
 	}
 }
 
@@ -514,7 +542,7 @@ func TestAV2AddWhoseKeeperCheckFailsIsPutBackNamingIt(t *testing.T) {
 	if code := r.run(t, "add", session, "beta", "--yes"); code != term.ExitFailure {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
-	wantLines(t, r.ErrOut.String(), "✗ session: seat 2 not held after 10 s: the seat lock of beta: permission denied")
+	wantLines(t, r.ErrOut.String(), "✗ session: seat 2 not joined after 10 s: the seat lock of beta: permission denied")
 	if !slices.Equal(v2.calls, []string{"join 2@beta", "put 1@alpha"}) || !slices.Equal(v2.released, []string{"beta"}) {
 		t.Fatalf("calls %v released %v", v2.calls, v2.released)
 	}

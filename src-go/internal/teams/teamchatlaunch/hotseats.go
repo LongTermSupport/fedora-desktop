@@ -231,9 +231,12 @@ func (h *HotSeats) write(seats []state.DesiredSeat, farewell []state.Farewell) e
 	return nil
 }
 
-// Applied is whether the keeper holds seat seatPart of team at the generation last written: its
-// seat lock held (seat.KeeperOf) and its report.json naming the seat with that generation
-// applied. Until then why says what is missing.
+// Applied is whether the session has joined seat seatPart of team at the generation last written:
+// its keeper's seat lock held (seat.KeeperOf), its report.json naming the seat with that
+// generation applied, and the link having had an answer from the team's homeserver
+// (last_sync_ok_ms) with the team not down (register R60: a seat held is local proof only; a
+// homeserver the session cannot reach is held and never joined). Until then why says what is
+// missing; a team the link has down is named as one the session cannot reach, with its cause.
 func (h *HotSeats) Applied(team, seatPart string) (bool, string, error) {
 	id, err := paths.ParseTeamID(team)
 	if err != nil {
@@ -269,6 +272,10 @@ func (h *HotSeats) Applied(team, seatPart string) (bool, string, error) {
 		return false, fmt.Sprintf("the session's report names seat %s, not %s", rep.Seat.Seat, seatPart), nil
 	case keeper != seat.KeeperRunning:
 		return false, "the seat lock is not held", nil
+	case rep.Down != nil:
+		return false, fmt.Sprintf("the session cannot reach team %s's homeserver: its link has the team down (%s)", team, *rep.Down), nil
+	case rep.LastSyncOKMS == nil:
+		return false, fmt.Sprintf("the session's link has had no answer from team %s's homeserver yet", team), nil
 	}
 	return true, "", nil
 }

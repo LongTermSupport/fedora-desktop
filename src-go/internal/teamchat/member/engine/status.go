@@ -121,6 +121,7 @@ func (e *Engine) buildStatus() state.Status {
 			ms := h.health.LastSyncOKMS
 			report.LastSyncOKMS = &ms
 		}
+		report.Down = downCause(h.shown())
 		if h.refused {
 			report.Store = state.StoreRefused
 		}
@@ -137,10 +138,26 @@ func (e *Engine) buildStatus() state.Status {
 	}
 }
 
+// downCause is the keeper's report's down for a team of health hl (R60): a stop's code, else the
+// cause its goroutine named for it down, clipped to what report.json takes; nil while it is up.
+func downCause(hl team.Health) *string {
+	var cause string
+	switch {
+	case hl.Stopped != "":
+		cause = "stopped: " + hl.Stopped
+	case hl.Down:
+		cause = state.ClipDown(hl.DownCause)
+	default:
+		return nil
+	}
+	return &cause
+}
+
 func sameState(a, b wire.State) bool {
 	sync := (a.LastSyncOKMS == nil) == (b.LastSyncOKMS == nil) && (a.LastSyncOKMS == nil || *a.LastSyncOKMS == *b.LastSyncOKMS)
-	a.LastSyncOKMS, b.LastSyncOKMS = nil, nil
-	return sync && a == b
+	down := (a.Down == nil) == (b.Down == nil) && (a.Down == nil || *a.Down == *b.Down)
+	a.LastSyncOKMS, b.LastSyncOKMS, a.Down, b.Down = nil, nil, nil, nil
+	return sync && down && a == b
 }
 
 func (e *Engine) statusRow(h *held) state.StatusTeam {

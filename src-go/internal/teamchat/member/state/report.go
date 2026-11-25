@@ -1,9 +1,11 @@
 package state
 
 import (
+	"bytes"
 	"errors"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -58,17 +60,52 @@ func (s *SeatRef) UnmarshalText(b []byte) error {
 // first SessionStart (B 2.4.1 step 7, n3c-D21); CMD's own text is never in the report.
 const WhyLaunchFailed = "launch-failed"
 
+// MaxDown bounds a down cause as written (a JSON string, quotes and escapes counted), so a cause
+// can never take report.json past its cap.
+const MaxDown = 512
+
+// DownNoAnswer is the down cause of a team its link has down without naming why.
+const DownNoAnswer = "the homeserver did not answer"
+
+const downRule = "down is not null or a cause of at most 512 bytes as written"
+
+// ValidDown is whether d is a report's down: null, or a cause that is not empty and within
+// MaxDown as written.
+func ValidDown(d *string) bool {
+	if d == nil {
+		return true
+	}
+	n, err := writtenSize(*d)
+	return *d != "" && err == nil && n <= MaxDown
+}
+
+// ClipDown is cause as a report carries it: DownNoAnswer for none, else cause cut at a character
+// boundary to MaxDown as written.
+func ClipDown(cause string) string {
+	if cause == "" {
+		return DownNoAnswer
+	}
+	for !ValidDown(&cause) {
+		_, size := utf8.DecodeLastRuneInString(cause)
+		cause = cause[:len(cause)-size]
+	}
+	return cause
+}
+
 // Report is B 2.3.3's report.json, the keeper's report of one held seat for area C's views,
 // never authority. Why is null, crash-loop or config with a failed link, or launch-failed.
 type Report struct {
-	V             int           `json:"v"`
-	Run           paths.RunID   `json:"run"`
-	StartedMS     int64         `json:"started_ms"`
-	Seat          SeatRef       `json:"seat"`
-	Handle        string        `json:"handle"`
-	Link          string        `json:"link"`
-	Why           *string       `json:"why"`
-	LastSyncOKMS  *int64        `json:"last_sync_ok_ms"`
+	V            int         `json:"v"`
+	Run          paths.RunID `json:"run"`
+	StartedMS    int64       `json:"started_ms"`
+	Seat         SeatRef     `json:"seat"`
+	Handle       string      `json:"handle"`
+	Link         string      `json:"link"`
+	Why          *string     `json:"why"`
+	LastSyncOKMS *int64      `json:"last_sync_ok_ms"`
+	// Down is why the link has the team down (its homeserver not answering, or a stop's code),
+	// null while it is up: with LastSyncOKMS, the proof that a join reached the team (R60).
+	Down          *string       `json:"down"`
 	Pending       int64         `json:"pending"`
 	Delivery      string        `json:"delivery"`
 	Desired       ReportDesired `json:"desired"`
@@ -90,13 +127,38 @@ func (r Report) Encode() ([]byte, error) {
 	return encode(reportFile, r, DecodeReport)
 }
 
-// DecodeReport reads report.json strictly.
+// DecodeReport reads report.json strictly. A keeper built before R60 writes no "down", and the
+// host is updated before a running session's image, so that report is read with down null.
 func DecodeReport(data []byte) (Report, error) {
+	data, limit := withDownNull(data)
 	var r Report
-	if err := decodeStrict(reportFile, data, MaxReport, &r, func(c *rules) { r.check(c) }); err != nil {
+	if err := decodeStrict(reportFile, data, limit, &r, func(c *rules) { r.check(c) }); err != nil {
 		return Report{}, err
 	}
 	return r, nil
+}
+
+// downNull is the member withDownNull adds to a report that has no "down".
+const downNull = `,"down":null`
+
+// withDownNull is data with "down":null added when it is an object within MaxReport that has
+// other members and no "down", and the cap to read it by; any other data is left to the
+// strict decode to judge.
+func withDownNull(data []byte) ([]byte, int) {
+	if len(data) > MaxReport {
+		return data, MaxReport
+	}
+	v, err := proto.Parse(data)
+	if err != nil || v.Kind() != proto.KindObject || len(v.Members()) == 0 {
+		return data, MaxReport
+	}
+	if _, ok := v.Get("down"); ok {
+		return data, MaxReport
+	}
+	end := bytes.LastIndexByte(data, '}')
+	out := make([]byte, 0, len(data)+len(downNull))
+	out = append(append(append(out, data[:end]...), downNull...), data[end:]...)
+	return out, MaxReport + len(downNull)
 }
 
 func (r Report) check(c *rules) {
@@ -108,6 +170,7 @@ func (r Report) check(c *rules) {
 	c.need(optionalOf(r.Why, []string{WhyCrashLoop, WhyConfig, WhyLaunchFailed}), "why is not crash-loop, config, launch-failed or null")
 	c.need(failedWhy == (r.Link == LinkFailed), "why is not crash-loop or config exactly for a failed link")
 	c.need(optionalMS(r.LastSyncOKMS), "last_sync_ok_ms is not a time or null")
+	c.need(ValidDown(r.Down), downRule)
 	c.need(r.Pending >= 0 && r.Pending <= capPending, "pending is not a count the store holds")
 	c.need(slices.Contains(deliveries, r.Delivery), "delivery is not socket, wait or none")
 	d := r.Desired

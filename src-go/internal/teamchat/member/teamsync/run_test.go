@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -210,6 +211,43 @@ func TestADownStreakNamesItsCauseAndAChangeOfIt(t *testing.T) {
 	}
 	if w.log.count("back up") != 1 {
 		t.Errorf("log = %q", log)
+	}
+}
+
+// R60: the down cause link.log names is the team's health too, so status and the keeper's
+// report.json can say why: set with the down mark, moved with the "still down" line, and cleared
+// when the team is back up.
+func TestADownTeamsHealthCarriesTheCauseTheLogNames(t *testing.T) {
+	w := newWorld(t)
+	w.srv.Inject(fakehs.Fault{Method: http.MethodGet, Path: "/sync", Status: http.StatusBadGateway, Body: []byte(`{}`), Times: 6})
+	w.srv.Inject(fakehs.Fault{Method: http.MethodGet, Path: "/sync", Status: http.StatusServiceUnavailable, Body: []byte(`{}`), Times: 10})
+	r := w.start()
+	causes := map[string]bool{}
+	for range 16 {
+		d := r.wait(t)
+		if h := w.eng.lastHealth(); h.Down {
+			causes[h.DownCause] = true
+		} else if h.DownCause != "" {
+			t.Errorf("a team not down has a cause: %+v", h)
+		}
+		w.clk.Advance(d)
+	}
+	saw502, saw503 := false, false
+	for c := range causes {
+		if !strings.HasPrefix(c, "the homeserver refused (matrix: GET ") {
+			t.Errorf("down cause %q is not the log's", c)
+		}
+		saw502 = saw502 || strings.Contains(c, ": 502")
+		saw503 = saw503 || strings.Contains(c, ": 503")
+	}
+	if !saw502 || !saw503 || len(causes) != 2 {
+		t.Errorf("down causes = %v, want the 502 then the 503 the log named", causes)
+	}
+	w.batch()
+	r.poll(t)
+	w.waitHealth(func(h team.Health) bool { return !h.Down })
+	if h := w.eng.lastHealth(); h.DownCause != "" {
+		t.Errorf("back up with a cause: %+v", h)
 	}
 }
 

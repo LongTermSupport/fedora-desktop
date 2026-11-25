@@ -202,6 +202,9 @@ type Health struct {
 	// coordinator only while it holds; a server that cannot be reached does not clear it.
 	Verified bool
 	Down     bool
+	// DownCause is the cause link.log last named for the team down, "" while it is up: the
+	// keeper's report.json carries it, so the host can say why a joined team is not reached.
+	DownCause string
 	// Questions is the questions room as this member stands to it (QS2, QS8), the zero value
 	// for a member that is not the coordinator.
 	Questions QuestionsHealth

@@ -120,12 +120,15 @@ func (x *Hot) addV2(ctx context.Context, t *target, r request) term.ExitCode {
 		x.putBackV2(ctx, t, before, r.team, ended)
 		return term.ExitFailure
 	}
-	x.say(fmt.Sprintf(doneJoinedNothingRestarted, r.team, handle))
+	x.say(fmt.Sprintf(doneJoinedV2, r.team, handle))
 	return term.ExitOK
 }
 
-// waitV2 waits for the keeper to report the seat held at the generation written, and is why
-// not ("" held) and whether the session ended meanwhile.
+// waitV2 waits, within Waits.Apply (the wait every add has), for the keeper to report the seat
+// held at the generation written and the team's homeserver to have answered the session
+// (HotSeats.Applied, R60), and is why not ("" joined) and whether the session ended meanwhile.
+// The wait is not lengthened for a slow first answer: a join that has had none by then is not
+// reported joined, it is put back with what was missing, and the same command can be run again.
 func (x *Hot) waitV2(ctx context.Context, t *target, team, seatPart string) (string, bool) {
 	start := x.Now()
 	for {
@@ -141,11 +144,11 @@ func (x *Hot) waitV2(ctx context.Context, t *target, team, seatPart string) (str
 			why = err.Error()
 		}
 		if held {
-			x.mark(markDone, fmt.Sprintf("session: seat %s held, applied (%.1f s)", seatPart, x.elapsed(start)))
+			x.mark(markDone, fmt.Sprintf("session: seat %s held, its team's homeserver answered (%.1f s)", seatPart, x.elapsed(start)))
 			return "", false
 		}
 		if x.Now().Sub(start) >= x.Waits.Apply {
-			return fmt.Sprintf("seat %s not held after %s: %s", seatPart, seconds(x.Waits.Apply), why), false
+			return fmt.Sprintf("seat %s not joined after %s: %s", seatPart, seconds(x.Waits.Apply), why), false
 		}
 		x.Sleep(x.Waits.Poll)
 	}

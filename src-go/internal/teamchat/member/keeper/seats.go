@@ -102,7 +102,7 @@ func (k *keeper) writeReport(s *seat) {
 	r := state.Report{
 		V: state.Version, Run: k.runID, StartedMS: s.startedMS,
 		Seat: state.SeatRef{Team: s.team, Seat: s.name}, Handle: s.st.Handle, Link: k.linkStatus,
-		Why: why, LastSyncOKMS: s.st.LastSyncOKMS, Pending: s.st.Pending, Delivery: s.st.Delivery,
+		Why: why, LastSyncOKMS: s.st.LastSyncOKMS, Down: s.st.Down, Pending: s.st.Pending, Delivery: s.st.Delivery,
 		Desired: k.reportDesired(), Store: s.st.Store, NeedsRelaunch: k.needsRelaunch(),
 	}
 	if err := state.Write(k.stateRoot, s.path.Report(), r); err != nil {
