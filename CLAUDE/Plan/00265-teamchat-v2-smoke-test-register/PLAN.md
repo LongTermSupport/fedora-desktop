@@ -41,14 +41,17 @@ when, who hit it, how to reproduce it, its severity, issue, unit and state.
 - [ ] 🔄 **Task 1.1** (U1): R6, R18, #421: a refusal names its cause and the fix; detector first.
   Merged into `v2-smoke` (ea576bbbf); live proof owed.
 - [ ] 🔄 **Task 1.2** (U2): R1, R2, R21, #422: every PEER reaches the session or its sender is
-  told why; reply works on what history lists.
-- [ ] 🔄 **Task 1.3** (U3): R3, #423: seat choice at launch is at least v1's.
+  told why; reply works on what history lists. Merged into `v2-smoke`; in the second F44 batch
+  (`ci/v2-batch2-u2-u8`).
+- [ ] 🔄 **Task 1.3** (U3): R3, #423: seat choice at launch is at least v1's. Merged into
+  `v2-smoke` (d9b11903f); live proof owed.
 - [ ] 🔄 **Task 1.4** (U4): R4, #417: a seat's conversation survives joining a team and `/exit`.
 - [ ] 🔄 **Task 1.5** (U5): R5, #416: a seat is added in a couple of commands with a derived name.
   First slice merged (751bdeab3): `ccy-teams seats add` on the homeserver's machine; the in-launch
   creation follows U3; other-machine, coordinator requests and named seats wait on the owner (Q6).
-- [ ] 🔄 **Task 1.6** (U8): R22, R23, #425: LXC members on another host (Plan 00257 B.4); R23 on
-  its way to F44 alone (`ci/r23-lxc-key`). See [ROUTE-TO-LIVE.md](ROUTE-TO-LIVE.md).
+- [ ] 🔄 **Task 1.6** (U8): R22, R23, #425: LXC members on another host (Plan 00257 B.4). R23 on
+  F44 (5fea8d97f); L2 to L4 merged into `v2-smoke` and in the second F44 batch with U2; the
+  estate's re-pin (L5) waits on that batch and on R31 (signing key). See [ROUTE-TO-LIVE.md](ROUTE-TO-LIVE.md).
 
 ### Phase 2: threads, procedure and authority
 

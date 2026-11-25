@@ -27,9 +27,9 @@ filled in as each cause is known.
   Decision: fix it in teamchat (the flag gates human text only), not by issuing seats true.
 - **Reproduce:** coordinator `say --to <worker>` to a worker whose roster entry has
   `human_text: false`.
-- **Severity:** critical. **Issue:** #422. **Unit:** U2. **State:** fixed (U2, branch
-  `v2-smoke-u2-peer-delivery`). The live check and the owner question on `human_text` are in
-  `reports/U2.md`.
+- **Severity:** critical. **Issue:** #422. **Unit:** U2. **State:** fixed (U2), merged into
+  `v2-smoke`, in the second F44 batch (`ci/v2-batch2-u2-u8`). The live check and the owner
+  question on `human_text` are in `reports/U2.md`.
 
 ## R2: `reply` refuses an item `history` lists
 
@@ -48,7 +48,11 @@ filled in as each cause is known.
 - **What:** the launch takes a seat already held and exits 75. v1 listed the seats, defaulted to
   the lowest free one or a new one, and offered re-attach for a held one.
 - **Reproduce:** `cc --teams` in a checkout whose seat is held by a running session.
-- **Severity:** critical. **Issue:** #423. **Unit:** U3. **State:** in progress (U3).
+- **Severity:** critical. **Issue:** #423. **Unit:** U3. **State:** fixed (U3, ccy 3.124.44),
+  merged into `v2-smoke`: a team named with no seat never takes a held seat; the seats are
+  listed with their holders, the lowest free one the default, and a held one re-attaches its
+  session. The no-free-seat outcome is one seam (`Teamchat.NewSeat`), which the follow-on wires to
+  U5's seat creation. Live proof is owed (`reports/U3.md`).
 
 ## R4: a session that joins a team loses its conversation
 
@@ -189,6 +193,19 @@ filled in as each cause is known.
   from a fedora-desktop host; a released static kit archive would let it fetch one.
 - **Severity:** low. **Issue:** TBF. **State:** open (later improvement).
 
+## R31: the estate's pin may refuse a commit signed in a container
+
+- **Seen:** this seat, 2026-11-25, while preparing the second batch for the coordinator's re-pin
+  (A8).
+- **What:** the estate builds teamchat from one pinned fedora-desktop commit and refuses an
+  unsigned commit or one signed by an unknown key. Commits made in this container are SSH-signed
+  with the container's own key (GitHub verifies them). The commit at today's pin, and almost
+  every F44 tip, were signed by a different key. Whether the estate's allowed-signers list holds
+  the container key cannot be seen from here.
+- **Reproduce:** compare `git log --format=%GF` on the batch commit and on the pinned commit.
+- **Severity:** high (could block every container-made fix from reaching the estate).
+  **Issue:** TBF. **State:** open; asked of the coordinator.
+
 ## Cause classes
 
 For the owner's retrospective: each fault's cause class, and the check that would have caught it
@@ -296,7 +313,9 @@ before the move to v2. Filled in as causes are found.
   `lxc-add` (A4), two doc points (A5), and the uid rule K15 in the user docs.
 - **Reproduce:** a team whose homeserver is on host X; a container on host Y tries to join.
 - **Severity:** critical. **Issue:** #425. **Unit:** U8 (Plan 00257 Task B.4).
-  **State:** in progress (U8).
+  **State:** L2 to L4 fixed (U8) and merged into `v2-smoke`: a seat's url follows who places it;
+  `teamchat seat place-lxc`; `team rotate-ca` lists an off-host LXC seat. In the second F44 batch
+  (`ci/v2-batch2-u2-u8`). The re-pin of the team's estate (L5) and a live join are owed.
 
 ## R23: no v2 LXC session can start
 
