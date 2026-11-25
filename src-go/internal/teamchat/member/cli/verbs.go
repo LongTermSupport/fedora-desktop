@@ -57,6 +57,9 @@ type Verb struct {
 	Team  TeamUse
 	Agent bool
 	Does  string
+	// Notes is more of help's text for the verb, built from data another package owns; nil
+	// for none.
+	Notes func() string
 }
 
 // checker is a value's grammar and the message of a value that fails it, whose one slot is
@@ -223,6 +226,7 @@ var table = []Verb{
 		Name: "reply", Team: TeamOne, Agent: true, Args: []Arg{eventArg},
 		Flags: []Flag{{Name: flagVerb, Value: "V", check: checkAnswer}, {Name: "ref", Value: "R"}, {Name: flagToC}},
 		Does:  "answers one item; text on stdin. --verb answers a ping with a closed verb",
+		Notes: answerNotes,
 	},
 	{
 		Name: "say", Team: TeamOne, Agent: true, Flags: append(slices.Clone(toFlags), Flag{Name: "wait-contact"}),
@@ -233,6 +237,7 @@ var table = []Verb{
 		Args:  []Arg{{Name: argVerb, missing: barePing}, {Name: "ref", Optional: true}},
 		Flags: append(slices.Clone(toFlags), Flag{Name: "branch", Value: "B", check: checkBranch}),
 		Does:  "sends a closed-verb ping; the verb is required",
+		Notes: pingNotes,
 	},
 	{Name: verbReport, Team: TeamOne, Agent: true, Does: "a quiet report to the reports room; headline then body on stdin"},
 	{
@@ -424,6 +429,55 @@ func sendVerbs() []string {
 	}
 	slices.Sort(verbs)
 	return verbs
+}
+
+// pingNotes are help ping's closed verbs an agent sends, each with the reference it takes, from
+// the protocol's verb table.
+func pingNotes() string {
+	return verbRefNotes("the verbs, and the reference each takes after the verb:", false)
+}
+
+// answerNotes are help reply's answer verbs, each with the --ref it takes.
+func answerNotes() string {
+	return verbRefNotes("--verb, and the --ref each takes (an answer's is normally the reference of the ping it answers):", true)
+}
+
+// verbRefNotes is heading, then a line per verb an agent sends that is (or is not) an answer:
+// whether it needs, may take or takes no reference, its forms, and who sends it.
+func verbRefNotes(heading string, answers bool) string {
+	var verbs []string
+	for verb, rule := range proto.Verbs {
+		if proto.IsAnswerVerb(verb) == answers && (rule.SentBy(proto.SenderCoordinator) || rule.SentBy(proto.SenderWorker)) {
+			verbs = append(verbs, verb)
+		}
+	}
+	slices.Sort(verbs)
+	lines := []string{"    " + heading}
+	for _, verb := range verbs {
+		lines = append(lines, "      "+verb+": "+refNeed(proto.Verbs[verb]))
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// refNeed is what a verb takes as its reference, in words.
+func refNeed(rule proto.VerbRule) string {
+	forms := make([]string, 0, len(proto.RefForms))
+	for _, form := range rule.RefForms() {
+		forms = append(forms, proto.RefSpellings[form])
+	}
+	var s string
+	switch rule.Ref {
+	case proto.Required:
+		s = "needs a reference: one of " + strings.Join(forms, " or ")
+	case proto.Optional:
+		s = "may take a reference: one of " + strings.Join(forms, " or ")
+	case proto.Forbidden:
+		s = "takes no reference"
+	}
+	if !rule.SentBy(proto.SenderWorker) {
+		s += " (the coordinator only)"
+	}
+	return s
 }
 
 const msgBarePing exits.Template = "ping needs its verb first: one of {}; teamchat status shows who is live"

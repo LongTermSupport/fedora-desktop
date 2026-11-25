@@ -455,7 +455,11 @@ func (c Composer) checkMain(class SenderClass, content Value) (*ForgeCheck, erro
 		return nil, err
 	}
 	_, reason, forge := c.Roster.checkAgent(c.Self, class, dc, probeCheckOf(c.Lookup, c.Roster, dc))
-	if reason != "" {
+	switch {
+	case reason == "":
+	case dc.Key == KeyPing && (reason == ReasonRef || reason == ReasonAllowlist || reason == ReasonExcluded):
+		return nil, refused(reason, c.Roster.RefCause(dc.Ping))
+	default:
 		return nil, refused(reason, "")
 	}
 	if err := c.addresseesTake(dc); err != nil {

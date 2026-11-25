@@ -56,6 +56,11 @@ func (n *fakeNotices) SetPresence(_ context.Context, userID, presence string) er
 	return nil
 }
 
+// Presence is never asked by the link's ends; status asks it, through the engine.
+func (*fakeNotices) Presence(context.Context, string) (string, bool, error) {
+	return "", false, nil
+}
+
 func (n *fakeNotices) Anchors() proto.Anchors            { return proto.Anchors{Self: n.self} }
 func (*fakeNotices) RecordOwnSend(string, proto.Related) {}
 func (*fakeNotices) Token() string                       { return "" }
@@ -109,8 +114,9 @@ func (*fakeTeam) ReportsRoom() team.ReportsRoom       { return team.ReportsRoom{
 func (*fakeTeam) Questions(context.Context, func(team.QuestionsView) ([]team.Placement, error)) (team.QuestionsView, error) {
 	return team.QuestionsView{}, errors.New("no questions")
 }
-func (*fakeTeam) QuestionPosted(string, string)       {}
-func (*fakeTeam) QuestionsPostable(proto.Value) error { return nil }
+func (*fakeTeam) QuestionPosted(string, string)                  {}
+func (*fakeTeam) QuestionsPostable(proto.Value) error            { return nil }
+func (*fakeTeam) QuestionIn(string, proto.Human) team.InQuestion { return team.InQuestion{} }
 func (*fakeTeam) FetchEvent(context.Context, string) (json.RawMessage, error) {
 	return nil, errors.New("no fetch")
 }

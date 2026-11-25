@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
@@ -60,6 +61,9 @@ type verbsWorld struct {
 	systems  map[string]string
 	initArgs []string
 	forgot   []string
+	synced   []string
+	sync     conversation.Synced
+	syncErr  error
 	checkout string
 	store    paths.Store
 	key      paths.CheckoutKey
@@ -128,8 +132,56 @@ func newVerbs(t *testing.T) *verbsWorld {
 			w.holder.calls = append(w.holder.calls, "forget "+session)
 			return nil
 		},
+		SyncSeats: func(wd, session string) (conversation.Synced, error) {
+			if wd != checkout {
+				t.Errorf("synced in %s", wd)
+			}
+			w.synced = append(w.synced, session)
+			return w.sync, w.syncErr
+		},
 	}
 	return w
+}
+
+// Issue 417: the launcher's exit carries the conversation the session ended in into its seats'
+// records, before its own record is forgotten, on both systems and whatever the status.
+func TestBusDisconnectedRecordsTheSeatsConversationFirst(t *testing.T) {
+	for _, v1 := range []bool{false, true} {
+		w := newVerbs(t)
+		w.sync = conversation.Synced{ID: "0f1e2d3c-4b5a-4968-8776-655443322110", List: "1@alpha"}
+		w.verbs.SyncSeats = func(_, session string) (conversation.Synced, error) {
+			if len(w.forgot) != 0 || len(w.exec.Execs()) != 0 {
+				t.Errorf("v1 %v: the seats were synced after the session was ended", v1)
+			}
+			w.synced = append(w.synced, session)
+			return w.sync, nil
+		}
+		var code term.ExitCode
+		if v1 {
+			code = w.run("bus-disconnected", "0", "/kit/pingbus", "seat", "disconnected", "--root", w.checkout+"/.claude/ccy/pingbus/seats", "--session", "s1", "--since", "5")
+		} else {
+			code = w.disconnect("0")
+		}
+		if code != term.ExitOK || !slices.Equal(w.synced, []string{"s1"}) || !strings.Contains(w.err.String(), "ccy --teams 1@alpha") {
+			t.Fatalf("v1 %v: exit %d, synced %q: %s", v1, code, w.synced, w.err)
+		}
+	}
+}
+
+// Nothing to carry is said and is not a failure; a record that cannot be written is, and the
+// session is still ended.
+func TestBusDisconnectedSaysWhatItCouldNotRecord(t *testing.T) {
+	w := newVerbs(t)
+	w.sync = conversation.Synced{List: "1@alpha", Nothing: "the session recorded no conversation (no transcript)"}
+	if code := w.disconnect("0"); code != term.ExitOK || !strings.Contains(w.err.String(), "no transcript") {
+		t.Fatalf("exit %d: %s", code, w.err)
+	}
+	w = newVerbs(t)
+	w.holder.holdings = []seat.Holding{holding(t, "s1", "repo.1+site.podman")}
+	w.syncErr = errors.New("disk full")
+	if code := w.disconnect("0"); code != term.ExitFailure || !strings.Contains(w.err.String(), "disk full") || len(w.forgot) != 1 {
+		t.Fatalf("exit %d, forgot %q: %s", code, w.forgot, w.err)
+	}
 }
 
 // pool places pool seat name in team alpha, the team every world's tests launch.
@@ -313,6 +365,71 @@ func TestSeatCheckOnTeamchatPrintsTheCanonicalList(t *testing.T) {
 		if code := w.run(args...); code != term.ExitUsage {
 			t.Errorf("%q: exit %d", args, code)
 		}
+	}
+}
+
+// recorded is a fake of the session records: a name in it is restorable.
+type recorded map[string]bool
+
+func (r recorded) Restorable(n paths.SessionName) (bool, error) { return r[n.String()], nil }
+
+// hold writes a complete held/ on alpha's pool seat name, naming session, as a take leaves it.
+func (w *verbsWorld) hold(name, session string) {
+	w.t.Helper()
+	id, err := paths.ParseTeamID("alpha")
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	seatName, err := paths.ParseSeatName(name)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	pool := w.store.PoolSeat(w.key, id, seatName)
+	if err := os.MkdirAll(pool.Held(), 0o700); err != nil {
+		w.t.Fatal(err)
+	}
+	rec := `{"v":1,"session":"` + session + `","claim":"0123456789abcdef","since_ms":1}`
+	if err := os.WriteFile(pool.HeldRecord(), []byte(rec), 0o600); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// Issue 423: with nobody to choose (a restore, a headless launch), a teamchat team named alone
+// prompts nothing and is refused naming its seats, which are held, and the command for each way
+// on; and a named seat a running session holds is refused (75) the same way, not with the bare
+// "the seat is held".
+func TestARefusalOnTeamchatNamesTheSeatsAndEachWayOn(t *testing.T) {
+	w := newVerbs(t)
+	w.pool("repo.1+site.podman")
+	w.pool("repo.2+site.podman")
+	w.hold("repo.1+site.podman", "ccy-repo")
+	w.verbs.Parts.Sessions = recorded{"ccy-repo": true}
+	if code := w.run("seat-check", "alpha", "--resolved"); code != term.ExitUsage || w.out.Len() != 0 {
+		t.Fatalf("a team alone: exit %d, out %q", code, w.out)
+	}
+	for _, want := range []string{
+		"<seat>@<team>", "held by session ccy-repo", "take free seat 2: ccy --teams 2@alpha",
+		"re-attach session ccy-repo (seat 1): ccy-sessions", "ccy-teams seats add alpha",
+	} {
+		if !strings.Contains(w.err.String(), want) {
+			t.Errorf("a team alone: stderr lacks %q:\n%s", want, w.err)
+		}
+	}
+
+	w.taker.err = fmt.Errorf("take seat repo.1+site.podman of team alpha: %w: by session ccy-repo", seat.ErrHeld)
+	if code := w.run("launch-args", "s1", w.checkout, "1@alpha", "", "--"); code != term.ExitBusy || w.out.Len() != 0 {
+		t.Fatalf("a held seat: exit %d, out %q", code, w.out)
+	}
+	for _, want := range []string{"the seat is held", "take free seat 2: ccy --teams 2@alpha", "re-attach session ccy-repo"} {
+		if !strings.Contains(w.err.String(), want) {
+			t.Errorf("a held seat: stderr lacks %q:\n%s", want, w.err)
+		}
+	}
+
+	w.verbs.Parts.Sessions = nil
+	if code := w.run("launch-args", "s1", w.checkout, "1@alpha", "", "--"); code != term.ExitBusy ||
+		!strings.Contains(w.err.String(), "The seats could not be read, so no way on is named") {
+		t.Errorf("unreadable holders keep the refusal and say so: exit %d:\n%s", code, w.err)
 	}
 }
 

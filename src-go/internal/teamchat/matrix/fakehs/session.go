@@ -175,6 +175,16 @@ func (s *Server) Presence(userID string) string {
 	return s.presence[userID]
 }
 
+// getPresence is any account's presence as the specification answers it, 404 M_NOT_FOUND while
+// neither a sync nor PUT /presence has set it.
+func (s *Server) getPresence(_ *request, args []string) (any, error) {
+	value, found := s.presence[args[0]]
+	if !found {
+		return nil, notFound("Presence state for this user was not found")
+	}
+	return map[string]any{"presence": value}, nil
+}
+
 // syncPresence applies a sync's set_presence. Host check HC-A1 recorded Tuwunel 1.9.4 marking
 // the caller online for an absent one and setting offline for offline, where the specification
 // has offline change nothing; online and unavailable setting themselves is the specification's.

@@ -48,6 +48,7 @@ func seatConversation(checkout string) (*SeatConversation, *bytes.Buffer, *bytes
 			return ""
 		},
 		Getwd: func() (string, error) { return checkout, nil },
+		NowMS: func() int64 { return 1793000000000 },
 	}, &out, &errOut
 }
 

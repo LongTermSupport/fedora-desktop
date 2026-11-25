@@ -17,6 +17,52 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.46 — container 2.84.77
+
+A seat picked in the `ccy --teams` chooser that no session ever used starts a new conversation,
+said, instead of the 64 refusal 3.124.45 gave it; a picked seat with a recorded conversation
+resumes it, and a seat named in `--teams` keeps the refusal naming `--fresh` (issue #423 with
+#417). The image is unchanged.
+
+## 3.124.45 — container 2.84.77
+
+**Default changed: a plain `ccy --teams <seats>` now resumes the seats' conversation.** Before,
+it started a fresh one. A script or habit that relied on a fresh start must add **`--fresh`**
+(issue #417, register R4 of Plan 00265).
+
+- The conversation is recorded **per seat**, in the checkout's
+  `.claude/ccy/seat-conversations/<team>/<seat>.json`. The launch writes it, and the session's
+  end carries the conversation it ended in into it, so a clean `/exit` (which removes a teamchat
+  session's own state) no longer loses it. A launch naming a subset or a superset of a session's
+  seats resumes when every named seat with a record agrees; a named seat with none is then
+  recorded too.
+- With no conversation to name, the launch exits **64** naming the case (no session held the
+  seats, none recorded a conversation, the records disagree, or the transcript is missing, with
+  its expected path) and the two ways on: the repair,
+  `ccy-teams seats conversation <seats> --set <id>`, and `ccy --teams <seats> --fresh`.
+- `--resume <id>` other than the recorded one is refused unless **`--rebind`** is given. A
+  restore, `ccy-teams restart` and the supervisor's relaunch resume the session's own
+  conversation and move the record to it without `--rebind`.
+- `ccy-sessions restore` resumes a seated session by its seats' record when its own is gone,
+  instead of starting it fresh; a fresh restore of a seated record passes `--fresh`.
+- The `--continue` refusal names the plain `ccy --teams <seats>` (and `--fresh`), not an id. The
+  bare `ccy --resume --teams <seats>` picker is unchanged.
+- `ccy-teams create`'s first session of a new team starts with `--fresh`.
+
+## 3.124.44 — container 2.84.77
+
+`ccy --teams <team>` and `cc --teams <team>` (or a bare `--teams`) on a teamchat team no longer
+take a seat a running session holds, which made the launch exit 75 (issue #423). The checkout's
+seats of the team are listed with whether a session holds each, the lowest free seat is the
+default (a new seat when none is free), and choosing a held seat re-attaches the session holding
+it (or switches the terminal to it inside ccy's tmux) instead of starting one. A new seat is not
+yet added by the launch: it names `ccy-teams seats add <team>`. When a re-attach cannot be made,
+when nobody is at a terminal to choose (a headless launch), and when a named seat is held, the
+refusal lists the seats, which are held, and the command for each way on: a free seat's launch,
+the held session's re-attach (`ccy-sessions`, or `ccy-sessions restore` for one not running),
+and a new seat. The launcher's Go front builds from
+`ccy-teams`' seat-state package, hence the bump; the image is unchanged.
+
 ## 3.124.43 — container 2.84.77
 
 3.124.42 and 3.124.43 are one change (issue #411): 3.124.43 brings the launcher library back

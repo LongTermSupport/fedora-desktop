@@ -190,6 +190,23 @@ func (x *QuestionIndex) Attachment(post string) (int64, bool) {
 	return e.Q, ok
 }
 
+// QuestionIn is the one answer to which question the questions-room event id is in, h being
+// its human content (Plan 00265 R34; the delivery, recv, history, reply and verify all ask it):
+// a question root is in itself; a human post the index folded is in the question it was
+// attached to, 0 for none; any other post is in the question A 10.4's rules give h now. known
+// is false when the index cannot place the event (a post it has not folded that no rule ties to
+// a kept question), which a caller without this index may resolve from the event's relations.
+func (x *QuestionIndex) QuestionIn(id string, h Human) (n int64, known bool) {
+	if n, ok := x.roots[id]; ok {
+		return n, true
+	}
+	if n, seen := x.Attachment(id); seen {
+		return n, true
+	}
+	n = x.attachment(h)
+	return n, n != 0
+}
+
 // AttachmentOf is the question the rules of A 10.4 would attach the post to (0 for none),
 // changing nothing.
 func (x *QuestionIndex) AttachmentOf(h Human) int64 { return x.attachment(h) }

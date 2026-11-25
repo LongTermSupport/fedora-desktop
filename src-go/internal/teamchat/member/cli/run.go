@@ -141,7 +141,11 @@ func runHelp(e Env, inv Invocation) term.ExitCode {
 }
 
 func helpVerb(v Verb) string {
-	return Usage(v) + "\n    " + v.Does + "\n"
+	s := Usage(v) + "\n    " + v.Does + "\n"
+	if v.Notes != nil {
+		s += v.Notes()
+	}
+	return s
 }
 
 func helpAll() string {

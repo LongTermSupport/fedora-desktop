@@ -3,6 +3,7 @@ package system
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,20 +72,115 @@ func TestCmdAnswersTheChooserFromThisCheckoutsPool(t *testing.T) {
 			t.Fatalf("Live(%s): got %v %v, want %v", team, got, err, want)
 		}
 	}
-	if got, err := w.cmd.SeatParts("fresh"); err != nil || strings.Join(got, ",") != "1" {
-		t.Fatalf("SeatParts: got %v %v, want [1]", got, err)
+	if got, err := w.cmd.SeatCount("fresh"); err != nil || got != 1 {
+		t.Fatalf("SeatCount: got %v %v, want 1", got, err)
 	}
 	if got, err := w.cmd.Handles("fresh"); err != nil || strings.Join(got, ",") != "repo.1+site.podman" {
 		t.Fatalf("Handles: got %v %v, want [repo.1+site.podman]", got, err)
 	}
-	if got, err := w.cmd.SeatParts("old"); err != nil || got != nil {
-		t.Fatalf("SeatParts of a team with no seat here: got %v %v, want none", got, err)
+	if got, err := w.cmd.SeatCount("old"); err != nil || got != 0 {
+		t.Fatalf("SeatCount of a team with no seat here: got %v %v, want 0", got, err)
 	}
-	if _, err := w.cmd.SeatParts("not a team"); err == nil {
-		t.Fatal("SeatParts took a name outside the team grammar")
+	if _, err := w.cmd.SeatCount("not a team"); err == nil {
+		t.Fatal("SeatCount took a name outside the team grammar")
 	}
 	if got, err := w.cmd.PoolTeams(); err != nil || strings.Join(got, ",") != "fresh,newer" {
 		t.Fatalf("PoolTeams: got %v %v, want [fresh newer]", got, err)
+	}
+}
+
+// restorable is a fake of the session records: a name in it is restorable.
+type restorable map[string]bool
+
+func (r restorable) Restorable(n paths.SessionName) (bool, error) { return r[n.String()], nil }
+
+// unreadable is session records that cannot be read.
+type unreadable struct{}
+
+func (unreadable) Restorable(paths.SessionName) (bool, error) {
+	return false, errors.New("the registry cannot be read")
+}
+
+// holdSeat writes a complete held/ on the pool seat, naming session, as a take leaves it.
+func holdSeat(t *testing.T, home, checkout, team, handle, session string) {
+	t.Helper()
+	store, err := paths.SeatStore(filepath.Join(home, ".local", "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := paths.CheckoutKeyOf(checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := paths.ParseTeamID(team)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name, err := paths.ParseSeatName(handle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := store.PoolSeat(key, id, name)
+	if err := os.MkdirAll(pool.Held(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	rec := `{"v":1,"session":"` + session + `","claim":"0123456789abcdef","since_ms":1}`
+	if err := os.WriteFile(pool.HeldRecord(), []byte(rec), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Issue 423: the chooser's seats carry the session a take would be refused for, so a held seat
+// is never offered as one to take; a holding whose session is over is free.
+func TestCmdPoolStateNamesTheSessionHoldingEachSeat(t *testing.T) {
+	w := world(t)
+	checkout := filepath.Join(w.home, "repo")
+	placeSeat(t, w.home, checkout, "fresh")
+	holdSeat(t, w.home, checkout, "fresh", "repo.1+site.podman", "ccy-repo")
+	holdSeat(t, w.home, checkout, "fresh", "repo.2+site.podman", "ccy-repo-2")
+	incomplete := filepath.Join(w.home, ".local", "state")
+	store, err := paths.SeatStore(incomplete)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := paths.CheckoutKeyOf(checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(store.PoolTeam(key, mustTeam(t, "fresh"))+"/repo.3+site.podman/held", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	w.cmd.Sessions = restorable{"ccy-repo": true}
+	got, err := w.cmd.PoolState("fresh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("three seats, got %+v", got)
+	}
+	if got[2].Name != "3" || got[2].HeldBy != "" {
+		t.Errorf("an incomplete holding is no one's, so seat 3 is free: %+v", got)
+	}
+	byName := map[string]string{}
+	for _, s := range got {
+		byName[s.Name+" "+s.Handle] = s.HeldBy
+	}
+	if byName["1 repo.1+site.podman"] != "ccy-repo" {
+		t.Errorf("seat 1 is held by ccy-repo: %+v", got)
+	}
+	if held, ok := byName["2 repo.2+site.podman"]; !ok || held != "" {
+		t.Errorf("seat 2's session is over, so it is free: %+v", got)
+	}
+	if _, err := w.cmd.PoolState("not a team"); err == nil {
+		t.Error("PoolState took a name outside the team grammar")
+	}
+	w.cmd.Sessions = unreadable{}
+	if _, err := w.cmd.PoolState("fresh"); err == nil || !strings.Contains(err.Error(), "is seat repo.1+site.podman of fresh held") {
+		t.Errorf("a record that cannot be read made a seat free: %v", err)
+	}
+	w.cmd.Sessions = nil
+	if _, err := w.cmd.PoolState("fresh"); err == nil {
+		t.Error("PoolState with no session records answered, so a held seat could read as free")
 	}
 }
 

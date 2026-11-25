@@ -2,6 +2,7 @@ package matrix
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -199,6 +200,48 @@ func TestPresence(t *testing.T) {
 	}
 	inject(srv, http.MethodPut, "/presence/", http.StatusOK, `[]`)
 	wantErr(t, m.SetPresence(t.Context(), m.uid, "online"), ErrUnreachable, detailNotObject)
+}
+
+// TestPresenceRead is M54: another account's presence read by GET, none recorded being
+// found=false, and an answer naming no presence of the three malformed.
+func TestPresenceRead(t *testing.T) {
+	srv := newServer(t)
+	alice, bob := user(t, srv, "alice"), user(t, srv, "bob")
+	if got, found, err := bob.Presence(t.Context(), alice.uid); err != nil || found || got != "" {
+		t.Fatalf("presence before any sync = %q, %v, %v; want not found", got, found, err)
+	}
+	if req := lastRequest(t, srv); req.Method != http.MethodGet || req.Path != "/_matrix/client/v3/presence/%40alice%3Aexample.org/status" {
+		t.Errorf("Presence sent %s %s", req.Method, req.Path)
+	}
+	if _, err := alice.Sync(t.Context(), SyncRequest{}); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	if got, found, err := bob.Presence(t.Context(), alice.uid); err != nil || !found || got != "online" {
+		t.Fatalf("presence after a default sync = %q, %v, %v; want online", got, found, err)
+	}
+	if err := alice.SetPresence(t.Context(), alice.uid, "offline"); err != nil {
+		t.Fatalf("SetPresence: %v", err)
+	}
+	if got, found, err := bob.Presence(t.Context(), alice.uid); err != nil || !found || got != "offline" {
+		t.Fatalf("presence after a PUT of offline = %q, %v, %v; want offline", got, found, err)
+	}
+	before := len(srv.Requests())
+	if _, _, err := bob.Presence(t.Context(), ""); !errors.Is(err, ErrInvalid) {
+		t.Errorf("an empty user ID: %v, want ErrInvalid", err)
+	}
+	if len(srv.Requests()) != before {
+		t.Error("a refused presence read reached the server")
+	}
+	for _, body := range []string{`{"presence":"away"}`, `{}`, `[]`} {
+		inject(srv, http.MethodGet, "/presence/", http.StatusOK, body)
+		if got, found, err := bob.Presence(t.Context(), alice.uid); !errors.Is(err, ErrUnreachable) || found || got != "" {
+			t.Errorf("answer %s = %q, %v, %v; want ErrUnreachable", body, got, found, err)
+		}
+	}
+	inject(srv, http.MethodGet, "/presence/", http.StatusNotFound, `{"errcode":"M_UNRECOGNIZED","error":"x"}`)
+	if _, found, err := bob.Presence(t.Context(), alice.uid); !errors.Is(err, ErrNotFound) || found {
+		t.Errorf("a 404 that is not M_NOT_FOUND = %v, %v; want ErrNotFound", found, err)
+	}
 }
 
 func TestSyncMalformed(t *testing.T) {

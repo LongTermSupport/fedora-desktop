@@ -317,7 +317,7 @@ func Prefix(m declare.LXCMember, gitConfig []byte) (proto.Prefix, error) {
 	if err != nil {
 		return proto.Prefix{}, err
 	}
-	repo, err := repoName(origin, hasOrigin, m.Checkout)
+	repo, err := RepoName(origin, hasOrigin, m.Checkout)
 	if err != nil {
 		return proto.Prefix{}, err
 	}
@@ -334,9 +334,10 @@ func Prefix(m declare.LXCMember, gitConfig []byte) (proto.Prefix, error) {
 
 const checkoutName = "the checkout's directory name"
 
-// repoName is the handle's repo: the origin URL's last path component less .git, else the
-// checkout directory's base name, normalised (A 2.3).
-func repoName(origin string, hasOrigin bool, checkout string) (string, error) {
+// RepoName is the handle's repo: the origin URL's last path component less .git, else the
+// checkout directory's base name, normalised (A 2.3). ccy-teams seats add derives a pool seat's
+// repo by it too, so a checkout's seats and its LXC members share one rule.
+func RepoName(origin string, hasOrigin bool, checkout string) (string, error) {
 	file, name := checkoutName, filepath.Base(checkout)
 	if hasOrigin {
 		file = gitFile

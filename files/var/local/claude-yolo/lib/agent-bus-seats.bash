@@ -27,23 +27,16 @@
 # decides each list's system and refuses (78) an agent-bus list when agent-bus is missing, so a
 # teamchat launch runs on a host without it.
 
-# ccy_seats_check <list> <attended> [claude-args...] — the canonical form of a --teams list,
-# printed on stdout, as `agent-bus seat check` gives it. Attended (true: a person at a
-# terminal), a team named alone is kept for the chooser; otherwise it is refused (64). A launch
-# that takes seats with claude's -c/--continue is refused (64, the owner's ruling Q67): it
-# resumes the checkout's newest conversation, which in a team checkout may be another seat's.
-# The arguments are never rewritten; the refusal names `ccy --resume <id>` with the id the
-# seat's session recorded (`ccy-teams seats conversation`, issue 409), or, when none can be
-# named, a bare `ccy --resume` (Claude Code's picker; the SessionStart hook records the
-# conversation picked, owner's ruling Q70). Changes nothing and runs no sudo.
+# ccy_seats_check <list> <attended> — the canonical form of a --teams list, printed on stdout,
+# as `agent-bus seat check` gives it. Attended (true: a person at a terminal), a team named
+# alone is kept for the chooser; otherwise it is refused (64). Changes nothing and runs no sudo.
 #   status 0   the list is usable here; its canonical form printed
 #   otherwise  ccy-teams' or agent-bus's own code (64 usage, 78 a team not running here or
-#              agent-bus missing for an agent-bus list), 64 for --continue, or 78 when no
-#              single list was printed; the reason on stderr
+#              agent-bus missing for an agent-bus list), or 78 when no single list was printed;
+#              the reason on stderr
 ccy_seats_check() {
-    local list="${1?ccy_seats_check requires a list}" canonical rc=0 arg id
+    local list="${1?ccy_seats_check requires a list}" canonical rc=0
     local attended="${2:?ccy_seats_check requires true or false}"
-    shift 2
     local check=(ccy-teams internal seat-check "$list")
     if [ "$attended" != true ]; then
         check+=(--resolved)
@@ -57,19 +50,30 @@ ccy_seats_check() {
         print_error "agent-bus seat check accepted '$list' but did not print one canonical list; update agent-bus (play-agent-bus.yml)."
         return 78
     fi
-    for arg in "$@"; do
-        [ "$arg" = --continue ] || [ "$arg" = -c ] || continue
-        print_error "ccy refuses --continue in a team seat: it resumes this checkout's newest conversation, which may be another seat's."
-        if id=$(ccy-teams seats conversation "$canonical"); then
-            printf '%s\n' "  Resume the conversation this seat's session recorded:" "    ccy --resume $id --teams $canonical" >&2
-        else
-            printf '%s\n' "  No recorded conversation of the seat can be named (ccy-teams seats conversation $canonical; the reason is above)." \
-                "  Choose it in Claude Code's picker instead; the seat records the conversation you pick:" \
-                "    ccy --resume --teams $canonical" >&2
-        fi
-        return 64
-    done
     printf '%s\n' "$canonical"
+}
+
+# ccy_seats_resume <canonical> <relaunch> <given> — the conversation the seated launch runs (issue 417),
+# decided by `ccy-teams internal seat-resume` from CLAUDE_ARGS and the seats' records. ccy's
+# --fresh and --rebind reach CLAUDE_ARGS through the parse's last branch; ccy-teams takes them out
+# of the words before any `--` and prints that count, then the new CLAUDE_ARGS: with
+# `--resume <id>` (a plain launch resumes the seats' recorded conversation) or `--session-id <id>`
+# (--fresh) added, or nothing added (the arguments already say it, or the bare --resume picker).
+# It refuses --continue (the owner's ruling Q67), seats with no conversation that can be named
+# (naming the repair and --fresh) and --resume <id> other than the record without --rebind.
+# relaunch is non-empty for a restore, a team restart or the supervisor's relaunch, whose
+# --resume <id> is the session's own and moves the record. given is the --teams list as the
+# person gave it: seats the chooser picked, never used, start fresh (issue 423).
+#   status 0   CLAUDE_ARGS and CLAUDE_ARGS_BEFORE_SEPARATOR carry the conversation
+#   otherwise  ccy-teams' code (64 refused, 1 a record that cannot be read or written), or 78
+#              for an answer with no count
+ccy_seats_resume() {
+    local words=()
+    mapfile -d '' -t words < <(ccy-teams internal seat-resume "--relaunch=$2" "--given=${3?ccy_seats_resume requires the list as given}" \
+        "--before=${CLAUDE_ARGS_BEFORE_SEPARATOR:-${#CLAUDE_ARGS[@]}}" "$1" -- "${CLAUDE_ARGS[@]}")
+    wait "$!" || return
+    [[ "${words[0]-}" =~ ^[0-9]+$ ]] || { print_error "ccy-teams internal seat-resume did not print the count of claude's words; update ccy-teams (play-claude-yolo.yml)." && return 78; }
+    CLAUDE_ARGS_BEFORE_SEPARATOR=${words[0]} CLAUDE_ARGS=("${words[@]:1}")
 }
 
 # ccy_seats_take <canonical-list> <unattended> <no-bus> <container> — fill CCY_SEAT_RUN_ARGS

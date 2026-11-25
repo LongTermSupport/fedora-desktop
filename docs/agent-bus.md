@@ -77,7 +77,9 @@ launch does not start.
    say so: its own `client: lightning` in `agent_bus_element_teams`, else
    `agent_bus_matrix_client: lightning` (Element by default). Every menu line and message then
    names Lightning, `ccy-teams` opens the team's Lightning launcher in its own window, and
-   setting it up writes the team's own Lightning instance instead of an Element profile. Who
+   setting it up writes the team's own Lightning instance instead of an Element profile. For
+   one sidebar instead of two (a portrait window), untick *Show spaces rail* in Lightning's
+   settings. Who
    has signed in is read from the team's homeserver either way. Why, and the alternatives weighed:
    [RESEARCH-one-element-window.md](../CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/RESEARCH-one-element-window.md).
 3. **Add ccy sessions.** `ccy --teams` with no value, in a checkout of a GitHub repository,
@@ -789,8 +791,8 @@ checkout's `.claude/ccy/` if it is not there, so a repo never used with ccy work
 your `gh` must be logged in.
 
 **On a teamchat (v2) team** a cc session joins as a ccy session does: its seat is a pool seat of
-the checkout, issued with `--prefix <repo>+<site>.host` and placed with `teamchat seat place-issued --checkout <dir>` ([Issuing a seat](agent-bus-cross-network.md)), never made with
-sudo; the chooser lists the checkout's teamchat teams and the consent names the pool seat's
+the checkout, issued with `--prefix <repo>+<site>.host` and placed with `teamchat seat place-issued --checkout <dir>` ([Issuing a seat](agent-bus-cross-network.md)), or on the homeserver's
+own machine by `ccy-teams seats add <team> --host` in the checkout, never made at launch; the chooser lists the checkout's teamchat teams and the consent names the pool seat's
 handle. `ccy-teams internal cc-run` runs the session under `teamchat run --kind host` with the
 seat store's directories for that session, so `ccy --stop`, `ccy-sessions` restore and a team
 restart read its conversation from the seat store, and its end releases the seats (a killed

@@ -19,11 +19,14 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/system"
 )
 
-// Seated is the conversation a ccy launch of a seat list in a checkout resumes: the one recorded
-// by the session that held those seats (issue 409; the owner's ruling Q67 refuses --continue).
+// Seated is the conversation a ccy launch of a seat list in a checkout resumes (issue 409, issue
+// 417): the one the seats' records name, or, when no named seat has a record, the one recorded by
+// the session that held those seats (Session). Unrecorded is the named seats with no record of
+// their own, which the launch records.
 type Seated struct {
-	Session string
-	ID      string
+	Session    string
+	ID         string
+	Unrecorded []string
 }
 
 // ErrNoSeatConversation is ForSeats' refusal when no session that held the seats has a
@@ -41,22 +44,26 @@ type session struct {
 	err      error
 }
 
-// ForSeats is the conversation recorded for the ccy session in checkout that held every seat of
-// list: the session whose keeper's report (agent-bus) or desired membership (teamchat) names them
-// all, its record read through Locate as a restore reads it, transcript included. It never falls
-// back to the checkout's newest transcript. Refused: no such session, or none with a record (both
-// ErrNoSeatConversation); more than one with a record; and an id another session of the checkout
-// records too (a stale record), each refusal naming the sessions, their seats and when each
-// record was written, the newest marked but never chosen.
+// ForSeats is the conversation the seats of list in checkout resume. Their own records answer
+// first (issue 417): every named seat with a record must name one id, whose transcript is here; a
+// named seat with none is allowed when another has one, and is listed in Unrecorded. With no seat
+// record at all, the session records answer as before: the ccy session in checkout that held every
+// seat of list, whose keeper's report (agent-bus) or desired membership (teamchat) names them all,
+// its record read through Locate as a restore reads it, transcript included. It never falls back
+// to the checkout's newest transcript. Each refusal is a *SeatError of one of the four cases: no
+// session held the seats, or none recorded a conversation (both ErrNoSeatConversation); the
+// records disagree (seats with different ids, more than one session with a record, or an id
+// another session of the checkout records too, each named with when it was written, the newest
+// marked but never chosen); or the recorded conversation has no transcript.
 func ForSeats(checkout, list string, where Where) (Seated, error) {
-	seats, err := membership.ParseSeats(strings.Join(strings.Fields(list), ""))
+	seats, err := parseList(list)
 	if err != nil {
-		return Seated{}, fmt.Errorf("the seats %q: %w", list, err)
-	}
-	if len(seats) == 0 {
-		return Seated{}, errors.New("no seat is named: give <seat>@<team>[,<seat>@<team>...]")
+		return Seated{}, err
 	}
 	canonical := membership.Canonical(seats)
+	if got, ok, err := fromSeatRecords(checkout, canonical, seats); ok || err != nil {
+		return got, err
+	}
 	base := registry.Record{Dir: checkout, Prefix: membership.KindCcy, Args: []string{ccyenv.FlagTeams, canonical}}
 	sys, err := systemOf(base, checkout, where.Getenv)
 	if err != nil {
@@ -76,7 +83,11 @@ func ForSeats(checkout, list string, where Where) (Seated, error) {
 		rec.Name = all[i].name
 		all[i].conv, all[i].err = readRecorded(rec, where)
 	}
-	return choose(checkout, canonical, all)
+	got, err := choose(checkout, canonical, all)
+	if err == nil {
+		got.Unrecorded = strings.Split(canonical, ",")
+	}
+	return got, err
 }
 
 // choose is ForSeats' verdict over every session of the checkout.
@@ -93,22 +104,26 @@ func choose(checkout, canonical string, all []session) (Seated, error) {
 	}
 	switch {
 	case len(holding) == 0:
-		return Seated{}, fmt.Errorf("%w: no session record in %s holds %s", ErrNoSeatConversation, checkout, canonical)
+		return Seated{}, &SeatError{Case: CaseNoSession, Err: fmt.Errorf("%w: no session record in %s holds %s", ErrNoSeatConversation, checkout, canonical)}
 	case len(found) == 0:
 		lines := make([]string, 0, len(holding))
+		untaken := CaseNoTranscript
 		for _, s := range holding {
 			lines = append(lines, fmt.Sprintf("  %s (%s): %v", s.name, seatsOf(s), s.err))
+			if !errors.Is(s.err, errNoTranscript) {
+				untaken = CaseNoConversation
+			}
 		}
-		return Seated{}, fmt.Errorf("%w: no session in %s that held %s has a conversation to resume:\n%s",
-			ErrNoSeatConversation, checkout, canonical, strings.Join(lines, "\n"))
+		return Seated{}, &SeatError{Case: untaken, Err: fmt.Errorf("%w: no session in %s that held %s has a conversation to resume:\n%s",
+			ErrNoSeatConversation, checkout, canonical, strings.Join(lines, "\n"))}
 	case len(found) > 1:
-		return Seated{}, fmt.Errorf("more than one session in %s held %s, each with its own conversation, so which is the seat's cannot be told:\n%s",
-			checkout, canonical, describe(found))
+		return Seated{}, &SeatError{Case: CaseAmbiguous, Err: fmt.Errorf("more than one session in %s held %s, each with its own conversation, so which is the seat's cannot be told:\n%s",
+			checkout, canonical, describe(found))}
 	}
 	same := slices.DeleteFunc(slices.Clone(all), func(s session) bool { return s.err != nil || s.conv.id != found[0].conv.id })
 	if len(same) > 1 {
-		return Seated{}, fmt.Errorf("the conversation %s is recorded by more than one session in %s, so at least one record is stale and which session it is cannot be told; it is not chosen for you:\n%s",
-			found[0].conv.id, checkout, describe(same))
+		return Seated{}, &SeatError{Case: CaseAmbiguous, Err: fmt.Errorf("the conversation %s is recorded by more than one session in %s, so at least one record is stale and which session it is cannot be told; it is not chosen for you:\n%s",
+			found[0].conv.id, checkout, describe(same))}
 	}
 	return Seated{Session: found[0].name, ID: found[0].conv.id}, nil
 }

@@ -34,11 +34,12 @@ const (
 )
 
 // replied is what a reply knows of the item it answers, from the store or from a fetch: its
-// room, its sender (a carried item's original sender), and a ping's verb.
+// room, its sender (a carried item's original sender), and a ping's verb and, when fetched, its
+// reference (the ledger does not keep one), which an answer's refusal names.
 type replied struct {
 	room, from string
 	ping       bool
-	verb       string
+	verb, ref  string
 }
 
 // reply is SD1 (n3d-D13): the team, room and addressee from the ledger where it holds the id,
@@ -103,8 +104,10 @@ func (e *Engine) answerPing(ctx context.Context, st sendTeam, a wire.ReplyArgs, 
 		p.Ref = proto.LowercaseRefRepo(*a.Ref) // A 9.1: a sender lowercases OWNER/REPO
 	}
 	body := pingBody(p, st.namer())
+	asked := refAsked{verb: p.Verb, how: refFlag, sent: p.Ref, pinged: it.ref}
 	return e.send(ctx, st, state.SendPing, func(c proto.Composer) (proto.Outgoing, error) {
-		return c.Ping(p, a.ID, body)
+		o, err := c.Ping(p, a.ID, body)
+		return o, refusalFor(st.id, err, asked)
 	}, out)
 }
 
@@ -207,9 +210,10 @@ func (e *Engine) fetched(ctx context.Context, st sendTeam, id string) (replied, 
 		if _, member := st.roster.Members[k.From]; !member && !st.roster.IsHuman(k.From) {
 			return replied{}, exits.New(exits.CodeTarget, &st.id, msgFormerMember, exits.Name(k.From), exits.Team(st.id))
 		}
-		return replied{room: proto.PurposeMain, from: k.From, ping: k.Kind == proto.CarriedPing, verb: k.Verb}, nil
+		return replied{room: proto.PurposeMain, from: k.From, ping: k.Kind == proto.CarriedPing, verb: k.Verb, ref: k.Ref}, nil
 	}
-	return replied{room: proto.PurposeMain, from: v.Event.Sender, ping: v.Kind == proto.KindPing, verb: v.Content.Ping.Verb}, nil
+	p := v.Content.Ping
+	return replied{room: proto.PurposeMain, from: v.Event.Sender, ping: v.Kind == proto.KindPing, verb: p.Verb, ref: p.Ref}, nil
 }
 
 // notAnItem is 23 for a fetched event this member's judge does not take, saying why (issue

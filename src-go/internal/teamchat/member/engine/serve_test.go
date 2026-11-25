@@ -297,11 +297,11 @@ func TestAPeerRendersItsTextOrBody(t *testing.T) {
 	ops := tid(t, "ops")
 	p := state.Pending{ID: evID(1), Room: proto.PurposeMain, Item: records.KindPeer, SentMS: 1, From: agent(ops, 3), Restored: true}
 	peer := proto.Verdict{Content: proto.Content{Body: "body"}}
-	if r, ok := itemRecord(ops, p, peer, testNamer(ops), nil).(records.Peer); !ok || r.Text != "body" || !r.Restored {
+	if r, ok := itemRecord(ops, p, peer, team.InQuestion{}, testNamer(ops), nil).(records.Peer); !ok || r.Text != "body" || !r.Restored {
 		t.Fatalf("peer = %+v", r)
 	}
 	peer.Content.Text.Text = "text"
-	if r, ok := itemRecord(ops, p, peer, testNamer(ops), nil).(records.Peer); !ok || r.Text != "text" {
+	if r, ok := itemRecord(ops, p, peer, team.InQuestion{}, testNamer(ops), nil).(records.Peer); !ok || r.Text != "text" {
 		t.Fatalf("peer with a text = %+v", r)
 	}
 }
@@ -310,11 +310,11 @@ func TestAPingRendersItsTrustAndAnswer(t *testing.T) {
 	ops := tid(t, "ops")
 	p := state.Pending{ID: evID(1), Room: proto.PurposeMain, Item: records.KindPing, SentMS: 1, From: agent(ops, 3)}
 	ping := proto.Verdict{Content: proto.Content{Ping: proto.Ping{Verb: "review", Ref: "pr:1"}}}
-	if r, ok := itemRecord(ops, p, ping, testNamer(ops), nil).(records.Ping); !ok || r.Trust != "-" || r.Re != nil || *r.Ref != "pr:1" {
+	if r, ok := itemRecord(ops, p, ping, team.InQuestion{}, testNamer(ops), nil).(records.Ping); !ok || r.Trust != "-" || r.Re != nil || *r.Ref != "pr:1" {
 		t.Fatalf("ping = %+v", r)
 	}
 	ping.Forge, ping.Answer = &proto.ForgeCheck{}, &proto.Answer{Ping: evID(9)}
-	if r, ok := itemRecord(ops, p, ping, testNamer(ops), nil).(records.Ping); !ok || r.Trust != proto.TrustTrusted || *r.Re != evID(9) {
+	if r, ok := itemRecord(ops, p, ping, team.InQuestion{}, testNamer(ops), nil).(records.Ping); !ok || r.Trust != proto.TrustTrusted || *r.Re != evID(9) {
 		t.Fatalf("an answer = %+v", r)
 	}
 }
@@ -326,7 +326,7 @@ func TestANoticeRendersWhatItCarries(t *testing.T) {
 		Notice:  proto.Notice{Event: "left", Subject: agent(ops, 3), Reason: "bye"},
 		Carried: proto.Carried{Kind: "ping", Verb: "review", From: "x", Text: "t"},
 	}}
-	r, ok := itemRecord(ops, p, notice, testNamer(ops), nil).(records.Notice)
+	r, ok := itemRecord(ops, p, notice, team.InQuestion{}, testNamer(ops), nil).(records.Notice)
 	if !ok || r.Subject != "repo.3" || r.Carried == nil || *r.Carried.Verb != "review" {
 		t.Fatalf("notice = %+v", r)
 	}
@@ -337,15 +337,15 @@ func TestATimeoutRendersFromItsKeyAndTheOutbox(t *testing.T) {
 	ref := "pr:2"
 	p := state.Pending{ID: evID(7) + "~repo.3+site.podman", Item: records.KindTimeout}
 	pings := []state.Ping{{ID: evID(6), Verb: "x"}, {ID: evID(7), Verb: "review", Ref: &ref}}
-	if r, ok := itemRecord(ops, p, proto.Verdict{}, testNamer(ops), pings).(records.Timeout); !ok || r.Silent != "repo.3+site.podman" || r.Verb == nil || *r.Verb != "review" || r.Ref != &ref || r.Question != nil {
+	if r, ok := itemRecord(ops, p, proto.Verdict{}, team.InQuestion{}, testNamer(ops), pings).(records.Timeout); !ok || r.Silent != "repo.3+site.podman" || r.Verb == nil || *r.Verb != "review" || r.Ref != &ref || r.Question != nil {
 		t.Fatalf("timeout = %+v", r)
 	}
 	p.ID = evID(7)
-	if r, ok := itemRecord(ops, p, proto.Verdict{}, testNamer(ops), pings).(records.Timeout); !ok || r.Silent != "" || r.Verb != nil || r.Question != nil {
+	if r, ok := itemRecord(ops, p, proto.Verdict{}, team.InQuestion{}, testNamer(ops), pings).(records.Timeout); !ok || r.Silent != "" || r.Verb != nil || r.Question != nil {
 		t.Fatalf("an unkeyed timeout = %+v", r)
 	}
 	p.ID = evID(9) + "~repo.3+site.podman"
-	if r, ok := itemRecord(ops, p, proto.Verdict{}, testNamer(ops), pings).(records.Timeout); !ok || r.Silent != "repo.3+site.podman" || r.Verb != nil || r.Ref != nil {
+	if r, ok := itemRecord(ops, p, proto.Verdict{}, team.InQuestion{}, testNamer(ops), pings).(records.Timeout); !ok || r.Silent != "repo.3+site.podman" || r.Verb != nil || r.Ref != nil {
 		t.Fatalf("a timeout whose ping the outbox lacks = %+v", r)
 	}
 }

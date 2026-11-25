@@ -318,6 +318,10 @@ type Team interface {
 	QuestionsPostable(content proto.Value) error
 	// FetchEvent fetches one event of the questions room by id (a retitle's root, A 10.4).
 	FetchEvent(ctx context.Context, id string) (json.RawMessage, error)
+	// QuestionIn is which question the questions-room event id, of human content h, is in, by
+	// the live index (InQuestionOf); nothing when this member holds none (R34). It must not
+	// block: the engine's state goroutine calls it.
+	QuestionIn(id string, h proto.Human) InQuestion
 }
 
 // ErrQuestionsNotReady is a questions post the sender holds: the index is not at the head.
@@ -383,6 +387,8 @@ type ReportsRoom struct {
 type Notices interface {
 	notice.Client
 	SetPresence(ctx context.Context, userID, presence string) error
+	// Presence is an account's presence as the homeserver answers it, found=false for none.
+	Presence(ctx context.Context, userID string) (string, bool, error)
 	Anchors() proto.Anchors
 	// Roster is false until a verification.
 	Roster() (proto.Roster, bool)

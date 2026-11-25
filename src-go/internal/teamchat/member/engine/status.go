@@ -5,8 +5,10 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/colour"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
@@ -200,6 +202,52 @@ type teamView struct {
 	answers   map[string][]answerNote
 	sending   []state.Sending
 	unsent    int64
+	// presence is each roster agent's presence as the homeserver answered status (A 6.6).
+	presence map[string]string
+}
+
+// The presence a member record shows beside the three Matrix names: none recorded, or the read
+// failed.
+const (
+	presenceOnline  = matrix.PresenceOnline
+	presenceUnknown = "unknown"
+)
+
+// presenceWait bounds one team's presence reads, so a homeserver that does not answer delays
+// status by at most this.
+const presenceWait = 5 * time.Second
+
+// presences is each agent of v's verified roster's presence, read from the homeserver off the
+// state goroutine (A 6.6: a direct read touches no presence; this member's own included, so
+// its record shows its own link's sync as the others see it). A failed read is logged and left
+// out, which the record shows as unknown.
+func (e *Engine) presences(ctx context.Context, v teamView) map[string]string {
+	if v.tm == nil {
+		return nil
+	}
+	n := v.tm.Notices()
+	roster, verified := n.Roster()
+	if !verified {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, presenceWait)
+	defer cancel()
+	out := map[string]string{}
+	server := paths.ServerName(v.id)
+	for _, id := range slices.Sorted(maps.Keys(roster.Members)) {
+		if _, agent := proto.AgentHandle(id, server); !agent {
+			continue
+		}
+		p, found, err := n.Presence(ctx, id)
+		if err != nil {
+			e.logf("status: team %s: the presence of %s was not read: %v", v.id, id, err)
+			continue
+		}
+		if found {
+			out[id] = p
+		}
+	}
+	return out
 }
 
 // status is LN5: per held team its team, member and room records, then the refused adds, then
@@ -221,6 +269,7 @@ func (e *Engine) status(ctx context.Context, only *paths.TeamID, out RecordWrite
 	}
 	var recs []records.Record
 	for _, v := range views {
+		v.presence = e.presences(ctx, v)
 		recs = append(recs, teamRecords(v, e.cfg.Delivery)...)
 	}
 	for _, id := range refused {
@@ -337,8 +386,11 @@ func memberRecords(v teamView, roster proto.Roster, server string) []records.Rec
 		if !ok {
 			continue
 		}
-		// Presence is not tracked here: only this member is known to be present.
-		out = append(out, records.Member{Team: v.id, Handle: hd.String(), Role: roster.Members[id].Role, Present: id == v.userID})
+		p, found := v.presence[id]
+		if !found {
+			p = presenceUnknown
+		}
+		out = append(out, records.Member{Team: v.id, Handle: hd.String(), Role: roster.Members[id].Role, Present: p == presenceOnline, Presence: p})
 	}
 	out = append(out, records.Room{Team: v.id, Purpose: proto.PurposeMain, State: roomJoined})
 	out = append(out, questionsRoomRecord(v, roster))

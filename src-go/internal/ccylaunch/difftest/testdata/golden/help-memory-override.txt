@@ -52,15 +52,15 @@ Options:
                          passphrase is refused unless your ssh-agent holds it (ssh-add it)
   --teams [TEAM | SEAT@TEAM[,SEAT@TEAM...]]
                          Join agent team bus teams, one seat each. Bare --teams lists the
-                         teams and what each is for (Tab marks several); one not covering
-                         this repository is widened only on a yes. A team alone: ccy asks
-                         the seat (lowest free is the default), and offers to create a team
-                         this machine lacks. Name seats (--teams 1@dev-team,qa2@other-team;
-                         quote a list with spaces) when nobody can be asked. A seat is made
-                         on first use (sudo agent-bus add-member), held by one session; the
-                         launch prints each seat, role and description (status line 👥 A,B).
-                         Exit 64 list unusable, 75 seat held elsewhere, 78 team or seat not
-                         set up here. Needs play-agent-bus.yml; Quick Launch keeps both.
+                         teams (Tab marks several); a team alone asks the seat. Name seats
+                         (--teams 1@dev-team,qa2@other-team) when nobody can be asked. A seat
+                         is held by one session. The seats' recorded conversation is resumed;
+                         with none, exit 64 names the repair (ccy-teams seats conversation
+                         SEATS --set ID) and --fresh, which starts a new one. --resume ID
+                         other than the record needs --rebind; --continue is refused.
+                         Exit 64 list or record unusable, 75 seat held elsewhere, 78 team or
+                         seat not set up here. Needs play-agent-bus.yml; Quick Launch keeps
+                         both.
   --no-bus               Leave the agent team bus kit out. Without --teams a session started
                          in ccy's tmux is on no team but carries the kit idle (no hooks run,
                          its own status line, no inbox socket; joining a team relaunches it).

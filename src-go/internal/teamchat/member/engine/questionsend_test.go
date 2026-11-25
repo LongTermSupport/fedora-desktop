@@ -74,6 +74,13 @@ func (f *fakeTeam) FetchEvent(_ context.Context, id string) (json.RawMessage, er
 	return nil, exits.New(exits.CodeNotFound, nil, "not in questions")
 }
 
+// QuestionIn is the team's answer through the one resolver, over the fake's index.
+func (f *fakeTeam) QuestionIn(id string, h proto.Human) team.InQuestion {
+	f.q.mu.Lock()
+	defer f.q.mu.Unlock()
+	return team.InQuestionOf(f.q.idx, id, h)
+}
+
 func (f *fakeTeam) postedQuestions() []string {
 	f.q.mu.Lock()
 	defer f.q.mu.Unlock()

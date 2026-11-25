@@ -282,7 +282,7 @@ func (e *Engine) render(cand candidate, names map[paths.TeamID]namer, c *copies)
 	if needsContent(s.Pending[i]) && !known {
 		return nil, 0, nil, false
 	}
-	return s, i, itemRecord(cand.team, s.Pending[i], v, names[cand.team], s.Outbox.Pings), true
+	return s, i, itemRecord(cand.team, s.Pending[i], v, itemQuestion(h, s.Pending[i], v), names[cand.team], s.Outbox.Pings), true
 }
 
 // commit writes each copy, keeping it in memory only once written; it is the teams whose write

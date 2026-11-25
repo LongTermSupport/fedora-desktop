@@ -90,6 +90,75 @@ func TestFreshArgsAreTheResumeArgsWithoutTheResume(t *testing.T) {
 	if _, err := FreshArgs("maybe", "ccy", nil); err == nil {
 		t.Fatal("a bad compose outcome is an error")
 	}
+}
+
+// Issue 417: a plain `ccy --teams` resumes the seats' recorded conversation, so a fresh start of a
+// seated ccy record says --fresh, before any `--`; a resume never does, and cc has no --fresh.
+func TestFreshArgsOfASeatedCcyRecordSayFresh(t *testing.T) {
+	cases := []struct {
+		name, prefix string
+		args         []string
+		want         string
+	}{
+		{"seated ccy", "ccy", []string{"--teams", "1@alpha"}, "--teams|1@alpha|--supervise|--fresh"},
+		{"seated with equals", "ccy", []string{"--teams=1@alpha", "--", "--model", "opus"}, "--teams=1@alpha|--supervise|--fresh|--|--model|opus"},
+		{"teams after dash dash is claude's", "ccy", []string{"--", "--teams", "x"}, "--supervise|--|--teams|x"},
+		{"a token value is not teams", "ccy", []string{"--token", "--teams"}, "--token|--teams|--supervise"},
+		{"cc is never told", "cc", []string{"--teams", "1@alpha"}, "--teams|1@alpha"},
+	}
+	for _, c := range cases {
+		got, err := FreshArgs("", c.prefix, c.args)
+		if err != nil || joinArgs(got) != c.want {
+			t.Errorf("%s: got %q, %v; want %q", c.name, joinArgs(got), err, c.want)
+		}
+	}
+	got, err := ResumeArgs("", "ccy", []string{"--teams", "1@alpha", "--fresh", "--rebind"}, conversation)
+	if err != nil || joinArgs(got) != "--teams|1@alpha|--supervise|--resume|"+conversation {
+		t.Errorf("a resume drops a recorded --fresh and --rebind and adds none: got %q, %v", joinArgs(got), err)
+	}
+}
+
+// --fresh and --rebind decide one launch's conversation: a restore never replays them.
+func TestFreshAndRebindAreNotReplayed(t *testing.T) {
+	for _, w := range []string{"--fresh", "--rebind"} {
+		if FlagClass(w) != ClassDrop {
+			t.Errorf("%s is %s, want drop", w, FlagClass(w))
+		}
+		if out := strings.TrimSpace(bashWithArgs(t, `ccy_registry_flag_class "$1"`, w)); out != string(ClassDrop) {
+			t.Errorf("%s: bash says %q", w, out)
+		}
+	}
+}
+
+// Selectors is the one reading of claude's conversation selectors a seat launch decides on.
+func TestSelectorsOfClaudesArguments(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want Selection
+	}{
+		{"none", []string{"--model", "opus"}, Selection{}},
+		{"continue", []string{"--continue"}, Selection{Continue: true}},
+		{"short continue", []string{"-c"}, Selection{Continue: true}},
+		{"picker", []string{"--resume"}, Selection{Picker: true}},
+		{"picker before a flag", []string{"-r", "--model", "opus"}, Selection{Picker: true}},
+		{"resume id", []string{"--resume", conversation}, Selection{Resume: conversation}},
+		{"short resume id", []string{"-r", conversation}, Selection{Resume: conversation}},
+		{"resume equals", []string{"--resume=" + conversation}, Selection{Resume: conversation}},
+		{"session id", []string{"--session-id", conversation}, Selection{SessionID: conversation}},
+		{"session id equals", []string{"--session-id=" + conversation}, Selection{SessionID: conversation}},
+	}
+	for _, c := range cases {
+		if got := Selectors(c.args); got != c.want {
+			t.Errorf("%s: got %+v, want %+v", c.name, got, c.want)
+		}
+	}
+	if got := Selectors([]string{"--continue", "--resume", conversation}); got.Count() != 2 {
+		t.Errorf("two selectors counted %d", got.Count())
+	}
+	if got := Selectors(nil); got.Count() != 0 {
+		t.Errorf("no selector counted %d", got.Count())
+	}
 	if _, err := FreshArgs("", "", nil); err == nil {
 		t.Fatal("an empty prefix is an error")
 	}

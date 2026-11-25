@@ -288,18 +288,35 @@ Usage:
                                    cannot be read, unless --allow-known-team repeats the team
                                    (exit 78); a seat whose link of that team is running, or
                                    whose seat lock cannot be looked at (75)
-  ccy-teams seats conversation <seat>@<team>[,<seat>@<team>...]
-                                   print the conversation id recorded by the session of the
-                                   working directory's checkout that held every seat named
+  ccy-teams seats conversation <seat>@<team>[,<seat>@<team>...] [--set <id>]
+                                   print the conversation the seats of the working directory's
+                                   checkout resume, the one a plain `ccy --teams <list>` resumes:
+                                   their seat records (.claude/ccy/seat-conversations/), which
+                                   every named seat with one must agree on; with none, the one
+                                   recorded by the session that held every seat named
                                    (agent-bus: its keeper's applied.json; teamchat: its
-                                   desired.json in the seat store), for
-                                   `ccy --resume <id> --teams <list>`; ccy's --continue refusal
-                                   runs it. Never the newest transcript. Refused, exit 1: no
-                                   session held the seats, none recorded a conversation, more
-                                   than one did, or another session records the same id (a
-                                   stale record). Each refusal names the sessions, their seats
-                                   and when each record was written, the newest marked but not
-                                   chosen
+                                   desired.json in the seat store). Never the newest
+                                   transcript. Refused, exit 1, naming the repair and --fresh:
+                                   no session held the seats, none recorded a conversation, the
+                                   records disagree (seats, sessions, or one id twice), or its
+                                   transcript is not here. --set points the seats at <id>,
+                                   whose transcript must be in this checkout
+  ccy-teams seats add <team> [--host] [--human-text]
+                                   issue and place one teamchat seat for the working
+                                   directory's checkout, on the machine that runs the team's
+                                   homeserver. Its handle is derived, never typed:
+                                   <repo>.<N>+<site>.podman (.host with --host, a cc seat),
+                                   repo from the checkout's origin (else its directory name),
+                                   site the host_vars' teamchat_site (else local), N the
+                                   lowest number free in this checkout and on the roster.
+                                   The seat takes no human text unless --human-text is
+                                   given (a worker's default). sudo asks your password once for teamchat-admin member
+                                   add; its answer goes straight into the seat pool and is
+                                   never shown. Prints <N>@<team> to launch with
+                                   ccy --teams (cc --teams with --host). Refused: a team with
+                                   no status record here, whose homeserver is elsewhere (78,
+                                   naming the place-issued pipe); a failed issue or placement
+                                   (1; a seat issued but not placed names its reissue pipe)
   ccy-teams seats units list
   ccy-teams seats units print <name>
                                    the two user units that run the sweep: each name and its
@@ -350,6 +367,14 @@ Usage:
                                    mount. On teamchat: the seats taken from your seat store
                                    (refused when a mount reaches the store), desired.json
                                    written, then the session and control directory mounts
+  ccy-teams internal seat-resume [--relaunch=<why>] [--before=<n>] <seats> -- <claude args...>
+                                   the conversation a seated launch runs (issue 417): print
+                                   the count of claude's own words, then claude's arguments
+                                   without ccy's --fresh and --rebind, with --resume <id> (the
+                                   seats' recorded one) or --session-id <id> (--fresh, recorded)
+                                   added, NUL separated. Refused, exit 64: --continue, no
+                                   conversation to name, or --resume <id> other than the record
+                                   without --rebind or a relaunch. ccy calls it
   ccy-teams internal seat-check <list> [--resolved]
   ccy-teams internal seat-take <list> [--no-prompt]
                                    agent-bus seat check or take for an agent-bus list; for a

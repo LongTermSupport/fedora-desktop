@@ -401,6 +401,15 @@ func (e *Engine) replyQuestions(ctx context.Context, st sendTeam, id, text strin
 	if err != nil {
 		return doneOf(fetchErr(ctx, st.id, id, err))
 	}
+	// An edit answers as the post it revises (R10): the homeserver refuses a thread rooted at
+	// an edit, and the human's thread is the original's (A 7.5 accepts an edit only of a post
+	// of the same sender in this room).
+	if original := v.Human.Revises; v.Class == proto.SenderHuman && original != "" {
+		id = original
+		if v, err = st.tm.Refetch(ctx, proto.PurposeQuestions, id); err != nil {
+			return doneOf(fetchErr(ctx, st.id, id, err))
+		}
+	}
 	if v.Class != proto.SenderHuman || v.Event.Sender == "" {
 		return doneOf(exits.New(exits.CodeNotFound, &st.id, msgQNotHuman, exits.Team(st.id), exits.Name(id)))
 	}

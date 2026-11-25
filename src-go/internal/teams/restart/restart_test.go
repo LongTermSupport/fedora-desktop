@@ -195,7 +195,8 @@ func TestAStoppedMarkedSessionThatNeverTookATurnIsStartedFresh(t *testing.T) {
 	if got := m.run("alpha", "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}
-	want := "env CCY_SESSION_RESTORE=1 /x/ccy --teams 1@alpha --supervise"
+	// --fresh: a plain seated launch resumes the seats' recorded conversation (issue 417).
+	want := "env CCY_SESSION_RESTORE=1 /x/ccy --teams 1@alpha --supervise --fresh"
 	if !slices.Equal(m.started, []string{want}) {
 		t.Fatalf("started %q, want %q", m.started, want)
 	}

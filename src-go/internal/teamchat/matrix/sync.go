@@ -3,6 +3,7 @@ package matrix
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -70,8 +71,13 @@ func (req SyncRequest) filterQuery() (string, bool, error) {
 	return string(req.FilterJSON), true, nil
 }
 
+// PresenceOnline is the specification's presence value for a client that is connected (SPEC M50).
+const PresenceOnline = "online"
+
 // presenceOK says p is a presence the specification names.
-func presenceOK(p string) bool { return p == "online" || p == "offline" || p == "unavailable" }
+func presenceOK(p string) bool {
+	return p == PresenceOnline || p == "offline" || p == "unavailable"
+}
 
 const detailBadPresence = "a presence is online, offline or unavailable"
 
@@ -85,6 +91,32 @@ func (c *Client) SetPresence(ctx context.Context, userID, presence string) error
 		return err
 	}
 	return c.empty(ctx, call{method: http.MethodPut, path: path, body: jsonBody(map[string]string{"presence": presence})})
+}
+
+// Presence reads an account's presence (SPEC M54): GET /presence/{u}/status, a direct request
+// that touches no presence. found=false is a 404 M_NOT_FOUND (none recorded, or not visible
+// to this account); any other 404 is ErrNotFound. An answer naming none of the three is
+// malformed.
+func (c *Client) Presence(ctx context.Context, userID string) (string, bool, error) {
+	path, err := pathf(clientPrefix+"/presence/%s/status", userID)
+	if err != nil {
+		return "", false, err
+	}
+	cl := call{method: http.MethodGet, path: path}
+	var out struct {
+		Presence string `json:"presence"`
+	}
+	err = c.object(ctx, cl, &out)
+	if e, failed := errors.AsType[*Error](err); failed && errors.Is(err, ErrNotFound) && e.Errcode == "M_NOT_FOUND" {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if !presenceOK(out.Presence) {
+		return "", false, cl.malformed()
+	}
+	return out.Presence, true, nil
 }
 
 // SyncResponse is a sync answer: the batch to sync from next, and per room the joined, invited

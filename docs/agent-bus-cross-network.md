@@ -104,6 +104,17 @@ anything but loopback.
   io_uring (`io_uring_t`), logs `CreateIOUring failed: Permission denied`, and uses ordinary IO
   instead. Allowing it would allow it for every `init_t` process.
 
+## A seat on the homeserver's own machine
+
+Where the team's homeserver runs on the machine you launch on, one command in the checkout adds a
+seat: `ccy-teams seats add <team>` (`--host` for a host `cc` seat). It derives the handle (repo
+from the checkout's origin, site from `teamchat_site`, the lowest free number), runs
+`teamchat-admin member add` through one password sudo, and places its answer in the checkout's
+pool without showing it. The seat takes no human text unless you add `--human-text` (a worker's
+default; a coordinator needs it). It prints `<N>@<team>`; launch with `ccy --teams <N>@<team>`. A team
+whose homeserver is elsewhere is refused there; use the pipe below. `ccy-teams --help` has the
+detail.
+
 ## A member on another machine
 
 The credential is issued on the homeserver host and sent to the machine that will use it. Nothing

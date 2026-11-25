@@ -9,7 +9,9 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatchoice"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -26,6 +28,8 @@ type Cmd struct {
 	Stderr   io.Writer
 	Declared func(context.Context) ([]string, error)
 	Status   func(paths.TeamID) (status.Record, bool, error)
+	// Sessions are the session records a seat's holder is judged by (PoolState).
+	Sessions seat.Sessions
 }
 
 // Here is the seat store and the checkout key of the working directory, from HOME and
@@ -72,20 +76,11 @@ func (c *Cmd) Live(ctx context.Context, team string) (bool, error) {
 	return len(lines) == 1 && lines[0].System == Teamchat, nil
 }
 
-// SeatParts are the seat parts of the handles of the working directory's pool seats of team,
-// in pool order: the `<seat>` a launch names as `<seat>@<team>`.
-func (c *Cmd) SeatParts(team string) ([]string, error) {
+// SeatCount is how many pool seats of team the working directory's checkout has, for the
+// chooser's list; which seat to take is PoolState's, which says who holds each (issue 423).
+func (c *Cmd) SeatCount(team string) (int, error) {
 	handles, err := c.Handles(team)
-	if err != nil {
-		return nil, err
-	}
-	var parts []string
-	for _, s := range handles {
-		if h, ok := proto.ParseHandle(s); ok {
-			parts = append(parts, h.Seat)
-		}
-	}
-	return parts, nil
+	return len(handles), err
 }
 
 // Handles are the member handles of the working directory's pool seats of team, in pool order:
@@ -108,6 +103,72 @@ func (c *Cmd) Handles(team string) ([]string, error) {
 		handles = append(handles, s.String())
 	}
 	return handles, nil
+}
+
+// PoolState is the working directory's pool seats of team as a launch with no seat named offers
+// them: each with the session a take would be refused for (issue 423). With no session records
+// wired it refuses, never calling a held seat free.
+func (c *Cmd) PoolState(team string) ([]seatchoice.Seat, error) {
+	if c.Sessions == nil {
+		return nil, errors.New("the seats' holders cannot be judged: no session records are wired")
+	}
+	id, err := paths.ParseTeamID(team)
+	if err != nil {
+		return nil, fmt.Errorf("team %s: %w", team, err)
+	}
+	store, key, _, err := Here(c.Getenv, c.Getwd)
+	if err != nil {
+		return nil, err
+	}
+	return PoolState(store, key, id, c.Sessions)
+}
+
+// PoolState is checkout's pool seats of team in store, each with the session a take would be
+// refused for ("" free). It is the take's own test of a holding (seat.Store's clearHeld), read
+// without opening the store for allocation: a complete holding whose session's keeper runs now
+// (seat.KeeperOf) or whose record is kept (sessions) is held; one whose session is over, or an
+// incomplete one, the take releases or quarantines, so it is free. A record or lock that cannot
+// be read is an error, never a free seat.
+func PoolState(store paths.Store, checkout paths.CheckoutKey, team paths.TeamID, sessions seat.Sessions) ([]seatchoice.Seat, error) {
+	names, err := PoolSeats(store, checkout, team)
+	if err != nil {
+		return nil, err
+	}
+	holdings, err := seat.ReadHoldings(store, checkout)
+	if err != nil {
+		return nil, fmt.Errorf("the holdings of %s: %w", team, err)
+	}
+	out := make([]seatchoice.Seat, 0, len(names))
+	for _, n := range names {
+		s := seatchoice.Seat{Name: n.String(), Handle: n.String()}
+		if h, ok := proto.ParseHandle(n.String()); ok {
+			s.Name = h.Seat
+		}
+		for _, h := range holdings {
+			if !h.Complete || h.Seat.Team != team || h.Seat.Name != n {
+				continue
+			}
+			held, err := sessionHolds(store, sessions, h.Record.Session, team)
+			if err != nil {
+				return nil, fmt.Errorf("is seat %s of %s held: %w", n, team, err)
+			}
+			if held {
+				s.HeldBy = h.Record.Session.String()
+			}
+		}
+		out = append(out, s)
+	}
+	return out, nil
+}
+
+// sessionHolds is whether session holds its seat of team: its keeper runs now, or its record is
+// kept (the seat store's own test).
+func sessionHolds(store paths.Store, sessions seat.Sessions, session paths.SessionName, team paths.TeamID) (bool, error) {
+	keeper, err := seat.KeeperOf(store, session, team)
+	if err != nil || keeper == seat.KeeperRunning {
+		return keeper == seat.KeeperRunning, err
+	}
+	return sessions.Restorable(session)
 }
 
 // PoolTeams are the teams with a seat in the working directory's pool, sorted.

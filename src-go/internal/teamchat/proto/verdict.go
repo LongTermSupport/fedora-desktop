@@ -603,42 +603,96 @@ func checkTo(to []string, most int, ok func(string) bool) string {
 	return ""
 }
 
+// The causes of a reference refusal (`ref`, `allowlist`, `excluded`): a composer's refusal
+// carries one as its Detail, so the sender's message can say what is wrong and what the
+// reference must be (fedora-desktop#421).
+const (
+	// RefCauseMissing is a verb that needs a reference given none.
+	RefCauseMissing = "missing"
+	// RefCauseForbidden is a reference given to a verb that takes none.
+	RefCauseForbidden = "forbidden"
+	// RefCauseForm is a reference off A 9.1's grammar, or of a form the verb does not take.
+	RefCauseForm = "form"
+	// RefCauseBranch is a branch with no path or commit reference beside it, or off its grammar.
+	RefCauseBranch = "branch"
+	// RefCauseExcluded is a reference to a repository the team excludes.
+	RefCauseExcluded = "excluded"
+	// RefCauseNotListed is a reference outside the team's repositories, for a verb that takes
+	// only the team's own.
+	RefCauseNotListed = "not-listed"
+	// RefCausePathPrefix is a path reference outside the team's path prefixes.
+	RefCausePathPrefix = "path-prefix"
+)
+
+// refJudged is a reference judged for its verb: parsed when it passes, else the refusal's
+// reason and cause.
+type refJudged struct {
+	parsed        Ref
+	reason, cause string
+}
+
+func refRefused(reason, cause string) refJudged { return refJudged{reason: reason, cause: cause} }
+
 // refShape is a reference's grammar for the verb (A 8.1, 9.1): required, forbidden or optional,
 // its form, and a branch only beside a path or commit reference.
-func refShape(rule VerbRule, ref, branch string) (Ref, string) {
+func refShape(rule VerbRule, ref, branch string) refJudged {
 	if ref == "" {
-		if rule.Ref == Required || branch != "" {
-			return Ref{}, ReasonRef
+		switch {
+		case rule.Ref == Required:
+			return refRefused(ReasonRef, RefCauseMissing)
+		case branch != "":
+			return refRefused(ReasonRef, RefCauseBranch)
 		}
-		return Ref{}, ""
+		return refJudged{}
 	}
 	parsed, ok := ParseRef(ref)
 	switch {
+	case rule.Ref == Forbidden:
+		return refRefused(ReasonRef, RefCauseForbidden)
 	case !ok || !rule.AllowsForm(parsed.Form):
-		return Ref{}, ReasonRef
+		return refRefused(ReasonRef, RefCauseForm)
 	case branch != "" && (parsed.Form != RefPath && parsed.Form != RefCommit || !ValidBranch(branch)):
-		return Ref{}, ReasonRef
+		return refRefused(ReasonRef, RefCauseBranch)
 	}
-	return parsed, ""
+	return refJudged{parsed: parsed}
 }
 
-// checkRef is refShape, then the reference's trust class (A 9.2) and the path prefixes (A 9.1),
-// giving the forge check the reference needs.
-func (r Roster) checkRef(rule VerbRule, ref, branch string) (string, *ForgeCheck) {
-	parsed, reason := refShape(rule, ref, branch)
-	if reason != "" || ref == "" {
-		return reason, nil
+// refJudge is refShape, then the reference's trust class (A 9.2) and the path prefixes (A 9.1).
+func (r Roster) refJudge(rule VerbRule, ref, branch string) refJudged {
+	j := refShape(rule, ref, branch)
+	if j.reason != "" || ref == "" {
+		return j
 	}
-	class := r.Forge.Class(parsed)
+	class := r.Forge.Class(j.parsed)
 	switch {
 	case class == RefExcluded:
-		return ReasonExcluded, nil
+		return refRefused(ReasonExcluded, RefCauseExcluded)
 	case class == RefExternal && !rule.External:
-		return ReasonAllowlist, nil
-	case parsed.Form == RefPath && class != RefExternal && !PathAllowed(parsed.Path, r.Forge.PathPrefixes):
-		return ReasonAllowlist, nil
+		return refRefused(ReasonAllowlist, RefCauseNotListed)
+	case j.parsed.Form == RefPath && class != RefExternal && !PathAllowed(j.parsed.Path, r.Forge.PathPrefixes):
+		return refRefused(ReasonAllowlist, RefCausePathPrefix)
 	}
-	return "", &ForgeCheck{Ref: parsed, Class: class, Branch: branch, Branches: r.Forge.ListedBranches(parsed)}
+	return j
+}
+
+// checkRef is refJudge's reason, and the forge check a reference that passes needs.
+func (r Roster) checkRef(rule VerbRule, ref, branch string) (string, *ForgeCheck) {
+	j := r.refJudge(rule, ref, branch)
+	if j.reason != "" || ref == "" {
+		return j.reason, nil
+	}
+	p := j.parsed
+	return "", &ForgeCheck{Ref: p, Class: r.Forge.Class(p), Branch: branch, Branches: r.Forge.ListedBranches(p)}
+}
+
+// RefCause is why p's reference is refused, one of the RefCause constants; "" for a reference
+// that passes, or a verb A 8.1 does not name.
+func (r Roster) RefCause(p Ping) string {
+	rule, known := Verbs[p.Verb]
+	if !known {
+		return ""
+	}
+	return r.refJudge(rule, p.Ref, p.Branch).cause
 }
 
 // checkNoticeTo is a notice's addressees (A 7.4): the humans and the coordinator, never the
@@ -675,7 +729,5 @@ func checkCarried(c Carried, server string) string {
 	if !known {
 		return ReasonVerb
 	}
-	return reasonOf(refShape(rule, c.Ref, ""))
+	return refShape(rule, c.Ref, "").reason
 }
-
-func reasonOf(_ Ref, reason string) string { return reason }

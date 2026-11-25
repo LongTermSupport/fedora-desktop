@@ -23,6 +23,15 @@ const (
 	// ccy's --opencode and its short spelling (Plan 00215).
 	flagOpencode      = "--opencode"
 	flagOpencodeShort = "-oc"
+	flagTeams         = "--teams"
+)
+
+// FlagFresh and FlagRebind are ccy's two words for one seated launch's conversation (issue 417):
+// --fresh starts a new one instead of the seats' recorded one, and --rebind lets --resume <id>
+// move the seats onto another. Neither is replayed by a restore.
+const (
+	FlagFresh  = "--fresh"
+	FlagRebind = "--rebind"
 )
 
 // Class is what a restore does with one word of a recorded launch.
@@ -45,7 +54,7 @@ const (
 // The four flag groups are one list with the launcher's parser: a value-taking flag consumes the
 // NEXT word whatever it is.
 var (
-	dropFlags      = []string{"--rebuild", "--create-token", "--list-tokens", "--token-usage", "--custom", "--custom-docker", "--top", "--prevent", "--debug", "--headless", "--disable-custom-docker", "--ssh-agent", flagNoRestore, "--list-containers", "--stop-containers", "--help", "--version", "-h", "-v", "--build-lock", "--read-launch-config", "--check-token", "--check-network", "--claude-versions", "--remove-network", "--stop", "--secret-screen"}
+	dropFlags      = []string{"--rebuild", "--create-token", "--list-tokens", "--token-usage", "--custom", "--custom-docker", "--top", "--prevent", "--debug", "--headless", "--disable-custom-docker", "--ssh-agent", flagNoRestore, "--list-containers", "--stop-containers", "--help", "--version", "-h", "-v", "--build-lock", "--read-launch-config", "--check-token", "--check-network", "--claude-versions", "--remove-network", "--stop", "--secret-screen", FlagFresh, FlagRebind}
 	dropValueFlags = []string{"--update-token", "--export-token", "--connect", "--disconnect", "--prompt", "--run-for", "--until", flagCompose}
 	keepValueFlags = []string{"--token", "--ssh-key", "--network", "--engine", "--max-age", "--teams"}
 	keepFlags      = []string{"--no-ssh", "--github-443", "--no-network", flagSupervise, flagNoSupervise, "--no-bus", flagOpencode, flagOpencodeShort}
@@ -97,7 +106,7 @@ func ResumeArgs(compose, prefix string, args []string, id string) ([]string, err
 	if !SessionID(id) {
 		return nil, fmt.Errorf("refusing to resume '%s': it is not a Claude session id", id)
 	}
-	out, err := FreshArgs(compose, prefix, args)
+	out, err := startArgs(compose, prefix, args, false)
 	if err != nil {
 		return nil, err
 	}
@@ -107,8 +116,15 @@ func ResumeArgs(compose, prefix string, args []string, id string) ([]string, err
 // FreshArgs is ResumeArgs without the resume: the arguments a restore starts a record marked
 // fresh-if-no-conversation with when no conversation is recorded (Plan 00135 Phase 13). Every
 // conversation selector is removed, so the session starts a new conversation, never the newest
-// in the folder.
+// in the folder. A seated ccy record also gets --fresh, since a plain seated launch resumes the
+// seats' recorded conversation (issue 417).
 func FreshArgs(compose, prefix string, args []string) ([]string, error) {
+	return startArgs(compose, prefix, args, true)
+}
+
+// startArgs is the restart arguments both start forms share; fresh adds --fresh to a seated ccy
+// launch.
+func startArgs(compose, prefix string, args []string, fresh bool) ([]string, error) {
 	if prefix == "" {
 		return nil, errors.New("restore arguments need a launcher prefix")
 	}
@@ -123,6 +139,9 @@ func FreshArgs(compose, prefix string, args []string) ([]string, error) {
 	args = withoutSelectors(prefix, args)
 	if prefix == prefixCCY && !recordedSupervise(args) {
 		ccyFlags = append(ccyFlags, flagSupervise)
+	}
+	if prefix == prefixCCY && fresh && seated(args) {
+		ccyFlags = append(ccyFlags, FlagFresh)
 	}
 	out := make([]string, 0, len(args)+len(ccyFlags)+2)
 	afterDD := false
@@ -165,6 +184,8 @@ func withoutSelectors(prefix string, args []string) []string {
 			keepNext = true
 			out = append(out, w)
 			continue
+		case prefix == prefixCCY && !afterDD && (w == FlagFresh || w == FlagRebind):
+			continue
 		}
 		switch selectorOf(w).kind {
 		case selectorAlone:
@@ -177,6 +198,77 @@ func withoutSelectors(prefix string, args []string) []string {
 		}
 	}
 	return out
+}
+
+// seated is whether a ccy launch's own words (before `--`) name --teams; a flag that takes a
+// value consumes the next word, as the launcher's parser does.
+func seated(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		w := args[i]
+		switch {
+		case w == "--":
+			return false
+		case w == flagTeams, strings.HasPrefix(w, flagTeams+"="):
+			return true
+		case takesValue(w):
+			i++
+		}
+	}
+	return false
+}
+
+// Selection is what claude's arguments select as the conversation (issue 417): --continue, the
+// bare --resume picker, --resume <id> or --session-id <id>, each read by selectorOf.
+type Selection struct {
+	Continue  bool
+	Picker    bool
+	Resume    string
+	SessionID string
+}
+
+// Count is how many selectors the arguments give.
+func (s Selection) Count() int {
+	n := 0
+	for _, on := range []bool{s.Continue, s.Picker, s.Resume != "", s.SessionID != ""} {
+		if on {
+			n++
+		}
+	}
+	return n
+}
+
+// Selectors is the selection of claude's own arguments (no ccy flag among them): a bare --resume
+// or -r is the picker unless the next word is its id, as in withoutSelectors.
+func Selectors(args []string) Selection {
+	var s Selection
+	for i := 0; i < len(args); i++ {
+		read := selectorOf(args[i])
+		switch read.kind {
+		case selectorAlone:
+			switch {
+			case read.resumes:
+				s.Resume = read.id
+			case read.continues:
+				s.Continue = true
+			default:
+				s.SessionID = read.id
+			}
+		case selectorMaybeValue:
+			if i+1 < len(args) && selectorValue(args[i+1]) {
+				i++
+				s.Resume = args[i]
+			} else {
+				s.Picker = true
+			}
+		case selectorWithValue:
+			if i+1 < len(args) {
+				i++
+				s.SessionID = args[i]
+			}
+		case selectorNone:
+		}
+	}
+	return s
 }
 
 // takesValue is whether a ccy flag consumes the next word.
@@ -195,12 +287,13 @@ const (
 	selectorWithValue                  // --session-id: the next word is its id
 )
 
-// selectorWord is one word read as a conversation selector: what it is, and for --resume=<id>
-// (resumes) the id it names.
+// selectorWord is one word read as a conversation selector: what it is, whether it is -c or
+// --continue (continues), and for --resume=<id> (resumes) or --session-id=<id> the id it names.
 type selectorWord struct {
-	kind    selector
-	resumes bool
-	id      string
+	kind      selector
+	resumes   bool
+	continues bool
+	id        string
 }
 
 // selectorOf is the one reader of claude's conversation selectors (rule project_selector_parse).
@@ -208,12 +301,15 @@ func selectorOf(w string) selectorWord {
 	if id, ok := strings.CutPrefix(w, "--resume="); ok {
 		return selectorWord{kind: selectorAlone, resumes: true, id: id}
 	}
-	switch {
-	case w == "-c", w == "--continue", strings.HasPrefix(w, "--session-id="):
-		return selectorWord{kind: selectorAlone}
-	case w == "-r", w == "--resume":
+	if id, ok := strings.CutPrefix(w, "--session-id="); ok {
+		return selectorWord{kind: selectorAlone, id: id}
+	}
+	switch w {
+	case "-c", "--continue":
+		return selectorWord{kind: selectorAlone, continues: true}
+	case "-r", "--resume":
 		return selectorWord{kind: selectorMaybeValue}
-	case w == "--session-id":
+	case "--session-id":
 		return selectorWord{kind: selectorWithValue}
 	}
 	return selectorWord{kind: selectorNone}

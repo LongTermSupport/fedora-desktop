@@ -431,6 +431,7 @@ func (s *Server) routeTable() []route {
 		{http.MethodGet, accountDataPattern, s.getAccountData, authUser},
 		{http.MethodPut, accountDataPattern, s.putAccountData, authUser},
 		{http.MethodPut, `/_matrix/client/v3/presence/([^/]+)/status`, s.putPresence, authUser},
+		{http.MethodGet, `/_matrix/client/v3/presence/([^/]+)/status`, s.getPresence, authUser},
 		{http.MethodGet, `/_matrix/client/v3/account/whoami`, whoami, authUser},
 		{http.MethodPost, `/_matrix/client/v1/login/get_token`, getToken, authUser},
 		{http.MethodGet, `/_matrix/client/v3/joined_rooms`, s.joinedRooms, authUser},
