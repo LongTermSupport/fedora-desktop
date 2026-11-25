@@ -1,7 +1,7 @@
 // Package kit assembles a member kit directory (Plan 00209 SPEC-n3 KT1, PK1, PK2, n3-D4, B
 // 2.12): the static binary, the plugin whose hooks.json names `<kit>/bin/teamchat hook <event>`
-// by absolute path for Claude Code's four events and whose one skill is teamchat:teamchat, and
-// the settings with the status line. The
+// by absolute path for Claude Code's four events and whose skills are teamchat:teamchat and
+// teamchat:coordinator (register R44), and the settings with the status line. The
 // commands embed the kit's own path, so a kit is assembled for the path it will be placed at
 // (the host kit's is valid unchanged in a guest, whose path is the same).
 package kit
@@ -46,12 +46,27 @@ const StatusLineRefresh = 25
 //go:embed skill.txt
 var skill []byte
 
+// coordinatorSkill is the coordinator's standard procedure (register R44), the plugin's second
+// skill; only the SessionStart frame of a coordinator seat names it.
+//
+//go:embed coordinator.txt
+var coordinatorSkill []byte
+
 // skillDir is the skill's directory in the plugin: Claude Code names a plugin's skill
-// <plugin>:<directory>, so this makes it paths.SkillName.
-const skillDir = "skills/" + paths.Product
+// <plugin>:<directory>, so this makes it paths.SkillName; coordinatorSkillDir makes
+// paths.CoordinatorSkillName.
+const (
+	skillDir            = "skills/" + paths.Product
+	coordinatorSkillDir = "skills/coordinator"
+)
 
 // Skill is the path of kit's SKILL.md.
 func Skill(kit paths.Kit) string { return kit.PluginDir() + "/" + skillDir + "/SKILL.md" }
+
+// CoordinatorSkill is the path of kit's coordinator SKILL.md.
+func CoordinatorSkill(kit paths.Kit) string {
+	return kit.PluginDir() + "/" + coordinatorSkillDir + "/SKILL.md"
+}
 
 // maxBinary caps the binary read into the kit.
 var maxBinary int64 = 256 << 20
@@ -113,6 +128,8 @@ func entries(kit paths.Kit, binary io.Reader) []entry {
 		{plugin + "/skills", dirMode, nil, 0},
 		{plugin + "/" + skillDir, dirMode, nil, 0},
 		{plugin + "/" + skillDir + "/SKILL.md", fileMode, bytes.NewReader(skill), maxDocument},
+		{plugin + "/" + coordinatorSkillDir, dirMode, nil, 0},
+		{plugin + "/" + coordinatorSkillDir + "/SKILL.md", fileMode, bytes.NewReader(coordinatorSkill), maxDocument},
 	}
 }
 

@@ -33,7 +33,7 @@ const (
 	tmplTeam              template = "team {}: you are {}, the {} (coordinator: {})."
 	tmplTeamNoCoordinator template = "team {}: you are {}, the {}; the team has no coordinator now."
 	tmplTeamNotKnown      template = "team {}: you are {}; your role and the team's coordinator are not known yet: run teamchat status --team {}."
-	tmplRoleCoordinator   template = "In team {} you direct the team's agents; ask the humans with teamchat ask-human --team {}, and follow up with teamchat questions --team {}."
+	tmplRoleCoordinator   template = "In team {} you direct the team's agents: load the teamchat:coordinator skill, your procedure, now and at every launch; ask the humans with teamchat ask-human --team {}, and follow up with teamchat questions --team {}."
 	tmplRoleWorker        template = "In team {} take direction from the team's humans and its coordinator; report with teamchat report --team {}."
 	tmplRoleProbe         template = "In team {} this session is the team's acceptance probe."
 	tmplModeSocket        template = "Deliveries arrive in this conversation by themselves."

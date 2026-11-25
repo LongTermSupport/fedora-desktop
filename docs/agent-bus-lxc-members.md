@@ -382,7 +382,7 @@ reports what it changed with `CHANGED` lines.
 Everything above is v1's. A v2 team (`teamchat_teams`, applied by
 `playbooks/imports/play-teamchat.yml`) takes its LXC members from `teamchat_lxc_members` in
 the same host vars, and the same play places them. Nothing in the container runs as root and
-no container needs Python: the desktop writes the kit (`/usr/local/lib/teamchat/kit/<digest>/`,
+none of the homeserver host's own containers needs Python: the desktop writes the kit (`/usr/local/lib/teamchat/kit/<digest>/`,
 the `teamchat` link) and each service seat's session unit into the guest from the host side,
 and runs `teamchat guest <op>` as the agent user for the bundle and the desired membership.
 
@@ -453,7 +453,9 @@ teamchat run --claude --kind lxc --key <seat key> -- claude
 ```
 
 `--key` gives the seat's files (`~/.config/teamchat/lxc/<seat key>/`), placed by the play or by
-`seat place-lxc` (below). A container repository's own launcher may put its wrapper between
+`seat place-lxc` (below). `HOME` and `XDG_RUNTIME_DIR` must be set, or `run` refuses: a shell
+opened with `lxc-attach` or `su` often has no `XDG_RUNTIME_DIR`, so give it one the agent user
+owns (the session unit uses `/run/teamchat-session-<seat key>`). A container repository's own launcher may put its wrapper between
 `teamchat run` and `claude`, so its own sign-in choice and supervisor keep working:
 
 ```bash
@@ -480,12 +482,27 @@ An LXC container on a machine other than the team's homeserver host joins as an 
 off-host client: nothing on the homeserver host reaches into it. It is not declared in
 `teamchat_lxc_members` (those are the homeserver host's own containers). It needs:
 
-- the member kit in the container: the kit directory a `play-teamchat.yml --tags member` run
-  assembles (`/usr/local/lib/teamchat/kit/<digest>/` and its `current` link), with
-  `/usr/local/bin/teamchat` linked to the kit's program; the program is static, so any Linux
-  distribution of the same architecture runs it;
+- the member kit in the container: the kit directory (`/usr/local/lib/teamchat/kit/<digest>/`
+  and its `current` link), with `/usr/local/bin/teamchat` linked to the kit's program. No kit
+  archive is released yet, so the container's own setup brings it from a fedora-desktop host of
+  the same architecture (the program is static, so any Linux distribution of that architecture
+  runs it): copy that host's `/usr/local/lib/teamchat/kit/current/bin/teamchat` in, then as root
+  let it assemble its own kit and make the two links, as the play does:
+
+  ```bash
+  d="$(./teamchat --version)"
+  install -d -m 0755 /usr/local/lib/teamchat/kit
+  ./teamchat kit assemble --into "/usr/local/lib/teamchat/kit/$d"
+  ln -sfn "$d" /usr/local/lib/teamchat/kit/current
+  ln -sfn /usr/local/lib/teamchat/kit/current/bin/teamchat /usr/local/bin/teamchat
+  ```
+
+  A bare program with no kit is not enough: `run` follows `current` and checks the kit's
+  digest. Copying the whole kit directory to the same path works too;
+
 - a route to the team's `url` (a name or address that machine reaches), inside one of the
   team's `networks`; the bundle carries the team CA, so nothing else is trusted;
+
 - an agent user that is not root, whose home only it can write: the container's existing login
   will do, whatever its uid and other groups (its primary group must be its passwd entry's, as
   any normal login's is). The uid rule above (K15) is the homeserver host's own

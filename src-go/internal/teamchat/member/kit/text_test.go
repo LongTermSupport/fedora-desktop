@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/cli"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/client"
@@ -474,6 +475,85 @@ func TestTheSkillTeachesTheFourClasses(t *testing.T) {
 	}
 	if !slices.Equal(got, exits.Classes) {
 		t.Errorf("classes %v, want %v", got, exits.Classes)
+	}
+}
+
+// maxCoordinatorSkill bounds the coordinator's procedure, which only a coordinator loads.
+const maxCoordinatorSkill = 24 << 10
+
+// shippedCoordinatorSkill is the coordinator's SKILL.md as a kit holds it.
+func shippedCoordinatorSkill(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "kit")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	k, err := paths.KitAt(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = kit.Assemble(dir, k, strings.NewReader("bin")); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(kit.CoordinatorSkill(k))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+// R44: the coordinator's procedure is named for its directory, bounded and valid UTF-8, and
+// every teamchat command it names is in a code span and parses whole with CL2's parser to an
+// agent verb (a renamed verb or flag fails here); the verbs a coordinator works the questions
+// room with are all taught.
+func TestTheCoordinatorSkillNamesWhatTheBinaryHas(t *testing.T) {
+	skill := shippedCoordinatorSkill(t)
+	if len(skill) > maxCoordinatorSkill || !utf8.ValidString(skill) {
+		t.Errorf("the coordinator skill is %d bytes (cap %d), valid UTF-8 %v", len(skill), maxCoordinatorSkill, utf8.ValidString(skill))
+	}
+	name := strings.TrimPrefix(paths.CoordinatorSkillName, paths.PluginName+":")
+	front, ok := strings.CutPrefix(skill, "---\nname: "+name+"\ndescription: ")
+	if !ok || strings.Index(front, "\n---\n") < 40 {
+		t.Fatalf("frontmatter: %q", skill[:min(len(skill), 200)])
+	}
+	if found := scanned(t, "coordinator SKILL.md prose", backtickRE.ReplaceAllString(skill, "")); len(found) != 0 {
+		t.Errorf("the coordinator skill names commands outside code spans: %v", found)
+	}
+	verbs := map[string]bool{}
+	for _, m := range backtickRE.FindAllStringSubmatch(skill, -1) {
+		rest, ok := strings.CutPrefix(m[1], "teamchat ")
+		if !ok {
+			if strings.HasPrefix(m[1], "teamchat") {
+				t.Errorf("coordinator SKILL.md: the code span %q is no command", m[1])
+			}
+			continue
+		}
+		for _, cmd := range expand(fill(t, m[1], rest)) {
+			args := strings.Fields(cmd)
+			for i, a := range args {
+				args[i] = unquote(a)
+			}
+			parses(t, "coordinator SKILL.md", args)
+			verbs[args[0]] = true
+		}
+	}
+	for _, want := range []string{"status", "recv", "say", "ping", "reply", "report", "ask-human", "thread", "close", "retitle", "bump", "questions", "verify", "help"} {
+		if !verbs[want] {
+			t.Errorf("the coordinator skill does not teach teamchat %s", want)
+		}
+	}
+}
+
+// The coordinator check fails on a verb the CLI does not have, a lifecycle verb, and a flag the
+// verb does not take.
+func TestTheCoordinatorCheckCanFail(t *testing.T) {
+	for _, bad := range [][]string{{"whoami", "--json"}, {"reach", "--team", "myteam"}, {"close", "Q4", "--result", "x"}, {"ping", "fetch", "commit:o/r@" + strings.Repeat("0", 40)}} {
+		if inv, err := cli.Parse(bad); err == nil && inv.Verb.Agent {
+			t.Errorf("teamchat %v parsed as an agent command", bad)
+		}
+	}
+	if _, wrong := scan("run teamchat whoami --json first"); len(wrong) != 1 {
+		t.Errorf("a lifecycle verb in prose: %v", wrong)
 	}
 }
 
