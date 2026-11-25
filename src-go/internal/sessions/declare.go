@@ -20,6 +20,9 @@ const (
 	declaredNew       = " DECLARED"
 	declaredUnchanged = " UNCHANGED"
 	declaredReplaced  = " REPLACED"
+	// declaredDeferred: the session runs under a record that is not the declared one (or none),
+	// so nothing is written now; a converge meets this legitimately and is not failed by it.
+	declaredDeferred = " DEFERRED"
 )
 
 // declaredName is a name a ccy session may have: the launcher's prefix, then the characters
@@ -110,7 +113,7 @@ func projectName(dir string) string {
 // goes through the registry's one writer and is judged by the restore's own planRestore first:
 // what restore --check would call UNRESTORABLE is refused, and nothing is written. The same
 // record again is a no-op; a different one under the name is replaced only with --replace, and
-// never while that session is live.
+// never while that session is live: then it is DEFERRED, rc 0, and nothing is written.
 func (a *App) declareSession(ctx context.Context, args []string) term.ExitCode {
 	req, problem := parseDeclare(args)
 	if problem != "" {
@@ -165,7 +168,9 @@ func keptFile(reading registry.Reading, name string) string {
 }
 
 // declareInto writes rec unless the same record is there, refusing a different one unless
-// replace, and refusing any write while the session is live.
+// replace. While the session is live it writes nothing, with or without replace, and answers
+// DEFERRED (rc 0), so a play that declares every session on every converge is not failed by a
+// running one; the record is written by a declare after the session stops.
 func (a *App) declareInto(ctx context.Context, store *registry.Store, rec registry.Record, replace bool) (string, error) {
 	existing, err := store.Get(rec.Name)
 	switch {
@@ -180,7 +185,8 @@ func (a *App) declareInto(ctx context.Context, store *registry.Store, rec regist
 		return "", fmt.Errorf("the live sessions could not be listed, so %s is not declared: %w", rec.Name, err)
 	}
 	if slices.ContainsFunc(sessions, func(s tmuxccy.Session) bool { return s.Name == rec.Name }) {
-		return "", fmt.Errorf("%s is running, and its record is its launch's; nothing is declared", rec.Name)
+		a.sayDeferred(rec.Name, had)
+		return declaredDeferred, nil
 	}
 	if had && !replace {
 		return "", fmt.Errorf("%s already has a different record in %s; nothing is declared (declare with --replace to write this one over it)", rec.Name, store.Dir())
@@ -192,6 +198,15 @@ func (a *App) declareInto(ctx context.Context, store *registry.Store, rec regist
 		return declaredReplaced, nil
 	}
 	return declaredNew, nil
+}
+
+// sayDeferred is the one stderr line of a DEFERRED declare: why nothing was written, and when it is.
+func (a *App) sayDeferred(name string, had bool) {
+	if had {
+		a.sayf("%s is running with a record that is not the declared one; nothing is written while it runs: run declare again after it stops to write it (with --replace if a different record is still there then).\n", name)
+		return
+	}
+	a.sayf("%s is running with no record; nothing is written while it runs: run declare again after it stops to write it.\n", name)
 }
 
 // sameRecord is whether two records hold the same fields, so a re-run writes nothing.
