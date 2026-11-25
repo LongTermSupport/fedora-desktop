@@ -28,7 +28,7 @@ filled in as each cause is known.
 - **Reproduce:** coordinator `say --to <worker>` to a worker whose roster entry has
   `human_text: false`.
 - **Severity:** critical. **Issue:** #422. **Unit:** U2. **State:** fixed (U2), merged into
-  `v2-smoke`, in the second F44 batch (`ci/v2-batch2-u2-u8`). The live check and the owner
+  `v2-smoke` and on F44 at c1b20004f (the home pin). The live check and the owner
   question on `human_text` are in `reports/U2.md`.
 
 ## R2: `reply` refuses an item `history` lists
@@ -402,8 +402,8 @@ before the move to v2. Filled in as causes are found.
 - **Reproduce:** a team whose homeserver is on host X; a container on host Y tries to join.
 - **Severity:** critical. **Issue:** #425. **Unit:** U8 (Plan 00257 Task B.4).
   **State:** L2 to L4 fixed (U8) and merged into `v2-smoke`: a seat's url follows who places it;
-  `teamchat seat place-lxc`; `team rotate-ca` lists an off-host LXC seat. In the second F44 batch
-  (`ci/v2-batch2-u2-u8`). The re-pin of the team's estate (L5) and a live join are owed.
+  `teamchat seat place-lxc`; `team rotate-ca` lists an off-host LXC seat. On F44 at
+  c1b20004f, the home pin. The re-pin of the team's estate (L5) and a live join are owed.
 - **Route (the owner, Q8, 12:56Z, via A11):** the other-host route. The team's homeserver stays
   on the bus guest. A container seat's token may travel once in the ssh pipe, as a pool seat's
   password does. Only this route is built and proven.
