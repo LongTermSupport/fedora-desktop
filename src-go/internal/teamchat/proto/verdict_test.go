@@ -446,8 +446,33 @@ func TestVerdictRate(t *testing.T) {
 	checkFloodedVerdicts(t, map[string]verdictCase{
 		"the 60th":      {coordID, "", text, Deliver, "", KindPeer},
 		"the 61st":      {coordID, "", text, Drop, ReasonRate, ""},
-		"human flooded": {workerID, "", event(aliceID, 0, humanContent(mention(workerID))), Drop, ReasonRate, ""},
+		"human flooded": {workerID, "", event(aliceID, 0, humanContent(mention(workerID))), Deliver, "", KindHuman},
 	}, map[string]int{"the 60th": 59, "the 61st": 60, "human flooded": 60})
+}
+
+// A 11.1 (R64's follow-up): a team human is not flood-limited. A human post past
+// recv_per_sender_minute is delivered, in main and in questions, and the verdict says it was
+// over the limit, so the link counts and logs it; an agent past the limit is still dropped.
+func TestVerdictHumanOverTheFloodLimitIsDelivered(t *testing.T) {
+	limit := int(testRoster(t).Limits.RecvPerSenderMinute)
+	rooms := map[string]struct{ self, event string }{
+		PurposeMain:      {workerID, event(aliceID, 0, humanContent(mention(workerID)))},
+		PurposeQuestions: {coordID, roomEvent(qid('h'), aliceID, testNow, humanPost("MIT", ""))},
+	}
+	for purpose, tc := range rooms {
+		ev := mustParse(t, tc.event)
+		if v := floodedJudge(t, tc.self, purpose, aliceID, limit-1).Judge(ev); v.Outcome != Deliver || v.OverLimit {
+			t.Errorf("%s: the human's last post under the limit = %v %q, over %v", purpose, v.Outcome, v.Reason, v.OverLimit)
+		}
+		v := floodedJudge(t, tc.self, purpose, aliceID, limit).Judge(ev)
+		if v.Outcome != Deliver || v.Kind != KindHuman || v.Reason != "" || !v.OverLimit {
+			t.Errorf("%s: the human's post over the limit = %v %q %q, over %v; want delivered HUMAN, over", purpose, v.Outcome, v.Reason, v.Kind, v.OverLimit)
+		}
+	}
+	text := mustParse(t, event(workerID, 0, textContent([]string{coordID}, "")))
+	if v := floodedJudge(t, coordID, PurposeMain, workerID, limit).Judge(text); v.Outcome != Drop || v.Reason != ReasonRate || v.OverLimit {
+		t.Errorf("an agent over the limit = %v %q, over %v; want a rate drop", v.Outcome, v.Reason, v.OverLimit)
+	}
 }
 
 func TestVerdictReceiveFlood(t *testing.T) {

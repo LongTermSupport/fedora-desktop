@@ -570,6 +570,38 @@ filled in as each cause is known.
 - **Severity:** high (every gate a commit is meant to pass locally is silently absent).
   **Issue:** #427. **State:** open, outside v2.
 
+## R66: the edit-time lint hook lints the project-rule fixtures, which carry deliberate findings
+
+- **Seen:** the R62 agent, 25 Nov.
+- **What:** the hooks-daemon `lint_on_edit` handler runs golangci-lint on
+  `src-go/qa/rules/testdata/**` and blocks every edit to those fixtures, which can never pass by
+  design (each carries the findings its rule must report).
+- **Fix:** exclude the analysistest testdata tree from that handler in the project's hooks-daemon
+  configuration, or have the handler skip analysistest testdata.
+- **Severity:** low. **Issue:** TBF. **State:** open, tooling (dogfood).
+
+## R65: a leftover empty v1 membership hides a teamchat session from the host lookup
+
+- **Seen:** the team's `ccy-teams session list` on its dev VM after batch 11, 25 Nov 21:26Z: a
+  running ccy session launched on teamchat (`--teams 4@<team>`) listed with teams `-` and state
+  `unguarded: ccy-teams session repair <session>`.
+- **What:** the session had first been restored at boot with no `--teams`. A no-team launch
+  writes an empty v1 membership (`$XDG_RUNTIME_DIR/ccy/membership/<session>/membership.json`,
+  `seats:[]`), which a no-team session needs to stay addable. Relaunched on teamchat in the same
+  boot, the v2 launch (`teamchatlaunch.launchArgs`) never removed it, and `Lookup.Running`
+  (`hot/running.go`) read v1 whenever that directory existed, never v2. So list, add, remove,
+  `SessionsIn`, restart and the picker all read the session as an empty v1 one, and the printed
+  `repair` would have started a v1 seat keeper (`pingbus seat keep`) in a v2 session.
+- **Fix:** a teamchat launch (ccy `launch-args` and cc `cc-run`) removes the name's v1
+  membership directory once its take has succeeded (a refused take keeps it; a no-team launch
+  still writes its empty one). `Lookup.Running`, with both files on disk, takes the one written
+  later (v1 `written_ms` against v2 `written_ms`), which fixes a session already running without
+  a relaunch. Repair on such a session is now refused by name as a v2 verb. Report:
+  [reports/R65.md](reports/R65.md).
+- **Severity:** high (the printed repair hint does harm). **Issue:** TBF. **State:** fixed on
+  v2-smoke, batch 17 (`76d9bf5f0`); not yet run live. Live check: the team confirms after its reboot
+  that the directory does not come back and the session lists its teams.
+
 ## R64: a link restart re-judges the questions room and rate-drops the owner's posts
 
 - **Seen:** the coordinator's `teamchat status` after its 18:48Z relaunch, 25 Nov:
@@ -598,11 +630,14 @@ filled in as each cause is known.
   the marker covers it or it is restored) is judged against a window of its own, thrown away, so
   replayed history never counts toward the flood window (`judgeRoom`'s `replayed`). Main has the
   same order after a seat's release (`resume` keeps events past the release time under the
-  marker) and is fixed the same way. Tests in `member/teamsync/replay_flood_test.go`. Whether a
-  team human is exempt from the limit outright is a spec question (A 11.1 exempts only the
-  admin): open. Report: [reports/R64.md](reports/R64.md).
+  marker) and is fixed the same way. Tests in `member/teamsync/replay_flood_test.go`.
+- **Decided (the team coordinator, 25 Nov 21:21Z, on the owner's standing rule; reversible):** a
+  team human is exempt from `recv_per_sender_minute` in main and in questions (A 11.1 now says
+  so). A post past the limit is delivered, counted in `status`'s `counts.human_over_limit` and
+  logged with one line naming it. Report: [reports/R64.md](reports/R64.md).
 - **Severity:** high (the owner's words can be dropped for good). **Issue:** TBF. **State:**
-  fixed on v2-smoke, batch 13 (544ebda3d); not yet run live.
+  fixed on v2-smoke, batch 13 (544ebda3d); the human exemption on v2-smoke, batch 16
+  (`d9a4fcc80`); not yet run live.
 
 ## R63: `declare` fails a converge while a declared session runs with a record not its own
 
@@ -636,7 +671,10 @@ filled in as each cause is known.
   `||`) and whose body leaves, with a fixture in `rules/testdata`. Its message names the forms it
   takes.
 - **Severity:** low (a correct guard refused; a by-hand run finds the accepted form). **Issue:**
-  TBF. **State:** open, QA tooling.
+  TBF. **State:** fixed on v2-smoke, batch 15 (`0db93cad0`; reports/R62.md): a tagless switch
+  clause that leaves on a failed check (alone, in `||`, or listed) guards what follows when
+  every earlier clause leaves or holds the check; `break`/`fallthrough` in a clause and `&&`
+  are no guard; the message names the forms taken.
 
 ## R61: a terminal launch beside a declared session makes a second record under a new name
 

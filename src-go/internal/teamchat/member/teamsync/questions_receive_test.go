@@ -207,8 +207,9 @@ func TestQS6AnOldHumanPostIsStillDelivered(t *testing.T) {
 	}
 }
 
-// QS6 (n3f-D18): a human post dropped `rate` (past recv_per_sender_minute) is still attached.
-func TestQS6APostDroppedRateIsStillAttached(t *testing.T) {
+// QS6 (n3f-D18): a human post past recv_per_sender_minute is attached; since A 11.1 exempts a
+// team human from the limit, it is delivered too, never dropped `rate`.
+func TestQS6APostOverTheFloodLimitIsStillAttached(t *testing.T) {
 	w := newWorld(t)
 	w.inQuestions(alice, false)
 	var g *filterGate
@@ -227,8 +228,9 @@ func TestQS6APostDroppedRateIsStillAttached(t *testing.T) {
 	rt.drainPolls()
 	release()
 	b := w.persistedBefore(rt.r)
-	if b.Counts.Dropped == 0 {
-		t.Fatalf("counts %+v: no post was dropped `rate`, so the test judges nothing", b.Counts)
+	// A 11.1: a human is not flood-limited, so the posts past the limit are delivered and counted.
+	if b.Counts.HumanOverLimit == 0 || b.Counts.Dropped != 0 {
+		t.Fatalf("counts %+v: no post was over the flood limit, or one was dropped", b.Counts)
 	}
 	delivered := itemIDs(b)
 	idx := keyIndex(t, b)

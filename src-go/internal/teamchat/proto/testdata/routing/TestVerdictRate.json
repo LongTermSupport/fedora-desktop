@@ -4,8 +4,8 @@
     "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
     "room": "main",
     "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@alice:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"please stop\",\"m.mentions\":{\"user_ids\":[\"@myrepo.2+desk.podman:myteam.teamchat.internal\"]}}}",
-    "outcome": "drop",
-    "reason": "rate",
+    "outcome": "deliver",
+    "kind": "HUMAN",
     "flood_before": 60
   },
   {

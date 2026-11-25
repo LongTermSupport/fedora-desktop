@@ -1099,8 +1099,8 @@ otherwise: `redact` (rule 01), `index` (rule 03), `fault` (rule 05) and `record`
 05. Room:
     - reports: no member reads it (00211); a member that does is a fault: the outcome `fault`.
     - questions: this member not the coordinator: ignore `not-coordinator`. A human: the human path,
-      every message addressed; kind HUMAN with the room lines (13.2); rule 10 applies `rate` but not
-      `stale`, since the index already tracks which questions are open and answered, and a
+      every message addressed; kind HUMAN with the room lines (13.2); rule 10 applies neither `rate`
+      (a human is not flood-limited, 11.1) nor `stale`, since the index already tracks which questions are open and answered, and a
       coordinator that was down longer than `human_max_age_s` must still get the answers. Any other
       agent event, and a `teamchat.carried` from anyone: drop `sender`.
     - main: continue.
@@ -1127,7 +1127,9 @@ otherwise: `redact` (rule 01), `index` (rule 03), `fault` (rule 05) and `record`
     drops it, it is not recorded and its TIMEOUT still falls due, so a ping never waits unseen.
 10. Local checks, in order: age (`stale`), receive flood (`rate`), forge check for a ping with a
     reference (section 9). Then deliver. The admin is not flood-limited and its items are never
-    stale, so a migration's carried items are never lost to `rate`. The forge check is the
+    stale, so a migration's carried items are never lost to `rate`. A team human is not
+    flood-limited either (11.1): a human post past the limit is delivered, marked over the limit,
+    and counted and logged by B. The forge check is the
     verdict's `Forge`, which B runs: its three drops, `provenance`, `unresolved` and `forge-rate`,
     are B's, after the verdict, and the corpus has no rows for them (14).
 
@@ -1602,7 +1604,7 @@ Set in the roster's `limits`, the same for every member (AR25). Values from v1 (
 | ------------------------ | ------- | ----------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `send_per_minute`        | 20      | 1-60        | sender                  | token bucket refill per minute (P61)                                                                                                                                                                                                  |
 | `send_burst`             | 10      | 1-30        | sender                  | bucket capacity                                                                                                                                                                                                                       |
-| `recv_per_sender_minute` | 60      | 10-600      | receiver                | events admitted per sender per sliding minute; refusals not counted (P65); the admin is not flood-limited and its items are never stale (7.6 rule 10)                                                                                 |
+| `recv_per_sender_minute` | 60      | 10-600      | receiver                | events admitted per sender per sliding minute; refusals not counted (P65); the admin is not flood-limited and its items are never stale (7.6 rule 10); a team human is not flood-limited either (below)                               |
 | `ack_timeout_s`          | 900     | 60-86400    | sender and receiver     | answer deadline; ping staleness                                                                                                                                                                                                       |
 | `halt_ack_timeout_s`     | 300     | 30-3600     | sender and receiver     | the same for `halt`                                                                                                                                                                                                                   |
 | `human_max_age_s`        | 86400   | 3600-604800 | receiver                | human and agent text staleness                                                                                                                                                                                                        |
@@ -1610,6 +1612,17 @@ Set in the roster's `limits`, the same for every member (AR25). Values from v1 (
 | `deliver_per_sender`     | 10      | 1-60        | receiver (B's delivery) | PEER, PING and member-sent NOTICE items admitted for delivery per (team, sender) per rolling 600 s; the rest are not delivered and are counted on a `held back:` line (11.4, E19); HUMAN, TIMEOUT and admin items are never held back |
 
 `wait_timeout_s` is a property of B's CLI, not of the team, and leaves this table.
+
+A team human is exempt from `recv_per_sender_minute`, in main and in the questions room: a
+human's post is never dropped `rate`. A human's words must never be lost, and a drop is final
+(the position and the questions floor move past it, so it is never fetched again; Plan 00265
+R64, where a link restart rate-dropped the owner's posts). A human post is still judged against
+the window (past the limit it is not entered, as any refusal): it is delivered with the verdict
+marked over the limit, the
+link counts it in `status`'s `counts.human_over_limit` and logs one line naming it, so a runaway
+client shows. Agents (and relays, judged by their own check) are unchanged. This is the team
+coordinator's decision of 25 Nov (R64's follow-up), on the owner's standing rule; the owner can
+reverse it.
 
 The sender rows apply to a member; the admin's posts are not limited (no bucket, no duplicate
 window, no report window). They are C's and D's, bounded by the change they record.

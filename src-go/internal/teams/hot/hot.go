@@ -480,7 +480,7 @@ func (x *Hot) resolve(ctx context.Context, r request) (*target, term.ExitCode, b
 	run, err := x.Lookup().Running(runtime, t.kind, rec)
 	switch {
 	case err != nil && run.Bus == BusV2:
-		x.mark(markFailed, "session "+session+": it has no agent-bus membership, and whether it runs on teamchat (v2) could not be read: "+
+		x.mark(markFailed, "session "+session+": whether it runs on teamchat (v2) could not be read: "+
 			err.Error()+"; relaunch it from ccy's tmux to change it while it runs")
 	case err == nil && run.Bus == BusNone:
 		x.notKit(session, os.ErrNotExist)

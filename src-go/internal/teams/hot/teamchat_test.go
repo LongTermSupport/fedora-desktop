@@ -421,7 +421,7 @@ func TestASessionWhoseV2DesiredCannotBeReadIsRefusedAsConfig(t *testing.T) {
 	if code := r.run(t, "add", session, "beta", "--yes"); code != exitConfig || len(v2.calls) != 0 {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
-	wantLines(t, r.ErrOut.String(), "✗ session "+session+": it has no agent-bus membership, and whether it runs on teamchat (v2) could not be read: the state home: HOME is not set; relaunch it from ccy's tmux to change it while it runs")
+	wantLines(t, r.ErrOut.String(), "✗ session "+session+": whether it runs on teamchat (v2) could not be read: the state home: HOME is not set; relaunch it from ccy's tmux to change it while it runs")
 }
 
 // A session with neither a v1 membership nor a v2 desired.json is refused as before.

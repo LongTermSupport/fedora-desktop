@@ -80,7 +80,8 @@ the error lists the choices.
   questions room.
 - `teamchat status`: `team`, `member`, `room`, `outbox`, `queued` (a send the link holds until
   its homeserver answers) and `runtime`. The team record's counts.dropped_by gives each reason the
-  link dropped an event for. The link log has each dropped event's id.
+  link dropped an event for. The link log has each dropped event's id. A team human is never
+  dropped for rate: counts.human_over_limit is their posts delivered past the flood limit.
 - `teamchat version`: `version`.
 - `teamchat help`: the verbs and their flags, as text; `teamchat help reply` shows one verb.
 - A verb over several teams prints `team-failed` for each team that failed.

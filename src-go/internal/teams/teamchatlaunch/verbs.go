@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -268,12 +269,31 @@ func (v *Verbs) launchArgs(ctx context.Context, args []string) (term.ExitCode, e
 	if err != nil {
 		return 0, v.withWays(err, checkout, list, seatchoice.KindPodman)
 	}
+	if err := v.retireV1(membership.KindCcy, session); err != nil {
+		return 0, err
+	}
 	if taken.Model.Model != "" {
 		if err := v.note(taken.Model.Note()); err != nil {
 			return 0, err
 		}
 	}
 	return term.ExitOK, v.print(append([]string{store.Control(name)}, taken.Args...)...)
+}
+
+// retireV1 removes the v1 membership directory an earlier launch of the session's name left
+// (register R65: every no-team launch writes one), once a teamchat launch has taken its seats: the
+// host's lookup reads a session by what is on disk, so a leftover one would make this teamchat
+// session read as an agent-bus one.
+func (v *Verbs) retireV1(kind, session string) error {
+	runtime := v.Getenv("XDG_RUNTIME_DIR")
+	if !filepath.IsAbs(runtime) {
+		return fmt.Errorf("XDG_RUNTIME_DIR %q is not an absolute path, so the agent-bus membership an earlier launch of %s may have left cannot be removed", runtime, session)
+	}
+	dir := membership.DirOf(runtime, kind, session)
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("the agent-bus membership %s, left by an earlier launch of %s, could not be removed, and the host would read this teamchat session as an agent-bus one: %w", dir, session, err)
+	}
+	return nil
 }
 
 // note is one line to the person, on stderr (stdout is the launcher's payload).

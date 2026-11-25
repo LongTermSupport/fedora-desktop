@@ -270,6 +270,83 @@ func taggedSwitch(root string, regular bool) error {
 	})
 }
 
+// A tagged switch whose clause leaves on a failed check still compares values: it guards nothing.
+func taggedSwitchThatLeaves(root string, regular bool) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		switch regular {
+		case !d.Type().IsRegular():
+			return nil
+		}
+		_, err = os.ReadFile(p) // want `os.ReadFile opens an entry a directory walk found`
+		return err
+	})
+}
+
+// A clause on a failed check that only warns falls out of the switch to the open.
+func failedCaseThatStays(root string) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		switch {
+		case !d.Type().IsRegular():
+			log.Printf("%s is not a regular file", p)
+		}
+		_, err = os.ReadFile(p) // want `os.ReadFile opens an entry a directory walk found`
+		return err
+	})
+}
+
+// A break in a clause leaves the switch, not the callback: the open after it still runs.
+func failedCaseThatBreaks(root string) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		switch {
+		case !d.Type().IsRegular():
+			break
+		}
+		_, err = os.ReadFile(p) // want `os.ReadFile opens an entry a directory walk found`
+		return err
+	})
+}
+
+// A failed check joined by && leaves only when the other term holds too.
+func failedCaseJoinedByAnd(root string, strict bool) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		switch {
+		case !d.Type().IsRegular() && strict:
+			return nil
+		}
+		_, err = os.ReadFile(p) // want `os.ReadFile opens an entry a directory walk found`
+		return err
+	})
+}
+
+// An earlier clause that stays takes the entry past the leaving one unchecked.
+func failedCaseAfterOneThatStays(root string, force bool) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		switch {
+		case force:
+			log.Printf("forced %s", p)
+		case !d.Type().IsRegular():
+			return nil
+		}
+		_, err = os.ReadFile(p) // want `os.ReadFile opens an entry a directory walk found`
+		return err
+	})
+}
+
 // --- Clean: the check guards the open. ---
 
 // selfWalking opens what its own walk found, and is found for that where it opens; a name passed
@@ -424,6 +501,52 @@ func walkedRegularByCase(root string) error {
 		}
 		return err
 	})
+}
+
+// A clause of a tagless switch that leaves on a failed check (joined by || with others) guards
+// what follows the switch, as if !check { return } does (R62).
+func walkedSkippedByCase(root string) error {
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		switch {
+		case d.IsDir() || !strings.HasSuffix(path, ".go") || !d.Type().IsRegular():
+			return nil
+		}
+		_, err = os.ReadFile(path)
+		return err
+	})
+}
+
+// The failed check as one of a clause's listed expressions, after clauses that leave or hold the
+// check; a clause after the leaving one runs only when the check holds.
+func listedSkippedByCase(dir string, force bool) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		name := filepath.Join(dir, e.Name())
+		switch {
+		case force:
+			continue
+		case e.Type().IsRegular() && strings.HasSuffix(name, ".txt"):
+			log.Printf("text %s", name)
+		case e.IsDir(), !e.Type().IsRegular():
+			continue
+		case strings.HasSuffix(name, ".json"):
+			if _, err := os.ReadFile(name); err != nil {
+				return err
+			}
+		default:
+			log.Printf("other %s", name)
+		}
+		if _, err := os.ReadFile(name); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func skippedUnlessRegular(dir string) error {

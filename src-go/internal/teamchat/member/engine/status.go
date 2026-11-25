@@ -361,7 +361,7 @@ func teamRecords(v teamView, delivery string) []records.Record {
 		Counts: records.TeamCounts{
 			Ignored: v.counts.Ignored, Dropped: v.counts.Dropped, DroppedBy: droppedBy(v.counts), Unheard: v.counts.Unheard,
 			Gaps: v.counts.Gaps, Redacted: v.counts.Redacted, Unsent: v.unsent,
-			SeenTwice: v.seenTwice,
+			SeenTwice: v.seenTwice, HumanOverLimit: v.counts.HumanOverLimit,
 		},
 	}
 	switch {

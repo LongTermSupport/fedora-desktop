@@ -2,6 +2,7 @@ package hot
 
 import (
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -23,22 +24,19 @@ import (
 // Register R51: every host reader of a running session's membership finds it through one lookup,
 // v1's membership when the session has one, else its teamchat (v2) desired.json.
 
-// The lookup: v1 when the session has a v1 membership directory, else v2 when its desired.json
-// is found, else none; a record whose launch left the bus out is none whatever is under its name.
+// The lookup: v1 when the session has a v1 membership directory (and no newer desired.json,
+// R65), else v2 when its desired.json is found, else none; a record whose launch left the bus out
+// is none whatever is under its name.
 func TestTheLookupIsV1ElseV2ElseNone(t *testing.T) {
 	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
 	rec, err := r.store.Get(session)
 	if err != nil {
 		t.Fatal(err)
 	}
-	opened := 0
-	r.x.Teamchat = func(string, string) (TeamchatSeats, bool, error) {
-		opened++
-		return &fakeV2{t: t}, true, nil
-	}
+	r.x.Teamchat = func(string, string) (TeamchatSeats, bool, error) { return &fakeV2{t: t}, true, nil }
 	run, err := r.x.Lookup().Running(r.runtime, membership.KindCcy, rec)
-	if err != nil || run.Bus != BusV1 || run.Dir != r.dir() || run.V1.Generation != 1 || opened != 0 {
-		t.Fatalf("v1: %+v %v, teamchat opened %d", run, err, opened)
+	if err != nil || run.Bus != BusV1 || run.Dir != r.dir() || run.V1.Generation != 1 || run.V2 != nil {
+		t.Fatalf("v1 beside an older desired.json: %+v %v", run, err)
 	}
 	if err = os.RemoveAll(r.dir()); err != nil {
 		t.Fatal(err)
@@ -60,6 +58,82 @@ func TestTheLookupIsV1ElseV2ElseNone(t *testing.T) {
 	rec.Args = []string{"--no-bus"}
 	if run, err = r.x.Lookup().Running(r.runtime, membership.KindCcy, rec); err != nil || run.Bus != BusNone {
 		t.Fatalf("--no-bus: %+v %v", run, err)
+	}
+}
+
+// Register R65: a session launched with no team (an empty v1 membership) and later relaunched on
+// teamchat under the same name had both files; the lookup read v1 because it existed, so the
+// list showed no teams and "unguarded: ccy-teams session repair", and repair would have started
+// a v1 seat keeper in a v2 session. With both on disk the newer is the session's launch.
+
+// leftoverV1 writes the v1 membership a no-team launch of the rig's session wrote at ms.
+func leftoverV1(t *testing.T, r *rig, ms int64) {
+	t.Helper()
+	if err := membership.Write(r.dir(), membership.Desired{
+		V: 1, Session: r.name, Kind: r.kind, Checkout: r.Checkout(), Generation: 1, WrittenMS: ms,
+		Seats: []membership.Seat{}, Farewell: []membership.Farewell{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTheLookupChoosesTheNewerOfBothMemberships(t *testing.T) {
+	r, v2 := newV2Rig(t)
+	rec, err := r.store.Get(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leftoverV1(t, r, 1000)
+	v2.desired.WrittenMS = 2000
+	if run, runErr := r.x.Lookup().Running(r.runtime, membership.KindCcy, rec); runErr != nil || run.Bus != BusV2 || run.V2 == nil {
+		t.Fatalf("a v2 launch after an empty v1 one: %+v %v", run, runErr)
+	}
+	v2.desired.WrittenMS = 500
+	if run, runErr := r.x.Lookup().Running(r.runtime, membership.KindCcy, rec); runErr != nil || run.Bus != BusV1 || run.V2 != nil {
+		t.Fatalf("a v1 launch after a v2 one: %+v %v", run, runErr)
+	}
+	r.x.Teamchat = func(string, string) (TeamchatSeats, bool, error) { return nil, false, errors.New("HOME is not set") }
+	if run, runErr := r.x.Lookup().Running(r.runtime, membership.KindCcy, rec); runErr == nil || run.Bus != BusV2 {
+		t.Fatalf("v2 unreadable beside v1: %+v %v", run, runErr)
+	}
+}
+
+// A no-team session (an empty v1 membership, no desired.json) stays v1, and add can change it.
+func TestANoTeamSessionStaysV1AndAddable(t *testing.T) {
+	r := newRig(t)
+	r.x.Teamchat = func(string, string) (TeamchatSeats, bool, error) { return nil, false, nil }
+	rec, err := r.store.Get(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run, runErr := r.x.Lookup().Running(r.runtime, membership.KindCcy, rec); runErr != nil || run.Bus != BusV1 || len(run.V1.Seats) != 0 {
+		t.Fatalf("no team: %+v %v", run, runErr)
+	}
+	r.run(t, "add", session, "beta", "--yes")
+	if !strings.Contains(r.ErrOut.String(), hotControlled) {
+		t.Fatalf("add did not take the session:\n%s", r.ErrOut.String())
+	}
+}
+
+// The session of the live fault lists as v2, with its teams and a v2 state, never "unguarded",
+// and repair on it is refused by name without starting a seat keeper.
+func TestAV2SessionWithAnOlderEmptyV1MembershipIsV2(t *testing.T) {
+	r, v2 := newV2Rig(t)
+	leftoverV1(t, r, 1000)
+	v2.desired.WrittenMS = 2000
+	r.labelled("abc123\trunning\t" + session + "\n")
+	r.m.alive = false
+	rows, err := r.x.Sessions(t.Context())
+	if err != nil || len(rows) != 1 || !rows[0].V2 || rows[0].Unguarded || rows[0].State != stateOK ||
+		!reflect.DeepEqual(rows[0].Teams, []Cell{{Team: "alpha", Seat: "1", Role: "-"}}) {
+		t.Fatalf("rows %+v %v", rows, err)
+	}
+	if code := r.run(t, "list"); code != term.ExitOK || strings.Contains(r.Out.String(), "unguarded") {
+		t.Fatalf("list: exit %d: %q", code, r.Out.String())
+	}
+	if code := r.run(t, "repair", session, "--yes"); code != exitConfig ||
+		!strings.Contains(r.ErrOut.String(), fmt.Sprintf(v2VerbNotBuilt, "repair")) || r.Fake.Called("podman exec -d abc123 pingbus seat keep") {
+		t.Fatalf("repair: exit %d:\n%s", code, r.ErrOut.String())
 	}
 }
 
@@ -243,6 +317,7 @@ var v1Readers = map[string]string{
 	"teams/hot/role.go membership.ReadReport":          "v1 role, after the lookup found a v1 session; a v2 session's role is refused by name",
 	"teams/hot/list.go membership.ReadReport":          "a v1 row, after the lookup found a v1 session",
 	"teams/board/collect.go discover.ReadDesired":      "the agent-bus (v1) seat index; a v2 team's rows come from its status record (board/v2.go)",
+	"teams/teamchatlaunch/verbs.go membership.DirOf":   "retireV1 removes it at a teamchat launch (R65); it reads nothing",
 	"conversation/seatrecord.go membership.ReadReport": "sessionSeats: v1's report only after the v2 desired.json was read",
 	"conversation/seats.go membership.ReadReport":      "v1Sessions; v2Sessions reads the seat store beside it",
 }

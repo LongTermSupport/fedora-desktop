@@ -11,6 +11,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -117,6 +118,28 @@ func TestCCRunOnTeamchatRunsTheSessionAsAChild(t *testing.T) {
 	}
 	if !strings.Contains(TeamchatPrompt, "teamchat") || strings.Contains(TeamchatPrompt, "pingbus") {
 		t.Errorf("prompt %q", TeamchatPrompt)
+	}
+}
+
+// Register R65: a cc launch on teamchat retires the cc v1 membership an earlier launch of the same
+// name left, after its take; a refused take keeps it, and a failed removal ends the session's seats.
+func TestCCRunOnTeamchatRetiresTheNamesV1Membership(t *testing.T) {
+	w := newCC(t)
+	w.pool("repo.1+site.host")
+	dir := w.leftoverV1(membership.CCDir(w.runtime(), "cc-s1"))
+	w.taker.err = seat.ErrHeld
+	if code := w.ccRun("cc-s1", "1@alpha", "false"); code != term.ExitBusy || !exists(t, dir) {
+		t.Fatalf("a refused take: exit %d, v1 membership kept %v", code, exists(t, dir))
+	}
+	w.taker.err = nil
+	if code := w.ccRun("cc-s1", "1@alpha", "false"); code != term.ExitOK || exists(t, dir) {
+		t.Fatalf("exit %d, v1 membership left %v: %s", code, exists(t, dir), w.err)
+	}
+	w = newCC(t)
+	w.pool("repo.1+site.host")
+	writeTestFile(t, filepath.Dir(membership.CCDir(w.runtime(), "cc-s1")), "not a directory")
+	if code := w.ccRun("cc-s1", "1@alpha", "false"); code != term.ExitFailure || len(w.fg.cmds) != 0 || !slices.Equal(w.forgot, []string{"cc-s1"}) {
+		t.Fatalf("exit %d, started %+v, forgot %q: %s", code, w.fg.cmds, w.forgot, w.err)
 	}
 }
 

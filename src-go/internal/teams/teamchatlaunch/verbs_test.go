@@ -16,6 +16,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/system"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -243,6 +244,60 @@ func TestLaunchArgsOnTeamchatTakesAndPrintsTheControlDirectory(t *testing.T) {
 	}
 	if len(w.taker.took) != 1 || w.initArgs != nil {
 		t.Fatalf("took %+v, init %q", w.taker.took, w.initArgs)
+	}
+}
+
+// leftoverV1 is an earlier launch's v1 membership directory under the session's name (register
+// R65: a no-team launch writes an empty one), and its path.
+func (w *verbsWorld) leftoverV1(dir string) string {
+	w.t.Helper()
+	writeTestFile(w.t, filepath.Join(dir, "membership.json"), `{"v":1,"seats":[]}`)
+	return dir
+}
+
+func (w *verbsWorld) runtime() string { return w.verbs.Getenv("XDG_RUNTIME_DIR") }
+
+func exists(t *testing.T, path string) bool {
+	t.Helper()
+	_, err := os.Lstat(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	return err == nil
+}
+
+// Register R65: a teamchat launch retires the v1 membership an earlier launch of the same name
+// left, once its take has succeeded, so no host reader finds the session on v1; a refused take
+// changes nothing, and a launch on agent-bus (a no-team one too) keeps its own.
+func TestLaunchArgsOnTeamchatRetiresTheNamesV1Membership(t *testing.T) {
+	w := newVerbs(t)
+	w.pool("repo.1+site.podman")
+	dir := w.leftoverV1(membership.Dir(w.runtime(), "s1"))
+	w.taker.err = seat.ErrHeld
+	if code := w.run("launch-args", "s1", w.checkout, "1@alpha", "", "--"); code != term.ExitBusy || !exists(t, dir) {
+		t.Fatalf("a refused take: exit %d, v1 membership kept %v", code, exists(t, dir))
+	}
+	w.taker.err = nil
+	if code := w.run("launch-args", "s1", w.checkout, "1@alpha", "", "--"); code != term.ExitOK || exists(t, dir) {
+		t.Fatalf("exit %d, v1 membership left %v: %s", code, exists(t, dir), w.err)
+	}
+	other := w.leftoverV1(membership.Dir(w.runtime(), "s2"))
+	for _, list := range []string{"", "1@v1team"} {
+		if code := w.run("launch-args", "s2", w.checkout, list, "", "--"); code != term.ExitOK || !exists(t, other) {
+			t.Fatalf("an agent-bus launch %q: exit %d, v1 membership kept %v", list, code, exists(t, other))
+		}
+	}
+}
+
+// A v1 membership that cannot be removed fails the launch, naming the directory.
+func TestLaunchArgsOnTeamchatFailsWhenTheV1MembershipStays(t *testing.T) {
+	w := newVerbs(t)
+	w.pool("repo.1+site.podman")
+	dir := membership.Dir(w.runtime(), "s1")
+	writeTestFile(t, filepath.Dir(dir), "not a directory")
+	if code := w.run("launch-args", "s1", w.checkout, "1@alpha", "", "--"); code != term.ExitFailure || w.out.Len() != 0 ||
+		!strings.Contains(w.err.String(), dir) {
+		t.Fatalf("exit %d, out %q: %s", code, w.out, w.err)
 	}
 }
 
