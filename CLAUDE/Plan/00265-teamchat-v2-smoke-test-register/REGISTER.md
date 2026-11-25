@@ -580,6 +580,28 @@ filled in as each cause is known.
   configuration, or have the handler skip analysistest testdata.
 - **Severity:** low. **Issue:** TBF. **State:** open, tooling (dogfood).
 
+## R65: a leftover empty v1 membership hides a teamchat session from the host lookup
+
+- **Seen:** the team's `ccy-teams session list` on its dev VM after batch 11, 25 Nov 21:26Z: a
+  running ccy session launched on teamchat (`--teams 4@<team>`) listed with teams `-` and state
+  `unguarded: ccy-teams session repair <session>`.
+- **What:** the session had first been restored at boot with no `--teams`. A no-team launch
+  writes an empty v1 membership (`$XDG_RUNTIME_DIR/ccy/membership/<session>/membership.json`,
+  `seats:[]`), which a no-team session needs to stay addable. Relaunched on teamchat in the same
+  boot, the v2 launch (`teamchatlaunch.launchArgs`) never removed it, and `Lookup.Running`
+  (`hot/running.go`) read v1 whenever that directory existed, never v2. So list, add, remove,
+  `SessionsIn`, restart and the picker all read the session as an empty v1 one, and the printed
+  `repair` would have started a v1 seat keeper (`pingbus seat keep`) in a v2 session.
+- **Fix:** a teamchat launch (ccy `launch-args` and cc `cc-run`) removes the name's v1
+  membership directory once its take has succeeded (a refused take keeps it; a no-team launch
+  still writes its empty one). `Lookup.Running`, with both files on disk, takes the one written
+  later (v1 `written_ms` against v2 `written_ms`), which fixes a session already running without
+  a relaunch. Repair on such a session is now refused by name as a v2 verb. Report:
+  [reports/R65.md](reports/R65.md).
+- **Severity:** high (the printed repair hint does harm). **Issue:** TBF. **State:** fixed on
+  v2-smoke, batch 17 (`76d9bf5f0`); not yet run live. Live check: the team confirms after its reboot
+  that the directory does not come back and the session lists its teams.
+
 ## R64: a link restart re-judges the questions room and rate-drops the owner's posts
 
 - **Seen:** the coordinator's `teamchat status` after its 18:48Z relaunch, 25 Nov:
