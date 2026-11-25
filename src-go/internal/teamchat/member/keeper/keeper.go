@@ -204,6 +204,14 @@ func production(e cli.Env, inv cli.Invocation) (Config, error) {
 			return Config{}, fault(exits.CodeRuntime, msgRuntimeParent, exits.Name(parent))
 		}
 	}
+	if l.Kind == cli.KindLXC {
+		// --key is the seat's roots (cli.Launch): the same as --state and --desired of its layout.
+		keyed, err := paths.LXCLayout(e.Getenv(envHome), parent, l.Key)
+		if err != nil {
+			return Config{}, fault(exits.CodeRuntime, msgRuntimeParent, exits.Name(parent))
+		}
+		l.State, l.Desired = keyed.State(), keyed.Desired()
+	}
 	layout, err := applyDirs(layout, l)
 	if err != nil {
 		return Config{}, err

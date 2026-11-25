@@ -73,6 +73,22 @@ func TestProduction(t *testing.T) {
 	if c := ccy.LinkCmd(run, kit); !hasArgs(c, kit.Binary(), "link", "--run", run.Dir()) {
 		t.Fatalf("ccy link %v", c.Line())
 	}
+	key, err := paths.ParseSeatKey("0123456789abcdef")
+	mustDo(t, err)
+	// --kind lxc --key K takes the seat's roots from the key (paths.LXCLayout): the state and
+	// desired roots under ~/.config/teamchat/lxc/K, the run root under $XDG_RUNTIME_DIR, and the
+	// link reads the seats from that state root. Without this the unit's own line is refused.
+	lxc, err := production(e, launch(cli.Launch{Kind: cli.KindLXC, Key: key, Cmd: []string{"claude"}}))
+	mustDo(t, err)
+	want, err := paths.LXCLayout("/home/u", "/run/user/1", key)
+	mustDo(t, err)
+	if lxc.Layout.State() != want.State() || lxc.Layout.Desired() != want.Desired() || lxc.Layout.RunRoot() != want.RunRoot() ||
+		lxc.Launch.State != want.State() || lxc.Launch.Desired != want.Desired() {
+		t.Fatalf("lxc config: layout state %s desired %s run %s; launch %+v", lxc.Layout.State(), lxc.Layout.Desired(), lxc.Layout.RunRoot(), lxc.Launch)
+	}
+	if c := lxc.LinkCmd(run, kit); !hasArgs(c, kit.Binary(), "link", "--run", run.Dir(), "--state", want.State()) {
+		t.Fatalf("lxc link %v", c.Line())
+	}
 	refused := map[string]struct {
 		inv  cli.Invocation
 		home string
