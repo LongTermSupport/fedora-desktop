@@ -570,6 +570,25 @@ filled in as each cause is known.
 - **Severity:** high (every gate a commit is meant to pass locally is silently absent).
   **Issue:** #427. **State:** open, outside v2.
 
+## R68: a coordinator's `reply` to an older questions-room post is refused "no item in main"
+
+- **Seen:** a coordinator seat (team A), 25 Nov, after a relaunch: `teamchat reply '<id>'` on two
+  older owner posts in questions ended 23, "team <t> has no item <id> in main"; the seat asked
+  afresh with `ask-human`. The same refusal earlier that day drove a `thread Q<n> --note`
+  fallback. The documented procedure answers a person with `reply`.
+- **What (read in code, red test):** `reply` took the room from the seat's store; for an id the
+  store did not hold, `fetched` re-fetched it from main only, so a questions post read as a 404.
+  The store is persisted, not per launch; why these posts were not in it is unchecked (the
+  1024-item ledger, or ids taken from `questions`/`history`). The code departed from SPEC-n3f
+  QR1, which says the coordinator looks in questions after main.
+- **Fix:** the coordinator of a team with a questions room looks there when main answers 404,
+  and answers in the post's thread; an id in neither room is 23 naming both; a worker never
+  reads questions. The engine's fake `Refetch` now keeps each fetch's room. No rule: the
+  sweep found one instance, and the wrong and right sites share a shape
+  ([R68](reports/R68.md)).
+- **Severity:** high (breaks the documented answer path). **Issue:** TBF. **State:** fixed on
+  v2-smoke, batch 20 (`f59504a18`); not yet run live.
+
 ## R67: the status-line golden test reports a process that died as it was killed as outliving the render
 
 - **Seen:** CI run 45703604400 ("QA (diff, go)"), 25 Nov 21:32Z: `TestStatusLineGolden`'s
