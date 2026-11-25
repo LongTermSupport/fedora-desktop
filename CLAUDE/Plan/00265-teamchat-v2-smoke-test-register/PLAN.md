@@ -39,22 +39,28 @@ when, who hit it, how to reproduce it, its severity, issue, unit and state.
 ### Phase 1: the faults that stop real work
 
 - [ ] 🔄 **Task 1.1** (U1): R6, R18, #421: a refusal names its cause and the fix; detector first.
+  Merged into `v2-smoke` (ea576bbbf); live proof owed.
 - [ ] 🔄 **Task 1.2** (U2): R1, R2, R21, #422: every PEER reaches the session or its sender is
   told why; reply works on what history lists.
 - [ ] 🔄 **Task 1.3** (U3): R3, #423: seat choice at launch is at least v1's.
 - [ ] 🔄 **Task 1.4** (U4): R4, #417: a seat's conversation survives joining a team and `/exit`.
 - [ ] 🔄 **Task 1.5** (U5): R5, #416: a seat is added in a couple of commands with a derived name.
+  First slice merged (751bdeab3): `ccy-teams seats add` on the homeserver's machine; the in-launch
+  creation follows U3; other-machine, coordinator requests and named seats wait on the owner (Q6).
+- [ ] 🔄 **Task 1.6** (U8): R22, R23, #425: LXC members on another host (Plan 00257 B.4); R23 on
+  its way to F44 alone (`ci/r23-lxc-key`). See [ROUTE-TO-LIVE.md](ROUTE-TO-LIVE.md).
 
 ### Phase 2: threads, procedure and authority
 
 - [ ] 🔄 **Task 2.1** (U6): R10, R12: reply to an edited human message; a worker can verify a
-  relayed human answer.
+  relayed human answer. Merged (c3c336cd4); live proof owed.
 - [ ] ⬜ **Task 2.3**: R7, R9, R11.
 - [ ] ⬜ **Task 2.2**: R8, R17, #420.
 
 ### Phase 3: what misleads, and comfort
 
-- [ ] 🔄 **Task 3.1** (U7): R14: presence reflects a live link.
+- [ ] 🔄 **Task 3.1** (U7): R14: presence reflects a live link. Merged (b1d62a0e0); live proof
+  owed.
 - [ ] ⬜ **Task 3.3**: R13, R15, R16.
 - [ ] ⬜ **Task 3.2**: R19 (#424), R20.
 

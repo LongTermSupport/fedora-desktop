@@ -63,9 +63,10 @@ filled in as each cause is known.
   it. The owner expects a couple of commands, with the name derived by the launcher
   (`project.number+machine.type`), never typed.
 - **Reproduce:** try to add a seat to a team without the admin issue and place steps.
-- **Severity:** critical. **Issue:** #416. **Unit:** U5. **State:** in progress (U5): first slice
-  built, `ccy-teams seats add <team>` on the homeserver's machine (derived handle, one sudo,
-  issue and place); the rest waits on the owner's questions in [reports/U5.md](reports/U5.md).
+- **Severity:** critical. **Issue:** #416. **Unit:** U5. **State:** first slice merged (751bdeab3),
+  `ccy-teams seats add <team>` on the homeserver's machine (derived handle, one sudo, issue and
+  place; worker seats take no human text by default); seat creation in the launch follows U3;
+  the rest waits on the owner (Q6, [reports/U5.md](reports/U5.md)). Live proof owed.
 
 ## R6: a `ref` refusal names no cause
 
