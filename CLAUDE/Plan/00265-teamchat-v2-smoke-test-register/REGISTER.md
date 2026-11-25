@@ -8,6 +8,8 @@ seen and stays open until a fix is proven. [PLAN.md](PLAN.md) holds the units an
 workaround; medium misleads; low is cosmetic.
 **State:** `open`, `in progress (unit)`, `fixed (commit)` or `proven (how)`.
 **Issue:** TBF means it is to be filed before its unit starts.
+**Cause class:** kept for the owner's retrospective in [Cause classes](#cause-classes) at the end,
+filled in as each cause is known.
 
 ## R1: a coordinator's `say` never reaches a worker
 
@@ -172,6 +174,33 @@ workaround; medium misleads; low is cosmetic.
     `v2-smoke` as abandoned.
 - **Severity:** medium. **Issue:** TBF (each to its owner: this repository's QA, the hooks
   daemon). **State:** open.
+
+## R30: no released teamchat kit archive
+
+- **Seen:** the coordinator's decision on O1, 2026-11-25.
+- **What:** a container on another host gets the member kit only by its own setup copying it
+  from a fedora-desktop host; a released static kit archive would let it fetch one.
+- **Severity:** low. **Issue:** TBF. **State:** open (later improvement).
+
+## Cause classes
+
+For the owner's retrospective: each fault's cause class, and the check that would have caught it
+before the move to v2. Filled in as causes are found.
+
+| Row      | Cause class                                                       | Check that would have caught it                                                                  |
+| -------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| R1       | one flag with two meanings (`human_text` also gating agent PEERs) | a delivery matrix test: every sender role to every member kind, with and without the flag        |
+| R2, R21  | a decision recorded only in a log                                 | a rule that every drop or ignore reaches the session or `status` with its reason                 |
+| R3       | a v1 capability not carried over (seat choice at launch)          | a v1-parity checklist of the launch behaviours, run against v2 before the switch                 |
+| R4       | a v1 capability not carried over (resume by record)               | the same parity checklist; a restore dry run in the cut-over acceptance                          |
+| R6, R18  | an error that names a code, not a cause                           | the project rule `project_refusal_reason_text` (now built)                                       |
+| R10, R12 | a test double that differed from the real server                  | the fake homeserver's answers pinned against real Tuwunel (the `tuwunel`-tagged suite run in CI) |
+| R11      | a sentinel value rendered as data (N 0 shown as "Q0")             | a test of every hook line over its edge values                                                   |
+| R14      | an output field filled from a placeholder, never its source       | a review rule: each status field names its source; a test that another member can be `present`   |
+| R16      | "not checked" shown as a class (`external`)                       | the same review rule                                                                             |
+| R22      | a path never run on a real machine (other-host LXC)               | a live acceptance on the real topology before the switch                                         |
+| R23      | a flag the grammar accepts and production never reads             | the `TestProduction` table (now holds the keyed kind); a live start of one LXC seat              |
+| R26      | an untested architecture (arm64)                                  | a CI job on arm64, or a pin check for every architecture the hosts run                           |
 
 ## R13: restore's dry run says only "already running"
 
