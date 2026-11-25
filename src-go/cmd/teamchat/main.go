@@ -13,6 +13,8 @@ import (
 
 // SourceDigest is the binary's source digest, set at build time with
 // -ldflags "-X main.SourceDigest=<digest>"; `--version` and `version` refuse to answer without it.
+// Both builders give it the ccy image's source digest (files/var/local/claude-yolo/image-source-digest),
+// so two builds of one teamchat source print one digest.
 var SourceDigest string
 
 func main() {

@@ -105,6 +105,9 @@
 # free seat of its kind adds one (one sudo) and launches it instead of exiting 78, and each
 # launcher is offered and given only its own kind's seats. The image is unchanged.
 # Its review fixes (ccy 3.124.51) ride the same run: a named LXC seat is refused naming its kind.
+# Plan 00265 R57 (ccy 3.124.66, container 2.84.86): the image is rebuilt once so its teamchat
+# version prints the image-source digest (the same one the teamchat play below gives the host's
+# teamchat for the same source), and its source-commit label is named ccy-image-source-commit.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC
@@ -114,7 +117,10 @@ playbooks/imports/play-claude-yolo.yml
 # rebuilds the ccy image for its teamchat. Nothing running is restarted: an LXC member session
 # started after the run (teamchat-admin lxc start --member <container>/<key>) starts, instead
 # of exiting 78. R44: the host kit it assembles carries the coordinator skill too, and the kit
-# check now requires it.
+# check now requires it. R57: the member program's digest is now the image-source digest, so the
+# kit is assembled in a new digest directory and its current link moves once (the present teams
+# are re-applied for the new member program, as on any member change); teamchat-admin keeps the
+# src-go tree id.
 playbooks/imports/play-teamchat.yml
 
 # Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that

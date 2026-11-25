@@ -17,6 +17,30 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.67 — container 2.84.87
+
+- **The image-source digest refuses a listed path that names no file.** A typo or a trailing
+  space in `image-source-paths` dropped that path from the digest without a word, so the digest
+  covered less than its list said; the image build and the teamchat play now fail naming the
+  path (Plan 00265 R57, review).
+
+## 3.124.66 — container 2.84.86
+
+- **`teamchat version` names teamchat's source, the same on the host and in the image.** Its
+  digest was the git tree id of all of `src-go` at the build commit, so a container whose image
+  was built before an unrelated `src-go` change printed another digest than the host for the
+  same teamchat code. Both builders now run one script, `image-source-digest`, over the paths
+  `image-source-paths` lists (the image's own Go commands and the pingbus packages): equal
+  digests are equal sources. `teamchat-admin` keeps the `src-go` tree id, which covers what it
+  is built from. The host's kit directory is named by the new digest, so the first teamchat
+  play run after this moves the kit's `current` link once (and, as for any new member program,
+  re-applies the present teams).
+- **The image's source-commit label is renamed `ccy-image-source-commit`.** It names the last
+  commit that changed the image's own source, not the checkout's commit the image was built in,
+  which is why an image built today can carry an older commit. Read it with
+  `podman image inspect --format '{{index .Labels "ccy-image-source-commit"}}' claude-yolo:latest`
+  (Plan 00265 R57).
+
 ## 3.124.65 — container 2.84.85
 
 - **A coordinator can reply to a person's older questions-room post again.** `teamchat reply '<id>'` took a questions-room post's room only from the seat's store; for an id the store no

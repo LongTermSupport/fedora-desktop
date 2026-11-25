@@ -11,7 +11,8 @@
 #
 # The binary, bin/teamchat, is not staged here: the Dockerfile's builder stage builds it from the
 # commit the image is built from (issue 235), static, with its source digest (-X
-# main.SourceDigest, what `teamchat version` prints) the git tree id of that commit's src-go.
+# main.SourceDigest, what `teamchat version` prints) the image-source digest of that commit
+# (image-source-digest over image-source-paths), as play-teamchat.yml gives the host's teamchat.
 #
 # The kit is v2's alone and add-only beside v1's kit, which it does not touch. Each
 # session links /usr/local/bin/teamchat only when it is a v2 member (the launcher, Task 4.2).

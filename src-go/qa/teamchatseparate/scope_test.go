@@ -112,6 +112,18 @@ func TestSharedFilesAreOutOfScopeWithAReason(t *testing.T) {
 	}
 }
 
+// teamchat's source digest is the ccy image's (Plan 00265 R57): the teamchat play runs the one
+// script the image's builder stage runs, over the same list, so both are shared.
+func TestTheImageSourceDigestIsShared(t *testing.T) {
+	for _, p := range []string{
+		"files/var/local/claude-yolo/image-source-digest", "files/var/local/claude-yolo/image-source-paths",
+	} {
+		if _, ok := SharedFiles[p]; !ok {
+			t.Errorf("%s is not a shared file", p)
+		}
+	}
+}
+
 // Every scoped path lies under a path the git listing is asked for.
 func TestScanPathsCoverTheScope(t *testing.T) {
 	for _, p := range []string{

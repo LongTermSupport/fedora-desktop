@@ -796,9 +796,18 @@ filled in as each cause is known.
   cached builder layer keeps its label; unchecked on the machine), but an image built today names
   a commit five batches old. The fix should cover the label too: it names the image-source commit
   and says so, or a second label carries the build's checkout commit.
-- **Fix:** the digest covers what teamchat is built from (the image-source paths), or `version`
-  also prints the build commit. Nothing compares digests at run time, so either is safe.
-- **Severity:** low (misleading, harmless). **Issue:** TBF. **State:** open.
+- **Corrected:** the keeper does compare digests at run time (the kit binary's `--version` against
+  the kit directory's name and its own, `keeper/prepare.go`), and the digest names the host's kit
+  directory; a digest may cover more than a build's source, never less.
+- **Fix:** one script, `files/var/local/claude-yolo/image-source-digest`, digests the files
+  `image-source-paths` matches at a commit; the image's builder stage runs it at the commit it
+  clones and `play-teamchat.yml` at HEAD, for teamchat only (its kit is named by it), so one
+  teamchat source prints one digest. teamchat-admin keeps the `src-go` tree id. `help version`
+  says what the digest names. The label is renamed `ccy-image-source-commit` (the image-source
+  commit, never HEAD; a HEAD label would change the image every commit). No rule: the class is
+  semantic; the sweep found the two instances ([R57](reports/R57.md)).
+- **Severity:** low (misleading, harmless). **Issue:** TBF. **State:** fixed on v2-smoke, batch 21
+  (`9114b2b70`; ccy 3.124.66, container 2.84.86); not yet run live.
 
 ## R56: a Lightning instance on a busy team's rooms grows to 75 GB resident
 

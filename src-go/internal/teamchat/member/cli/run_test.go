@@ -49,6 +49,18 @@ func TestVersionIsARecord(t *testing.T) {
 	}
 }
 
+// `help version` says what the digest names (Plan 00265 R57): the ccy image's source, which the
+// host's build and the image's build both digest, so equal digests are equal teamchat sources.
+func TestHelpOfVersionSaysWhatTheDigestNames(t *testing.T) {
+	var w world
+	if w.run(digest, "help", "version") != term.ExitOK {
+		t.Fatal(w.err.String())
+	}
+	if !strings.Contains(w.out.String(), "image-source-digest") {
+		t.Errorf("help version does not say what the digest names: %q", w.out.String())
+	}
+}
+
 // Both forms exit 1 without a built digest: a binary that cannot name its source is a bug.
 func TestNoDigestIsInternal(t *testing.T) {
 	for _, d := range []string{"", "not-a-digest"} {

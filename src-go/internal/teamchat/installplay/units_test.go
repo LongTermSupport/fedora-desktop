@@ -33,7 +33,7 @@ func rendered(t *testing.T, text, digest, version string) string {
 			pairs = append(pairs, "{{ "+name+" }}", s)
 		}
 	}
-	pairs = append(pairs, "{{ tc_tree.stdout }}", digest, "{{ tc_version }}", version)
+	pairs = append(pairs, adminDigest, digest, memberDigest, digest, "{{ tc_version }}", version)
 	return strings.NewReplacer(pairs...).Replace(text)
 }
 

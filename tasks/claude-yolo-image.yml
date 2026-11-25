@@ -83,6 +83,20 @@
     - scripts
     - dockerfile
 
+# teamchat's source digest over those paths, the one definition the builder stage and
+# play-teamchat.yml both run (Plan 00265 R57).
+- name: Copy the Image-Source Digest Script into Docker Build Context
+  become: true
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/var/local/claude-yolo/image-source-digest"
+    dest: /opt/claude-yolo/image-source-digest
+    owner: root
+    group: root
+    mode: "0755"
+  tags:
+    - scripts
+    - dockerfile
+
 - name: Copy Browser Mode Stub into Docker Build Context
   become: true
   ansible.builtin.copy:
