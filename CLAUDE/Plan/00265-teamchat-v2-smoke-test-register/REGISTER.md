@@ -301,7 +301,8 @@ before the move to v2. Filled in as causes are found.
   host too.
 - **Reproduce:** `teamchat run --kind lxc --key <key> -- claude` in a member container.
 - **Severity:** critical. **Issue:** #425. **Unit:** U8.
-  **State:** fixed on U8's branch (90090205e), not yet merged.
+  **State:** fixed, on F44 at 5fea8d97f (CI green), with `play-teamchat.yml` queued in
+  `meta-deploy.list`; deploy (L5) and live proof owed.
 
 ## R24: a ping straight after its push is refused as "provenance failed"
 
