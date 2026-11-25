@@ -244,8 +244,16 @@
     "receiver": "@myrepo.3+desk.lxc:myteam.teamchat.internal",
     "room": "main",
     "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.2+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"x\",\"teamchat.text\":{\"v\":1,\"to\":[\"@myrepo.3+desk.lxc:myteam.teamchat.internal\"],\"text\":\"hello\"}}}",
-    "outcome": "drop",
-    "reason": "sender"
+    "outcome": "deliver",
+    "kind": "PEER"
+  },
+  {
+    "name": "text overheard",
+    "receiver": "@myrepo.3+desk.lxc:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.2+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"x\",\"teamchat.text\":{\"v\":1,\"to\":[\"@myrepo.1+desk.podman:myteam.teamchat.internal\"],\"text\":\"hello\"}}}",
+    "outcome": "ignore",
+    "reason": "not-addressed"
   },
   {
     "name": "text reply",
