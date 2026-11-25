@@ -423,6 +423,21 @@ filled in as each cause is known.
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
   open.
 
+## R47: the by-hand Go QA missed the launcher's parity oracle
+
+- **Seen:** this seat, batch 3 CI run 45628379212 (QA diff, go), 2026-11-25.
+- **What:** U3 added `--given=<seats>` to the bash launcher's `ccy-teams internal seat-resume`
+  call on purpose. `internal/ccylaunch/difftest` replays the bash launcher against recorded
+  goldens, so four `launch-teams-*` scenarios (TestLauncherParity and TestFrontParity) failed in
+  CI. The units' Go QA was run by hand (go-qa cannot run on arm64, #426) as `go test` over the
+  changed Go packages only, which never reaches a test whose subject is a bash file. CI's diff
+  routing did run it.
+- **Fix:** goldens re-recorded from the launcher with the harness's `-update` (the four
+  scenarios, `--given` the only difference). Every unit brief's by-hand QA now adds
+  `go test ./internal/ccylaunch/difftest` when the bash launcher changes.
+- **Severity:** medium (cost one CI round). **Issue:** #426 (the cause of the by-hand run).
+  **State:** fixed on `v2-smoke`.
+
 ## R45: Lightning shows no settings button in a collapsed room list with the rail hidden
 
 - **Seen:** the owner, lts-ops questions room, 14:16Z (F21).
