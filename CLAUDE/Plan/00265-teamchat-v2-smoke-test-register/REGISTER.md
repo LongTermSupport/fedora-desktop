@@ -217,7 +217,9 @@ filled in as each cause is known.
   **Issue:** TBF. **State:** confirmed by the coordinator (A9). The estate accepts four keys, and
   this container's key is not one of them, so the pin check and the dev VMs' self-update refuse
   these commits. The owner decides (lts-ops Q10): countersign each batch, trust the key, or trust
-  it at home only. Who signs is not changed here.
+  it at home only. Who signs is not changed here. **Resolved for home (A10, the owner, 12:47Z):**
+  no countersigning. The home environment trusts this key (the home dev VM's shared key), and
+  the datacentre does not, so it stays on its old pin and skips these commits.
 
 ## R32: `close Q<n>` waits for stdin it does not need
 
@@ -275,6 +277,10 @@ before the move to v2. Filled in as causes are found.
 
 - **Seen:** the owner's terminal.
 - **What:** the tab should show the team and seat, and follow a switch between tmux sessions.
+- **Owner's spec (F10, 12:47Z):** the tab, the tmux session and the seat all show team, project
+  and seat number, and the seat type, which is the launcher used (`ccy` for a container seat,
+  `cc` for a seat on the machine itself). Example: `lts-ops · fedora-desktop.4 · ccy`. The owner
+  may still change the order.
 - **Reproduce:** switch tmux sessions between seats.
 - **Severity:** low. **Issue:** TBF. **State:** open.
 
