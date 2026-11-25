@@ -322,6 +322,28 @@ func TestSD2_1NamesResolvePerTeam(t *testing.T) {
 	refusedCode(t, "a team not held", firstOf(w.say(&other, "x", "alice")), exits.CodeUsage)
 }
 
+// Register R42: --to-coordinator never means this member itself. A session that coordinates
+// one team and works in another sends it to the other team's coordinator without --team, and
+// names the cause when the only coordinator it could mean is itself.
+func TestToCoordinatorSkipsTheTeamThisMemberCoordinates(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops, dev := tid(t, "ops"), tid(t, "dev")
+	w.sendingUnder(ops, w.newStore(ops), coordinatorRoster(ops))
+	fd := w.sending(dev)
+	toC := func(team *paths.TeamID) answer {
+		return w.request(t.Context(), wire.OpSay, wire.SayArgs{Team: team, ToCoordinator: true}, new("to the coordinator"))
+	}
+	posted(t, toC(nil))
+	if c := contentOf(t, lastContent(t, fd)); !slices.Equal(c.Text.To, []string{agent(dev, 3)}) {
+		t.Errorf("--to-coordinator is to %v", c.Text.To)
+	}
+	d := firstOf(toC(&ops))
+	refusedCode(t, "--team the team this member coordinates", d, exits.CodeUsage)
+	if !strings.Contains(d.Error.Message, "this member is the coordinator of team ops") {
+		t.Errorf("the refusal does not name its cause: %q", d.Error.Message)
+	}
+}
+
 // SD2-2: ping with an answer verb points at reply --verb; ping takes no stdin. The bare ping is
 // cli's TestABarePingListsTheVerbs.
 func TestSD2_2PingRefusesAnswerVerbs(t *testing.T) {

@@ -307,8 +307,11 @@ filled in as each cause is known.
   never leaves out the sender (`engine/send.go`, `resolve`), so a session that coordinates team A
   and works on team B always gets the ambiguous-team refusal, though only B's coordinator is
   someone else. `--team <B>` works.
-- **Fix:** a team whose coordinator is this session is not a candidate for `--to-coordinator`.
-- **Severity:** medium. **Issue:** TBF. **Unit:** U10. **State:** open.
+- **Fix:** a team whose coordinator is this session is not a candidate for `--to-coordinator`;
+  with `--team` naming that team, the refusal (64) says this member is its coordinator and to
+  use `--to`. `reply --to-coordinator` already left the session out.
+- **Severity:** medium. **Issue:** TBF. **Unit:** U10. **State:** fixed on `v2-smoke`
+  (cdac15584, red then green); lands with batch 4.
 
 ## R40: a `ci/<topic>` push of a commit GitHub already has runs no CI
 
@@ -323,6 +326,40 @@ filled in as each cause is known.
 - **Fix direction:** the push gate or the recipe names this case: push the `ci/<topic>` branch
   before the work branch, or create it at the protected tip and fast-forward it.
 - **Severity:** medium. **Issue:** TBF. **State:** open; workaround known.
+
+## R43: one back-merge without a version bump stops a work branch landing by ancestry
+
+- **Seen:** this seat, batch 3's CI run 45625876657 ("QA (diff, rest)"), 2026-11-25 (dogfood).
+- **What:** `scripts/qa-ccy-merge-commits.bash` judges every merge commit in a run's range
+  against its parent on the protected line. `8a3b4af01` (F44 merged into `v2-smoke` for R23)
+  carried `v2-smoke`'s teamchat changes at the same `CCY_VERSION` as that F44 parent, so it is
+  refused. The commit is history and cannot be fixed without a force-push, so every later push of
+  `v2-smoke`'s ancestry fails the same way, although the tip's version (3.124.46) is above F44's.
+- **Workaround used:** batch 3 lands as one signed commit on F44 with `v2-smoke`'s tree
+  (`732effcb3`), as batches 1 and 2 did. The cost is ancestry: the unit branches do not show as
+  merged into F44.
+- **Fix direction:** bump `CCY_VERSION` in the work branch before merging the protected line into
+  it, or have the gate judge only the merges a push adds to the protected line.
+- **Severity:** medium. **Issue:** TBF. **State:** open; workaround known.
+
+## R44: the standard coordinator procedure ships with the team tooling
+
+- **Seen:** the owner, lts-ops questions room 13:55Z (F20): "this needs to be standardised and
+  the ballicom team coordinator needs the same instructions".
+- **What:** a team's coordinator learns its procedure from a hand-over note in its own
+  repository; another team's coordinator has none. The infrastructure repository has written one
+  standard procedure with no project facts in it, plus a project-layer template.
+- **Where it will live:** a second skill in the teamchat plugin the kit already ships,
+  `files/opt/claude-yolo/optional/teamchat/plugin/teamchat/skills/coordinator/SKILL.md`, beside
+  the `teamchat` skill.
+- **How a coordinator will find it:** the SessionStart frame's coordinator line
+  (`member/hooktext/hooktext.go`, `tmplRoleCoordinator`; today it names no skill) will name the
+  skill, so it reaches only the seats that coordinate a team, at every launch. A project adds its layer in its own repository.
+- **Upkeep:** every `teamchat` verb and flag the skill names is checked against the code when
+  it lands. A test will hold the skill's verbs to the CLI's verb table, so a renamed verb fails
+  QA.
+- **Severity:** medium. **Issue:** TBF. **State:** open; after the container blocker's steps and
+  R41, before any new team.
 
 ## R39: a seat starts on the account's default model
 
@@ -366,6 +403,10 @@ filled in as each cause is known.
   installed Flatpak's version uses the same key. A preset therefore means merging that one key
   into each team's file, which changes L7 ("only when absent"). The laptop cannot read the file
   (its secret guard covers the Flatpak's data, by design), so no live comparison is needed.
+- **The rail preset and settings (F21):** it ships with the workaround stated; it does not wait for
+  R45. With the rail hidden, the settings cog and account menu move to the room list's full-width
+  header (upstream #45); only a list also collapsed to its narrow width loses them, and Ctrl+,
+  (or Ctrl+K, "Open Settings") opens Settings in every layout. The preset's note says so.
 - **Severity:** low (after the container work). **Issue:** TBF. **State:** open.
 
 ## R36: an earlier #417 implementation sits on unmerged branches
@@ -381,6 +422,39 @@ filled in as each cause is known.
   retire the branches. They are not deleted until that is done.
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
   open.
+
+## R47: the by-hand Go QA missed the launcher's parity oracle
+
+- **Seen:** this seat, batch 3 CI run 45628379212 (QA diff, go), 2026-11-25.
+- **What:** U3 added `--given=<seats>` to the bash launcher's `ccy-teams internal seat-resume`
+  call on purpose. `internal/ccylaunch/difftest` replays the bash launcher against recorded
+  goldens, so four `launch-teams-*` scenarios (TestLauncherParity and TestFrontParity) failed in
+  CI. The units' Go QA was run by hand (go-qa cannot run on arm64, #426) as `go test` over the
+  changed Go packages only, which never reaches a test whose subject is a bash file. CI's diff
+  routing did run it.
+- **Fix:** goldens re-recorded from the launcher with the harness's `-update` (the four
+  scenarios, `--given` the only difference). Every unit brief's by-hand QA now adds
+  `go test ./internal/ccylaunch/difftest` when the bash launcher changes.
+- **Severity:** medium (cost one CI round). **Issue:** #426 (the cause of the by-hand run).
+  **State:** fixed on `v2-smoke`.
+
+## R45: Lightning shows no settings button in a collapsed room list with the rail hidden
+
+- **Seen:** the owner, lts-ops questions room, 14:16Z (F21).
+- **What:** with the spaces rail hidden and the room list collapsed to its narrow column, no
+  settings or account button is on screen; the owner widened the list by hand to reach them.
+  Upstream source at 05d0be9c: the full-width header that carries them is hidden when compact,
+  and the compact column (home, search, filter, archived, Activity) has none. Ctrl+, works.
+- **Issue:** upstream [lightning-matrix/lightning#107](https://github.com/lightning-matrix/lightning/issues/107)
+  (follows #45 and #103). **Severity:** low. **State:** filed upstream; watched.
+
+## R46: Lightning has no quick toggle to collapse and expand the room list
+
+- **Seen:** the owner, lts-ops questions room, 14:16Z (F21).
+- **What:** collapsing or expanding the room list takes a drag, click or double-click on a 1 px
+  divider; Ctrl+B hides the list entirely and no shortcut or button switches its width.
+- **Issue:** upstream [lightning-matrix/lightning#108](https://github.com/lightning-matrix/lightning/issues/108).
+  **Severity:** low. **State:** filed upstream; watched.
 
 ## Cause classes
 

@@ -60,7 +60,8 @@ when, who hit it, how to reproduce it, its severity, issue, unit and state.
   F44 (5fea8d97f); L2 to L4 on F44 (c1b20004f) with U2; the key is trusted at home (R31),
   so the estate's re-pin (L5) is with the coordinator. Route: other-host only (Q8). See [ROUTE-TO-LIVE.md](ROUTE-TO-LIVE.md).
 
-- [ ] ⬜ **Task 1.7** (U10): R41, R42: a seat is added to a running v2 session as v1 allowed
+- [ ] 🔄 **Task 1.7** (U10): R41, R42: a seat is added to a running v2 session as v1 allowed
+  (R42 fixed on `v2-smoke`, cdac15584; R41 next, in a worktree once the branch pool has room)
   (`ccy-teams session add`), and `--to-coordinator` leaves out a team this session coordinates.
   Next after batch 3 lands (F19: no-degrade).
 
