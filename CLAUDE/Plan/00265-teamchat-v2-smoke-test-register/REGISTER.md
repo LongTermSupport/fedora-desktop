@@ -442,6 +442,15 @@ filled in as each cause is known.
   R45. With the rail hidden, the settings cog and account menu move to the room list's full-width
   header (upstream #45); only a list also collapsed to its narrow width loses them, and Ctrl+,
   (or Ctrl+K, "Open Settings") opens Settings in every layout. The preset's note says so.
+- **The live file (F29, the laptop host seat, from a key-names-only listing; no values seen):**
+  confirms F16 on the installed client. `spacesRailVisible` sits in the top-level `[shell]`
+  section, not per account, and only in the two instances where the owner unticked the rail;
+  the default instance has `[shell] spacesRailWidth` and an untouched team instance has neither.
+  An untouched team instance's file holds only `[homeserver] url`, the line our setup writes
+  before first launch, so the preset is one more key in a file we already write.
+- **Unchecked:** the value's spelling (the name says boolean), and whether Lightning keeps a
+  preset value at first launch rather than resetting it. One test settles both: preset it in a
+  throwaway instance, launch, look at the rail.
 - **Severity:** low (after the container work). **Issue:** TBF. **State:** open.
 
 ## R36: an earlier #417 implementation sits on unmerged branches
@@ -509,6 +518,18 @@ filled in as each cause is known.
   `scripts/git-hooks/pre-commit` by hand before committing. No manual `git config` (IaC only).
 - **Severity:** high (every gate a commit is meant to pass locally is silently absent).
   **Issue:** #427. **State:** open, outside v2.
+
+## R55: the v2 seat pool is not filtered by member type
+
+- **Seen:** this seat, 2026-11-25, answering the owner's host-seat question (F28).
+- **What:** `chooser.Teamchat.Pool(team)` is every pool seat of the team in this checkout, and
+  `teamchatSeat` (`chooser/teamchat.go:80-93`) orders and offers them with no look at the seat's
+  kind, though it is given `memberType`. So a bare `cc --teams <team>` (host) can be offered or
+  given a free podman seat, and a `ccy` launch a host seat. A named `<N>@<team>` takes the seat
+  whose seat part is N (`teamchatlaunch.ChooseSeat`), also with no kind check.
+- **Fix:** with R5: the pool offered and the seat named are those of the launcher's kind; a
+  named seat of the other kind is refused, naming the kind. **Severity:** medium (a host agent
+  can start on a podman seat's identity). **Issue:** TBF. **State:** open.
 
 ## R54: fixes landed on F44 without reaching any image (no container bump, no CI gate)
 
