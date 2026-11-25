@@ -524,6 +524,23 @@ filled in as each cause is known.
 - **Severity:** high (every gate a commit is meant to pass locally is silently absent).
   **Issue:** #427. **State:** open, outside v2.
 
+## R56: a Lightning instance on a busy team's rooms grows to 75 GB resident
+
+- **Seen:** the laptop host seat via the coordinator, 25 Nov 17:55Z (F30), read-only (`ps`,
+  `free`, `podman stats`).
+- **What:** the Lightning instance of the team with the busy questions room reached RSS 75.1 GB
+  after 7h open, still growing (78,869,176 KiB, then 79,053,240 KiB about a minute later,
+  about 180 MB a minute). The host had 86 of 93 GiB in use and zram swap at 6.6 of 8.0 GiB, and
+  two deploys were killed. A second instance, on a quieter team and open as long, held 0.3 GB, so
+  the growth follows the traffic. Cause unverified. Upstream #98 (4 GB on Windows) had
+  search-indexer memory fixed in 0.10.7; the installed version is not yet read.
+- **Next:** capture, if the process still lives: `/proc/PID/status` (RssAnon vs RssFile vs
+  RssShmem), `smaps_rollup`, the mapping names by count, the fd count, `flatpak info`. File
+  upstream with those numbers once the owner agrees (public tracker; no names). Until a fix:
+  quit and reopen the instance.
+- **Severity:** high (it starves the owner's laptop). **Issue:** upstream, to file. **State:**
+  open.
+
 ## R55: the v2 seat pool is not filtered by member type
 
 - **Seen:** this seat, 2026-11-25, answering the owner's host-seat question (F28).
