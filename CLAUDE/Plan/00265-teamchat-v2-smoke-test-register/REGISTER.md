@@ -636,7 +636,10 @@ filled in as each cause is known.
   `||`) and whose body leaves, with a fixture in `rules/testdata`. Its message names the forms it
   takes.
 - **Severity:** low (a correct guard refused; a by-hand run finds the accepted form). **Issue:**
-  TBF. **State:** open, QA tooling.
+  TBF. **State:** fixed on v2-smoke, batch 15 (`0db93cad0`; reports/R62.md): a tagless switch
+  clause that leaves on a failed check (alone, in `||`, or listed) guards what follows when
+  every earlier clause leaves or holds the check; `break`/`fallthrough` in a clause and `&&`
+  are no guard; the message names the forms taken.
 
 ## R61: a terminal launch beside a declared session makes a second record under a new name
 
