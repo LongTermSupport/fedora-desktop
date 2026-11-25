@@ -28,7 +28,8 @@ filled in as each cause is known.
 - **Reproduce:** coordinator `say --to <worker>` to a worker whose roster entry has
   `human_text: false`.
 - **Severity:** critical. **Issue:** #422. **Unit:** U2. **State:** fixed (U2), merged into
-  `v2-smoke` and on F44 at c1b20004f (the home pin). The live check is in `reports/U2.md`.
+  `v2-smoke` and on F44 at c1b20004f (the home pin), but in no image until container 2.84.78
+  (`09c383f5b`; R54). The live check is in `reports/U2.md`.
   The owner confirmed the new meaning (lts-ops Q11, A12): `human_text` gates a human's words
   only. Plan 00209 A 7.6 rule 08 and Plan 00161 D63 now say so.
 
@@ -504,6 +505,24 @@ filled in as each cause is known.
   `scripts/git-hooks/pre-commit` by hand before committing. No manual `git config` (IaC only).
 - **Severity:** high (every gate a commit is meant to pass locally is silently absent).
   **Issue:** #427. **State:** open, outside v2.
+
+## R54: fixes landed on F44 without reaching any image (no container bump, no CI gate)
+
+- **Seen:** F27 (coordinator, 15:47Z): seat 7, relaunched on ccy 3.124.43, still drops every
+  coordinator `say`. This seat traced it, 2026-11-25.
+- **What:** ccy rebuilds its image only when the container version or the Dockerfile hash
+  changes (`validate_container_version`, `lib/common.bash`). Container 2.84.77 came in at
+  `ffa5e86c8` (Nov 24 12:31), whose src-go tree is the `2f5c69f0…` digest every session
+  reports. U2 (R1, `c1b20004f`) and batch 3 (`9d37999ce`) changed teamchat image sources and
+  kept 2.84.77, so no session ran R1's, R12's or any batch 3 fix. The version gate for image
+  sources lives only in `scripts/git-hooks/pre-commit`, which this checkout does not run (R52),
+  and no QA script or CI job runs it.
+- **Fix:** batch 4 part 2 (`09c383f5b`, container 2.84.78) is the first bump since, so a deploy
+  and a relaunch bring every fix so far. The class: a diff-mode QA check in `qa-changed.bash`
+  (so CI runs it) that refuses an image-source change without both versions moved, sharing the
+  hook's path list; red on `c1b20004f` and `9d37999ce` first.
+- **Severity:** critical (hid R1's fix for a day; the owner's second team deadlocked, F27).
+  **Issue:** #428. **State:** open; the gate is next.
 
 ## R53: the by-hand Go QA cannot see go-qa's module coverage floor
 
