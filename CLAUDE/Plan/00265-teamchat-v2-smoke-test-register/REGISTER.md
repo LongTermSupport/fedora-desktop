@@ -529,15 +529,19 @@ filled in as each cause is known.
 - **Seen:** the laptop host seat via the coordinator, 25 Nov 17:55Z (F30), read-only (`ps`,
   `free`, `podman stats`).
 - **What:** the Lightning instance of the team with the busy questions room reached RSS 75.1 GB
-  after 7h open, still growing (78,869,176 KiB, then 79,053,240 KiB about a minute later,
-  about 180 MB a minute). The host had 86 of 93 GiB in use and zram swap at 6.6 of 8.0 GiB, and
+  after 7h open, still growing (78,869,176 KiB at 17:55:08Z, about 80.9 GB at 17:57Z; over one
+  measured minute after that it fell by about 200 MB, and the first "a minute later" pair had no
+  real interval, so no rate stands). The host had 86 of 93 GiB in use and zram swap at 6.6 of 8.0 GiB, and
   two deploys were killed. A second instance, on a quieter team and open as long, held 0.3 GB, so
   the growth follows the traffic. Cause unverified. Upstream #98 (4 GB on Windows) had
   search-indexer memory fixed in 0.10.7; the installed version is not yet read.
-- **Next:** capture, if the process still lives: `/proc/PID/status` (RssAnon vs RssFile vs
-  RssShmem), `smaps_rollup`, the mapping names by count, the fd count, `flatpak info`. File
-  upstream with those numbers once the owner agrees (public tracker; no names). Until a fix:
-  quit and reopen the instance.
+- **Capture (17:58Z, `/proc` of the live process):** RssAnon 80,535,588 kB of VmRSS
+  80,596,944 kB; RssFile 61 MB, RssShmem 0; Private_Dirty 80.7 GB, of it Referenced 40.8 GB;
+  **153,465 `memfd:unknown-usage:QtQml` mappings** (then 3,795 JSGCHeap, 548 JITCode, 219
+  `i915.gem`); 152 fds. So the memory is the client's QML engine allocations, not GPU, files or
+  shared memory. `flatpak info`/`ps` were denied on the laptop, so the version is unread.
+- **Next:** file upstream with those numbers once the owner agrees (public tracker; no names;
+  draft `untracked/scratch/lightning-f30-issue.md`). Until a fix: quit and reopen the instance.
 - **Severity:** high (it starves the owner's laptop). **Issue:** upstream, to file. **State:**
   open.
 
