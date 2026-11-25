@@ -131,7 +131,10 @@ workaround; medium misleads; low is cosmetic.
 - **Seen:** the devops seat and this seat, 2026-11-25.
 - **What:** `teamchat status` shows `present: false` for every other member while they answer.
 - **Reproduce:** `teamchat status` in any seat while the others are running.
-- **Severity:** medium. **Issue:** TBF. **State:** open.
+- **Cause:** `memberRecords` set `present` to `id == self`; nothing ever read presence.
+- **Severity:** medium. **Issue:** TBF. **Unit:** U7.
+  **State:** fixed (U7, merged b1d62a0e0): status reads Matrix presence per agent
+  (`presence`: online, unavailable, offline, unknown). Live proof owed (reports/U7.md).
 
 ## R15: tab title, tmux session and seat drift apart
 
@@ -200,3 +203,14 @@ workaround; medium misleads; low is cosmetic.
 - **Reproduce:** a team whose homeserver is on host X; a container on host Y tries to join.
 - **Severity:** critical. **Issue:** #425. **Unit:** U8 (Plan 00257 Task B.4).
   **State:** in progress (U8).
+
+## R23: no v2 LXC session can start
+
+- **Seen:** U8, from the code, 2026-11-25.
+- **What:** `teamchat run --kind lxc --key K` is refused 78 "a lxc launch needs --desired": the
+  keeper's production wiring never read `--key` (home layout, no desired file). So every v2 LXC
+  session unit, and any hand or container-launcher run, cannot start, on the homeserver's own
+  host too.
+- **Reproduce:** `teamchat run --kind lxc --key <key> -- claude` in a member container.
+- **Severity:** critical. **Issue:** #425. **Unit:** U8.
+  **State:** fixed on U8's branch (90090205e), not yet merged.
