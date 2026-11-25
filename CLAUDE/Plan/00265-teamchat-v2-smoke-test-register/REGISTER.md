@@ -62,7 +62,13 @@ filled in as each cause is known.
   path; the session was resumed by naming the id by hand.
 - **Reproduce:** a session with no team, whose record is only on the v1 path; join a team;
   `/exit`; `restore --dry-run`.
-- **Severity:** critical. **Issue:** #417. **Unit:** U4. **State:** in progress (U4).
+- **Severity:** critical. **Issue:** #417. **Unit:** U4. **State:** fixed (U4), merged into
+  `v2-smoke` (15fbc90cd, ccy 3.124.45; U3 and U4 had both taken 3.124.44). A plain
+  `ccy --teams <seats>` resumes the conversation recorded per seat
+  (`.claude/ccy/seat-conversations/`); with none it exits 64 naming the repair and `--fresh`.
+  The seat 4 and seat 5 difference (A6) is not caused by the resume or startup source; seat 4's
+  record or transcript was missing, which only the host's files can show. Live proof is owed
+  (`reports/U4.md`). The interplay with U3's chooser (a never-used free seat) is being checked.
 
 ## R5: a seat cannot be added ad hoc
 
@@ -265,6 +271,20 @@ filled in as each cause is known.
   preset of client settings. What Lightning lets us set is to be read from a real client config
   by the team's host-level seat on the owner's laptop.
 - **Severity:** low (after the container work). **Issue:** TBF. **State:** open.
+
+## R36: an earlier #417 implementation sits on unmerged branches
+
+- **Seen:** this seat, 2026-11-25, while clearing the branch pool.
+- **What:** three remote branches from an earlier session (2026-11-24; `agent-a2be5458…`,
+  `agent-adff76a1…`, `agent-a1aeb314…`) hold another implementation of #417 (ccy 3.125.0 to
+  3.125.5) that never reached F44. U4 built #417 again on `v2-smoke`. Those branches also hold
+  work U4 may not have: "a team taken down forgets its seats' conversation pointers", a
+  first-launch `--fresh` hint, and a project rule `project_temp_not_exclusive` (temporaries
+  created without O_EXCL) with its sweep and the `fsx.WriteAtomic` fix.
+- **Next:** compare them with U4, carry over what U4 lacks (the rule and its sweep first), then
+  retire the branches. They are not deleted until that is done.
+- **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
+  open.
 
 ## Cause classes
 
