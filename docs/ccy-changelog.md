@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.67 — container 2.84.87
+
+- **The image-source digest refuses a listed path that names no file.** A typo or a trailing
+  space in `image-source-paths` dropped that path from the digest without a word, so the digest
+  covered less than its list said; the image build and the teamchat play now fail naming the
+  path (Plan 00265 R57, review).
+
 ## 3.124.66 — container 2.84.86
 
 - **`teamchat version` names teamchat's source, the same on the host and in the image.** Its
