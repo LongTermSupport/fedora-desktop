@@ -298,7 +298,16 @@ filled in as each cause is known.
   the session runs, `/exit`, then `ccy --resume <id> --teams 1@ballicom,7@lts-ops`.
 - **Fix:** `ccy-teams session add` writes the next generation of a teamchat session's
   `desired.json` (after the seat is in the pool).
-- **Severity:** high (no-degrade, F19). **Issue:** TBF. **Unit:** U10. **State:** open; next unit.
+- **Cause, checked (U10):** worse than the row said: a v2 launch makes no v1 membership
+  directory, so every `session` verb stopped at `resolve` with exit 78 "launched without the
+  agent team bus kit".
+- **Fixed (U10):** `session add` and `remove` on a v2 session take or release the seat the way a
+  launch does and write the next generation of `desired.json` (`teamchatlaunch/hotseats.go`); add
+  waits for the keeper's seat lock and `report.json` at that generation. `--role`, `--park`,
+  `--coordinator`, `move`, `role` and `repair` refuse by name for v2. Not yet run live.
+  Detail, the class guard and the sibling readers left open: `reports/U10.md`.
+- **Severity:** high (no-degrade, F19). **Issue:** TBF. **Unit:** U10. **State:** fixed on
+  `v2-smoke` (U10); lands with batch 4; the live check is an add on a running v2 session.
 
 ## R42: `say --to-coordinator` is ambiguous in a session that coordinates one of its teams
 
