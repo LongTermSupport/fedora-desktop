@@ -360,7 +360,7 @@ filled in as each cause is known.
   inventory of every v1-membership read outside the lookup, so a new one fails it. ccy 3.124.56.
   Detail: `reports/R51.md`.
 - **Severity:** high (no-degrade, F19: v1's tools saw every session). **Issue:** TBF.
-  **Unit:** U11. **State:** fixed on v2-smoke, batch 10 (18d2565f6); not yet run live.
+  **Unit:** U11. **State:** on F44 (batch 10, `356506aee`, ccy 3.124.56); not yet run live.
 
 ## R42: `say --to-coordinator` is ambiguous in a session that coordinates one of its teams
 
