@@ -96,6 +96,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_record_file_by_name`     | a session record's file found by the record's name (`Store.Remove`, or `<registry dir>/<name>` built) rather than by the reading that found it, so a record whose file is named otherwise is left behind or named wrongly      | `ccy-sessions` picker: End removed `<registry>/<name>`, and the restore's refusals named it (fedora-desktop#398, after #396)                                                                                            |
 | `project_foreign_strict_parse`    | input from outside teamchat's protocol (stdin, an environment variable) decoded whole by the wire's strict parser `proto.Parse`, so a field the program never reads refuses the fields it reads                                | teamchat `hook`: every Claude Code SessionStart payload unusable, no `started`, every `/exit` ending 78 (fedora-desktop#394)                                                                                            |
 | `project_selector_parse`          | claude's conversation selectors (`--resume`, `-r`, `--continue`, `-c`, `--session-id`) read from a recorded launch outside registry's `selectorOf`, so two readers of one grammar disagree on what a bare `--resume` takes     | `ccy-sessions` restore: `ResumeID` named `--teams` the conversation of a session launched `ccy --resume --teams <seats>` (fedora-desktop#411)                                                                           |
+| `project_refusal_reason_text`     | a teamchat refusal's reason code put into its message, so the agent is told only the code the object already carries and not the cause or the next step                                                                        | teamchat `engine` `refusal`: "the send was refused (ref); fix the message" for `done` with no `--ref` (fedora-desktop#421)                                                                                              |
 | `project_floor_by_time`           | an event-ordering floor in teamchat's member tree held as a millisecond alone, or a wall-clock since bound cut by `<=` or `>`, so the events sharing its millisecond are dropped                                               | `teamsync` qtake and relays: an owner's answer posted in the millisecond of the post before it was skipped as below the questions floor (Plan 00209 R0 step 7)                                                          |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
@@ -3983,3 +3984,42 @@ there.
   `registry` `TestResumeIDAndSupervisedGolden` (`{--resume --teams x} -> ""` and five more rows,
   Go and the bash twin) and `sessions` `TestABareResumeLaunchIsNeverResumedAsTheFlagAfterIt`
   (the manifest named `--no-ssh` before the fix), green after.
+
+### project_refusal_reason_text
+
+**What it is about.** A teamchat send refusal reaches the agent as an error object whose `code`
+is the refusal's reason (`ref`, `schema`, `target`) and whose `message` is what the agent reads to
+decide its next step. A message filled with the reason repeats the code and says nothing more.
+
+**Why it exists.** fedora-desktop#421: answering a `fetch` ping with
+`teamchat reply <id> --verb done` and no `--ref` printed "the send was refused (ref); fix the
+message". The reference was missing, and `done` needs one (normally the ping's own); the message
+said neither, and every send refusal but four shared that template.
+
+**What it flags**, in `internal/teamchat`, `cmd/teamchat`, `cmd/teamchat-admin` and below,
+outside `_test.go`: a read of `.Reason` on a `proto.RefusalError` (pointer or value), or a local
+variable a read was assigned to, inside an argument of a function of package `exits` (`New`,
+`Format`, `Words`, `Name`, `Join`, ...), except the parameter named `code` (`New`'s, `ExitOf`'s),
+where the reason is the right value. A nested `exits` call is judged on its own.
+
+**Not caught:** a reason copied into a struct field, or passed to another function, and read
+there; a message built outside package `exits` from the reason. The second half of the defect,
+a refusal's `Detail` (its cause) dropped on the way to the message, is not a syntax a rule can
+see; `engine`'s `TestEverySendRefusalSaysItsCause` holds that every reason in
+`proto.SendRefusals` has its own message with no `(<reason>)` in it.
+
+**How to fix:** choose a template by the reason, and by the refusal's cause where it has one (a
+reference refusal's `proto.RefCause*`), that names what is wrong and what to do.
+
+- Red, fixture: `testdata/refusaltext/src/fix/internal/teamchat/badrefusal` (`Words(re.Reason)`
+  as a fill, a concatenation in `Name`, a local copy by `:=` and by `=`, a value refusal in
+  `Format`: 5 findings; the reason as `New`'s and `ExitOf`'s code, a switch on it, a template
+  chosen by it: clean), beside `outsiderefusal` (outside teamchat, clean). With the analyzer
+  reporting nothing the test missed all 5 diagnostics.
+- Red, real tree (the driver as `go vet -vettool`, `./internal/teamchat/...`, `./cmd/teamchat/...`,
+  `./cmd/teamchat-admin/...`): 3 findings, all in `engine/send.go` `refusal` (the `role`
+  template and both uses of the generic `msgRefused`).
+- Green, the fix: 0 findings untagged, with `busfailpoints` and with `tuwunel`. `refusal` moved to
+  `engine/refusal.go` with a template per reason; the composer's reference refusals carry their
+  cause (`proto.Roster.RefCause`), and `reply --verb` and `ping` name the verb, how a reference
+  is given, the forms the verb takes and, for an answer to a fetched ping, the ping's reference.
