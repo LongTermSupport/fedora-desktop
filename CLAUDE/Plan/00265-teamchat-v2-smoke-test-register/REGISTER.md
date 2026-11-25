@@ -281,6 +281,20 @@ filled in as each cause is known.
   every write of an analysistest GOPATH fixture is denied ("package … is not in std").
 - **Severity:** low. **Issue:** TBF. **State:** open.
 
+## R40: a `ci/<topic>` push of a commit GitHub already has runs no CI
+
+- **Seen:** this seat, batch 3, 2026-11-25 (dogfood: the CI recipe in `CLAUDE.md`).
+- **What:** three `ci/<topic>` branches made at the `v2-smoke` tip, which was already pushed,
+  started no QA run and said nothing. A new branch whose commits GitHub already holds carries no
+  new commits, and the QA workflow's `paths` filter then sees no changed file and skips it. A
+  fast-forward of an existing `ci/<topic>` branch (`abc019487..1d9f38cb2`) started run
+  45625876657 at once.
+- **Hazard:** the recipe (`git push origin HEAD:refs/heads/ci/<topic>`, then wait for green) waits
+  for ever on a run that will never exist, and an agent may read the silence as GitHub trouble.
+- **Fix direction:** the push gate or the recipe names this case: push the `ci/<topic>` branch
+  before the work branch, or create it at the protected tip and fast-forward it.
+- **Severity:** medium. **Issue:** TBF. **State:** open; workaround known.
+
 ## R39: a seat starts on the account's default model
 
 - **Seen:** the owner (laptop host seat) and the hooks-daemon seat, 2026-11-25 (F14).
@@ -310,14 +324,19 @@ filled in as each cause is known.
   preset of client settings. What Lightning lets us set is to be read from a real client config
   by the team's host-level seat on the owner's laptop.
 - **What we write (F15, read from `internal/lightning`):** one instance per team under the
-  Lightning Flatpak's data (`~/.var/app/<app_id>/…/teams/<team>/{data,config,cache}`), one
+  Lightning Flatpak's data (`~/.var/app/<app_id>/teams/<team>/{data,config,cache}`), one
   settings file per instance, `config/MatrixClient/matrix-client.conf` (an INI file:
   `[homeserver]` `url=`), written only when absent, after which Lightning rewrites and owns it
   (L7); and a launcher per team. The team script in the infrastructure repository writes no
-  Lightning settings. No spaces-rail key is in what we write; its key name is unknown. To learn
-  it: untick *Show spaces rail* in one instance and read which line its `matrix-client.conf`
-  gains. A preset then means merging that one key into an existing file, which changes L7
-  ("only when absent").
+  Lightning settings. No spaces-rail key is in what we write.
+- **The key (F16, from upstream source, `lightning-matrix/lightning` at 05d0be9c568b):** the rail is
+  `shell/spacesRailVisible` (`src/app/SettingsManager.cpp`, `kSpacesRailVisible`; a bool, default
+  true, in `src/settings/SettingsSchemaTable.inc`). Lightning's settings are a default `QSettings`
+  with organisation `MatrixClient` and application `matrix-client` (`src/main.cpp`), so on Linux
+  it is this same file, section `[shell]`, line `spacesRailVisible=false`. Unchecked: that the
+  installed Flatpak's version uses the same key. A preset therefore means merging that one key
+  into each team's file, which changes L7 ("only when absent"). The laptop cannot read the file
+  (its secret guard covers the Flatpak's data, by design), so no live comparison is needed.
 - **Severity:** low (after the container work). **Issue:** TBF. **State:** open.
 
 ## R36: an earlier #417 implementation sits on unmerged branches
