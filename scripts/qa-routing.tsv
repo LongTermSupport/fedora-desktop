@@ -189,6 +189,12 @@ also	scripts/qa-nokill-containerwatch.bash,src-go/qa/nokill/*,src-go/qa/cmd/qa-n
 # and count as covered.
 also	src-go/qa/teamchatseparate/v1-names.txt,src-go/qa/teamchatseparate/v1-names-corpus.tsv,src-go/qa/teamchatseparate/allowed.tsv	teamchat-keeps-off-v1	covered
 also	src-go/internal/teamchat/*,src-go/cmd/teamchat*,files/*teamchat*,tasks/*teamchat*,vars/*teamchat*,playbooks/imports/*play-teamchat*.yml,playbooks/imports/*play-teamchat*.yaml,scripts/qa-teamchat-separate.bash,src-go/qa/teamchatseparate/*,src-go/qa/cmd/qa-teamchat-separate/*,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	teamchat-keeps-off-v1	-
+# The ccy-version-bump check (issue #428, SPEC-qa-changed B68) judges the change from the base by
+# the pre-commit hook's ccy version gates, so CI holds them where no hook ran. It runs when a file
+# under a root the ccy program or its image is built from changes or is deleted, or the hook or
+# the check itself. These roots only start it: which file owes which bump is the hook libraries'
+# alone, and scripts/test-qa-ccy-version-bump.bash holds every image source under these roots.
+also	src-go/*,helpers/*,files/var/local/claude-yolo/*,files/opt/claude-yolo/*,vars/fzf-pin.yml,scripts/git-hooks/*,scripts/qa-ccy-version-base.bash,scripts/qa-ccy-version-bump.bash	ccy-version-bump	-
 also	extensions/*.js,extensions/*.mjs	eslint	tree:shell,rel:extensions
 # The pause gate judges the YAML under playbooks/ and tasks/ and runs whole when one changes, or
 # its own script, Go package or shared discovery. Its fixtures are read only by the Go tests of

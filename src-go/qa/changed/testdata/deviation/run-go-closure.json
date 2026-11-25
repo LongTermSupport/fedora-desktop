@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck go\ncheck arch-pin\ncheck argv-leak\ncheck boot-hold\ncheck gh-poll\ncheck gitleaks\nsuite scripts/test-teams.bash: builds from src-go/internal/teams/t.go\n✓ go: whole gate (interim qa-go.bash)\n✓ arch-pin: arch-pinned-artefact rule, whole gate\n✓ argv-leak: secret-in-argv rules, whole gate\n✓ boot-hold: unit-holds-boot-target rule, whole gate\n✓ gh-poll: github-poll-too-often rule, whole gate\n✓ gitleaks: whole gate (no secret gitleaks finds in what a commit would carry)\n✓ suite test-teams.bash: passed: 9 (builds from src-go/internal/teams/t.go)\n✓ qa-changed passed: 1 changed file(s). To land it, push the commit to ci/\u003ctopic\u003e: CI's pass there lets a protected branch move (CLAUDE/QA.md#push-without-qa-verdict).\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck go\ncheck arch-pin\ncheck argv-leak\ncheck boot-hold\ncheck gh-poll\ncheck gitleaks\ncheck ccy-version-bump\nsuite scripts/test-teams.bash: builds from src-go/internal/teams/t.go\n✓ go: whole gate (interim qa-go.bash)\n✓ arch-pin: arch-pinned-artefact rule, whole gate\n✓ argv-leak: secret-in-argv rules, whole gate\n✓ boot-hold: unit-holds-boot-target rule, whole gate\n✓ gh-poll: github-poll-too-often rule, whole gate\n✓ gitleaks: whole gate (no secret gitleaks finds in what a commit would carry)\n✓ ccy-version-bump: the change from the base by the pre-commit ccy version gates\n✓ suite test-teams.bash: passed: 9 (builds from src-go/internal/teams/t.go)\n✓ qa-changed passed: 1 changed file(s). To land it, push the commit to ci/\u003ctopic\u003e: CI's pass there lets a protected branch move (CLAUDE/QA.md#push-without-qa-verdict).\n",
  "stderr": "",
  "status": 0,
  "log": [
@@ -9,6 +9,7 @@
   "gate:qa-boot-hold.bash json=",
   "gate:qa-gh-poll.bash json=",
   "gate:qa-gitleaks.bash json=",
+  "gate:qa-ccy-version-bump.bash json=",
   "suite:test-teams.bash"
  ]
 }

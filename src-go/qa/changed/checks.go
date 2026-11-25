@@ -108,6 +108,7 @@ var checkDefs = []checkDef{
 	{id: "plan-tests", fixed: "whole gate (every active plan folder's own Python tests pass, each run from its folder)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolPython}, run: runPlanTests},
 	{id: "vmtest-manifest", fixed: "whole gate (the VM-test scenario manifest is valid and agrees with its guest scripts)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolPython}, run: runVmtestManifest},
 	{id: "gitleaks", fixed: "whole gate (no secret gitleaks finds in what a commit would carry)", gate: true, whole: true, tools: []string{toolBash, toolGitleaks}, run: runGitleaks},
+	{id: "ccy-version-bump", fixed: "the change from the base by the pre-commit ccy version gates", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runCcyVersionBump},
 	{id: "deployed-drift", fixed: "repo-owned scripts against their deployed copies, whole gate", gate: true, tools: []string{toolBash, toolGo}, run: runDeployedDrift},
 	{id: "node-check", listed: true, noun: nounFiles, tools: []string{toolNode}, run: runNodeCheck},
 	{id: "eslint", listed: true, noun: nounFiles, tools: []string{eslintTool}, run: runEslint},
@@ -380,6 +381,13 @@ func runStdinWait(ctx context.Context, s *session, _ *checkPlan) (checkResult, e
 // runGitleaks runs CI's gitleaks scan over what a commit of the work tree would carry.
 func runGitleaks(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-gitleaks.bash")
+}
+
+// runCcyVersionBump judges the change from the base qa-changed diffed against (the work tree as a
+// commit would take it) by the pre-commit hook's ccy version gates (B68, issue #428): a checkout
+// with no hooks, CI among them, still refuses a ccy or ccy image change without its version bump.
+func runCcyVersionBump(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.exec(ctx, nil, toolBash, filepath.Join(s.scripts, "qa-ccy-version-bump.bash"), s.opts.base)
 }
 
 func runVersionPins(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {

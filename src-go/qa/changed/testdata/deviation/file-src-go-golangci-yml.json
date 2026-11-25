@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck go\ncheck gh-poll\ncheck gitleaks\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck go\ncheck gh-poll\ncheck gitleaks\ncheck ccy-version-bump\n",
  "stderr": "",
  "status": 0,
  "log": []

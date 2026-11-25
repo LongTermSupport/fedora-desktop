@@ -60,7 +60,10 @@ project Dockerfile, not the base image.
 
 **ALWAYS bump CCY_VERSION when modifying `files/var/local/claude-yolo/claude-yolo`**
 
-The CCY script has hash validation to detect modifications without version bumps. A pre-commit hook enforces this requirement.
+The CCY script has hash validation to detect modifications without version bumps. The pre-commit
+hook enforces this requirement, and because a checkout may run no hooks, `qa-changed.bash` (and
+so CI on every `ci/` branch) runs the same gates over the change from its base
+(`scripts/qa-ccy-version-bump.bash`, issue #428), as does CI's full run over a pushed range.
 
 **Rules:**
 
@@ -95,7 +98,8 @@ commit of a run the same way (`scripts/qa-ccy-merge-commits.bash`), since a loca
 
 **What happens if you forget:**
 
-- Pre-commit hook will **REJECT** the commit
+- Pre-commit hook will **REJECT** the commit; where no hook ran, `qa-changed.bash` and CI's
+  `ccy-version-bump` check refuse the same change
 - Users will see "DEVELOPER ERROR: CCY script modified without version bump"
 
 **This applies to:**

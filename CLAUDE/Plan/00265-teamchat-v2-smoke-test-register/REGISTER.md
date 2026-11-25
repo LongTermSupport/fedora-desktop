@@ -518,11 +518,14 @@ filled in as each cause is known.
   sources lives only in `scripts/git-hooks/pre-commit`, which this checkout does not run (R52),
   and no QA script or CI job runs it.
 - **Fix:** batch 4 part 2 (`09c383f5b`, container 2.84.78) is the first bump since, so a deploy
-  and a relaunch bring every fix so far. The class: a diff-mode QA check in `qa-changed.bash`
-  (so CI runs it) that refuses an image-source change without both versions moved, sharing the
-  hook's path list; red on `c1b20004f` and `9d37999ce` first.
+  and a relaunch bring every fix so far. The class: `scripts/qa-ccy-version-bump.bash BASE [REV]`
+  runs the pre-commit hook itself (`--ccy-version-only`, so the same libraries and
+  `image-source-paths`) over the change from BASE in a shared clone, as one commit.
+  `qa-changed.bash` runs it as the `ccy-version-bump` check (so CI's diff mode does), and CI's
+  full run judges the pushed range. Red on U2's landing, on `c1b20004f` and on batch 3; green on
+  batch 4 (`reports/R54.md`).
 - **Severity:** critical (hid R1's fix for a day; the owner's second team deadlocked, F27).
-  **Issue:** #428. **State:** open; the gate is next.
+  **Issue:** #428. **State:** fixed on v2-smoke; it reaches F44 with the next batch.
 
 ## R53: the by-hand Go QA cannot see go-qa's module coverage floor
 
