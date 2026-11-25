@@ -17,6 +17,11 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.60 — container 2.84.82
+
+- The image is rebuilt for the reader below: its `report.json` reader is the same code the
+  host runs.
+
 ## 3.124.59 — container 2.84.81
 
 - **The host reads a running session's older report.** `ccy-teams` reads a seat's `report.json`
