@@ -75,6 +75,18 @@ const (
 // Establish checks the caller is user and opens its home (GU1). Every refusal is 78
 // `identity`, or 78 `home` for the home; none quotes a value read from passwd.
 func Establish(sys System, u paths.GuestUser) (*Identity, error) {
+	return establish(sys, u, true)
+}
+
+// EstablishOffHost is Establish for `seat place-lxc` in a container on another host than the
+// homeserver's (issue 425 A1): the caller is that container's own login, so supplementary
+// groups are its own business and are not refused. The seat files are created 0600 and 0700
+// under a home no one else can write, so no group reaches them; every other check holds.
+func EstablishOffHost(sys System, u paths.GuestUser) (*Identity, error) {
+	return establish(sys, u, false)
+}
+
+func establish(sys System, u paths.GuestUser, ownGroupsOnly bool) (*Identity, error) {
 	sys.Umask(umask)
 	name := exits.Name(u.String())
 	uid := sys.Getuid()
@@ -92,7 +104,7 @@ func Establish(sys System, u paths.GuestUser) (*Identity, error) {
 	if err != nil || acct.UID != uid || byID.Name != u.String() {
 		return nil, identityError(msgNotUser, name)
 	}
-	if ownGroupOnly(sys, acct.GID) != nil {
+	if sys.Getgid() != acct.GID || ownGroupsOnly && ownGroupOnly(sys, acct.GID) != nil {
 		return nil, identityError(msgGroups, name)
 	}
 	root, err := homefs.Open(acct.Home, homefs.Owned)

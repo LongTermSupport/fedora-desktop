@@ -18,6 +18,10 @@ import (
 // ops' root; a seam, so a test need not run as another user.
 var identify = identifyCaller
 
+// identifyOffHost is identify for `seat place-lxc`, whose caller may hold other groups
+// (guest.EstablishOffHost); a seam like identify.
+var identifyOffHost = identifyOffHostCaller
+
 // memberLayout is the caller's own layout, whose state root `seat set-aside` acts on without
 // --state.
 var memberLayout = processLayout
@@ -57,6 +61,15 @@ func identifyCaller(inv Invocation) (*guest.Identity, error) {
 		return nil, err
 	}
 	return guest.Establish(guest.OS{}, u)
+}
+
+// identifyOffHostCaller is guest.EstablishOffHost on this process for --user.
+func identifyOffHostCaller(inv Invocation) (*guest.Identity, error) {
+	u, err := guestUser(inv)
+	if err != nil {
+		return nil, err
+	}
+	return guest.EstablishOffHost(guest.OS{}, u)
 }
 
 // processLayout is the home layout of this process's HOME and XDG_RUNTIME_DIR.
@@ -130,7 +143,7 @@ func runPlaceLXC(e Env, inv Invocation) term.ExitCode {
 	if !given {
 		return exits.Write(e.Stderr, usage(msgPlaceCheckout))
 	}
-	id, err := identify(inv)
+	id, err := identifyOffHost(inv)
 	if err != nil {
 		return exits.Write(e.Stderr, err)
 	}

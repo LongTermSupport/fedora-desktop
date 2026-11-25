@@ -152,6 +152,55 @@ func TestEstablishRefusesAnotherCaller(t *testing.T) {
 	}
 }
 
+// Issue 425 A1, owner F22: off the homeserver's host the agent user is the container's own
+// login, which may hold other groups (wheel, docker); the seat files are created 0600 and 0700
+// in its own home, so a group reaches none of them and is not refused. Every other check holds.
+func TestEstablishOffHostAcceptsSupplementaryGroups(t *testing.T) {
+	dir := home(t)
+	sys := agentSystem(dir)
+	sys.groups = []int{agentGID, 10, 999}
+	id, err := EstablishOffHost(sys, agentUser(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := id.Close(); err != nil {
+		t.Error(err)
+	}
+	if id.UID != agentUID || id.GID != agentGID || sys.umask != 0o077 {
+		t.Errorf("identity = %+v, umask %o", id, sys.umask)
+	}
+	refused := map[string]func(*fakeSystem){
+		"root":        func(f *fakeSystem) { f.uid, f.euid = 0, 0; f.accounts[0].UID = 0 },
+		"setuid":      func(f *fakeSystem) { f.euid = agentUID + 1 },
+		"setgid":      func(f *fakeSystem) { f.egid = agentGID + 1 },
+		"another uid": func(f *fakeSystem) { f.uid, f.euid = agentUID+1, agentUID+1 },
+		"no account":  func(f *fakeSystem) { f.accounts = nil },
+	}
+	for name, change := range refused {
+		t.Run(name, func(t *testing.T) {
+			sys := agentSystem(dir)
+			sys.groups = []int{agentGID, 10}
+			change(sys)
+			id, err := EstablishOffHost(sys, agentUser(t))
+			if id != nil {
+				t.Fatalf("identity %+v for a refused caller", id)
+			}
+			wantCode(t, err, 78, exits.CodeIdentity)
+		})
+	}
+	t.Run("a home others can write", func(t *testing.T) {
+		shared := home(t)
+		if err := os.Chmod(shared, 0o777); err != nil {
+			t.Fatal(err)
+		}
+		id, err := EstablishOffHost(agentSystem(shared), agentUser(t))
+		if id != nil {
+			t.Fatalf("identity %+v over a shared home", id)
+		}
+		wantCode(t, err, 78, exits.CodeHome)
+	})
+}
+
 func TestEstablishRefusesTheHome(t *testing.T) {
 	shared := home(t)
 	if err := os.Chmod(shared, 0o777); err != nil {

@@ -32,9 +32,9 @@ func newGuestWorld(t *testing.T) *guestWorld {
 	if err := os.Mkdir(g.home, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	identifyWas, layoutWas := identify, memberLayout
-	t.Cleanup(func() { identify, memberLayout = identifyWas, layoutWas })
-	identify = g.identifyHome
+	identifyWas, offHostWas, layoutWas := identify, identifyOffHost, memberLayout
+	t.Cleanup(func() { identify, identifyOffHost, memberLayout = identifyWas, offHostWas, layoutWas })
+	identify, identifyOffHost = g.identifyHome, g.identifyHome
 	memberLayout = func() (paths.Layout, error) { return paths.HomeLayout(g.home, g.home+"/run") }
 	return g
 }
@@ -137,7 +137,13 @@ func TestSeatPlaceLXC(t *testing.T) {
 	if got := g.runIn("{", args...); got != exits.ExitConfig || g.out.Len() != 0 || g.lastError(t).Code != exits.CodeBundle {
 		t.Fatalf("refused: exit %d stdout %q stderr %q", got, g.out.String(), g.err.String())
 	}
-	identify = func(Invocation) (*guest.Identity, error) { return nil, errors.New("not this user") }
+	// F22: place-lxc identifies its caller off-host (other groups allowed), never by GU1's check.
+	identify = func(Invocation) (*guest.Identity, error) { return nil, errors.New("GU1's check") }
+	g.out.Reset()
+	if got := g.runIn(string(data), args...); got != term.ExitOK {
+		t.Fatalf("place-lxc used GU1's check: exit %d stderr %q", got, g.err.String())
+	}
+	identifyOffHost = func(Invocation) (*guest.Identity, error) { return nil, errors.New("not this user") }
 	if got := g.runIn(string(data), args...); got == term.ExitOK {
 		t.Fatal("placed with no identity")
 	}
@@ -175,6 +181,12 @@ func TestDefaultGuestSeams(t *testing.T) {
 	// The test's own caller is root or is not `agent`.
 	if id, refused := identifyCaller(inv); id != nil || !isCode(refused, exits.CodeIdentity) {
 		t.Fatalf("this process as agent: %v, %v", id, refused)
+	}
+	if id, err := identifyOffHostCaller(Invocation{}); id != nil || !isCode(err, exits.CodeUsage) {
+		t.Fatalf("off-host, no --user: %v, %v", id, err)
+	}
+	if id, refused := identifyOffHostCaller(inv); id != nil || !isCode(refused, exits.CodeIdentity) {
+		t.Fatalf("this process as agent, off-host: %v, %v", id, refused)
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
