@@ -102,7 +102,10 @@ workaround; medium misleads; low is cosmetic.
 - **What:** `teamchat reply` to the revising event's id is refused "the homeserver refused the
   send; tell a human"; a reply to the original id works.
 - **Reproduce:** a human edits a message; reply to the id the delivery showed.
-- **Severity:** high. **Issue:** TBF. **State:** open.
+- **Cause (from Tuwunel's source, U6):** a reply in questions to an edit's id starts a thread
+  rooted at the edit, which Tuwunel refuses (400); the fake homeserver accepted it.
+- **Severity:** high. **Unit:** U6. **State:** fixed (merge c3c336cd4): a reply to an edit
+  answers the original; the fake homeserver refuses a thread on an edit. Live proof owed.
 
 ## R11: "Q0 was not counted" with no Q0 in play
 
@@ -123,7 +126,33 @@ workaround; medium misleads; low is cosmetic.
 - **What:** `teamchat verify` exits 23, so a relayed permission cannot be checked and the human
   is asked again.
 - **Reproduce:** a worker runs `teamchat verify '<id>' --room questions` on a relayed answer.
-- **Severity:** high. **Issue:** TBF. **State:** open.
+- **Cause (from Tuwunel's source, U6):** Tuwunel answers a non-member's event fetch 404, not
+  403; the worker's link joined questions only on 403, so it never joined, and every relayed
+  answer to a worker was dropped too. The fake homeserver answered 403.
+- **Severity:** high. **Unit:** U6. **State:** fixed (merge c3c336cd4): the link joins on 403
+  or 404; the fake homeserver answers as Tuwunel. Live proof owed.
+
+## R26: qa-changed's Go step cannot run on arm64
+
+- **Seen:** U6 and the other units, this seat's arm64 container, 2026-11-25.
+- **What:** go-qa pins ast-grep 0.50.0 for linux/amd64 only, so `./scripts/qa-changed.bash`
+  fails its Go step before any check; no Go change passes targeted QA locally on arm64. Also:
+  `lint_on_edit` denies Go edits with "parallel golangci-lint is running" when agents edit at once.
+- **Reproduce:** `./scripts/qa-changed.bash` with a Go change on an arm64 host.
+- **Severity:** high. **Issue:** #426. **State:** open.
+
+## R27: "tell a human" for a server refusal the agent caused
+
+- **Seen:** U6, 2026-11-25.
+- **What:** a homeserver refusal caused by the agent's own input (as in R10) is told as "the
+  homeserver refused the send; tell a human", sending an agent-fixable fault to a human.
+- **Severity:** medium. **Issue:** TBF. **State:** open (the refusal-cause class of U1).
+
+## R28: an edit of an unanswered post stays listed after the reply
+
+- **Seen:** U6, from the code, 2026-11-25.
+- **What:** after a reply to an edited human post, the edit stays in the unanswered list.
+- **Severity:** medium. **Issue:** TBF. **State:** open.
 
 ## R13: restore's dry run says only "already running"
 
