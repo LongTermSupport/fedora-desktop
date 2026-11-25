@@ -36,8 +36,7 @@ The launcher library and `ccy-teams` change (Plan 00265 R15); the image is uncha
   `<launcher>-<project>`. The terminal's title is the session name (`files/etc/tmux.conf`), so
   the tab shows the team, the seat and the launcher. tmux keeps no `.` or `:` in a session name,
   so a seat's dots become `-`; several seats are joined with `_`. A launch with no seat, a `cc --teams <team>` whose seat is chosen inside the session, and a name over 120 characters keep
-  `<launcher>-<project>`. A session already running keeps its name, through a restore or a
-  restart too. The form lives in one place, `ccy-teams internal session-name`.
+  `<launcher>-<project>`. A session already running keeps its name. The form lives in one place, `ccy-teams internal session-name`.
 
 ## 3.124.52 — container 2.84.80
 

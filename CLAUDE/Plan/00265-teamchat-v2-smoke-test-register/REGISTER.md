@@ -712,7 +712,8 @@ before the move to v2. Filled in as causes are found.
   `<launcher>-<team>-<seat>` (`.` and `+` made `-`, seats joined with `_`), built in one place,
   `ccy-teams internal session-name`; the tab follows. The launcher leads, not trails, and no `·`
   or `.`: see reports/R15.md. Open: a `cc --teams <team>` whose seat is chosen inside the session,
-  and sessions already running, keep `<launcher>-<project>`. Live proof owed.
+  and sessions already running, keep `<launcher>-<project>`; that restored and restarted
+  sessions keep their recorded names is unchecked. Live proof owed.
 
 ## R16: history labels an unproven reference `external`
 
