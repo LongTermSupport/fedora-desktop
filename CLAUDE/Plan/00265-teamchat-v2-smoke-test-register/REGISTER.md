@@ -789,6 +789,13 @@ filled in as each cause is known.
   `internal/teams`, which is no image source, so the container kept batch 6's build, which has the
   same teamchat code. The two digests are the `src-go` trees of batch 6 and batch 7. A reader
   cannot tell a stale image from a harmless difference.
+- **Also (the image label, 22:35Z):** a container seat relaunched on batch 11's launcher got a
+  per-session image created that minute, labelled ccy 3.124.57 and container 2.84.80, whose
+  `ccy-source-commit` label is batch 6's commit, while `claude-yolo:latest` on the same machine
+  reads batch 11's. Consistent with the cause above (no image source changed since batch 6, so the
+  cached builder layer keeps its label; unchecked on the machine), but an image built today names
+  a commit five batches old. The fix should cover the label too: it names the image-source commit
+  and says so, or a second label carries the build's checkout commit.
 - **Fix:** the digest covers what teamchat is built from (the image-source paths), or `version`
   also prints the build commit. Nothing compares digests at run time, so either is safe.
 - **Severity:** low (misleading, harmless). **Issue:** TBF. **State:** open.
