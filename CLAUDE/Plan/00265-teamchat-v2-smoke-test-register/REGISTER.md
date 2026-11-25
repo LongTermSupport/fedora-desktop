@@ -403,6 +403,10 @@ filled in as each cause is known.
   installed Flatpak's version uses the same key. A preset therefore means merging that one key
   into each team's file, which changes L7 ("only when absent"). The laptop cannot read the file
   (its secret guard covers the Flatpak's data, by design), so no live comparison is needed.
+- **The rail preset and settings (F21):** it ships with the workaround stated; it does not wait for
+  R45. With the rail hidden, the settings cog and account menu move to the room list's full-width
+  header (upstream #45); only a list also collapsed to its narrow width loses them, and Ctrl+,
+  (or Ctrl+K, "Open Settings") opens Settings in every layout. The preset's note says so.
 - **Severity:** low (after the container work). **Issue:** TBF. **State:** open.
 
 ## R36: an earlier #417 implementation sits on unmerged branches
@@ -418,6 +422,24 @@ filled in as each cause is known.
   retire the branches. They are not deleted until that is done.
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
   open.
+
+## R45: Lightning shows no settings button in a collapsed room list with the rail hidden
+
+- **Seen:** the owner, lts-ops questions room, 14:16Z (F21).
+- **What:** with the spaces rail hidden and the room list collapsed to its narrow column, no
+  settings or account button is on screen; the owner widened the list by hand to reach them.
+  Upstream source at 05d0be9c: the full-width header that carries them is hidden when compact,
+  and the compact column (home, search, filter, archived, Activity) has none. Ctrl+, works.
+- **Issue:** upstream [lightning-matrix/lightning#107](https://github.com/lightning-matrix/lightning/issues/107)
+  (follows #45 and #103). **Severity:** low. **State:** filed upstream; watched.
+
+## R46: Lightning has no quick toggle to collapse and expand the room list
+
+- **Seen:** the owner, lts-ops questions room, 14:16Z (F21).
+- **What:** collapsing or expanding the room list takes a drag, click or double-click on a 1 px
+  divider; Ctrl+B hides the list entirely and no shortcut or button switches its width.
+- **Issue:** upstream [lightning-matrix/lightning#108](https://github.com/lightning-matrix/lightning/issues/108).
+  **Severity:** low. **State:** filed upstream; watched.
 
 ## Cause classes
 
