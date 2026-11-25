@@ -281,6 +281,24 @@ filled in as each cause is known.
   every write of an analysistest GOPATH fixture is denied ("package … is not in std").
 - **Severity:** low. **Issue:** TBF. **State:** open.
 
+## R39: a seat starts on the account's default model
+
+- **Seen:** the owner (laptop host seat) and the hooks-daemon seat, 2026-11-25 (F14).
+- **What:** a seat comes up on the default model (Sonnet) and the owner switches it by hand.
+  Neither launcher passes a model: no `--model` or `ANTHROPIC_MODEL` in `ccy`, `cc` or the Go
+  launch code, so claude takes the account's default on every route.
+- **Wanted:** a minimum model per team with a per-seat override; a seat started below it is
+  switched to it at launch, with no human step.
+- **Where it would live:** the team's declaration (the same record that names the seats and
+  their roles), read at launch. The container side passes `--model` in `ccy-start-claude`'s final
+  exec (`internal/ccystart`); the host side in `cc-claude` (`internal/ccclaude`), which already
+  sets ccy's defaults. A model the person names on the command line wins. This differs from the
+  deferred model-class refusal (Non-Goals): it raises the model instead of refusing the launch.
+- **Unchecked:** how the session restore relaunches (it replays the recorded arguments, so it
+  should carry the model the first launch added).
+- **Severity:** medium. **Issue:** TBF. **State:** open; after the container work, before more
+  seats are added.
+
 ## R35: the Lightning client setup for a team, with presets
 
 - **Seen:** the owner, lts-ops Q2 and 12:53Z (F13).
