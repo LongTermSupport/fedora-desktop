@@ -98,10 +98,10 @@
 # #411 (ccy 3.124.43): ccy-sessions is rebuilt and the launcher's session-registry library deployed so
 # a session launched with a bare ccy --resume (the picker), such as ccy --resume --teams <seats>,
 # is no longer put in the restore manifest as resuming --teams. The image is unchanged.
-# Plan 00265 R44 (ccy 3.124.48, container 2.84.79): the image is rebuilt so its teamchat kit
+# Plan 00265 R44 (ccy 3.124.49, container 2.84.80): the image is rebuilt so its teamchat kit
 # carries the coordinator's standard procedure (the teamchat:coordinator skill) and a coordinator
 # seat's SessionStart names it; sessions started after the rebuild see it.
-# Plan 00265 R5, R55 (ccy 3.124.49): ccy-teams is rebuilt so a bare ccy/cc --teams <team> with no
+# Plan 00265 R5, R55 (ccy 3.124.50): ccy-teams is rebuilt so a bare ccy/cc --teams <team> with no
 # free seat of its kind adds one (one sudo) and launches it instead of exiting 78, and each
 # launcher is offered and given only its own kind's seats. The image is unchanged.
 playbooks/imports/play-claude-yolo.yml

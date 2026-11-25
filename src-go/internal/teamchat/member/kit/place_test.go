@@ -56,6 +56,27 @@ func TestPartsNamesEveryEntryOfTheKit(t *testing.T) {
 	}
 }
 
+// Dirs is the parts made as directories, every skill's directory among them, and no file.
+func TestDirsAreThePartsMadeAsDirectories(t *testing.T) {
+	k := hostKit(t)
+	dirs := Dirs(k)
+	for _, want := range []string{"bin", "plugin/teamchat/skills/teamchat", "plugin/teamchat/skills/coordinator"} {
+		if !slices.Contains(dirs, want) {
+			t.Errorf("dirs %v lack %s", dirs, want)
+		}
+	}
+	for _, file := range []string{"bin/teamchat", "plugin/teamchat/skills/coordinator/SKILL.md"} {
+		if slices.Contains(dirs, file) {
+			t.Errorf("dirs %v hold the file %s", dirs, file)
+		}
+	}
+	for _, d := range dirs {
+		if !slices.Contains(Parts(k), d) {
+			t.Errorf("dir %s is not a part", d)
+		}
+	}
+}
+
 // A kit is assembled beside its directory and renamed into place whole: no staging is left.
 func TestPlaceAssemblesTheWholeKitAndLeavesNoStaging(t *testing.T) {
 	k := tempKit(t)

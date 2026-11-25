@@ -32,6 +32,18 @@ func Parts(kit paths.Kit) []string {
 	return parts
 }
 
+// Dirs is the parts of the kit made as directories, in the order they are made; every other
+// part is a regular file.
+func Dirs(kit paths.Kit) []string {
+	var dirs []string
+	for _, e := range names(kit) {
+		if e.content == nil {
+			dirs = append(dirs, e.path)
+		}
+	}
+	return dirs
+}
+
 // Missing is the parts not at kit's directory as the kind they must be (a directory, or a
 // regular file, never a link); every part when the directory itself is not there.
 func Missing(kit paths.Kit) []string {

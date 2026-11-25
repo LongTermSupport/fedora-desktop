@@ -83,7 +83,7 @@ filled in as each cause is known.
   `ccy-teams seats add <team>` on the homeserver's machine (derived handle, one sudo, issue and
   place; worker seats take no human text by default); seat creation in the launch follows U3;
   the rest waits on the owner (Q6, [reports/U5.md](reports/U5.md)). **Fixed on v2-smoke; batch
-  7** (ccy 3.124.49): a bare `ccy --teams <team>` / `cc --teams <team>` with no free seat of its
+  7** (ccy 3.124.50): a bare `ccy --teams <team>` / `cc --teams <team>` with no free seat of its
   kind (and the chooser's new-seat row) runs the same add in process (`seatadd.Adder.NewSeat`,
   wired as the chooser's `NewSeat`) and launches the new seat instead of ending 78; a team served
   on another machine is still 78, naming the route ([reports/R5.md](reports/R5.md)). Live proof
@@ -394,8 +394,8 @@ filled in as each cause is known.
 - **Upkeep:** every `teamchat` verb and flag the skill names is checked against the code when
   it lands. A test will hold the skill's verbs to the CLI's verb table, so a renamed verb fails
   QA.
-- **Severity:** medium. **Issue:** TBF. **State:** built on `v2-smoke` (CCY 3.124.48, container
-  2.84.79): the kit ships `teamchat:coordinator` (source `member/kit/coordinator.txt`, image copy
+- **Severity:** medium. **Issue:** TBF. **State:** on F44 (batch 6, `b58317073`; CCY 3.124.49,
+  container 2.84.80 with the review fixes): the kit ships `teamchat:coordinator` (source `member/kit/coordinator.txt`, image copy
   held equal by test), the coordinator frame line names it, and a test parses every command it
   names. Ten command corrections against the source are listed in
   [reports/R44.md](reports/R44.md). Live once the image is rebuilt on the host; the delivery
@@ -535,7 +535,7 @@ filled in as each cause is known.
 - **Fix:** with R5: the pool offered and the seat named are those of the launcher's kind; a
   named seat of the other kind is refused, naming the kind. **Severity:** medium (a host agent
   can start on a podman seat's identity). **Issue:** TBF. **State:** fixed on v2-smoke; batch 7
-  (ccy 3.124.49). Every pool read a launch chooses from names the kind (the handle's type) in
+  (ccy 3.124.50). Every pool read a launch chooses from names the kind (the handle's type) in
   its signature (`system.PoolState`, `Cmd.Handles`/`SeatCount`/`PoolState`, the chooser's
   `Teamchat` fields, `teamchatlaunch.ChooseSeat` and `Launch.Kind`), so the compiler holds every
   pick to one; the chooser, list, ways on, launch-args (podman), cc-run (host) and a running
@@ -571,6 +571,10 @@ filled in as each cause is known.
   and gave no module figure in go-qa's terms (`-coverpkg`, diff mode).
 - **What:** the third gap of R26's class after R47: go-qa cannot run on arm64 (#426), and each
   hand-picked substitute misses one of its checks.
+- **Also (batch 6 review):** `go test` over the changed packages alone misses a test in a package
+  that only reads a changed one: `installplay`'s kit-part test failed on R44's new skill
+  directory and no by-hand run reached it. Until #426, a by-hand run tests the whole tree the
+  change sits in (`./internal/teamchat/...`, `./internal/teams/...`), not the changed packages.
 - **Fix:** R26's (#426). Until then, a unit's by-hand QA reports "module coverage unchecked", and
   CI is the coverage gate. **Severity:** low (CI catches it). **Issue:** #426. **State:** open.
 

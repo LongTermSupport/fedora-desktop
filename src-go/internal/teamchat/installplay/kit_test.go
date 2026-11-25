@@ -101,10 +101,7 @@ func TestThePlayChecksEveryPartOfTheKit(t *testing.T) {
 	if got := k.field(readParts, "ansible.builtin.stat", "path"); got != k.kit.String()+"/{{ item.part }}" {
 		t.Errorf("the parts read are at %s, want below %s", got, k.kit)
 	}
-	dirs := []string{
-		"bin", "plugin", "plugin/teamchat", "plugin/teamchat/.claude-plugin",
-		"plugin/teamchat/hooks", "plugin/teamchat/skills", "plugin/teamchat/skills/teamchat",
-	}
+	dirs := kit.Dirs(k.kit)
 	var parts []string
 	for _, item := range sequence(k.tasks[readParts]["loop"]) {
 		part, kind := text(mapping(item)["part"]), text(mapping(item)["kind"])
