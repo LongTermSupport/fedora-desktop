@@ -581,24 +581,28 @@ filled in as each cause is known.
   - On a link start the questions room is read from its start or its stored token, by design
     (`teamsync/builder.go:17, 96-103`).
   - Every event is judged before the floor check that skips one already delivered
-    (`qtake`, `teamsync/questions.go:518-548, 579`). That check skips only a Deliver verdict, so
+    (`qjudge`, `teamsync/questions.go:518-548`, calls `judgeRoom` at 533, then `qtake`, 566-595,
+    whose floor skip is at 579). That check skips only a Deliver verdict, so
     a `rate` drop inside the floor is still taken and counted (`session.go:916-917, 946-952`).
   - The judge applies the per-sender receive limit (`recv_per_sender_minute`, 60 a minute) to a
     human, with no stale test in questions (`proto/verdict.go:368-372, 402`). The window counts
     the judging time, not the sending time (`session.go:865`, `proto/limits.go:94, 225-235`), so
     the whole replay lands in one minute.
-  - "Seen" holds only ids still pending or in the ledger (at most 1024, `engine/storewrite.go:155-163`),
-    so posts delivered hours ago are judged again.
+  - "Seen" holds only ids still pending or in the ledger (`member/engine/storewrite.go:155-163`;
+    the ledger, not Pending, is capped at 1024, `capLedger`, `member/state/store.go:30`), so posts
+    delivered hours ago are judged again.
   - A dropped event is not fetched again: the position is saved past it (`session.go:592`), and
     the questions floor is raised to the newest judged event (`questions.go:588-592`). A NEW
     owner post in that burst would be lost for good.
-- **Fix:** an event the floor covers is folded into the index without being judged for delivery,
-  so replayed history never counts toward the flood window. Tests first in `member/teamsync`: 70
-  replayed owner posts inside the floor, then a new one. Assert no `rate` drop and the new post
-  delivered once. Whether a team human is exempt from the limit outright is a spec question
-  (A 11.1 exempts only the admin): open.
+- **Fix:** an event that is history the link reads again (the questions floor covers it; in main,
+  the marker covers it or it is restored) is judged against a window of its own, thrown away, so
+  replayed history never counts toward the flood window (`judgeRoom`'s `replayed`). Main has the
+  same order after a seat's release (`resume` keeps events past the release time under the
+  marker) and is fixed the same way. Tests in `member/teamsync/replay_flood_test.go`. Whether a
+  team human is exempt from the limit outright is a spec question (A 11.1 exempts only the
+  admin): open. Report: [reports/R64.md](reports/R64.md).
 - **Severity:** high (the owner's words can be dropped for good). **Issue:** TBF. **State:**
-  open; after R60. Design: the R64 Explore report of 25 Nov (in `untracked/agent-reports/`).
+  fixed on v2-smoke, batch 13 (544ebda3d); not yet run live.
 
 ## R63: `declare` fails a converge while a declared session runs with a record not its own
 
