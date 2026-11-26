@@ -57,8 +57,8 @@ another batch; this plan decides at the end whether it stays.
     `internal/teamchat/traffic`, the child op `team.traffic`). A verb of the existing admin
     program, not a new binary: the `teamchat-ctl` child already holds the admin token and the
     rooms record, so the token never reaches root or any argv. Receipts are counted as
-    `teamchat.receipt` events and presence changes as membership events: `m.read` and presence
-    are ephemeral and in no history. Usage:
+    `teamchat.receipt` events, and membership changes as `m.room.member` events. `m.read` and
+    presence are ephemeral and in no room history, so presence is not counted. Usage:
     [bus-host-commands.md](bus-host-commands.md#the-traffic-probe-counts-per-hour-task-13).
   - **Still owed:** the runs on the busy team for 25 Nov and on a quieter team, by the bus
     host's admin seat, after the teamchat play's `admin` tag installs the new binary.
