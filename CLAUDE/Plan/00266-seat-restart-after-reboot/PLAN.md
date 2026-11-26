@@ -95,7 +95,7 @@ container. The host's per-session token pool does not reach it.
 
 - [x] ✅ **Task C.0**: How an LXC seat starts and signs in: answered above.
 - [ ] ⬜ **Task C.1**: Owner ruling, given 26 Nov: seats in LXC come back after a reboot, which
-  reverses Plan 00257's "a session never starts with its container" for the seats active at
+  reverses Plan 00257 Task B.12, "no LXC member session starts with its container", for the seats active at
   shutdown. Recorded; nothing more to decide.
 - [ ] ⬜ **Task C.2**: A root unit from `play-lxc-install-config.yml`. At shutdown it records the
   running containers and their active seat units, root-owned under `/var/lib`. At boot it

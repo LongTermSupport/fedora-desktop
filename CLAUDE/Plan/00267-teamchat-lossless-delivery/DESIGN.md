@@ -128,7 +128,7 @@ the "reached no agent" human case (19).
    items to the ledger at once** (status counts them as delivered here). `ErrRetry` undoes the
    await (the items are pending again, with no repeat flag). A cut line stays `unknown` for the
    proof to settle.
-5. **The proof, which is the real acknowledgement** \[C engine/proof.go:19-30, 359-540; member/proof/scan.go:1-10\]:
+5. **The proof, which is the real acknowledgement** \[C member/engine/proof.go:19-30, 359-540; member/proof/scan.go:1-10\]:
    the link scans the session's **transcript JSONL** for the needle `teamchat delivery <nonce>:`.
    Claude Code writes that text into the transcript when the envelope is taken into the
    conversation, both as an idle `user` record and as a busy `queued_command` attachment
@@ -202,7 +202,7 @@ the "reached no agent" human case (19).
 ### C2. When each state is sent
 
 - **delivered:** at the **proof** (the transcript shows the nonce), never at the socket write
-  \[C hook point: engine/proof.go:466-484 `prove`, and 514-540 `findLate`\].
+  \[C hook point: member/engine/proof.go:466-484 `prove`, and 514-540 `findLate`\].
 
   - `recv` + `Ack` also counts as delivered, because the session read it through the verb
     [C recv.go:468-473].
@@ -338,8 +338,11 @@ How each condition is forced:
 **About 30 tasks in 6 batches.** Batches 1-2 come first; 3 and 4 can run in parallel after them;
 5 and 6 come last.
 
-### Open questions for the owner and coordinator
+### Decisions (the coordinator, 26 Nov)
 
-- Main room versus reports room for receipts (C1).
-- Should staleness apply to addressed items judged on replay at all (rows 20, 38)?
-- A bounce to a human: a threaded reply in main, which the human sees in their client [U].
+- Receipts go in the reports room (C1).
+- Staleness never drops an addressed item judged on replay (rows 20, 38): it is delivered
+  marked late, with its send time. A verb meaningful only while its sender waits, whose sender
+  has given up, bounces `expired`.
+- A bounce to a human is a reply in the room and thread their message came from; a message
+  from the questions room bounces there, never to main.

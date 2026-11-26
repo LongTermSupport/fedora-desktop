@@ -1,7 +1,6 @@
 # Plan 00267: teamchat lossless delivery
 
-**Status**: Not Started (design for the owner and coordinator; build test-first after their
-answers to the three open questions)
+**Status**: In Progress (questions answered; build test-first, batch by batch)
 **Created**: 2026-11-26
 **Owner**: dev
 **Priority**: High (owner's standing rule, marked MAJOR)
@@ -46,12 +45,17 @@ file and line.
 
 ### Phase 0: decisions
 
-- [ ] ⬜ **Task 0.1**: The owner or coordinator answers the three open questions in DESIGN.md
-  section D:
-  - Receipts in the reports room (recommended: old kits ignore them silently) or in main (old
-    kits drop each one as `schema`, loudly).
-  - Whether staleness applies to addressed items judged on replay.
-  - How a bounce reaches a human sender.
+- [x] ✅ **Task 0.1**: The three open questions in DESIGN.md section D, answered by the
+  coordinator on 26 Nov as engineering calls under the owner's rule:
+  - **Receipts go in the reports room.** A receipt is for its sender, and an old-kit sender
+    cannot act on one, so a `schema` drop in main per receipt would buy nothing.
+  - **Stale on replay is delivered late, never dropped.** It is marked late, with the original
+    send time, and the receiver judges it. The one exception is a verb that means something
+    only while its sender waits (a halt or sync ping whose sender has given up): it is bounced
+    as `expired`, so the sender is told.
+  - **A bounce to a human** is a reply in the room and thread their message came from, which
+    they see in their client. A human's message to the coordinator arrives in the questions
+    room, so its bounce goes there, never to main.
 
 ### Phase 1: protocol (DESIGN.md C1, C7)
 
@@ -73,8 +77,9 @@ file and line.
 
 - [ ] ⬜ **Task 3.1**: Rate and budget hold the item (`NotBefore`) instead of dropping it. A full
   agent share of pending bounces `rate`.
-- [ ] ⬜ **Task 3.2**: A transient forge failure retries to a deadline. Stale-on-replay follows
-  Task 0.1's answer.
+- [ ] ⬜ **Task 3.2**: A transient forge failure retries to a deadline. A stale item on replay is
+  delivered marked late with its send time; a waiting-only verb whose sender gave up bounces
+  `expired`.
 
 ### Phase 4: receipts at each point (C2)
 

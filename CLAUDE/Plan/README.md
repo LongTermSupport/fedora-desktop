@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00267-teamchat-lossless-delivery](00267-teamchat-lossless-delivery/) - Not Started (design for the owner). Every addressed teamchat message ends delivered or bounced, visibly to its sender.
+- [00267-teamchat-lossless-delivery](00267-teamchat-lossless-delivery/) - In Progress (design's three questions answered; build test-first). Every addressed teamchat message ends delivered or bounced, visibly to its sender.
 
 - [00266-seat-restart-after-reboot](00266-seat-restart-after-reboot/) - In Progress (design for the owner). Containers and seats back after a reboot, rebuilt from validated records; first closes checkout config the host applies unasked.
 

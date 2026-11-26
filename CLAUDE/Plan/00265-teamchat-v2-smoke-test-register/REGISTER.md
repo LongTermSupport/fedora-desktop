@@ -520,7 +520,8 @@ filled in as each cause is known.
 ## R36: an earlier #417 implementation sits on unmerged branches
 
 - **Seen:** this seat, 2026-11-25, while clearing the branch pool.
-- **What:** three remote branches from an earlier session (2026-11-24; `agent-a2be5458…`,
+- **What:** three branches from an earlier session (all on origin; only `agent-a1aeb314…` is
+  also local) (2026-11-24; `agent-a2be5458…`,
   `agent-adff76a1…`, `agent-a1aeb314…`) hold another implementation of #417 (ccy 3.125.0 to
   3.125.5) that never reached F44. U4 built #417 again on `v2-smoke`. Those branches also hold
   work U4 may not have: "a team taken down forgets its seats' conversation pointers", a
@@ -1305,10 +1306,12 @@ before the move to v2. Filled in as causes are found.
 - **What:** `dropped 420` and `ignored 63` are not defined in `teamchat help status`, and no
   command lists what was dropped or ignored. The status record has `dropped_by` (reason counts)
   and the link log names each drop (`teamsync/session.go:959-968`), but neither is named in the
-  help. `teamchat history` items have no "to" field, so a member cannot tell which inbound
-  PEERs were addressed to it. Two different messages that open with the same paragraph look
+  help (`kit/skill.txt:82` names `counts.dropped_by`; the help does not). On that seat's
+  kit, `teamchat history` items had no "to" field, so a member could not tell which inbound
+  PEERs were addressed to it; F44 adds it (c8a011430). Two different messages that open with the same paragraph look
   like a duplicate (the seat's "T4").
-- **Fix (batch 24):** the help defines each count and names the log; history items carry "to".
+- **Fix (batch 24):** the help defines each count and names the log. History's "to" is done on
+  F44 (c8a011430) and reaches that seat with its kit update.
 - **Severity:** low. **Issue:** TBF. **State:** open.
 
 ## R72: the `git` wrapper fails in Claude Code sessions in an aliased repository
