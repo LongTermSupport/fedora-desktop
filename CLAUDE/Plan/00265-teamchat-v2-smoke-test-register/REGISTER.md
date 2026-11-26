@@ -1435,15 +1435,17 @@ before the move to v2. Filled in as causes are found.
     (`play_batch_warn_dirty`, 2079-2090).
   - Nothing checks whether the checkout is behind its upstream.
 - **Fix (Plan 00265 Task 4.1, the batch after 24):**
-  - Before any play, run.bash refuses when the checkout has uncommitted changes, or is behind
-    its upstream after a `git fetch`. The message says which it is, names the paths or the
-    commit count, and gives the fix (commit or stash; `git pull`).
+  - Before any play, run.bash refuses when the checkout has uncommitted changes, is behind its
+    upstream after a `git fetch`, or is ahead of it. Ahead means local commits no remote holds;
+    the coordinator added it on 26 Nov, because the push is the backup. The message says which
+    it is, names the paths or the commit count, and gives the fix (commit or stash; `git pull`;
+    `git push`).
   - A fetch that fails is a refusal too, never a pass.
   - A detached pin (`RUN_BASH_GIT_REF`) has no upstream, so only the dirty check applies.
   - `--force` runs anyway, and says on stderr which check it overrode.
   - The check is a small Go command that run.bash calls in place of
     `play_batch_warn_dirty`, because run.bash is on the bash-limits ratchet and may not grow.
-  - Tests: dirty, behind, fetch failed, clean and current, detached pin, and `--force`
+  - Tests: dirty, behind, ahead, fetch failed, clean and current, detached pin, and `--force`
     over each refusal. The Go uses a real temporary repository with a bare upstream, and
     `scripts/test-run-bash-*` drives the wiring.
 - **Severity:** medium (a play deployed from code that is not on the remote). **Issue:** TBF.
