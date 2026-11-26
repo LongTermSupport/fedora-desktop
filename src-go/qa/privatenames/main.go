@@ -102,6 +102,8 @@ knows and the owner's vault-encrypted private_name_terms. It is not edited by ha
                      repository and site names, held to the learned-name rule, the bus host's
                      served teams, and private_name_terms as written; print only the count.
                      Refuses a list written by hand and an empty one on a machine with teams
+  pinned-state       print what the pinned list is, by the test pin uses: absent, generated
+                     or hand-written (a list pin would refuse); never its content
   -h, --help         this text
 
 go-qa-ci's GQACI_DENYLIST repository secret is set from the denylist mode's output; refresh it
@@ -143,6 +145,8 @@ func run(args []string, env Env, out, errOut *emit.Emitter) ExitCode {
 		return a.denylist(args[1:], errOut)
 	case "pin":
 		return a.pin(args[1:], out, errOut)
+	case "pinned-state":
+		return a.pinnedState(args[1:], out, errOut)
 	}
 	m, code, ok := a.matcher(errOut)
 	if !ok {

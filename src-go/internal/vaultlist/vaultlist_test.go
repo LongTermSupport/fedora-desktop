@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -191,6 +192,36 @@ func TestAddsToAnAbsentListAndKeepsTheRest(t *testing.T) {
 		t.Errorf("echo off %d, restored %d; want 3 each", w.echoOffs, w.restored)
 	}
 	w.noNameShown()
+}
+
+// V1: no value reaches an argv or the environment; vault.bash and ansible-vault get it on stdin,
+// in the checkout, under its ansible.cfg (the vault id and password file it names).
+func TestValuesTravelOnStdinOnlyUnderTheCheckoutsConfig(t *testing.T) {
+	w := newWorld(t, head+"private_name_terms:\n"+vaultItem(nameA)+tail)
+	if code := w.run(nameB+"\n\n", "add", "private_name_terms"); code != term.ExitOK {
+		t.Fatalf("exit %d\n%s", code, w.err.String())
+	}
+	decrypts := 0
+	for _, c := range w.fake.Calls() {
+		seen := strings.ToLower(c.Line() + " " + strings.Join(c.Env, " "))
+		for _, n := range []string{nameA, nameB} {
+			if strings.Contains(seen, strings.ToLower(n)) {
+				t.Errorf("a value is in the argv or environment of %s", c.Name)
+			}
+		}
+		if c.Dir != w.root {
+			t.Errorf("%s ran in %q, not the checkout", c.Name, c.Dir)
+		}
+		if c.Name == "ansible-vault" {
+			decrypts++
+			if !slices.Contains(c.Env, "ANSIBLE_CONFIG="+filepath.Join(w.root, "ansible.cfg")) {
+				t.Errorf("decrypt without the checkout's ansible.cfg: %q", c.Env)
+			}
+		}
+	}
+	if decrypts != 3 { // the item read, then both items after the write
+		t.Errorf("%d decrypts, want 3", decrypts)
+	}
 }
 
 func TestKeepsExistingItemsAndSkipsAnyAlreadyListed(t *testing.T) {

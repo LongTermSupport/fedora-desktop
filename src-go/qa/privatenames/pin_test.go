@@ -22,7 +22,7 @@ const pinInventory = `{
                "repos": [{"repo": "LongTermSupport/fedora-desktop"}, {"repo": "brightwater-co/tidepool-app"}]}},
     {"team": "dev", "state": "absent"}
   ],
-  "teamchat_lxc_members": [{"team": "quillworks", "container": "otterbank-box", "user": "agent", "seat": 1, "checkout": "/home/agent/x"}],
+  "teamchat_lxc_members": [{"team": "quillworks", "container": "otterbank-box", "user": "agent", "seat": 1, "checkout": "/home/<user>/x"}],
   "agent_bus_teams": [{"team": "harborlight", "port": 8008}],
   "agent_bus_lxc_members": [{"team": "harborlight", "container": "fernhollow-ct", "user": "lanternfish", "repo": "boathouse", "host": "seaglass"}],
   "teamchat_site": "driftwood-site",
@@ -195,6 +195,31 @@ func TestAHandWrittenPinnedListIsRefusedNotOverwritten(t *testing.T) {
 		}
 	}
 	assertNoNamePrinted(t, w.rig)
+}
+
+// pinned-state answers what pin would make of the list, by the same header test, so a caller
+// (the R79 owner script) never keeps a copy of the header: absent, generated or hand-written.
+func TestPinnedStateNamesTheListsKindWithoutItsContent(t *testing.T) {
+	for want, fl := range map[string]files{
+		"absent":       {},
+		"generated":    {pinnedFile: PinnedHeader + "quillworks\n"},
+		"hand-written": {pinnedFile: "# my neighbours\notterbank\n"},
+	} {
+		w := pinRig("", fl)
+		if code := w.run("pinned-state"); code != ExitOK {
+			t.Fatalf("%s: exit %d: %s", want, code, w.text())
+		}
+		if w.out.String() != want+"\n" {
+			t.Errorf("%s: stdout %q", want, w.out.String())
+		}
+		assertNoNamePrinted(t, w.rig)
+	}
+	if code := pinRig("", files{pinnedFile: "UNREADABLE"}).run("pinned-state"); code != ExitCannotRun {
+		t.Errorf("an unreadable list: exit %d", code)
+	}
+	if code := pinRig("", files{}).run("pinned-state", "extra"); code != ExitCannotRun {
+		t.Errorf("an argument: exit %d", code)
+	}
 }
 
 func TestAnUnreadableExistingPinnedListIsRefused(t *testing.T) {

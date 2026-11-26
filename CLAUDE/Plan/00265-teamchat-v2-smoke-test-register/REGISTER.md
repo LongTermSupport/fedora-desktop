@@ -1528,6 +1528,18 @@ before the move to v2. Filled in as causes are found.
     host_vars handling is shared with setup-rclone as `internal/hostvars`.
   - **Owner, once batch 23 is on F44: run `./CLAUDE/Plan/meta-deploy.bash`** (its R79 entry
     is that script; it asks for the names at the terminal).
+  - **Its qa-reviewer (FIX-BEFORE-MERGE, fixed in the next commit):**
+    - The stopgap is now moved aside and put back if the play fails, so the guard never runs
+      with no pinned list.
+    - "Hand-written" is decided by pin's own header test (`qa-private-names pinned-state`), not
+      by a copy of the header.
+    - A test now holds every value off argv and the environment.
+    - SecurityRules names `vault-list`.
+  - **Not yet proven:** the real `ansible-vault decrypt --output -` reading stdin, and
+    `vault.bash encrypt` from a pipe, run only on the host; the owner's first run is their
+    proof. The stopgap's names are imported whole, team names included. A team name kept that
+    way stays in `private_name_terms` after its team is removed, until the owner deletes the
+    item.
   - **Which checkout it pins:** only the one it runs from. The play runs pin with
     `chdir: root_dir` (ansible.cfg's directory), and the script reads and removes the stopgap of
     its own checkout. A worker clone that cannot run plays (no vault file, no sudo tty) and is
