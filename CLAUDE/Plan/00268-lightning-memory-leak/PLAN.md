@@ -54,15 +54,17 @@ another batch; this plan decides at the end whether it stays.
   [bus-host-commands.md](bus-host-commands.md) for 25 Nov 17:00:00Z-17:15:00Z in the busy team's
   main, questions and reports rooms (event shapes only, no bodies). Name the event shape at or
   just before 17:09:12Z that could start a GUI-thread runaway (RESEARCH.md 8.1).
-- [ ] ⬜ **Task 1.4**: Owner decision D1, then IaC: a per-team key `lightning_diagnostics` in an
+- [x] ✅ **Task 1.4**: Owner decision D1, then IaC: a per-team key `lightning_diagnostics` in an
   `agent_bus_element_teams` entry. When true, the launcher's Exec line adds
-  `LIGHTNING_SCROLL_MEMORY_TRACE=1 LIGHTNING_SCROLL_TRACE=1 LIGHTNING_GUI_STALL_TRACE=1` and
-  `--log-file <team>/cache/lightning-diagnostic.log` (RESEARCH.md 7.3, 7.4). Test first in
+  `LIGHTNING_SCROLL_MEMORY_TRACE=1 LIGHTNING_SYNC_TRACE=100` and
+  `--log-file <team>/cache/lightning-diagnostic.log` (RESEARCH.md 7.3, 7.4, 7.5; `=100` logs
+  each event slower than 100 ms, since the Flathub build compiles the per-event line out). Test first in
   `src-go/internal/lightning` (`entries.go` key, `lightning.go` `execLine`) and in
   `helpers/agent_bus/element.py` (`PROFILE_KEYS`), the key in `localhost.yml.dist` and
   `docs/agent-bus.md`. Deployed by the play's `agent-bus-lightning` tag through
   `meta-deploy.bash`; on for the busy team, only on Lightning 0.10.7 or later (its `--log-file`
-  cap).
+  cap; the laptop's version is unchecked: laptop-commands.md step 1). Built; the owner sets the
+  key in host_vars and runs the queued play.
 - [ ] ⬜ **Task 1.5**: Owner question Q20: what the incident left behind. The laptop's host seat
   runs [laptop-commands.md](laptop-commands.md) section 10 (systemd's CPU and peak accounting of
   the killed scope, Lightning's stderr in the journal or the ccy-teams log, any rolling log).
@@ -70,10 +72,12 @@ another batch; this plan decides at the end whether it stays.
 - [ ] ⬜ **Task 1.6**: Dogfooding fault: `systemd.LaunchClient` appends a client's stderr to
   `<ccy-teams state dir>/<client>-<team>.log` with no cap or rotation. Log it as a GitHub issue
   before Task 1.4 turns tracing on.
-- [ ] ⬜ **Task 1.7**: Catch the trigger next time (RESEARCH.md 7.5): add per-event sync tracing to
+- [x] ✅ **Task 1.7**: Catch the trigger next time (RESEARCH.md 7.5): slow-event sync tracing in
   Task 1.4's key, and a user-level watchdog (IaC) that, when the instance's log is silent for
   60 s while its RSS climbs past a threshold, records per-thread CPU and an all-threads
-  backtrace once. Lightning's own stall tracer logs only when a stall ends, so it cannot.
+  backtrace once. Lightning's own stall tracer logs only when a stall ends, so it cannot. Built:
+  `agent-bus-lightning watch` (`internal/lightning/watch`, W1-W11; L17), the user service
+  `agent-bus-lightning-watch`, run by the play only while a team has the key true.
 
 ### Phase 2: Reproduce
 
@@ -86,7 +90,10 @@ another batch; this plan decides at the end whether it stays.
   D-Bus session and a Secret Service), signed in to the test team; a sampler writing RSS, PSS,
   `memory.stat`, CPU time and cumulative event counts every 30 s.
 - [ ] ⬜ **Task 2.3**: First, replay Task 1.3a's window (its event shapes in order and spacing)
-  with a thread panel open, then the rest of the busy day. Confirmed only when the event loop stops
+  with a thread panel open, then the rest of the busy day. First candidates (RESEARCH.md 8.3):
+  the questions-room thread post at 17:06:16Z, its read-state marking, and the 7.6 KB reply just
+  before it; then the deferred-work arm: replay the window, then (a) an idle trim at once
+  against (b) trims suppressed. Confirmed only when the event loop stops
   (the 300 s timers go silent) and the JS heap climbs, as on the laptop.
 
 ### Phase 3: Isolate

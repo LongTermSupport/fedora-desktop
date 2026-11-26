@@ -2,7 +2,10 @@ package lightning
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -10,7 +13,11 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/fstest"
+	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/lightning/watch"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/matrixclients"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -115,9 +122,9 @@ func list(entries ...string) string { return "[" + strings.Join(entries, ", ") +
 // TestL1TheArgumentsAreOneVerb holds that the command is check or apply and nothing else.
 func TestL1TheArgumentsAreOneVerb(t *testing.T) {
 	w := newWorld(t)
-	for _, args := range [][]string{nil, {"verify"}, {"apply", "check"}, {"--apply"}} {
+	for _, args := range [][]string{nil, {"verify"}, {"apply", "check"}, {"--apply"}, {"watch", "now"}} {
 		r := w.run(args, "[]")
-		if r.code != term.ExitUsage || r.out != "" || !strings.Contains(r.errOut, "usage: agent-bus-lightning check|apply") {
+		if r.code != term.ExitUsage || r.out != "" || !strings.Contains(r.errOut, "usage: agent-bus-lightning check|apply|watch") {
 			t.Errorf("%q: %+v", args, r)
 		}
 	}
@@ -135,6 +142,13 @@ func TestL2RootIsRefused(t *testing.T) {
 	if exists(w.root()) {
 		t.Fatal("root wrote the Lightning tree")
 	}
+	out.Reset()
+	errOut.Reset()
+	app = w.watchApp(&out, &errOut, newFakeWatch(t, fstest.MapFS{}, nil).env)
+	app.Euid = 0
+	if code := app.Run(); code != term.ExitConfig || out.Len() != 0 || !strings.Contains(errOut.String(), "not root") {
+		t.Fatalf("watch as root: exit %d stdout %q stderr %q", code, out.String(), errOut.String())
+	}
 }
 
 // TestL3AnInvalidListIsRefused holds each entry to element.py's rules, naming the team and key
@@ -148,33 +162,37 @@ func TestL3AnInvalidListIsRefused(t *testing.T) {
 		return `[{"team": "team-a", "base_url": "` + https + `", "ca_file": ` + caFile + `}]`
 	}
 	cases := map[string]struct{ stdin, want string }{
-		"not JSON":              {"[", "not valid JSON"},
-		"a duplicate key":       {`[{"team": "a", "team": "b"}]`, "not valid JSON"},
-		"not a list":            {lightningTeam("team-a"), "must be a JSON array"},
-		"an entry not object":   {`["team-a"]`, "entry 1: must be an object"},
-		"an unknown key":        {entry(`, "port": 1`), "entry 1: the only keys are base_url, ca_file, client, server_name, team"},
-		"no team":               {`[{"base_url": "` + baseURL + `"}]`, "entry 1: team is required"},
-		"no base_url":           {`[{"team": "team-a"}]`, "entry 1: base_url is required"},
-		"a bad team":            {`[{"team": "Team_A", "base_url": "` + baseURL + `"}]`, "entry 1: team must match"},
-		"a team not a string":   {`[{"team": 1, "base_url": "` + baseURL + `"}]`, "entry 1: team must match"},
-		"http to a name":        {`[{"team": "team-a", "base_url": "http://bus.example.com"}]`, "team team-a: base_url may use http://"},
-		"a path":                {`[{"team": "team-a", "base_url": "` + baseURL + `/_matrix"}]`, "team team-a: base_url must have no path"},
-		"a url not a string":    {`[{"team": "team-a", "base_url": 1}]`, "team team-a: base_url must be a URL of printable ASCII"},
-		"bad brackets":          {`[{"team": "team-a", "base_url": "https://[bus"}]`, "team team-a: base_url is not a URL"},
-		"server_name public":    {entry(`, "server_name": "a.example.com"`), "team team-a: server_name must end in .internal"},
-		"server_name one label": {entry(`, "server_name": "internal"`), "team team-a: server_name must be a lower-case DNS name"},
-		"server_name a number":  {entry(`, "server_name": 1`), "team team-a: server_name must be a DNS name"},
-		"ca_file on http":       {entry(`, "ca_file": "/etc/a.pem"`), "team team-a: ca_file is only for"},
-		"ca_file relative":      {httpsEntry(`"a.pem"`), "team team-a: ca_file must be an absolute path"},
-		"ca_file a directory":   {httpsEntry(`"/etc/"`), "team team-a: ca_file must be an absolute path"},
-		"ca_file not a string":  {httpsEntry(`["/etc/a.pem"]`), "team team-a: ca_file must be an absolute path"},
-		"ca_file a parent step": {httpsEntry(`"/etc/../a.pem"`), "team team-a: ca_file must be a plain path"},
-		"ca_file a newline":     {httpsEntry(`"/etc/a\npem"`), "team team-a: ca_file must be a plain path"},
-		"another client":        {entry(`, "client": "nheko"`), "team team-a: client must be one of element, lightning"},
-		"a client not a string": {entry(`, "client": null`), "team team-a: client must be one of"},
-		"a team listed twice":   {list(lightningTeam("team-a"), elementTeam("team-a")), "a team is listed more than once"},
-		"a secret in the url":   {`[{"team": "team-a", "base_url": "http://u:hunter2@192.0.2.10"}]`, "team team-a: base_url must carry no credentials"},
-		"a secret in ca_file":   {entry(`, "ca_file": "/srv/secret-place/a.pem"`), "team team-a: ca_file"},
+		"not JSON":               {"[", "not valid JSON"},
+		"a duplicate key":        {`[{"team": "a", "team": "b"}]`, "not valid JSON"},
+		"not a list":             {lightningTeam("team-a"), "must be a JSON array"},
+		"an entry not object":    {`["team-a"]`, "entry 1: must be an object"},
+		"an unknown key":         {entry(`, "port": 1`), "entry 1: the only keys are base_url, ca_file, client, lightning_diagnostics, server_name, team"},
+		"diagnostics a string":   {entry(`, "client": "lightning", "lightning_diagnostics": "yes"`), "team team-a: lightning_diagnostics must be true or false"},
+		"diagnostics null":       {entry(`, "client": "lightning", "lightning_diagnostics": null`), "team team-a: lightning_diagnostics must be true or false"},
+		"diagnostics a number":   {entry(`, "client": "lightning", "lightning_diagnostics": 1`), "team team-a: lightning_diagnostics must be true or false"},
+		"diagnostics on element": {entry(`, "lightning_diagnostics": true`), "team team-a: lightning_diagnostics is only for a team whose client is lightning"},
+		"no team":                {`[{"base_url": "` + baseURL + `"}]`, "entry 1: team is required"},
+		"no base_url":            {`[{"team": "team-a"}]`, "entry 1: base_url is required"},
+		"a bad team":             {`[{"team": "Team_A", "base_url": "` + baseURL + `"}]`, "entry 1: team must match"},
+		"a team not a string":    {`[{"team": 1, "base_url": "` + baseURL + `"}]`, "entry 1: team must match"},
+		"http to a name":         {`[{"team": "team-a", "base_url": "http://bus.example.com"}]`, "team team-a: base_url may use http://"},
+		"a path":                 {`[{"team": "team-a", "base_url": "` + baseURL + `/_matrix"}]`, "team team-a: base_url must have no path"},
+		"a url not a string":     {`[{"team": "team-a", "base_url": 1}]`, "team team-a: base_url must be a URL of printable ASCII"},
+		"bad brackets":           {`[{"team": "team-a", "base_url": "https://[bus"}]`, "team team-a: base_url is not a URL"},
+		"server_name public":     {entry(`, "server_name": "a.example.com"`), "team team-a: server_name must end in .internal"},
+		"server_name one label":  {entry(`, "server_name": "internal"`), "team team-a: server_name must be a lower-case DNS name"},
+		"server_name a number":   {entry(`, "server_name": 1`), "team team-a: server_name must be a DNS name"},
+		"ca_file on http":        {entry(`, "ca_file": "/etc/a.pem"`), "team team-a: ca_file is only for"},
+		"ca_file relative":       {httpsEntry(`"a.pem"`), "team team-a: ca_file must be an absolute path"},
+		"ca_file a directory":    {httpsEntry(`"/etc/"`), "team team-a: ca_file must be an absolute path"},
+		"ca_file not a string":   {httpsEntry(`["/etc/a.pem"]`), "team team-a: ca_file must be an absolute path"},
+		"ca_file a parent step":  {httpsEntry(`"/etc/../a.pem"`), "team team-a: ca_file must be a plain path"},
+		"ca_file a newline":      {httpsEntry(`"/etc/a\npem"`), "team team-a: ca_file must be a plain path"},
+		"another client":         {entry(`, "client": "nheko"`), "team team-a: client must be one of element, lightning"},
+		"a client not a string":  {entry(`, "client": null`), "team team-a: client must be one of"},
+		"a team listed twice":    {list(lightningTeam("team-a"), elementTeam("team-a")), "a team is listed more than once"},
+		"a secret in the url":    {`[{"team": "team-a", "base_url": "http://u:hunter2@192.0.2.10"}]`, "team team-a: base_url must carry no credentials"},
+		"a secret in ca_file":    {entry(`, "ca_file": "/srv/secret-place/a.pem"`), "team team-a: ca_file"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -201,6 +219,8 @@ func TestL3AValidListIsAccepted(t *testing.T) {
 		`{"team": "team-a", "base_url": "`+baseURL+`"}`,
 		`{"team": "team-b", "base_url": "http://[2001:db8::1]:8448", "server_name": "b.agent-bus.internal", "client": "element"}`,
 		`{"team": "team-c", "base_url": "HTTPS://bus.example.com", "ca_file": "/etc/teamchat/c.pem", "client": "lightning"}`,
+		`{"team": "team-d", "base_url": "`+baseURL+`", "client": "lightning", "lightning_diagnostics": true}`,
+		`{"team": "team-e", "base_url": "`+baseURL+`", "lightning_diagnostics": false}`,
 	)
 	if r := w.run([]string{"check"}, stdin); r.code != term.ExitOK {
 		t.Fatalf("%+v", r)
@@ -382,6 +402,54 @@ func (w *world) checkLauncher() {
 	}
 	if got := w.mode(w.launcher("team-a")); got != 0o644 {
 		w.t.Errorf("launcher mode %o", got)
+	}
+}
+
+// diagnosticTeam is a lightning team with diagnostics on (Plan 00268 Task 1.4).
+func diagnosticTeam(team string) string {
+	return `{"team": "` + team + `", "base_url": "` + baseURL + `", "client": "lightning", "lightning_diagnostics": true}`
+}
+
+// TestL16DiagnosticsAddTheTracesAndALogFile holds that a team with lightning_diagnostics true
+// launches with the memory and sync traces and a log file in its own cache folder, that false is
+// the plain launcher, and that turning it on or off rewrites the launcher.
+func TestL16DiagnosticsAddTheTracesAndALogFile(t *testing.T) {
+	w := newWorld(t)
+	root := w.root()
+	plain := " SSL_CERT_DIR=" + root + "/teamchat-ca lightning-matrix\n"
+	traced := " SSL_CERT_DIR=" + root + "/teamchat-ca" +
+		" LIGHTNING_SCROLL_MEMORY_TRACE=1 LIGHTNING_SYNC_TRACE=100" +
+		" lightning-matrix --log-file " + root + "/teams/team-a/cache/lightning-diagnostic.log\n"
+	if r := w.apply(list(diagnosticTeam("team-a"))); r.code != term.ExitOK {
+		t.Fatalf("%+v", r)
+	}
+	if got := w.read(w.launcher("team-a")); !strings.Contains(got, traced) {
+		t.Fatalf("diagnostics on, launcher\n%s\nwant a line ending\n%s", got, traced)
+	}
+	off := `{"team": "team-a", "base_url": "` + baseURL + `", "client": "lightning", "lightning_diagnostics": false}`
+	if r := w.apply(list(off)); r.code != term.ExitOK || r.out != "CHANGED\t"+w.launcher("team-a")+"\n" {
+		t.Fatalf("turning diagnostics off: %+v", r)
+	}
+	w.checkLauncher()
+	if got := w.read(w.launcher("team-a")); !strings.Contains(got, plain) {
+		t.Fatalf("diagnostics off, launcher\n%s", got)
+	}
+	if r := w.apply(list(diagnosticTeam("team-a"))); r.code != term.ExitOK || r.out != "CHANGED\t"+w.launcher("team-a")+"\n" {
+		t.Fatalf("turning diagnostics on: %+v", r)
+	}
+	if exists(filepath.Join(w.team("team-a"), "cache/lightning-diagnostic.log")) {
+		t.Fatal("apply wrote the log file; only Lightning writes it")
+	}
+}
+
+// TestL9AStaleDiagnosticLauncherIsRemoved holds that a launcher written with diagnostics on is
+// still known as this command's when its team moves to Element.
+func TestL9AStaleDiagnosticLauncherIsRemoved(t *testing.T) {
+	w := newWorld(t)
+	w.apply(list(diagnosticTeam("team-a")))
+	r := w.apply(list(elementTeam("team-a")))
+	if r.code != term.ExitOK || !strings.Contains(r.out, "CHANGED\t"+w.launcher("team-a")+"\n") || exists(w.launcher("team-a")) {
+		t.Fatalf("%+v", r)
 	}
 }
 
@@ -662,6 +730,173 @@ func TestL15AnInstanceSaysWhetherItHoldsAnAccount(t *testing.T) {
 	w.write(w.account("file_team-a.agent-bus.internal"), "")
 	if _, err := HoldsAccount(w.home, "team-a", "@file:team-a.agent-bus.internal"); err == nil {
 		t.Fatal("a file where the account folder goes is not an answer")
+	}
+}
+
+// watchStart is the fake clock's first reading in the watch tests.
+var watchStart = time.Date(2026, 11, 25, 17, 0, 0, 0, time.UTC)
+
+// fakeWatch is a watch run's world: a clock that moves only when the loop waits, and a step run
+// at each wait. After the last step the next wait stops the run.
+type fakeWatch struct {
+	env    *WatchEnv
+	now    time.Time
+	steps  []func()
+	waits  []time.Duration
+	cancel context.CancelFunc
+}
+
+func newFakeWatch(t *testing.T, proc fs.FS, steps []func()) *fakeWatch {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	f := &fakeWatch{now: watchStart, steps: steps, cancel: cancel}
+	f.env = &WatchEnv{
+		Ctx: ctx, Proc: proc, Run: &execx.Fake{},
+		Now:   func() time.Time { return f.now },
+		After: f.after,
+	}
+	return f
+}
+
+func (f *fakeWatch) after(d time.Duration) <-chan time.Time {
+	f.waits = append(f.waits, d)
+	if len(f.steps) == 0 {
+		f.cancel()
+		return nil
+	}
+	f.now = f.now.Add(d)
+	step := f.steps[0]
+	f.steps = f.steps[1:]
+	step()
+	ready := make(chan time.Time, 1)
+	ready <- f.now
+	return ready
+}
+
+func (w *world) watchApp(stdout, stderr *bytes.Buffer, env *WatchEnv) App {
+	app := w.app([]string{"watch"}, "", stdout, stderr)
+	app.Stdin = unreadable{w.t}
+	app.Watch = env
+	return app
+}
+
+// unreadable is a stdin the watch verb must never read.
+type unreadable struct{ t *testing.T }
+
+func (u unreadable) Read([]byte) (int, error) {
+	u.t.Error("watch read stdin")
+	return 0, io.EOF
+}
+
+// brokenProc is a /proc that cannot be listed.
+type brokenProc struct{}
+
+func (brokenProc) Open(string) (fs.File, error) { return nil, syscall.EACCES }
+
+// lightningProcess puts a Lightning process of uid's into proc, with RSS rssKiB, logging to log.
+func lightningProcess(proc fstest.MapFS, uid int, log string, rssKiB int) {
+	proc["4242/comm"] = &fstest.MapFile{Data: []byte("lightning-matri\n")}
+	proc["4242/cmdline"] = &fstest.MapFile{Data: []byte("lightning-matrix\x00--log-file\x00" + log + "\x00")}
+	// Fields 3 to 22 after the name: the state, then utime (14), stime (15) and starttime (22).
+	stat := "4242 (lightning-matri) R 0 0 0 0 0 0 0 0 0 0 7 3 0 0 0 0 0 0 555\n"
+	proc["4242/stat"] = &fstest.MapFile{Data: []byte(stat)}
+	proc["4242/task/4242/stat"] = &fstest.MapFile{Data: []byte(stat)}
+	proc["4242/task/4242/wchan"] = &fstest.MapFile{Data: []byte("0")}
+	proc["4242/status"] = &fstest.MapFile{Data: []byte(fmt.Sprintf(
+		"Name:\tlightning-matri\nUid:\t%d\t%d\t%d\t%d\nVmRSS:\t%d kB\n", uid, uid, uid, uid, rssKiB))}
+}
+
+// silentLog is team-a's diagnostic log, last written at watchStart.
+func (w *world) silentLog() string {
+	w.t.Helper()
+	log := filepath.Join(w.team("team-a"), "cache", "lightning-diagnostic.log")
+	w.write(log, "scroll-memory rssKiB=1\n")
+	if err := os.Chtimes(log, watchStart, watchStart); err != nil {
+		w.t.Fatal(err)
+	}
+	return log
+}
+
+// growingWatch is a watch over one Lightning process of uid's that grows by watch.GrowthKiB at
+// the first wait, its log silent throughout, run for six ticks.
+func growingWatch(t *testing.T, uid int, log string) *fakeWatch {
+	t.Helper()
+	proc := fstest.MapFS{}
+	lightningProcess(proc, uid, log, 100_000)
+	grow := func() { lightningProcess(proc, uid, log, 100_000+watch.GrowthKiB) }
+	idle := func() {}
+	return newFakeWatch(t, proc, []func(){grow, idle, idle, idle, idle})
+}
+
+// TestL17WatchLooksEachIntervalUntilStopped holds that watch reads no stdin, writes nothing to
+// stdout, waits watch.Interval between ticks and ends with 0 when stopped.
+func TestL17WatchLooksEachIntervalUntilStopped(t *testing.T) {
+	w := newWorld(t)
+	var out, errOut bytes.Buffer
+	f := newFakeWatch(t, fstest.MapFS{}, []func(){func() {}, func() {}})
+	if code := w.watchApp(&out, &errOut, f.env).Run(); code != term.ExitOK || out.Len() != 0 {
+		t.Fatalf("exit %d stdout %q stderr %q", code, out.String(), errOut.String())
+	}
+	if !slices.Equal(f.waits, []time.Duration{watch.Interval, watch.Interval, watch.Interval}) {
+		t.Fatalf("waits %v, want three of %v", f.waits, watch.Interval)
+	}
+	if !strings.Contains(errOut.String(), filepath.Join(w.root(), "teams")) {
+		t.Fatalf("stderr %q names no folder watched", errOut.String())
+	}
+	if exists(w.root()) {
+		t.Fatal("watch wrote the Lightning tree")
+	}
+}
+
+// TestL17WatchRecordsAnInstanceUnderTheTeamsFolder holds that watch watches the instances of
+// this user's teams folder: a process whose log there fell silent while it grew is recorded
+// beside the log, and the log is never written.
+func TestL17WatchRecordsAnInstanceUnderTheTeamsFolder(t *testing.T) {
+	w := newWorld(t)
+	log := w.silentLog()
+	var out, errOut bytes.Buffer
+	if code := w.watchApp(&out, &errOut, growingWatch(t, euid, log).env).Run(); code != term.ExitOK {
+		t.Fatalf("exit %d stderr %q", code, errOut.String())
+	}
+	record := filepath.Join(w.team("team-a"), "cache", watch.RecordName)
+	if got := w.read(record); !strings.Contains(got, "pid=4242 start=555") {
+		t.Fatalf("record %q", got)
+	}
+	if !strings.Contains(errOut.String(), "recorded pid 4242") {
+		t.Fatalf("stderr %q", errOut.String())
+	}
+	if got := w.read(log); got != "scroll-memory rssKiB=1\n" {
+		t.Fatalf("Lightning's log was written: %q", got)
+	}
+}
+
+// TestL17WatchIgnoresAnotherUsersInstance holds that a process of another uid is not watched.
+func TestL17WatchIgnoresAnotherUsersInstance(t *testing.T) {
+	w := newWorld(t)
+	log := w.silentLog()
+	var out, errOut bytes.Buffer
+	if code := w.watchApp(&out, &errOut, growingWatch(t, euid+1, log).env).Run(); code != term.ExitOK {
+		t.Fatalf("exit %d stderr %q", code, errOut.String())
+	}
+	if exists(filepath.Join(w.team("team-a"), "cache", watch.RecordName)) {
+		t.Fatal("another user's instance was recorded")
+	}
+}
+
+// TestL17AFailedLookFails holds that a /proc that cannot be read ends watch with 1, for systemd
+// to restart it, and that watch without its environment fails.
+func TestL17AFailedLookFails(t *testing.T) {
+	w := newWorld(t)
+	var out, errOut bytes.Buffer
+	f := newFakeWatch(t, brokenProc{}, nil)
+	if code := w.watchApp(&out, &errOut, f.env).Run(); code != term.ExitFailure ||
+		!strings.Contains(errOut.String(), "agent-bus-lightning: watch: listing /proc") {
+		t.Fatalf("exit %d stderr %q", code, errOut.String())
+	}
+	errOut.Reset()
+	if code := w.watchApp(&out, &errOut, nil).Run(); code != term.ExitFailure {
+		t.Fatalf("no environment: exit %d stderr %q", code, errOut.String())
 	}
 }
 

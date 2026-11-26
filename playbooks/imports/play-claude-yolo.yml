@@ -400,6 +400,20 @@
         - scripts
         - launchers
 
+    # The one hole in cc --teams' deny on the chat clients' app ids (Plan 00265 R82): it prints
+    # flatpak info, permissions and running instances of each client, takes no argument and
+    # never names an app id in its own argv (src-go/cmd/chat-client-info).
+    - name: Build and Install the chat-client-info Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: chat-client-info
+        go_command_dest: /var/local/claude-code/chat-client-info
+        go_command_mode: "0755"
+        go_command_owner: root
+      tags:
+        - scripts
+        - launchers
+
     - name: Install cc Wrapper Script
       become: true
       ansible.builtin.copy:

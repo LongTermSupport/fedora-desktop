@@ -19,7 +19,9 @@
 # installs the Lightning Flatpak, places each https lightning team's CA where Lightning reads it
 # and fails unless a handshake from Lightning's sandbox trusts it (tasks/lightning-team-ca.yml),
 # then writes each lightning team's own instance, settings file and launcher through the Go
-# command agent-bus-lightning (src-go/internal/lightning). Both Lightning steps are Go binaries
+# command agent-bus-lightning (src-go/internal/lightning), and runs that command's diagnostics
+# watchdog as the user service agent-bus-lightning-watch only while a lightning team has
+# lightning_diagnostics true (Plan 00268). Both Lightning steps are Go binaries
 # built here, so the Go toolchain is installed first; play-golang.yml stays its one source of
 # truth.
 #
@@ -221,6 +223,14 @@
         mode: "0755"
       tags: [agent-bus-lightning]
 
+    # Read before and after the build, so the watchdog is restarted onto a new binary.
+    - name: Read the installed per-team Lightning command's checksum before the build
+      ansible.builtin.stat:
+        path: "{{ agent_bus_lightning_command }}"
+        get_checksum: true
+      register: agent_bus_lightning_command_before
+      tags: [agent-bus-lightning]
+
     - name: Build and install the per-team Lightning command
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
       vars:
@@ -258,4 +268,71 @@
       when:
         - not ansible_check_mode
         - agent_bus_lightning_kept | length > 0
+      tags: [agent-bus-lightning]
+
+    # The diagnostics watchdog (Plan 00268 Task 1.7): agent-bus-lightning watch, a user service
+    # that records a stalled instance's threads once, beside its diagnostic log. It runs only
+    # while a lightning team has lightning_diagnostics true, and is stopped and disabled
+    # otherwise. The unit is always placed, so the disable below has a unit to act on.
+    - name: Read the per-team Lightning command's checksum after the build
+      ansible.builtin.stat:
+        path: "{{ agent_bus_lightning_command }}"
+        get_checksum: true
+      register: agent_bus_lightning_command_after
+      tags: [agent-bus-lightning]
+
+    - name: Ensure the desktop user's systemd unit directory exists
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.file:
+        path: "{{ ansible_facts['getent_passwd'][user_login][4] }}/.config/systemd/user"
+        state: directory
+        mode: "0755"
+      tags: [agent-bus-lightning]
+
+    - name: Place the Lightning diagnostics watchdog's user unit
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/agent-bus-lightning-watch.service"
+        dest: "{{ ansible_facts['getent_passwd'][user_login][4] }}/.config/systemd/user/agent-bus-lightning-watch.service"
+        mode: "0644"
+      register: agent_bus_lightning_watch_unit
+      tags: [agent-bus-lightning]
+
+    - name: Reload the desktop user's systemd manager so it reads the watchdog's unit
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        scope: user
+        daemon_reload: true
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+      when:
+        - not ansible_check_mode
+        - agent_bus_lightning_watch_unit is changed
+      tags: [agent-bus-lightning]
+
+    - name: Run the Lightning diagnostics watchdog while a team has diagnostics on, else stop it
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        name: agent-bus-lightning-watch.service
+        scope: user
+        enabled: "{{ agent_bus_lightning_diagnostics_on }}"
+        state: >-
+          {{ 'stopped' if not agent_bus_lightning_diagnostics_on
+             else 'restarted' if agent_bus_lightning_watch_renewed else 'started' }}
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+      vars:
+        agent_bus_lightning_diagnostics_on: >-
+          {{ agent_bus_element_lightning_teams | selectattr('lightning_diagnostics', 'defined')
+             | selectattr('lightning_diagnostics', 'equalto', true) | list | length > 0 }}
+        agent_bus_lightning_watch_renewed: >-
+          {{ agent_bus_lightning_watch_unit is changed
+             or agent_bus_lightning_command_before.stat.checksum | default('')
+                != agent_bus_lightning_command_after.stat.checksum | default('') }}
+      # In --check nothing was built or reloaded, so there is nothing to run.
+      when: not ansible_check_mode
       tags: [agent-bus-lightning]

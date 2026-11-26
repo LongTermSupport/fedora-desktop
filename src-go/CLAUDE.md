@@ -171,10 +171,14 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   TLS handshake to one https url verified against exactly the roots `SSL_CERT_FILE` and
   `SSL_CERT_DIR` name, as Lightning's rustls reads them, with no Common Name fallback. Built
   static by `tasks/lightning-team-ca.yml` and run inside Lightning's Flatpak sandbox.
-- `internal/lightning/` — `agent-bus-lightning` (Plan 00254 Task 5.2, L1-L14 in its package
+- `internal/lightning/` — `agent-bus-lightning` (Plan 00254 Task 5.2, L1-L17 in its package
   doc): one Lightning instance (its own XDG data, config and cache), a homeserver settings file
   and a launcher per team the human watches in Lightning; a stale launcher of its own removed, an
-  instance never. Built and run by `play-agent-bus-element.yml`.
+  instance never; a team's `lightning_diagnostics` adds traces and a log file to its launcher.
+  Its `watch` verb (`internal/lightning/watch`, W1-W11, Plan 00268) is the diagnostics watchdog
+  the `agent-bus-lightning-watch` user service runs: it reads only `/proc` and the logs'
+  modification times, and records a stalled instance's threads once beside its log. Built and
+  run by `play-agent-bus-element.yml`.
 - `internal/release/` — `release-plan`, the release workflow's one Go command (Plan 00153 Task
   5.3, R1-R7 in its package doc): what a push to `F<major>` calls for (`decide`: nothing, prepare a
   release, or tag a merged release commit), the changelog entry to commit (`prepare`) and the
@@ -321,7 +325,7 @@ the login user, into `~/.cache/ccy-go-build`) and
 installs it with a checksum-compared `copy`; it takes the command name, install path, mode and
 optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries,
 the launcher's front `claude-yolo` (root-owned at `/var/local/claude-yolo/claude-yolo`, with
-`-X main.Version=<CCY_VERSION>` read from the bash launcher), `cc-project-dir` and `cc-claude` (`ccy-teams` and `cc-project-dir` also get
+`-X main.Version=<CCY_VERSION>` read from the bash launcher), `cc-project-dir`, `cc-claude` and `chat-client-info` (`ccy-teams` and `cc-project-dir` also get
 `-ldflags "-X main.RootDir=<checkout>"` and refuse to run without it), and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` and
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
 `play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,

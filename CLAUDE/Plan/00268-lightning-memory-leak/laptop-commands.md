@@ -22,6 +22,20 @@ flatpak history --columns=time,change,application,branch,commit --no-pager 2>&1 
 Answers: the version running now, and whether a Flatpak update fell between the instance's start
 on 25 Nov and the kill at 18:08:56Z (0.10.7 was published on GitHub on 2026-11-21).
 
+**Before `lightning_diagnostics` is set (Task 1.4):** the `Version:` line of `flatpak info` must
+read 0.10.7 or later. Only 0.10.7 caps `--log-file` (32 MiB, rolled once: 64 MiB at most); 0.10.6
+writes it without a cap (read in Lightning's source at both tags, not run). Unchecked so far.
+Also read-only, for the running build (it names no team):
+
+```bash
+APP=org.lightning_matrix.Lightning
+flatpak ps --columns=instance,application,commit | grep -F "$APP" | cat
+flatpak info --show-commit "$APP" | cat
+```
+
+The running instances' commit should equal the installed one; one that differs was started
+before an update and runs the older build until it is opened again.
+
 ## 2. Every Lightning process and its scope
 
 ```bash
@@ -183,7 +197,8 @@ cut, but check before quoting.
 
 ## Not read-only: needs the owner's yes and goes through IaC
 
-Running the busy team's next instance with Lightning's traces on (`--console --log-file <path>`,
-`LIGHTNING_SCROLL_TRACE=1`, `LIGHTNING_SYNC_TRACE=1`, `LIGHTNING_GUI_STALL_TRACE=1`) changes how
-it is launched. That is a change to the launcher `agent-bus-lightning` writes (Task 1.4), deployed
-by the play, never typed on the laptop.
+Running the busy team's next instance with Lightning's traces on (`--log-file <path>`,
+`LIGHTNING_SCROLL_MEMORY_TRACE=1`, `LIGHTNING_SYNC_TRACE=100`) changes how it is launched. That
+is the `lightning_diagnostics` key of the team's host_vars entry: the launcher
+`agent-bus-lightning` writes (Task 1.4) and the watchdog service (Task 1.7), deployed by the play
+through `meta-deploy.bash`, never typed on the laptop.

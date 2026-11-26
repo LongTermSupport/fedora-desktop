@@ -3,7 +3,8 @@
 # (Plan 00245 Phase 3). Learns the names from the agent bus and the machine's names, keeps them in
 # <git dir>/private-terms (never tracked) and scans: `staged` (pre-commit), `push REMOTE URL`
 # (pre-push, ref lines on stdin), `range ARG...`, `tree REV` (the QA gate), `refresh`, and
-# `denylist FILE` (the blocking terms as go-qa-ci's public-safety denylist, written outside the repo).
+# `denylist FILE` (the blocking terms as go-qa-ci's public-safety denylist, written outside the repo),
+# and `pin` (play-git-hooks-security.yml writes <git dir>/private-terms-pinned with it).
 # Findings name a place and a source, never the name. The tool is Go (src-go/qa/privatenames).
 #
 # In a ccy container a list that cannot be built is exit 2, never a skip.

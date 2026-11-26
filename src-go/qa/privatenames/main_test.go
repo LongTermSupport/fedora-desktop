@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"maps"
+	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
@@ -157,8 +159,11 @@ func TestScanDiffReportsAddedLinesAndPathsOnly(t *testing.T) {
 }
 
 // fake answers by argv; an argv it was not given is an error, so an unplanned call fails loudly.
+// fake answers the planned calls; a call it fails returns that error, and any other program is
+// not installed (exec.ErrNotFound, as proc.OS reports one).
 type fake struct {
 	answers map[string]proc.Result
+	fails   map[string]error
 	stdins  map[string]string
 }
 
@@ -171,9 +176,12 @@ func (f *fake) Run(_ context.Context, c proc.Cmd) (proc.Result, error) {
 		}
 		f.stdins[key] = buf.String()
 	}
+	if err, ok := f.fails[key]; ok {
+		return proc.Result{}, err
+	}
 	res, ok := f.answers[key]
 	if !ok {
-		return proc.Result{}, errors.New("unplanned call: " + key)
+		return proc.Result{}, fmt.Errorf("unplanned call %s: %w", key, exec.ErrNotFound)
 	}
 	return res, nil
 }
@@ -294,6 +302,44 @@ func TestContainerWithNoBusIsAHardFailure(t *testing.T) {
 	r.env.Hostnames = nil
 	if code := r.run("staged"); code != ExitCannotRun || !strings.Contains(r.text(), "has not run") {
 		t.Fatalf("exit %d: %s", code, r.text())
+	}
+}
+
+// R79 review: a bus client that is installed but cannot be started (a permission error, a
+// timeout) is not an absent one. Treating it as absent judged a v2 session against its host
+// names alone, and passed. In a container and outside one, it is exit 2.
+func TestABusClientThatCannotStartIsAHardFailure(t *testing.T) {
+	startErr := errors.New("proc teamchat: fork/exec: permission denied")
+	for _, container := range []bool{true, false} {
+		for _, client := range []string{tcKey, "pingbus status"} {
+			r := newRig(container, map[string]proc.Result{stagedKey: {Stdout: "+++ b/x\n"}, "pingbus status": {Code: noTeam}, tcKey: {Code: teamchatNoRuntimeExit}}, files{}, "")
+			r.fake.fails = map[string]error{client: startErr}
+			if code := r.run("staged"); code != ExitCannotRun || !strings.Contains(r.text(), client+" could not be started") {
+				t.Errorf("container %t, %s: exit %d: %s", container, client, code, r.text())
+			}
+		}
+	}
+}
+
+// R79 review: in a container where no bus client is installed, the host names (always present)
+// made the "learned no names" check unreachable. With no client to ask, the guard must know a bus
+// name already (learned by an earlier run) or a pinned one, or it has not run.
+func TestAContainerWithNoBusClientNeedsABusNameOrAPin(t *testing.T) {
+	r := newRig(true, map[string]proc.Result{stagedKey: {Stdout: "+++ b/x\n"}}, files{}, "")
+	if code := r.run("staged"); code != ExitCannotRun || !strings.Contains(r.text(), PinnedName) {
+		t.Fatalf("no client, nothing known: exit %d: %s", code, r.text())
+	}
+	pinned := newRig(true, map[string]proc.Result{stagedKey: {Stdout: "+++ b/x\n"}}, files{pinnedFile: "quillworks\n"}, "")
+	if code := pinned.run("staged"); code != ExitOK {
+		t.Fatalf("a pinned name: exit %d: %s", code, pinned.text())
+	}
+	stored := newRig(true, map[string]proc.Result{stagedKey: {Stdout: "+++ b/x\n"}}, files{listFile: SourceTeam + "\tquillworks\n"}, "")
+	if code := stored.run("staged"); code != ExitOK {
+		t.Fatalf("a stored bus name: exit %d: %s", code, stored.text())
+	}
+	outside := newRig(false, map[string]proc.Result{stagedKey: {Stdout: "+++ b/x\n"}}, files{}, "")
+	if code := outside.run("staged"); code != ExitOK {
+		t.Fatalf("outside a container: exit %d: %s", code, outside.text())
 	}
 }
 

@@ -43,6 +43,7 @@ func run(args []string) int {
 		Context:      os.Getenv("PRIVATE_NAMES_CONTEXT") != "",
 		ReadFile:     os.ReadFile,
 		WriteFile:    writePrivate,
+		ReplaceFile:  replacePrivate,
 		CreateFile:   createPrivate,
 		EvalSymlinks: filepath.EvalSymlinks,
 	}
@@ -71,6 +72,27 @@ func hostnames() []string {
 func writePrivate(path string, data []byte) error {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+// replacePrivate replaces a file whole: an owner-only sibling (CreateTemp's mode is 0600) renamed
+// over it, so a reader sees the old list or the new one, never a part, and a looser mode the old
+// file had goes with it.
+func replacePrivate(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
+	if err != nil {
+		return fmt.Errorf("create a sibling of %s: %w", path, err)
+	}
+	tmp := f.Name()
+	if _, err := f.Write(data); err != nil {
+		return errors.Join(fmt.Errorf("write %s: %w", tmp, err), f.Close(), os.Remove(tmp))
+	}
+	if err := f.Close(); err != nil {
+		return errors.Join(fmt.Errorf("close %s: %w", tmp, err), os.Remove(tmp))
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return errors.Join(fmt.Errorf("replace %s: %w", path, err), os.Remove(tmp))
 	}
 	return nil
 }

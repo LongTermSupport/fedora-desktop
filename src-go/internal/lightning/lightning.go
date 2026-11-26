@@ -12,14 +12,15 @@
 //
 // Expectations (each has a test whose name starts with its number):
 //
-//	L1 The arguments are exactly check or apply; anything else is a usage error (64).
+//	L1 The arguments are exactly check, apply or watch; anything else is a usage error (64).
 //	L2 Run as root, it refuses (78) before reading anything.
 //	L3 Stdin is a JSON array of objects, a repeated key refused, each entry checked as
-//	   helpers/agent_bus/element.py checks it: the keys team, base_url, server_name, ca_file and
-//	   client only; team and base_url required; team in pingbus's team grammar; base_url
-//	   https://<host>[:port], or http:// to an IP literal; server_name, by default
-//	   <team>.agent-bus.internal, a lower-case DNS name ending in .internal; ca_file only for an
-//	   https team, an absolute plain path; client element (the default) or lightning; a team
+//	   helpers/agent_bus/element.py checks it: the keys team, base_url, server_name, ca_file,
+//	   client and lightning_diagnostics only; team and base_url required; team in pingbus's team
+//	   grammar; base_url https://<host>[:port], or http:// to an IP literal; server_name, by
+//	   default <team>.agent-bus.internal, a lower-case DNS name ending in .internal; ca_file only
+//	   for an https team, an absolute plain path; client element (the default) or lightning;
+//	   lightning_diagnostics true or false (the default), true only for a lightning team; a team
 //	   listed once. A refusal (78) names the entry or team and the key, never the value.
 //	L4 The user may hold no pingbus bundles: ~/.config/pingbus there in any form, a dangling
 //	   link included, is a refusal (78), with element.py check_user's one exception, a directory
@@ -49,9 +50,20 @@
 //	L15 HoldsAccount says whether a team's instance holds a person's account: the folder
 //	   Lightning keeps it in, named from the user ID as Lightning names it, is a directory.
 //	   ccy-teams asks it for a team that opens in Lightning (Plan 00254 Task 7.1's gap).
+//	L16 A team with lightning_diagnostics true launches with LIGHTNING_SCROLL_MEMORY_TRACE=1 and
+//	   LIGHTNING_SYNC_TRACE=100, and lightning-matrix --log-file
+//	   <team>/cache/lightning-diagnostic.log (Plan 00268 Task 1.4); turning it on or off rewrites
+//	   the launcher (L8), and either launcher is this command's (L9). Lightning writes the log;
+//	   this command never does.
+//	L17 watch is the diagnostics watchdog (internal/lightning/watch, Plan 00268 Task 1.7) over
+//	   the instances under this user's teams folder: it reads no stdin and writes nothing to
+//	   stdout, names the folder on stderr, looks once every watch.Interval until stopped (exit 0),
+//	   and ends with 1 on a look that fails, for systemd to restart it. It watches only this
+//	   user's processes, and reads only /proc and the diagnostic logs' modification times.
 package lightning
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -62,14 +74,17 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/lightning/watch"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/matrixclients"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 const (
-	usage  = "usage: agent-bus-lightning check|apply (the team list as JSON on stdin)"
+	usage  = "usage: agent-bus-lightning check|apply|watch (check and apply read the team list as JSON on stdin)"
 	prefix = "agent-bus-lightning: "
 
 	clientName = "Lightning" // the list's name for the client
@@ -87,6 +102,20 @@ const (
 
 // instanceDirs are the folders of each team's instance, in the order the launcher names them.
 var instanceDirs = []string{"data", "config", "cache"}
+
+// diagnosticLogName is the file, in an instance's cache folder, Lightning mirrors its log to
+// with diagnostics on (L16). Lightning caps it, rolling once to <name>.1 at 32 MiB (Plan 00268
+// RESEARCH.md 7.1 names the releases that do).
+const diagnosticLogName = "lightning-diagnostic.log"
+
+// diagnosticEnv is what a team with diagnostics on launches with (L16; Plan 00268 RESEARCH.md
+// 7.1): a memory line every 5 s, and a line for each event that takes 100 ms or more from the
+// homeserver to the screen (the lowest threshold Lightning takes; the Flathub build compiles the
+// line for every event out). None of them logs message content, keys or tokens.
+var diagnosticEnv = []string{
+	"LIGHTNING_SCROLL_MEMORY_TRACE=1",
+	"LIGHTNING_SYNC_TRACE=100",
+}
 
 // launcherName is a launcher this command could have written; the group is its team.
 var launcherName = regexp.MustCompile(`^agent-bus-(.+)-lightning\.desktop$`)
@@ -108,6 +137,17 @@ type App struct {
 	// Clock times the wait for the team list on Stdin, given up on once nothing has arrived for
 	// stdinread.PipedGiveUp (issue 260); the real clock when nil.
 	Clock stdinread.Clock
+	// Watch is what the watch verb runs on (L17); without it the verb fails.
+	Watch *WatchEnv
+}
+
+// WatchEnv is the watch verb's world.
+type WatchEnv struct {
+	Ctx   context.Context // stopping it ends the watch, with 0
+	Proc  fs.FS           // /proc
+	Run   execx.Runner    // the backtrace tools
+	Now   func() time.Time
+	After func(time.Duration) <-chan time.Time
 }
 
 // refusal is a refused run (78), element.py's ElementError.
@@ -121,7 +161,7 @@ func isRefusal(err error) bool { return errors.As(err, new(refusal)) }
 
 // Run is the command; it returns the exit code.
 func (a App) Run() term.ExitCode {
-	if len(a.Args) != 1 || (a.Args[0] != "check" && a.Args[0] != "apply") {
+	if len(a.Args) != 1 || !slices.Contains([]string{"check", "apply", "watch"}, a.Args[0]) {
 		return a.fail(term.ExitUsage, usage)
 	}
 	if a.Euid == 0 {
@@ -134,6 +174,9 @@ func (a App) Run() term.ExitCode {
 	list, err := matrixclients.Load()
 	if err != nil {
 		return a.fail(term.ExitFailure, err.Error())
+	}
+	if a.Args[0] == "watch" {
+		return a.watch(list, home)
 	}
 	data, err := stdinread.Read(a.Stdin, stdinread.Options{
 		Prog: "agent-bus-lightning " + a.Args[0], Err: a.Stderr, GiveUpAfter: stdinread.PipedGiveUp, Clock: a.Clock,
@@ -166,6 +209,40 @@ func (a App) Run() term.ExitCode {
 		return a.report(applyErr)
 	}
 	return term.ExitOK
+}
+
+// watch looks at the instances under home's teams folder every watch.Interval until a.Watch.Ctx
+// stops (L17).
+func (a App) watch(list matrixclients.List, home string) term.ExitCode {
+	env := a.Watch
+	if env == nil {
+		return a.fail(term.ExitFailure, "watch: no watch environment was given")
+	}
+	client, err := lightningClient(list)
+	if err != nil {
+		return a.fail(term.ExitFailure, err.Error())
+	}
+	instances := filepath.Join(home, client.FlatpakDir(), teamsDir)
+	if err := writeAll(a.Stderr, prefix+"watching the instances in "+instances+"\n"); err != nil {
+		return term.ExitFailure
+	}
+	w := &watch.Watcher{
+		Proc: env.Proc, Run: env.Run, Err: a.Stderr, UID: a.Euid,
+		Instances: instances, LogName: diagnosticLogName,
+	}
+	for {
+		if err := w.Tick(env.Ctx, env.Now()); err != nil {
+			if env.Ctx.Err() != nil {
+				return term.ExitOK
+			}
+			return a.fail(term.ExitFailure, "watch: "+err.Error())
+		}
+		select {
+		case <-env.Ctx.Done():
+			return term.ExitOK
+		case <-env.After(watch.Interval):
+		}
+	}
 }
 
 // report is a refusal's 78, or any other error's 1.
@@ -293,24 +370,38 @@ func HoldsAccount(home, team, userID string) (bool, error) {
 	return true, nil
 }
 
-// execLine is the launcher's Exec line for a team, every path absolute (flatpak expands none).
-func (t tree) execLine(team string) string {
+// execLine is the launcher's Exec line for a team, every path absolute (flatpak expands none);
+// with diagnostics, the traces and the log file of L16.
+func (t tree) execLine(team string, diagnostics bool) string {
 	dir := t.team(team)
-	words := make([]string, 0, 4+len(instanceDirs)+3)
+	words := make([]string, 0, 4+len(instanceDirs)+2+len(diagnosticEnv)+3)
 	words = append(words, "Exec=flatpak", "run", "--command=env", t.appID)
 	for _, name := range instanceDirs {
 		words = append(words, "XDG_"+strings.ToUpper(name)+"_HOME="+filepath.Join(dir, name))
 	}
-	words = append(words, "SSL_CERT_FILE="+runtimeCA, "SSL_CERT_DIR="+filepath.Join(t.root, caDir), command)
+	words = append(words, "SSL_CERT_FILE="+runtimeCA, "SSL_CERT_DIR="+filepath.Join(t.root, caDir))
+	if diagnostics {
+		words = append(words, diagnosticEnv...)
+	}
+	words = append(words, command)
+	if diagnostics {
+		words = append(words, "--log-file", DiagnosticLog(dir))
+	}
 	return strings.Join(words, " ") + "\n"
 }
 
-func (t tree) launcherText(team string) string {
+// DiagnosticLog is the log file a team's instance writes with diagnostics on (L16), in the
+// instance's own cache folder; the watchdog (internal/lightning/watch) watches it.
+func DiagnosticLog(teamDir string) string {
+	return filepath.Join(teamDir, "cache", diagnosticLogName)
+}
+
+func (t tree) launcherText(e entry) string {
 	return "[Desktop Entry]\n" +
 		"Type=Application\n" +
-		"Name=" + team + " team (Lightning)\n" +
-		"Comment=Watch and command the " + team + " agent team\n" +
-		t.execLine(team) +
+		"Name=" + e.team + " team (Lightning)\n" +
+		"Comment=Watch and command the " + e.team + " agent team\n" +
+		t.execLine(e.team, e.diagnostics) +
 		"Icon=" + t.appID + "\n" +
 		"Terminal=false\n" +
 		"Categories=Network;InstantMessaging;\n"
@@ -362,7 +453,7 @@ func (t tree) write(w *writer, e entry) error {
 		func() error { return w.dir(filepath.Dir(settings)) },
 		func() error { return w.fileIfAbsent(settings, "[homeserver]\nurl="+e.baseURL+"\n", settingsMode) },
 		func() error { return w.parent(filepath.Dir(launcher)) },
-		func() error { return w.file(launcher, t.launcherText(e.team), launcherMode) },
+		func() error { return w.file(launcher, t.launcherText(e), launcherMode) },
 	)
 	for _, step := range steps {
 		if err := step(); err != nil {
@@ -392,7 +483,9 @@ func (t tree) prune(w *writer, mine []string) error {
 		if err != nil {
 			return fmt.Errorf("reading %s: %w", path, err)
 		}
-		if !strings.Contains(string(data), t.execLine(m[1])) {
+		ours := strings.Contains(string(data), t.execLine(m[1], false)) ||
+			strings.Contains(string(data), t.execLine(m[1], true))
+		if !ours {
 			continue
 		}
 		if err := os.Remove(path); err != nil {

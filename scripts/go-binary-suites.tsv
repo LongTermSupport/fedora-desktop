@@ -29,6 +29,7 @@ stt	qa-go
 open	qa-go
 cc-project-dir	qa-go
 cc-claude	qa-go
+chat-client-info	qa-go
 ccy-start-claude	scripts/test-ccy-image-build-lock.bash
 git-fetch-age	qa-go
 histclean	qa-go

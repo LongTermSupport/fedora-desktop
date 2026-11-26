@@ -77,6 +77,25 @@ func TestThePlaysPathVariablesArePaths(t *testing.T) {
 	}
 }
 
+// play-git-hooks-security.yml lists the teams a bus host serves from the teamchat-ctl state root
+// (Plan 00265 R79), so its copy of that path is the one `paths` names.
+func TestTheHooksPlaysCtlStateRootIsPaths(t *testing.T) {
+	const hooksPlay = "playbooks/imports/play-git-hooks-security.yml"
+	var plays []play
+	if err := yaml.Unmarshal(readRepo(t, hooksPlay), &plays); err != nil {
+		t.Fatalf("%s: %v", hooksPlay, err)
+	}
+	for _, p := range plays {
+		if got, ok := p.Vars["pn_ctl_state_root"]; ok {
+			if got != paths.CtlStateRoot {
+				t.Fatalf("%s: pn_ctl_state_root = %v, want %q", hooksPlay, got, paths.CtlStateRoot)
+			}
+			return
+		}
+	}
+	t.Fatalf("%s has no pn_ctl_state_root variable", hooksPlay)
+}
+
 // What the play builds from those variables is what `paths` builds from the same parts: the
 // admin program's digest-named home, the kit's binary and its current link, the server binary
 // and pin, the owner group file, and the two timers it runs.
