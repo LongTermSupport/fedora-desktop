@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.101 — container 2.84.101
+
+- The image's teamchat no longer loses what a refused store write found (issue #443). A proof
+  round whose write fails keeps the deliveries it found in the transcript, and the next round
+  proves them; before, they went missing an hour later. A `recv` ack whose write fails keeps
+  its messages' content, so the next ack delivers them. A Stop whose write fails is recorded
+  at the next Stop while the session is idle.
+
 ## 3.124.100 — container 2.84.100
 
 - `ccy-sessions verify-restore` now also reports the LXC containers that

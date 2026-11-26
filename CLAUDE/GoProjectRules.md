@@ -104,6 +104,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_root_create_follows_link` | a create through an `os.Root` without O_EXCL, which follows a link inside the root at the last name, O_NOFOLLOW or not, so a dangling link there gets its target created                                                       | the seat-record lock, opened `O_RDWR\|O_CREATE` through the checkout's `os.Root` (Plan 00265 R36, the batch 22b review)                                                                                                 |
 | `project_store_refusal_lost`       | a teamchat seat-store add's refusal (its list full) that reaches no return, so the write goes ahead without the entry and what it stood for is lost                                                                            | teamchat `engine`: the proof logged a full read-receipt queue and went on, so the human never saw the message read (Plan 00267 C2)                                                                                      |
 | `project_teamchat_root_read` | a teamchat machine record (paths' status-root names) handed to a call in ccy-teams with no `TeamchatRoot` in front, so a test world reads the machine's own teams | `teams` wiring: the session-name role lookup and four more read the status record through `system.StatusRecord`, past `teamtest`'s root (Plan 00265 batch 26 review) |
+| `project_memory_ahead_of_store` | teamchat engine memory written inside a store write's change function, which runs before the write, so a refused write leaves memory ahead of the disk | teamchat `engine`: recv's settle forgot each delivered item's content inside its write, so a refused ack left the items pending with nothing to render (issue #443's sweep) |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
 `go vet -vettool=<driver> help ...` does not reach it) says what it does and
@@ -3321,6 +3322,21 @@ bash they replaced and in the Go during review; each instance is in the audit re
   `teamchat-admin units print` writes (package `unitfiles`). Not caught: a unit text inlined in a
   YAML `content:` or a script.
 
+- **Engine memory moved in an earlier step than the store write that records its result**
+  (issue #443: a proof round's scan moved each transcript's mark past the nonces it found, and
+  the round's settle was written after; a refused write lost the finds, as the next round read
+  on from the moved mark). Which memory a later write "records" is a fact about the design (a
+  mark records how far the store's entries were looked for), not a shape in the syntax tree: a
+  mark, a count or a cache moved before a write is also often right. The in-write form is
+  `project_memory_ahead_of_store`. What holds this one: the proof keeps the nonces a round found
+  until a write settles them (`proofState.found`, `TestAFailedProofWriteIsProvenByTheNextRound`).
+  The sweep read every engine write whose refusal is logged and not returned (the proof,
+  `setIdle`, the delivery loop's `dropFailed`, `await`, `delivered`, `unawait`, the sender's
+  `nextSend`, `dropSend`, `refuseWaiting`, `makeTimeouts`): one more instance, `setIdle`, whose
+  `idle` flag made a refused Stop write never retried until a prompt and another Stop; it now
+  writes at every idle report (`TestAFailedStopWriteIsRecordedAtTheNextStop`). The rest change
+  memory only after their write.
+
 Classes the bundled linters already hold, each seen firing on a minimal case in the audit: an
 error or status thrown away (the bash's `|| true`, unchecked process substitutions and
 `2>/dev/null`: nord B3, B11, reclaim B3, B6, open B5, B10, B11) is `errcheck`'s and `nilerr`'s in
@@ -4351,3 +4367,45 @@ or `system.StatusUnder(h.TeamchatRoot)` for a `Status` func.
   `system/system.go` (`StatusRecord`).
 - Green: `system.StatusUnder(root)`, wired with `h.TeamchatRoot` at all five ccy-teams callers;
   `StatusRecord` is `StatusUnder("")`: 0 findings.
+
+### project_memory_ahead_of_store
+
+**What it is about.** The teamchat engine's store writes go through `change`/`changeLocked`: the
+change function edits a copy of the store, and the copy is written and kept only when the write
+succeeds, so the store in memory never runs ahead of the disk. Memory the change function
+changes as it goes (a held team's content, a count, an engine field) is changed before the
+write, and stays changed when the write is refused.
+
+**Why it exists.** Issue #443, the proof's lost finds: a proof round moved each transcript's mark
+past the nonces it found, then wrote the round's settles; a refused write lost the finds, since
+the next round read on from the moved mark. That form is not this rule's (see below). The sweep
+of the engine's other writes found the in-write form: recv's `settleStore` deleted each
+delivered item's content from `h.content` inside the ack's write, so a refused ack left the
+items pending and handed with no content to render.
+
+**What it flags**, in the non-test files of `internal/teamchat/member/engine`: inside the
+function literal passed to `(*Engine).change` or `(*Engine).changeLocked`, and in every function
+of the package it calls (followed through any depth), an assignment, `++` or `--` whose target
+is reached through a `*Engine` or a `*held`, and a `delete` or `clear` of a map reached through
+one. A write in a called function is reported at the call in the change function.
+
+**Not flagged**: the store copy and the closure's own variables (read once the write returns);
+`Engine.logf` (the link log's lost-line count) and `Engine.hit` (a failpoint); a write through a
+local alias of another type (a `*pathMark` read out of the proof's map); a mutating call of a
+library function (`maps.Copy` into memory); memory moved in an earlier step, before the write is
+called, which is the proof's own form.
+
+**How to fix a violation.** Compute into closure variables in the change function, and change
+memory after the write returned nil (`settleTeam` forgets the content of `left` once its write
+holds).
+
+- Red, fixture: `testdata/src/memahead/internal/teamchat/member/engine` (a helper the change
+  function calls deleting content, a held field raised, an engine field set, a map cleared, a
+  team's field through the engine's map, a write two calls deep: 6 findings; closure variables,
+  the store copy, memory changed after the write, the log and the failpoint: clean; the test
+  file and `member/other`: not judged).
+- Red, real tree (the driver as `go vet -vettool` over `./internal/teamchat/...`, untagged and
+  with `busfailpoints`): one finding, `engine/recv.go` (`settleStore`, called by `settleTeam`).
+- Green: `settleStore` takes no `*held`, and `settleTeam` deletes the content of the items that
+  left once the write returned (`TestAFailedAckKeepsTheContent`): 0 findings.
+

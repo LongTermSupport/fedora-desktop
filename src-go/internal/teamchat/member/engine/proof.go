@@ -42,6 +42,9 @@ type proofState struct {
 	// kick wakes the proof loop for a round; rounds counts the rounds made.
 	kick   chan struct{}
 	rounds atomic.Int64
+	// found are the nonces a round found whose settle was not written (issue #443): the marks
+	// are past them, so the next round settles them from here.
+	found map[string]bool
 }
 
 // pathMark is one transcript as the proof last read it: the mark the next scan starts from,
@@ -208,6 +211,7 @@ func (e *Engine) proofRound() {
 	sk := e.sought()
 	if len(sk.nonces) == 0 {
 		clear(e.proof.marks)
+		clear(e.proof.found)
 		e.armProof()
 		return
 	}
@@ -222,6 +226,9 @@ func (e *Engine) proofRound() {
 	now := e.cfg.Clock.Boot()
 	e.startReread(now)
 	found, caught := map[string]bool{}, true
+	for _, n := range sk.nonces {
+		found[n] = e.proof.found[n]
+	}
 	for _, path := range slices.Sorted(maps.Keys(sk.from)) {
 		m := e.proof.marks[path]
 		if m == nil {
@@ -244,7 +251,20 @@ func (e *Engine) proofRound() {
 			e.settleProof(h, found, caught, now)
 		}
 	}
+	e.proof.found = e.unsettled(found)
 	e.armProof()
+}
+
+// unsettled are the nonces of found still awaiting or missed in a provable store: those whose
+// settle was not written.
+func (e *Engine) unsettled(found map[string]bool) map[string]bool {
+	out := map[string]bool{}
+	for _, n := range e.sought().nonces {
+		if found[n] {
+			out[n] = true
+		}
+	}
+	return out
 }
 
 // scanPath reads path on from m for nonces, up to scanRound bytes, adding what it finds; it is
@@ -407,7 +427,7 @@ func (e *Engine) settleProof(h *held, found map[string]bool, caught bool, now ti
 		return true, nil
 	})
 	if err != nil {
-		e.logf("team %s: the proof's write failed, the next round tries again: %v", h.id, err)
+		e.logf("team %s: the proof's write failed, the next round settles what it found: %v", h.id, err)
 		return
 	}
 	e.provedNote(h, st, left, twice)
@@ -537,14 +557,14 @@ func (e *Engine) findLate(s *state.Store, m state.Missed, wall int64) ([]state.P
 	return left, twice
 }
 
-// setIdle is SetSession's hunk: the session's idleness, and at its start (the first Stop, or a
+// setIdle is SetSession's hunk: the session's idleness, and while it is idle (a Stop, or a
 // SessionStart with no prompt since) every awaiting entry without a stop gets one, one write per
-// store, which starts its quiet clock (B 2.7.4).
+// store, which starts its quiet clock (B 2.7.4). An entry written idle has its stop already, so
+// only the first idle report after a prompt finds any, or one after a write the store refused.
 func (e *Engine) setIdle(idle bool) {
-	was := e.sess.idle
 	e.sess.idle = idle
 	e.pokeProof()
-	if !idle || was {
+	if !idle {
 		return
 	}
 	at := e.cfg.Clock.Boot().Milliseconds()

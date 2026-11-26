@@ -658,6 +658,23 @@ func (w *world) local(f func()) {
 	check(w.t, w.e.do(w.t.Context(), f))
 }
 
+// failWrites closes team id's store writer, so each store write after it fails until
+// mendWrites opens it again.
+func (w *world) failWrites(id paths.TeamID) {
+	w.t.Helper()
+	w.local(func() { check(w.t, w.e.teams[id].writer.Close()) })
+}
+
+func (w *world) mendWrites(id paths.TeamID) {
+	w.t.Helper()
+	w.local(func() {
+		h := w.e.teams[id]
+		var err error
+		h.writer, err = state.NewStoreWriter(w.root, h.lock)
+		check(w.t, err)
+	})
+}
+
 // awaitDue waits until a timer due d from now is armed: the one the test means, whatever else
 // (status.json's timer, SL1) is armed or re-armed meanwhile.
 func (w *world) awaitDue(d time.Duration) {

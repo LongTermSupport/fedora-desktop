@@ -501,3 +501,27 @@ func TestAnAckedFloorLeavesItsMillisecondsOtherEvents(t *testing.T) {
 		t.Fatalf("the store keeps %+v, not %+v", again, floor)
 	}
 }
+
+// An ack whose store write fails keeps its items' content: the items stay pending and handed,
+// and a later ack delivers them as they were.
+func TestAFailedAckKeepsTheContent(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	w.held(ops)
+	w.persist(ops, items(ops, 1)...)
+	d := w.done(wire.OpRecv, wire.TeamsArgs{})
+	w.failWrites(ops)
+	if err := w.e.Ack(t.Context(), d.Ack); err == nil {
+		t.Fatal("an ack with no store write succeeded")
+	}
+	w.local(func() {
+		if _, ok := w.e.teams[ops].content[evID(1)]; !ok {
+			t.Error("the failed ack forgot the item's content")
+		}
+	})
+	w.mendWrites(ops)
+	check(t, w.e.Ack(t.Context(), d.Ack))
+	if s := w.store(ops); len(s.Pending) != 0 || len(s.Ledger) != 1 {
+		t.Fatalf("the later ack = pending %+v ledger %+v", s.Pending, s.Ledger)
+	}
+}

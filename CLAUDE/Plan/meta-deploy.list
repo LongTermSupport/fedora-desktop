@@ -162,6 +162,10 @@
 # recorded container not running. With the unit disabled it only says so. The same single
 # image rebuild covers it (built from internal/systemd; nothing in it changes). It needs
 # play-teamchat below for its sudoers rule.
+# Issue #443 (ccy 3.124.101, container 2.84.101): the same single image rebuild gives the image's
+# teamchat a proof that keeps what a round found when its store write fails, so the next round
+# proves it (it no longer goes missing); a failed recv ack keeps its messages' content; a failed
+# Stop write is recorded at the next Stop. Sessions started after the rebuild get it.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC
@@ -211,6 +215,9 @@ playbooks/imports/play-claude-yolo.yml
 # `sudo -n /usr/local/sbin/teamchat-admin lxc check-running` prints one UP/DOWN/UNRECORDED line
 # per container (NO-RECORD until the first shutdown after C.2), and
 # `ccy-sessions verify-restore` ends with the lxc: lines.
+# Issue #443: the host kit and the LXC members' copies carry the same teamchat as the image
+# above (a refused proof, ack or Stop write loses nothing). Member sessions started after the
+# run get it.
 playbooks/imports/play-teamchat.yml
 
 # Plan 00265 R79: finishes the private-name guard's setup. It ASKS at the terminal for each
