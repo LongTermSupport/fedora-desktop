@@ -14,7 +14,8 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-// Command is the three verbs over the store (Plan 00266 Tasks A.2 and A.3):
+// Command is the verbs over the store (Plan 00266 Tasks A.2 and A.3; the Dockerfile's, D1-D3, are
+// in dockerfile.go):
 //
 //   - V1. `ccy-teams internal project-mounts`, the launcher's, run in the checkout before a
 //     container exists: no .claude/ccy/mounts prints nothing; CCY_NO_PROJECT_MOUNTS=1 ignores
@@ -32,9 +33,10 @@ import (
 //     line of every file the digest covers, says why, and asks [y/N]: only a yes records it and
 //     is exit 0; a no, or no terminal, is exit 1 and records nothing, since the container could
 //     have written what a person's Enter would otherwise approve. No compose file is exit 0.
-//   - V3. `ccy-teams approve mounts|compose|last-launch [CHECKOUT]` (the checkout defaults to the
-//     working directory), a person's: shown what it approves (each mount resolved, every line of
-//     every file the compose digest covers, or each saved launch choice), a [y/N] question at a terminal, and only a yes records the digest. No terminal is
+//   - V3. `ccy-teams approve mounts|compose|last-launch|dockerfile [CHECKOUT]` (the checkout
+//     defaults to the working directory), a person's: shown what it approves (each mount
+//     resolved, every line of every file the compose digest covers, each saved launch choice, or
+//     every line of the custom Dockerfile, D3 in dockerfile.go), a [y/N] question at a terminal, and only a yes records the digest. No terminal is
 //     exit 1, so neither a session nor a pipe can approve; a mounts file that breaks a rule cannot
 //     be approved, nor a saved launch file the launcher would not read.
 //
@@ -51,7 +53,7 @@ type Command struct {
 
 const (
 	noMountsEnv  = "CCY_NO_PROJECT_MOUNTS"
-	usageApprove = "usage: ccy-teams approve mounts|compose|last-launch [CHECKOUT]"
+	usageApprove = "usage: ccy-teams approve mounts|compose|last-launch|dockerfile [CHECKOUT]"
 	usageCompose = "usage: ccy-teams internal checkout-pin compose true|false"
 )
 
@@ -220,7 +222,7 @@ func (c Command) Compose(ctx context.Context, args []string) term.ExitCode {
 
 // Approve is V3.
 func (c Command) Approve(ctx context.Context, args []string) term.ExitCode {
-	if len(args) < 1 || len(args) > 2 || !slices.Contains([]Kind{KindMounts, KindCompose, KindLastLaunch}, Kind(args[0])) {
+	if len(args) < 1 || len(args) > 2 || !slices.Contains([]Kind{KindMounts, KindCompose, KindLastLaunch, KindDockerfile}, Kind(args[0])) {
 		return c.usage(usageApprove)
 	}
 	kind, given := Kind(args[0]), ""
@@ -262,6 +264,9 @@ func (c Command) Approve(ctx context.Context, args []string) term.ExitCode {
 func (c Command) shown(dir string, kind Kind) (string, bool) {
 	if kind == KindLastLaunch {
 		return c.shownLastLaunch(dir)
+	}
+	if kind == KindDockerfile {
+		return c.shownDockerfile(dir)
 	}
 	if kind == KindCompose {
 		files, digest, present, err := ComposeRead(dir)

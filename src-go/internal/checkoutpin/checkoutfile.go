@@ -112,16 +112,25 @@ func CopyOut(checkout, rel, dir string) (copied string, present bool, err error)
 	if err != nil || !present {
 		return "", false, err
 	}
-	into, err := os.OpenRoot(dir)
+	copied, err = writeCopy(dir, path.Base(rel), content)
 	if err != nil {
-		return "", false, err
-	}
-	defer closeRoot(into, &err)
-	name := path.Base(rel)
-	if err := writeNewMode(into, name, content, 0o600); err != nil {
 		return "", false, fmt.Errorf("could not copy %s/%s into %s: %w", checkout, rel, dir, err)
 	}
-	return into.Name() + "/" + name, true, nil
+	return copied, true, nil
+}
+
+// writeCopy writes content into dir as a new private (0600) file name, created exclusively
+// through an os.Root of dir, and is its path.
+func writeCopy(dir, name string, content []byte) (copied string, err error) {
+	into, err := os.OpenRoot(dir)
+	if err != nil {
+		return "", err
+	}
+	defer closeRoot(into, &err)
+	if err := writeNewMode(into, name, content, 0o600); err != nil {
+		return "", err
+	}
+	return into.Name() + "/" + name, nil
 }
 
 // writeNewMode creates name exclusively with perm and writes text into it.

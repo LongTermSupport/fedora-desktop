@@ -4450,6 +4450,15 @@ named them, so the red is the fixture (`ContainerCompose` in `testdata/checkoutp
 two `want` lines) and `checkoutpin`'s `TestComposeDigest` (both files changed and the digest did
 not). Green: both lists hold the four names.
 
+**Extended (Plan 00266 review finding 7, the custom Dockerfile).** `.claude/ccy/Dockerfile`
+chooses the session image, so it is a name of the class too: `checkoutpin` pins it
+(`KindDockerfile`, `ccy-teams internal checkout-pin dockerfile`). Red on the tree: one site,
+`internal/ccylaunch/inrepo.go:64`, the prelude's presence list spelling it; the fixture's
+`customDockerfile` `want` line failed until the name joined the list. Green: the list uses
+`checkoutpin.Dockerfile`. A use of another package's constant (`checkoutpin.Mounts`) is now
+judged as a use of a local one always was, where the constant is written, not at each use: the
+rule named the owner's constant as its own fix and then flagged it (fixture `present`).
+
 **Not caught.** A name built at run time, a path joined from pieces each only part of a name
 (`".claude", "ccy", "mounts"`), a file found by listing a directory.
 

@@ -3,6 +3,7 @@ package rules
 import (
 	"go/ast"
 	"go/constant"
+	"go/types"
 	"slices"
 	"strings"
 
@@ -15,10 +16,10 @@ const checkoutPinPkg = "internal/checkoutpin"
 
 // checkoutPinNames are the checkout files the host launcher applies, which a container session
 // can write: the project mounts (binds of the session's next launch), the saved launch choices
-// (the SSH keys and network a launch nobody attends takes) and the compose files and their
-// overrides (`up -d`, run on the host).
+// (the SSH keys and network a launch nobody attends takes), the custom Dockerfile (the session
+// image) and the compose files and their overrides (`up -d`, run on the host).
 var checkoutPinNames = []string{
-	".claude/ccy/mounts", ".claude/ccy/.last-launch.conf", ".last-launch.conf",
+	".claude/ccy/mounts", ".claude/ccy/.last-launch.conf", ".last-launch.conf", ".claude/ccy/Dockerfile",
 	"docker-compose.yml", "docker-compose.yaml", "podman-compose.yml", "podman-compose.yaml", "compose.yml", "compose.yaml",
 	"docker-compose.override.yml", "docker-compose.override.yaml", "podman-compose.override.yml",
 	"podman-compose.override.yaml", "compose.override.yml", "compose.override.yaml",
@@ -38,6 +39,8 @@ internal/checkoutpin:
   container;
 - .claude/ccy/.last-launch.conf (or its own name, .last-launch.conf), the saved launch choices,
   whose token, SSH keys and network a restore or a headless launch takes unasked;
+- .claude/ccy/Dockerfile, the custom Dockerfile, which the launcher builds into the session's
+  image (Plan 00266 review finding 7);
 - the compose files (docker-compose, podman-compose, container-compose and compose, .yml and
   .yaml) and their .override files, which the launcher runs ` + "`up -d`" + ` on, as the host user.
 
@@ -49,7 +52,8 @@ person approved, whose hash it keeps outside the checkout. The defect the rule e
 restore's own list of compose files.
 
 A constant expression is judged whole, so a name spelt in pieces with + is the name; it is
-reported where it is written, not at each use of a constant that holds it. Test files are not
+reported where it is written, not at each use of a constant that holds it (a local one, or
+another package's, such as checkoutpin.Mounts). Test files are not
 judged: a test plants these files to prove the refusal. The nested qa module is not judged: its
 gates scan these files and never apply them.
 
@@ -77,7 +81,7 @@ func runCheckoutConfigPin(pass *analysis.Pass) {
 			if !ok {
 				return true
 			}
-			if _, ident := e.(*ast.Ident); ident {
+			if _, ident := e.(*ast.Ident); ident || isConstSelector(pass, e) {
 				return true
 			}
 			tv, ok := pass.TypesInfo.Types[e]
@@ -90,4 +94,15 @@ func runCheckoutConfigPin(pass *analysis.Pass) {
 			return false
 		})
 	}
+}
+
+// isConstSelector is whether e names a constant of another package (checkoutpin.Mounts): a use
+// of the name that constant holds, reported where the constant is written.
+func isConstSelector(pass *analysis.Pass, e ast.Expr) bool {
+	sel, ok := e.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	_, isConst := pass.TypesInfo.Uses[sel.Sel].(*types.Const)
+	return isConst
 }

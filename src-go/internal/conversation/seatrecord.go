@@ -339,8 +339,8 @@ func recordedSeatOf(checkout, team string) (string, error) {
 	return "", fmt.Errorf("team %s has %d seats with a conversation recorded in this checkout; resume the one you mean with ccy --teams %s --resume <id> --rebind, which asks which seat", team, len(seats), team)
 }
 
-// teamRecordEntries is the entries of team's seat-record directory in checkout, none when it is
-// not there, read through an os.Root of the checkout so a link a container planted on the way
+// teamRecordEntries is the entries of team's seat-record directory in checkout, by name, none
+// when it is not there, read through an os.Root of the checkout so a link a container planted on the way
 // cannot list a directory outside it.
 func teamRecordEntries(checkout, team string) (entries []fs.DirEntry, err error) {
 	root, err := os.OpenRoot(checkout)
@@ -359,7 +359,9 @@ func teamRecordEntries(checkout, team string) (entries []fs.DirEntry, err error)
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, dir.Close()) }()
-	return dir.ReadDir(-1)
+	entries, err = dir.ReadDir(-1)
+	slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
+	return entries, err
 }
 
 // NeverUsed is whether the seats of list were never used in checkout: no named seat has a record

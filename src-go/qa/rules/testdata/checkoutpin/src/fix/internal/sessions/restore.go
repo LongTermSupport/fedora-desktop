@@ -33,8 +33,14 @@ func Override(dir string) string {
 var ContainerCompose = []string{"container-compose.yml", // want `"container-compose.yml", a checkout file the host applies, named outside internal/checkoutpin`
 	"container-compose.override.yaml"} // want `"container-compose.override.yaml", a checkout file the host applies, named outside internal/checkoutpin`
 
+// customDockerfile is the custom Dockerfile, which chooses the session image.
+const customDockerfile = ".claude/ccy/Dockerfile" // want `".claude/ccy/Dockerfile", a checkout file the host applies, named outside internal/checkoutpin`
+
 // Mounts reads it.
 func Mounts(dir string) ([]byte, error) { return os.ReadFile(filepath.Join(dir, mountsFile)) }
+
+// present names the owner's constant, a use of the name it holds, not a second spelling of it.
+var present = []string{checkoutpin.Mounts, "sessions"}
 
 // Clean asks the pin package, and names words that are only part of a name.
 func Clean(dir string) bool {

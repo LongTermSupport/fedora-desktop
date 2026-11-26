@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.126 — container 2.84.110
+
+- A custom `.claude/ccy/Dockerfile` is built only as a person approved it (Plan 00266 review
+  finding 7): a container session can write it, and it chooses the session image. The launcher
+  asks `ccy-teams internal checkout-pin dockerfile`, which reads the file through an `os.Root`
+  of the checkout (a link at its name is refused), checks its digest, and writes those bytes
+  into a private directory; that copy is what is hashed and built. At a terminal, content no
+  person approved is shown and asked about, default no; a launch nobody attends (a restore, a
+  restart) stops naming `ccy-teams approve dockerfile <checkout>`. **Every existing custom
+  Dockerfile must be approved** (at the next attended launch, or with that verb) before the
+  checkout's next unattended restore. `--disable-custom-docker` still launches on the base image.
+
 ## 3.124.125 — container 2.84.110
 
 - Saved Quick Launch choices ccy did not write (`.claude/ccy/.last-launch.conf` changed by

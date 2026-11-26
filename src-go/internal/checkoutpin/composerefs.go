@@ -264,7 +264,7 @@ func (u *composeUse) volumes(v any) error {
 		switch it := item.(type) {
 		case string:
 			src := strings.SplitN(it, ":", 2)[0]
-			if strings.HasPrefix(src, ".") || strings.HasPrefix(src, "/") || strings.HasPrefix(src, "~") || strings.Contains(src, "$") {
+			if strings.HasPrefix(src, ".") || strings.HasPrefix(src, "/") || startsAtHome(src) || strings.Contains(src, "$") {
 				u.bind(src)
 			}
 		case map[string]any:

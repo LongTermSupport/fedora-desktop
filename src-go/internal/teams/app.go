@@ -455,6 +455,9 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 			if len(rest) > 1 && rest[1] == string(checkoutpin.KindCompose) {
 				return a.Pin.Compose(ctx, rest[2:])
 			}
+			if len(rest) > 1 && rest[1] == string(checkoutpin.KindDockerfile) {
+				return a.Pin.Dockerfile(ctx, rest[2:])
+			}
 		case "session-name":
 			return sessionname.Command{
 				Server: a.Host.Tmux, Records: a.readRegistry, Roles: a.System.SeatRoles, Stdout: a.Payload, Stderr: a.Stderr,
@@ -467,7 +470,7 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 	}
 	return a.usageError("'internal' takes a command: internal membership-init [--kind=cc] <session> <checkout> <seats>, " +
 		"internal restart-args <session>, internal claim-container-name <project> <suffix> <owner-pid>, " +
-		"internal go-cache <project> [z], internal project-mounts, internal checkout-pin compose true|false, internal session-name <ccy|cc> <project> <seats> <checkout>, " +
+		"internal go-cache <project> [z], internal project-mounts, internal checkout-pin compose true|false, internal checkout-pin dockerfile true|false <dir>, internal session-name <ccy|cc> <project> <seats> <checkout>, " +
 		"internal launch-args <session> <checkout> <seats> <Z or empty> -- <mounts...>, " +
 		"internal seat-check <list> [--resolved], internal seat-take <list> [--no-prompt], " +
 		seatResumeUsage + ", " +

@@ -76,6 +76,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/shellword"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 // Mounts is a project's mounts file, in its checkout.
@@ -109,6 +110,8 @@ func (k Kind) File() string {
 		return Mounts
 	case KindLastLaunch:
 		return LastLaunch
+	case KindDockerfile:
+		return Dockerfile
 	case KindCompose:
 	}
 	return "compose files"
@@ -403,12 +406,12 @@ func (w *composeWalk) resolve(name, ref string) (rel string, outside bool, err e
 	if strings.Contains(p, "$") {
 		return "", false, fmt.Errorf("%s/%s names %s, interpolated from a variable, so ccy cannot tell which path compose reads; write the path out (only ${PWD}, the checkout, is read)", w.checkout, name, ref)
 	}
-	if p == "~" || strings.HasPrefix(p, "~/") {
+	if startsAtHome(p) {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", false, fmt.Errorf("%s/%s names %s, and the home directory is not known: %w", w.checkout, name, ref, err)
 		}
-		p = home + p[1:]
+		p = term.ExpandHome(p, home)
 	}
 	if path.IsAbs(p) {
 		p = path.Clean(p)
@@ -484,3 +487,7 @@ func closeRoot(root *os.Root, err *error) {
 		*err = closeErr
 	}
 }
+
+// startsAtHome is whether p is "~" or begins "~/", the forms term.ExpandHome puts under the home
+// directory.
+func startsAtHome(p string) bool { return term.ExpandHome(p, "/") != p }

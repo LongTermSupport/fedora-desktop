@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.124.125"  # Container 2.84.110: Quick Launch asks before it takes choices ccy did not write; the history is in docs/ccy-changelog.md.
+CCY_VERSION="3.124.126"  # Container 2.84.110: a custom Dockerfile is built only as a person approved it; the history is in docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -2020,23 +2020,27 @@ ccy_image_build_locked "$IMAGE_NAME" ccy_base_image_current "$REQUIRED_CONTAINER
 
 # Check for project-specific Dockerfile extension
 # (PROJECT_NAME already set earlier after git repo check)
-PROJECT_DOCKERFILE=".claude/ccy/Dockerfile"
+# It is built only as a person approved it (Plan 00266 review finding 7): the front reads
+# .claude/ccy/Dockerfile through an os.Root, checks its digest (asking, default no, at a terminal)
+# and writes those bytes into a private directory; that copy is what is hashed and built.
+PROJECT_DOCKERFILE=""
+if [ "$DISABLE_CUSTOM_DOCKER" = false ] && { [ -e .claude/ccy/Dockerfile ] || [ -L .claude/ccy/Dockerfile ]; }; then
+    dockerfile_unattended=false
+    ! ccy_launch_unattended || dockerfile_unattended=true
+    PROJECT_DOCKERFILE=$(ccy-teams internal checkout-pin dockerfile "$dockerfile_unattended" "$(mktemp -d "${TMPDIR:-/tmp}/ccy-dockerfile-XXXXXX")") || {
+        [ "$dockerfile_unattended" = false ] || ccy_unattended_stop dockerfile-unapproved "the custom Dockerfile was refused (see above): approve it with ccy-teams approve dockerfile $PWD"
+        exit 1
+    }
+fi
 PROJECT_IMAGE_NAME="claude-yolo:${PROJECT_NAME}"
 PROJECT_DOCKERFILE_HASH_FILE="$HOME/.cache/claude-yolo-${PROJECT_NAME}-dockerfile-hash"
 PROJECT_BASE_IMAGE_FILE="$HOME/.cache/claude-yolo-${PROJECT_NAME}-base-image"
 
-if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "✅ Custom Dockerfile detected: .claude/ccy/Dockerfile"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "This project uses a custom container image with project-specific tools."
-    echo "The container will automatically rebuild if the Dockerfile changes."
-    echo ""
-    echo "Project image: $PROJECT_IMAGE_NAME"
-    echo "To modify: 'ccy --custom-docker' (AI-guided) or 'ccy --custom' (quick edit)"
-    echo ""
+if [ -n "$PROJECT_DOCKERFILE" ]; then
+    printf '%s\n' "" "════════════════════════════════════════════════════════════════════════════════" "✅ Custom Dockerfile detected: .claude/ccy/Dockerfile" \
+        "════════════════════════════════════════════════════════════════════════════════" "" "This project uses a custom container image with project-specific tools." \
+        "The container will automatically rebuild if the Dockerfile changes." "" "Project image: $PROJECT_IMAGE_NAME" \
+        "To modify: 'ccy --custom-docker' (AI-guided) or 'ccy --custom' (quick edit)" ""
 
     # Calculate hash of project Dockerfile (md5sum, 16 char - consistent with base)
     current_project_hash=$(md5sum "$PROJECT_DOCKERFILE" | cut -d' ' -f1 | cut -c1-16)
@@ -2075,14 +2079,9 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
         should_build=true
         rebuild_reason="Dockerfile changed"
     elif [ "$current_base_image" != "$previous_base_image" ]; then
-        echo ""
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "ℹ️  Base image updated - rebuilding project image"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "Previous base: ${previous_base_image:0:12}"
-        echo "Current base:  ${current_base_image:0:12}"
-        echo ""
-        echo "Project images inherit from claude-yolo:latest."
+        printf '%s\n' "" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" "ℹ️  Base image updated - rebuilding project image" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" \
+            "Previous base: ${previous_base_image:0:12}" "Current base:  ${current_base_image:0:12}" "" \
+            "Project images inherit from claude-yolo:latest."
         # Extract changelog from the CCY_VERSION comment in this script (e.g. "# fix: ...")
         ccy_version_line=$(grep '^CCY_VERSION=' "$0")
         ccy_changelog="${ccy_version_line#*# }"
@@ -2113,14 +2112,11 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
         echo "Tip: apt/npm packages are cached between builds for speed"
         echo ""
 
-        # Calculate project Dockerfile hash for build arg
-        project_dockerfile_hash=$(md5sum "$PROJECT_DOCKERFILE" | cut -d' ' -f1 | cut -c1-16)
-
         # Use buildkit for cache mounts and pass Dockerfile hash
         # Capture output to temp file for error reporting while still displaying live
         build_log=$(mktemp "${TMPDIR:-/tmp}/ccy-build-XXXXXX.log")
 
-        # Defined inline so $project_dockerfile_hash, $PROJECT_IMAGE_NAME, etc. stay in scope.
+        # Defined inline so $current_project_hash, $PROJECT_IMAGE_NAME, etc. stay in scope.
         # Re-invoked once after a rootless-buildah-cache recovery; see below. It runs under the
         # project image's build lock and writes the hash files itself, before the lock is let
         # go, so a launch that waited for it finds the image current (ccy_project_image_current).
@@ -2128,7 +2124,7 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
             set -o pipefail
             DOCKER_BUILDKIT=1 container_cmd build \
                 --build-arg BUILDKIT_INLINE_CACHE=1 \
-                --build-arg DOCKERFILE_HASH="$project_dockerfile_hash" --label "ccy-version=${CCY_VERSION:?}" \
+                --build-arg DOCKERFILE_HASH="$current_project_hash" --label "ccy-version=${CCY_VERSION:?}" \
                 -t "$PROJECT_IMAGE_NAME" \
                 -f "$PROJECT_DOCKERFILE" \
                 . 2>&1 | tee "$build_log" || return
@@ -2215,6 +2211,7 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
 
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
+    rm -rf -- "${PROJECT_DOCKERFILE%/*}"
 fi
 
 # Daily, per-image Claude Code auto-update. Runs HERE — after the project image

@@ -61,7 +61,7 @@ var inRepoHandOver = []string{"CCY_RESTART_RELAUNCH", "CCY_MAX_AGE", "CCY_RELAUN
 // inRepoPresent are the entries whose presence alone makes the bash do more: a migration that
 // asks, a hostname check that can refuse (and --prevent's "already disabled"), and a custom
 // Dockerfile's tracked-or-ignored warning.
-var inRepoPresent = []string{ccyDir + "/sessions", allowedRel, ccyDir + "/Dockerfile"}
+var inRepoPresent = []string{ccyDir + "/sessions", allowedRel, checkoutpin.Dockerfile}
 
 // safeTracked are the files check_ccy_gitignore_safety lets be tracked under .claude/ccy.
 var safeTracked = []string{".gitignore", "Dockerfile", "allowed-hostnames", "ccy.env", "ccy.env.local.dist", "mounts", "CLAUDE.md", "README.md"}
