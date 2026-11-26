@@ -1,0 +1,14 @@
+# The gate seat-number-text's allowlist (Plan 00265 R90, decided Q2: agent-facing and machine-facing
+# text is out of the rule's scope). Each row keeps one line that names a seat, because only a
+# script, an agent or the program reads it, or because the command it shows is agent-bus (v1)'s,
+# which takes a seat and is not changed by v2's work. path <TAB> literal on that line <TAB> reason.
+docs/agent-bus-cross-network.md	teamchat say --to <name> --wait-contact	a script's one-shot teamchat verb (teamchat run --plain), run by a program, never a person's launch
+docs/agent-bus-cross-network.md	teamchat history --team <team>	a script's one-shot teamchat verb (teamchat run --plain), run by a program, never a person's launch
+docs/agent-bus-protocol.md	(?P<seat>	the v1 protocol specification's handle grammar, read by implementers
+docs/agent-bus-protocol.md	`seat retire [--root DIR] SEAT@TEAM`	a v1 host verb ccy itself runs for a removed seat; the specification's verb table
+docs/agent-bus-protocol.md	`seat farewell [--root DIR] SEAT@TEAM`	a v1 host verb ccy itself runs for a removed seat; the specification's verb table
+docs/agent-bus.md	agent-bus seat remove <seat>@<team>	agent-bus (v1)'s seat removal, which takes a seat; v1's command line is not changed by v2's work
+docs/agent-bus.md	`add-member --seat=<seat>`	agent-bus (v1)'s sudo admin verb, which re-adds a parked handle by its parts
+src-go/internal/teams/usage.txt	<seats> (a <seat>@<team>,... list	ccy-teams internal session-name, which only the launcher calls
+src-go/internal/teams/usage.txt	<launcher>-<team>-<project>-<seat>, several	ccy-teams internal session-name, which only the launcher calls
+src-go/internal/teams/usage.txt	check prints the canonical <seat>@<team> list	ccy-teams internal seat-check, which only the launcher calls

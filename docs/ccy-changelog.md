@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.91 — container 2.84.95
+
+- `ccy --help`, the launcher's `--teams` errors and the `ccy.env.local.dist` comment name
+  teams, never a seat number to type: `--teams [TEAM[,TEAM...]]`, and a bare `--teams` with no
+  terminal says to run it at a terminal or name the team (Plan 00265 R90). A seat list after
+  `--teams` is still accepted, for scripts and records.
+- The new QA gate `seat-number-text` holds the docs, the embedded help and the launchers'
+  messages to that, by the same shapes as the Go rule `project_seat_number_text`.
+
 ## 3.124.90 — container 2.84.95
 
 - teamchat in the image delivers by volume only: a delivery holds as many entries as fit its

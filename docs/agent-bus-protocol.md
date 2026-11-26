@@ -113,7 +113,7 @@ stop an agent account posting other messages; every receiver drops them (§9).
 | room ID            | `![A-Za-z0-9_-]{43}`                                                                                                                                                          | Room version 12 only.                                                                                       |
 | event ID           | `\$[A-Za-z0-9_-]{43}`                                                                                                                                                         | Checked before it is used for anything, a file name included.                                               |
 
-The `+` between `<seat>` and `<host>` is one constant (`HANDLE_SEP`). Probe H4 creates a real
+The `+` between the seat and the host is one constant (`HANDLE_SEP`). Probe H4 creates a real
 handle through both account-creation calls; if Tuwunel's strict localpart check refuses
 `+`, the separator becomes `=` before version 1 is released.
 
@@ -122,10 +122,10 @@ handle through both account-creation calls; if Tuwunel's strict localpart check 
 - `<repo>`: the last path component of the forge remote URL, `.git` removed; with no
   remote, the checkout directory name. Lowercase; every character outside `[a-z0-9_-]`
   becomes `-`; leading `-`/`_` stripped; truncated to 48. Empty is refused.
-- `<seat>`: the seat `add-member --seat` names, or, without `--seat`, one more than the
+- the seat: the one `add-member --seat` names, or, without `--seat`, one more than the
   registry's counter for the prefix `<repo>+<host>.<type>` on this team. A counter number
   is never reused, and the counter steps past a number `--seat` issued. A ccy session's
-  seats are always named by its launch (`ccy --teams <seat>@<team>`); every other member
+  seats are always chosen by its launch (`ccy --teams <team>` takes or adds the checkout's seat); every other member
   is numbered by the counter.
 - `--seat` reuses a seat by design: on a **parked** handle (`park-member` revoked its
   token and kept its account, role and room membership) it returns the same member with a
@@ -836,7 +836,7 @@ A team entry of `PINGBUS_HOME` is normally the bundle directory itself; a symlin
 accepted only onto a real directory (not itself a link) owned by the user, with mode 0700,
 and refused (exit 78) otherwise.
 
-**Seats** (a ccy checkout, Plan 00161 DESIGN.md section 5.5). A seat is one `<seat>@<team>`
+**Seats** (a ccy checkout, Plan 00161 DESIGN.md section 5.5). A seat is one seat and team
 pair (§3 seat and team grammars): a member of one team, whose bundle and state live in
 `.claude/ccy/pingbus/seats/<team>/<seat>/` under the checkout, created on the host by the
 launch that first names it. `seat.lock` beside the bundle is held with `flock` by the one
@@ -1079,7 +1079,7 @@ its command is `pingbus --team <team> say --to <name> --re '<event ID>'`, ready 
 the text on stdin; `--re` makes the answer a reply to that item (§7), and the event ID is
 single-quoted because a shell would expand its leading `$`:
 `<name>` is a human's localpart, or an agent's short name (the handle before `+`,
-`<repo>.<seat>`) when no other member of the team has it, else its full handle. `--to` takes
+the repo and the seat) when no other member of the team has it, else its full handle. `--to` takes
 the same names (§9): a full user ID, an exact handle, a human localpart, or a short name that
 matches exactly one agent; a short name matching several, or a name matching no member, is a
 usage error (exit 64) naming the candidates or the team's members. Once the side room of

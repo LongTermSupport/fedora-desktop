@@ -63,7 +63,7 @@ cc_teams_split_args() {
             --bus) CC_TEAMS_GIVEN=true CC_TEAMS_BUS=true ;;
             --teams | --teams=*)
                 if [ "$CC_TEAMS_GIVEN" = true ]; then
-                    print_error "--teams is given once, with every seat in it, and not with --bus: cc --teams <seat>@<team>,<seat>@<team>"
+                    print_error "--teams is given once, with every team in it, and not with --bus: cc --teams <team>,<team>"
                     return 64
                 fi
                 CC_TEAMS_GIVEN=true

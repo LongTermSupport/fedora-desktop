@@ -104,10 +104,10 @@ launch does not start.
    colour, in any checkout (see
    [A session's status line](#a-sessions-status-line)). With several teams, pingbus's send and say commands work out the
    team from `--re` or `--to` when only one fits, and otherwise list the teams and ask for `--team`.
-   It then goes on as `ccy --teams <team>` (no seat), which shows this
-   checkout's seats in the team and launches a session into the one you choose: the lowest
-   free seat, or a new one, and then asks whether the seat is the team's coordinator (see below;
-   no sudo unless you change it). ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat instead; a named seat's first launch says `--fresh` (`ccy --teams <seat>@<team> --fresh`), because a plain launch naming a seat with no recorded conversation is refused ([ccy.md](ccy.md)). ccy remembers the seats: "use the previous
+   It then goes on as `ccy --teams <team>`, which takes this checkout's seat in the team
+   (on teamchat, the one with a recorded conversation, resumed; see [seats](#a-ccy-session-seats)),
+   or adds one, and then asks whether the seat is the team's coordinator (see below;
+   no sudo unless you change it). ccy creates the seat the first time (with sudo). ccy remembers the seats: "use the previous
    configuration" at the Quick Launch prompt launches into them again (and records them in that
    session's own record, which is all a reboot restore reads: a restore never gives a session
    a team it was not launched into), and an explicit `--teams` overrides them. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team
@@ -560,7 +560,7 @@ applies the team. By hand, list the entry in your host_vars `localhost.yml` (the
 example in `localhost.yml.dist` names every key; only `team`, `container`, `user` and
 `checkout` are needed, since an LXC member's handle `<repo>.<seat>+<host>.lxc` is derived the
 way a ccy seat's is: `<repo>` from the checkout's forge remote, `<host>` from the
-`HOOKS_DAEMON_HOSTNAME` its `ccy.env.local` assigns or `local`, `<seat>` the lowest number no
+`HOOKS_DAEMON_HOSTNAME` its `ccy.env.local` assigns or `local`, the seat the lowest number no
 active member of that `<repo>+<host>.lxc` holds) and run `play-agent-bus.yml`. The play runs `README.lxc`'s steps for you, and checks the result with
 `pingbus config check` on every run. The container and its agent user must already exist,
 and the team must be declared present in `agent_bus_teams`. A container that is not running
@@ -611,20 +611,22 @@ A ccy session is in a team only when it is launched with it, and in no team othe
 
 ```bash
 ccy --teams                                     # choose teams from a list, with descriptions (Tab marks several)
-ccy --teams <team>                              # choose the seat
-ccy --teams <seat>@<team>[,<seat>@<team>...]    # name it
-ccy --teams <seat>@<team> --fresh               # name a seat never used here: its first launch
+ccy --teams <team>                              # this checkout's seat in the team
 ```
 
-With a team alone, ccy shows this checkout's seats in it, each with its member's full handle
-(`<repo>.<N>+<host>.podman`), what runs in it (`ccy (podman)`) and whether it is free or
-held by a running session. The default is the lowest free seat. If no seat is free, it is a
-new seat, numbered with the lowest number no seat or active member of the same
-`<repo>+<host>.podman` uses. ccy says the handle before taking the seat. It writes the
-chosen `<seat>@<team>` into the launch's arguments, so a restart or a restore comes back in
-the same seat. Choosing a held seat leads to the re-attach offer for the session that holds
-it ([ccy.md](ccy.md#sessions-survive-the-terminal)). A launch with nobody to answer
-(headless, no terminal, a restore, a restart) must name the seat. On a teamchat (v2) team a
+With a team alone on teamchat (v2), ccy takes this checkout's seat in it without asking: the
+one free seat; of several, the one with a recorded conversation, which it resumes; of several
+never used, any of them. It asks only for a genuine choice, two seats with a conversation or a
+seat held by a running session, and asks in words: each seat by its team and when it last ran,
+a held one as re-attaching its session ([ccy.md](ccy.md#sessions-survive-the-terminal)). On
+agent-bus (v1) it shows this checkout's seats, each with its member's full handle, what runs in
+it (`ccy (podman)`) and whether it is free or held; the default is the lowest free seat. With
+no free seat, it is a new seat, numbered with the lowest number no seat or active member of
+the same `<repo>+<host>.podman` uses. ccy says the handle before taking the seat. It writes the
+chosen seats into the launch's arguments, so a restart or a restore comes back in the same
+seat; scripts and those records may name seats too (a `seat@team` list after `--teams`), and
+nothing asks a person to type one. A launch with nobody to answer (headless, no terminal, a
+restore, a restart) that names a team alone is refused, with the way on: run it at a terminal. On a teamchat (v2) team a
 launch also needs a session record, which only a launch at a terminal outside ccy's tmux writes;
 a headless or terminal-less launch is refused (78) unless the session was declared with
 `ccy-sessions declare` and started with `ccy-sessions restore`. Team names are
@@ -724,7 +726,7 @@ to a program, it prints one `SEAT` line per seat instead: team, seat, `held` or 
 team included. Refused while a named seat is held, it parks each handle (token
 revoked; account, role and room membership kept), deletes each seat's directory, and
 deletes `.claude/ccy/pingbus/` once nothing is left in it. Launching into the same
-`<seat>@<team>` again returns the seat with a new token, history included. A seat whose
+seat again returns it with a new token, history included. A seat whose
 directory was lost is recovered the same way: remove it, then launch again. ccy itself
 runs `agent-bus seat check <list>` (with `--resolved` when nobody can choose), `agent-bus seat choose <team>` for a team named alone, and `agent-bus seat take <list>` for a launch
 with `--teams <list>`. `choose` reads the team's members with `sudo -n agent-bus list <team>`, which the read-only sudoers rule from `play-agent-bus.yml` allows. `choose` and
@@ -757,7 +759,7 @@ stopped or failed.
   sets again on each run: give the entry `role: coordinator` for an LXC member to stay one.
 - `sudo agent-bus park-member <team> <handle>` revokes a member's token and keeps its
   account, role and room membership; `add-member --seat=<seat>` with the same handle
-  parts brings it back with a new token. `agent-bus seat remove <seat>@<team>` parks a ccy seat this way.
+  parts brings it back with a new token. `agent-bus seat remove` (above) parks a ccy seat this way.
 - `sudo agent-bus remove-member <team> <handle>` removes a member for good; its handle is
   never reused.
 - `sudo agent-bus rotate-token <team> <handle> --out=<bundle-dir>` logs the member out and
@@ -772,8 +774,7 @@ with the same list and the same chooser as `ccy --teams`:
 
 ```bash
 cc --teams                      # choose the teams from a list (Tab marks several)
-cc --teams <team>               # a team alone: choose its seat
-cc --teams 1@<team>,2@<team2>   # name the seats
+cc --teams <team>               # a team alone: this checkout's seat in it
 cc --bus                        # on no team: add it to teams later, while it runs
 ```
 
@@ -813,8 +814,8 @@ session no record names, has no record, and its take is refused (78), because th
 with no record. A list on both systems, and `cc --bus`, stay agent-bus only.
 
 **The model a teamchat (v2) seat starts on.** `ccy-teams seats model <team> <model>` sets the
-model a team's seats start on; `ccy-teams seats model [--host] <seat>@<team> <model>` sets one
-seat's own (in the working directory's checkout), which wins over its team's. `--clear` in
+model a team's seats start on; a script may set one seat's own (in the working directory's
+checkout), which wins over its team's. `--clear` in
 place of the model removes either, and `ccy-teams seats model` alone lists them. They live in
 your seat store on this machine (not in the team's declaration), so every `ccy` and `cc` launch
 and every restore reads them with no network, and a model set on one machine does not follow the

@@ -84,6 +84,7 @@ var checkDefs = []checkDef{
 	{id: "bash-limits", fixed: "whole gate (tooling is Go; allowlist ratchet)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runBashLimits},
 	{id: "nokill-containerwatch", fixed: "whole gate (the container-watch watchdog never signals a process)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runNoKillContainerWatch},
 	{id: "teamchat-keeps-off-v1", fixed: "whole gate (no file v2 of the agent-team bus owns holds a v1 name)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runTeamchatKeepsOffV1},
+	{id: "seat-number-text", fixed: "whole gate (no doc, help or launcher message asks a person for a seat number)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runSeatNumberText},
 	{id: "ansible-pause", fixed: "whole gate (every pause registers its answer or says why it waits)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runAnsiblePause},
 	{id: "gh-scopes", fixed: "gh-scope-outside-ssot rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runGhScopes},
 	{id: "find-race", fixed: "find-race-negated-stat-test rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runFindRace},
@@ -196,6 +197,10 @@ func runNoKillContainerWatch(ctx context.Context, s *session, _ *checkPlan) (che
 
 func runTeamchatKeepsOffV1(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-teamchat-separate.bash")
+}
+
+func runSeatNumberText(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-seat-text.bash")
 }
 
 func runAnsiblePause(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {

@@ -108,7 +108,7 @@ file project/.claude/ccy/ccy.env.local.dist 0600
      | # role, e.g. the one install that runs a role-scoped cron job. Only matters in a
      | # project that uses the hooks daemon.
      | # It also names the host part of the handle of an agent team bus seat that
-     | # "ccy --teams <seat>@<team>" creates in this checkout; unset, that part is "local".
+     | # "ccy --teams <team>" creates in this checkout; unset, that part is "local".
      | # A team is chosen by each launch, never here: the container refuses to start when
      | # this file sets a bus variable.
      | #export HOOKS_DAEMON_HOSTNAME=<role-name>

@@ -50,14 +50,14 @@ Options:
                          takes this checkout's saved Quick Launch choices without asking,
                          and is refused when there are none; a key that needs a
                          passphrase is refused unless your ssh-agent holds it (ssh-add it)
-  --teams [TEAM | SEAT@TEAM[,SEAT@TEAM...]]
-                         Join agent team bus teams, one seat each. Bare --teams lists the
-                         teams (Tab marks several). A team alone on teamchat takes its only seat
-                         if free, adds one if none, else asks (Enter: lowest free, else a new
-                         one). Name seats (--teams 1@dev-team,qa2@other-team) when
-                         nobody can be asked. A seat is held by one session. The seats' recorded
-                         conversation is resumed; with none, exit 64 names the repair (ccy-teams
-                         seats conversation SEATS --set ID) and --fresh, which starts a new one.
+  --teams [TEAM[,TEAM...]]
+                         Join agent team bus teams, one seat each. Bare --teams takes the one
+                         team this checkout has seats in, else lists the teams (Tab marks
+                         several). A team alone on teamchat takes this checkout's seat in it,
+                         adds one if none, and asks, in words, only when two seats have a
+                         conversation or a seat is held. A seat is held by one session. The
+                         seat's recorded conversation is resumed; with none, exit 64 names the
+                         repair (ccy-teams seats conversation TEAM --set ID) and --fresh.
                          --resume ID other than the record needs --rebind; --continue is refused.
                          Exit 64 list or record unusable, 75 seat held elsewhere, 78 team or
                          seat not set up here. Needs play-agent-bus.yml; Quick Launch keeps both.

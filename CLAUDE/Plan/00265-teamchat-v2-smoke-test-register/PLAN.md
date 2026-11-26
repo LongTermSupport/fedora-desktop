@@ -107,8 +107,11 @@ the coordinator's worker restarts.
 
   Built: step 1's Go rule `project_seat_number_text` (blocking, red then green) with its Go
   sweep, and step 2 for `ccy --teams <team>` and `cc --teams <team>` at a terminal
-  (`seatchoice.Pick`). Left: step 1's text check (docs, help, launchers), step 2's bare
-  `--teams`, plain `cc` and unattended pick, steps 3 and 4. Report:
+  (`seatchoice.Pick`). Step 1's text check, the gate `seat-number-text` (`src-go/qa/seattext`,
+  blocking in `qa-changed` and `qa-all`, red at 47 then green), with its sweep of the docs, help
+  and launcher messages (step 4's text half); step 2's bare `--teams` taking the one team this
+  checkout has seats in. Left: plain `cc`, the unattended pick, step 3 (restore), session names
+  by role. Report:
   [subagent-reports/261126-task-4-2-build.md](subagent-reports/261126-task-4-2-build.md);
   what is left: [HANDOFF-4.2.md](HANDOFF-4.2.md).
 

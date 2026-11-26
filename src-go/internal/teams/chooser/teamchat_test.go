@@ -371,15 +371,20 @@ func TestAnAgentBusTeamNamedAloneStillGoesToItsSeatChooser(t *testing.T) {
 }
 
 func TestTheListShowsThisCheckoutsTeamchatTeams(t *testing.T) {
-	r := newTeamchatRig(t, alphaCovers+betaWiden, map[string][]string{v2Team: {"2"}})
+	// Seats in two teams, so the bare list is shown (one would be taken without it).
+	r := newTeamchatRig(t, alphaCovers+betaWiden, map[string][]string{v2Team: {"2"}, "lts-other": {"1", "3"}})
 	r.Script.Fzf = []string{"|" + v2Team}
 	exit(t, r.run("--type=podman"), term.ExitOK, r.rig)
 	rows := r.Script.Rows[0]
-	if len(rows) != 4 {
+	if len(rows) != 5 {
 		t.Fatalf("rows %q", rows)
 	}
-	contains(t, "row", rows[0], v2Team, "on teamchat, 1 podman seat here")
-	contains(t, "row", rows[1], "alpha", "covers "+repo)
+	i := slices.IndexFunc(rows, func(row string) bool { return strings.HasPrefix(row, v2Team) })
+	if i < 0 {
+		t.Fatalf("no row for %s: %q", v2Team, rows)
+	}
+	contains(t, "row", rows[i], v2Team, "on teamchat, 1 podman seat here")
+	contains(t, "row", rows[2], "alpha", "covers "+repo)
 	if r.payload.String() != "2@"+v2Team+"\n" {
 		t.Fatalf("payload %q", r.payload.String())
 	}
@@ -402,7 +407,8 @@ const deadWhy = "its bus does not answer: its homeserver at https://127.0.0.1:84
 // be fixed"): a teamchat team whose bus does not answer is never a row of the list, so it cannot
 // be chosen; it is named above the list in words, with why.
 func TestATeamchatTeamWhoseBusDoesNotAnswerIsNotOffered(t *testing.T) {
-	r := newTeamchatRig(t, alphaCovers+betaWiden, map[string][]string{v2Team: {"2"}, deadTeam: {"1"}})
+	// Two live teams with seats here, so the list is shown (one alone is taken without it).
+	r := newTeamchatRig(t, alphaCovers+betaWiden, map[string][]string{v2Team: {"2"}, "lts-other": {"1"}, deadTeam: {"1"}})
 	r.dead[deadTeam] = deadWhy
 	r.Script.Fzf = []string{"|ABORT"}
 	exit(t, r.run("--type=podman"), term.ExitOK, r.rig)
@@ -499,8 +505,27 @@ func TestTheOnlyTeamBeingATeamchatOneIsTakenWithoutAList(t *testing.T) {
 	}
 }
 
+// Plan 00265 R90 (design section 2): a bare --teams in a checkout whose pool holds seats of
+// exactly one team takes that team without the list, beside other teams and teams with no seat
+// here, and says so; with seats in two teams the list is shown.
+func TestABareListTakesTheOneTeamThisCheckoutHasSeatsIn(t *testing.T) {
+	r := newTeamchatRig(t, alphaCovers+betaWiden, map[string][]string{v2Team: {"2"}, "lts-other": nil})
+	exit(t, r.run("--type=podman"), term.ExitOK, r.rig)
+	if r.payload.String() != "2@"+v2Team+"\n" || len(r.Script.Rows) != 0 {
+		t.Fatalf("payload %q rows %v", r.payload.String(), r.Script.Rows)
+	}
+	contains(t, "stderr", r.stderr(), "This checkout has seats in "+v2Team+" alone: taking it.")
+
+	r = newTeamchatRig(t, "", map[string][]string{v2Team: {"2"}, "lts-other": {"1"}})
+	r.Script.Fzf = []string{"|ABORT"}
+	exit(t, r.run("--type=podman"), term.ExitOK, r.rig)
+	if len(r.Script.Rows) == 0 {
+		t.Fatalf("seats in two teams took one without the list: payload %q", r.payload.String())
+	}
+}
+
 func TestTeamsOnBothSystemsInOneLaunchAreRefused(t *testing.T) {
-	r := newTeamchatRig(t, alphaCovers+betaWiden, map[string][]string{v2Team: {"2"}})
+	r := newTeamchatRig(t, alphaCovers+betaWiden, map[string][]string{v2Team: {"2"}, "lts-other": {"1"}})
 	r.Script.Fzf = []string{"|" + v2Team + "&&alpha"}
 	exit(t, r.run("--type=podman"), term.ExitUsage, r.rig)
 	contains(t, "stderr", r.stderr(), "one session joins one system", "agent-bus: alpha", "teamchat: "+v2Team)
@@ -508,7 +533,7 @@ func TestTeamsOnBothSystemsInOneLaunchAreRefused(t *testing.T) {
 }
 
 func TestAHostListShowsThisCheckoutsTeamchatTeams(t *testing.T) {
-	r := newTeamchatRig(t, alphaCovers+betaWiden, map[string][]string{v2Team: {"2"}})
+	r := newTeamchatRig(t, alphaCovers+betaWiden, map[string][]string{v2Team: {"2"}, "lts-other": {"1"}})
 	r.Script.Fzf = []string{"|ABORT"}
 	exit(t, r.run("--type=host"), term.ExitOK, r.rig)
 	if !slices.ContainsFunc(r.Script.Rows[0], func(row string) bool { return strings.Contains(row, v2Team) }) {

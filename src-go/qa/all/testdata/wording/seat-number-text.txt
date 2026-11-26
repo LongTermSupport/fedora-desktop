@@ -1,0 +1,1 @@
+✓ seat-number-text: 90 file(s) ask a person for no seat number (10 allowed line(s))

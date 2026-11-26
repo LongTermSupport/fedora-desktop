@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/seattext"
 )
 
 // seatTextTrees are the trees whose text a person reads at a launch, a chooser, a restore or a
@@ -24,31 +26,16 @@ var seatTextAllowances = []allowance{
 }
 
 // seatValue stands, in a string's template, for a value the program fills in.
-const seatValue = "\x00"
+const seatValue = seattext.Value
 
-// The shapes of text that has a person type or pick a seat, matched on a string's template.
 var (
-	// A launch with the seat spelt out: --teams <seat>@, SEAT@, 2@, or a filled-in seat.
-	seatLaunchRe = regexp.MustCompile(`--teams[ =]+(?:<[^>]*>|[A-Z]+|\d+|` + seatValue + `)@`)
-	// A seat placeholder: <seat>@, SEAT@TEAM, S@T.
-	seatPlaceholderRe = regexp.MustCompile(`<seat>|\bSEAT@|\bS@T\b`)
-	// A hand-over told as a seat to type, or a seat repair that names the seat. A hand-to= filled
-	// in is the person's own value echoed back, for diagnosis.
-	seatRepairRe = regexp.MustCompile(`hand-to=(?:<[^>]*>|\d+)|seats (?:conversation|model)\b[^\n]*(?:<[^>]*>|\d+|` + seatValue + `)@`)
-	// A launch (ccy, cc, or a launcher filled in) whose list is filled in, judged by what fills
-	// it; a bare --teams is a record's words, not a command.
-	seatListRe = regexp.MustCompile(`(?:(?:\bccy|\bcc|` + seatValue + `) --teams[ =]+|seats (?:conversation|model) )` + seatValue)
-	// A row that labels a seat by its name.
-	seatRowRe = regexp.MustCompile(`(?i)\bseat ` + seatValue)
 	// A function that builds the rows or labels of a choice.
 	rowBuilderRe = regexp.MustCompile(`(?i)(?:row|rows|choices|options|label)$`)
-	// A value that is a seat list, a seat or a handle, by its spelling.
-	seatListOperandRe = regexp.MustCompile(`(?i)seat|ref|list|canonical|handle|member`)
 	// A printf verb, which a format fills in.
 	printfVerbRe = regexp.MustCompile(`%[-+# 0-9.*]*[a-zA-Z]`)
 )
 
-const seatTextFix = " (project_seat_number_text): a person never needs a seat number; name the command by team (ccy --teams <team>, cc --teams <team>, ccy-teams) and the seat by its role and what it last ran"
+const seatTextFix = " (project_seat_number_text): " + seattext.Fix
 
 // SeatNumberText keeps a seat number out of the text a person is told to type or pick from.
 var SeatNumberText = &analysis.Analyzer{
@@ -118,7 +105,11 @@ func reportSeatTexts(pass *analysis.Pass, root ast.Node, rows bool) {
 		if !ok {
 			return true
 		}
-		if msg := seatTextFinding(tmpl, operands, rows); msg != "" {
+		names := make([]string, len(operands))
+		for i, o := range operands {
+			names[i] = types.ExprString(o)
+		}
+		if msg := seattext.Finding(tmpl, names, rows); msg != "" {
 			pass.Reportf(e.Pos(), "%s%s", msg, seatTextFix)
 		}
 		return false
@@ -184,46 +175,4 @@ func printfTemplate(pass *analysis.Pass, call *ast.CallExpr) (string, []ast.Expr
 	}
 	format = strings.ReplaceAll(format, "%%", "")
 	return printfVerbRe.ReplaceAllString(format, seatValue), call.Args[at+1:], true
-}
-
-// seatTextFinding is the finding for a template, "" for clean text.
-func seatTextFinding(tmpl string, operands []ast.Expr, rows bool) string {
-	switch {
-	case seatLaunchRe.MatchString(tmpl):
-		return "a launch that spells out the seat"
-	case seatRepairRe.MatchString(tmpl):
-		return "a command that names the seat"
-	case seatPlaceholderRe.MatchString(tmpl):
-		return "a seat placeholder a person is told to fill"
-	case seatListFilled(tmpl, operands):
-		return "a launch with its seat list filled in"
-	case rows && seatRowRe.MatchString(tmpl):
-		return "a choice's row labelled by its seat"
-	case rows && slices.ContainsFunc(operands, isHandleValue):
-		return "a choice's row that shows a handle, which carries the seat"
-	}
-	return ""
-}
-
-// seatListFilled is whether a --teams in tmpl is filled by a value spelt as a seat or a list.
-func seatListFilled(tmpl string, operands []ast.Expr) bool {
-	for _, loc := range seatListRe.FindAllStringIndex(tmpl, -1) {
-		i := strings.Count(tmpl[:loc[1]-1], seatValue)
-		if i < len(operands) && seatListOperandRe.MatchString(types.ExprString(operands[i])) {
-			return true
-		}
-	}
-	return false
-}
-
-// isHandleValue is whether e reads a handle: a .Handle selector, or a call given one.
-func isHandleValue(e ast.Expr) bool {
-	found := false
-	ast.Inspect(e, func(n ast.Node) bool {
-		if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "Handle" {
-			found = true
-		}
-		return !found
-	})
-	return found
 }

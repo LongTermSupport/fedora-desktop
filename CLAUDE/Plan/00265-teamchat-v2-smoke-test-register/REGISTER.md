@@ -1836,11 +1836,13 @@ before the move to v2. Filled in as causes are found.
     seat this checkout last worked in (`seatchoice.Pick` over the seat records), say it in
     words, and ask only between two seats with a conversation, rows in words. Ways on, repairs
     and `seats conversation` name teams.
-  - Still to build: the text check over docs, help and the launchers' bash; the docs rewrite; a
-    bare `ccy --teams` taking the one team; plain `cc` joining its seat; the unattended pick;
-    R89's restore seat pass and its dry run; session names by role.
+  - Built, part two: the gate `seat-number-text` over docs, embedded help and the launchers'
+    messages (same shapes as the Go rule; red 47, then green), with the docs, help and launcher
+    rewrite; a bare `ccy --teams` takes the one team this checkout has seats in.
+  - Still to build: plain `cc` joining its seat; the unattended pick; R89's restore seat pass
+    and its dry run; session names by role.
 - **Severity:** high (an owner rule; today's restore asks for exactly what it forbids).
-  **Issue:** TBF. **State:** in progress (part one built).
+  **Issue:** TBF. **State:** in progress (parts one and two built).
 
 ## R91: an update leaves a host cc seat unstartable, with no migration
 

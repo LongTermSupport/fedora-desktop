@@ -4249,8 +4249,10 @@ agent-facing text (teamchat). The allowance table has one row: `shutdown`'s `v2L
 not-reached line's name for an LXC seat with no handle yet.
 
 **Not caught:** a seat list joined into an argv and printed whole (restore's replayed command);
-a row built outside a row builder; help text and docs outside Go (embedded `.txt`, markdown,
-the launchers' bash), which the text check of Plan 00265 Task 4.2 is to hold.
+a row built outside a row builder. Help text and docs outside Go (embedded `usage.txt` and
+`help.txt`, markdown, the launchers' messages) are held by the gate `seat-number-text`
+(`scripts/qa-seat-text.bash`, [QA.md](QA.md)), which judges them by the same shapes
+(`src-go/qa/seattext.Finding`; a seat name such as `dev1@` counts as a seat spelt out).
 
 **How to fix:** name the command by its team (`membership.Launch` turns a seat list into the
 launch by team), say a seat by when it last ran or its role (`seatchoice.Row`), and let the
