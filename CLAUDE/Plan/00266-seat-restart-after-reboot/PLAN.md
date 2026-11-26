@@ -77,8 +77,13 @@ The full findings, each with file and line, are in [DESIGN.md](DESIGN.md).
   `planRestore` refuses any other prefix as `launcher-unknown`, so `restore --check` agrees. The
   suites reach their fakes through `CCY_SESSIONS_LAUNCHER_DIR`, host-only environment that no
   container can set (the same trust as `CCY_LIB`, which names the code the launcher sources).
-- [ ] ⬜ **Task A.5**: Replay arguments through an allowlist of the launcher's own flags. No
-  unknown flag, and no word after `--`, for cc above all.
+- [x] ✅ **Task A.5**: Replay arguments through an allowlist of the launcher's own flags. No
+  unknown flag, and no word after `--`, for cc above all. **Built:** `registry.ReplayRefusal`,
+  enforced inside `startArgs` (the only builder of replayed arguments) and asked first by
+  `planRestore` and the team restart, so a refused record is `arguments-refused`, naming the
+  word and the fix. cc replays only `--bus`, `--teams`, and claude's `--model` and `--verbose`. For ccy, a host-action flag no launch
+  records is refused; its unknown flags and words after `--` still replay, since they reach the
+  claude inside the container (DESIGN.md, "How the replay works").
 
 ### Phase B: host cc seats and field validation
 

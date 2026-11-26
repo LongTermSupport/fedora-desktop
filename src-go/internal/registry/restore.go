@@ -128,6 +128,9 @@ func startArgs(compose, prefix string, args []string, fresh bool) ([]string, err
 	if prefix == "" {
 		return nil, errors.New("restore arguments need a launcher prefix")
 	}
+	if err := ReplayRefusal(Record{Prefix: prefix, Args: args}); err != nil {
+		return nil, err
+	}
 	var ccyFlags []string
 	if prefix == prefixCCY && compose != "" {
 		composeFlags, err := ComposeArgs(compose)

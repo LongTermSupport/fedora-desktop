@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.113 — container 2.84.108
+
+- `ccy-sessions restore` and `ccy-teams restart` replay only the words a launch records (Plan
+  00266 Task A.5). A cc record replays `--bus`, `--teams`, and claude's `--model` and
+  `--verbose`; any other word would reach claude on the host. A ccy record may not hold a flag
+  ccy acts on at launch and never records (`--export-token`, `--remove-network`,
+  `--custom-docker` and the like). Such a record is `arguments-refused`, naming the word, in
+  `restore --check` too.
+
 ## 3.124.112 — container 2.84.108
 
 - The image's teamchat weighs a PEER message from the team's coordinator (its `role:` line) as

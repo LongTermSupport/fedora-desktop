@@ -587,9 +587,11 @@ func TestRestoreCheckJudgesTheRecordsTokenAsTheLaunchWould(t *testing.T) {
 	for name, args := range recs {
 		record(t, h, registry.Record{Name: name, Dir: dir, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, Args: args})
 	}
+	// A cc record's --token is not cc's (cc passes it to claude on the host), so it is never judged
+	// as a token: Plan 00266 Task A.5 refuses the record for the word instead.
 	record(t, h, registry.Record{Name: "cc-spent", Dir: realDir(t, h, "c"), Launcher: "/launch/cc", Prefix: "cc", Restore: true, Args: []string{"--bus", "--token", "spent"}})
 	exitCodeIs(t, h.run("restore", "--check"), 1, h)
-	want := "cc-spent RESTORABLE\nccy-broken UNRESTORABLE token-check-failed\nccy-dark RESTORABLE\nccy-fine RESTORABLE\n" +
+	want := "cc-spent UNRESTORABLE arguments-refused\nccy-broken UNRESTORABLE token-check-failed\nccy-dark RESTORABLE\nccy-fine RESTORABLE\n" +
 		"ccy-gone UNRESTORABLE token-missing\nccy-none RESTORABLE\nccy-old UNRESTORABLE token-expired\nccy-spent UNRESTORABLE token-used-up\n"
 	if h.stdout() != want {
 		t.Fatalf("stdout %q, want %q; stderr %q", h.stdout(), want, h.stderr())
@@ -600,16 +602,17 @@ func TestRestoreCheckJudgesTheRecordsTokenAsTheLaunchWould(t *testing.T) {
 		"ERROR: ccy-old cannot be restored: its token file old.1969-01-01.token has expired or expires today, and renewing it needs a person at a browser: ccy --update-token=old",
 		"ERROR: ccy-broken cannot be restored: the usage left on its token broken could not be checked (needs curl (run play-claude-yolo.yml)), and the launch stops when its usage check fails (the record is kept at",
 		"ccy-dark: the usage left on its token dark could not be read (could not reach the API); the launch starts on it anyway, so it counts as restorable.\n",
-		"ERROR: 4 recorded session(s) could not be restored after a reboot: ccy-broken, ccy-gone, ccy-old, ccy-spent.")
+		"ERROR: 5 recorded session(s) could not be restored after a reboot: cc-spent, ccy-broken, ccy-gone, ccy-old, ccy-spent.")
 	if h.tokens.asked != 4 {
 		t.Fatalf("usage read %d times, want once per valid ccy token (4)", h.tokens.asked)
 	}
 
 	h.out.Reset()
 	h.errOut.Reset()
-	exitCodeIs(t, h.run("restore"), 0, h)
-	if calls := startedSessions(h); len(calls) != len(recs)+1 {
-		t.Fatalf("the restore starts every record (%d): %v", len(calls), h.ran())
+	// The restore starts every ccy record, whatever its token; the cc record's word is refused.
+	exitCodeIs(t, h.run("restore"), 1, h)
+	if calls := startedSessions(h); len(calls) != len(recs) {
+		t.Fatalf("the restore starts every ccy record (%d): %v", len(calls), h.ran())
 	}
 }
 

@@ -176,6 +176,24 @@ func TestAStoppedSessionIsStartedByTheTablesLauncherNotItsRecordedPath(t *testin
 	}
 }
 
+// Plan 00266 Task A.5: a stopped session whose record holds a word no launch records is not
+// started; the restart names the word.
+func TestAStoppedSessionWithARefusedWordIsNotStarted(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	m.stop(m.find("ccy-proj"))
+	teamtest.MustWrite(m.t, filepath.Join(m.Root, "home/.local/state/ccy/sessions", "ccy-proj"),
+		"ccy-session-record 1\nname=ccy-proj\ndir="+m.Checkout()+"\nlauncher=/x/ccy\nprefix=ccy\nrestore=yes\n"+
+			"arg=--teams\narg=1@alpha\narg=--remove-network\n")
+	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
+		t.Fatalf("exit %d, want 1\n%s", got, m.ErrOut.String())
+	}
+	if len(m.started) != 0 {
+		t.Fatalf("started %q, want nothing", m.started)
+	}
+	m.errHas(t, "its recorded arguments hold '--remove-network'")
+}
+
 // A team restart acts on agent-bus teams only (a v2 team is refused, below), so a session of
 // one resumes v1's record: a teamchat record left in the seat store under the same session name
 // is another session's and is never read (Plan 00209 DESIGN-host-cc-v2.md section 4).

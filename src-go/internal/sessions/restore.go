@@ -41,6 +41,7 @@ const (
 	whyStartFailed        = "start-failed"
 	whyRecordUnreadable   = "record-unreadable"
 	whyLauncherUnknown    = "launcher-unknown"
+	whyArgumentsRefused   = "arguments-refused"
 	checkLineRestorable   = " RESTORABLE"
 	checkLineUnrestorable = " UNRESTORABLE "
 	// detailFresh is the manifest's detail for a session started fresh, not resumed.
@@ -169,6 +170,9 @@ func (a *App) planRestore(rec registry.Record, file string) restorePlan {
 	if err != nil {
 		return restorePlan{why: whyLauncherUnknown, sentence: err.Error() + keptAt(file)}
 	}
+	if err := registry.ReplayRefusal(rec); err != nil {
+		return restorePlan{why: whyArgumentsRefused, sentence: err.Error() + ". " + replayFix(rec) + keptAt(file)}
+	}
 	start, err := conversation.StartPlan(rec, conversation.Here(a.Getenv))
 	var argsErr *conversation.ArgsError
 	var elsewhere *conversation.ElsewhereError
@@ -180,6 +184,18 @@ func (a *App) planRestore(rec registry.Record, file string) restorePlan {
 		return restorePlan{why: whyNoConversation, sentence: err.Error() + keptAt(file), elsewhere: errors.As(err, &elsewhere)}
 	}
 	return restorePlan{start: start, launcher: launcher}
+}
+
+// replayFix is how a person gives a session refused by registry.ReplayRefusal the words it
+// should have: a ccy session is declared again (declare records only what a launch records), a
+// cc session is launched again by hand, since cc records the words it is given.
+func replayFix(rec registry.Record) string {
+	if rec.Prefix == prefixCC {
+		return "Launch it again with cc in " + rec.Dir +
+			" without it, or remove the record: ccy-sessions " + cmdForget + " " + rec.Name
+	}
+	return "A restore never replays it. Declare the session again with the words it should have: ccy-sessions " +
+		cmdDeclare + " --replace --name " + rec.Name + " " + rec.Dir + " -- <ccy arguments>"
 }
 
 // judgeRestore is planRestore with the refusals a launch would meet before its session starts

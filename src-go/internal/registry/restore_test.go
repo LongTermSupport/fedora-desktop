@@ -47,12 +47,12 @@ func TestResumeArgsGoldenCases(t *testing.T) {
 		{"after dash dash every selector is claude's", "", "ccy", []string{"--token", "t", "--", "--model", "opus", "--continue"}, "--token|t|--supervise|--|--model|opus|" + r},
 		{"supervise after dash dash is claude's", "", "ccy", []string{"--", "--supervise"}, "--supervise|--|--supervise|" + r},
 		{"cc gets the resume only", "", "cc", []string{"--model", "opus", "-c"}, "--model|opus|" + r},
-		{"cc has no ccy flags", "", "cc", []string{"--token", "-c"}, "--token|" + r},
+		{"cc keeps its bus", "", "cc", []string{"--bus", "-c"}, "--bus|" + r},
 		{"empty in", "", "ccy", nil, "--supervise|" + r},
 		{"compose started", "started", "ccy", []string{"--token", "t"}, "--token|t|--compose|start|--supervise|" + r},
 		{"compose running", "running", "ccy", nil, "--compose|start|--supervise|" + r},
 		{"compose declined", "declined", "ccy", []string{"--"}, "--compose|skip|--supervise|--|" + r},
-		{"compose is ccy's flag only", "started", "cc", []string{"-x"}, "-x|" + r},
+		{"compose is ccy's flag only", "started", "cc", []string{"--verbose"}, "--verbose|" + r},
 	}
 	for _, c := range cases {
 		got, err := ResumeArgs(c.compose, c.prefix, c.args, conversation)

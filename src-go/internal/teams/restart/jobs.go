@@ -250,8 +250,11 @@ func (r *Restart) prepareStart(j *job) {
 		return
 	}
 	launcher, err := registry.Launcher(r.Getenv, j.rec)
+	if err == nil {
+		err = registry.ReplayRefusal(j.rec)
+	}
 	if err != nil {
-		j.done(resultFailed, err.Error())
+		j.done(resultFailed, err.Error()+"; it is not started")
 		return
 	}
 	start, err := conversation.StartPlan(j.rec, conversation.Here(r.Getenv))
