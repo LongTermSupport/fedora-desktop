@@ -137,7 +137,70 @@ func (c *Cmd) PoolState(team, kind string) ([]seatchoice.Seat, error) {
 	if err != nil {
 		return nil, err
 	}
-	return PoolState(store, key, id, c.Sessions, kind)
+	seats, err := PoolState(store, key, id, c.Sessions, kind)
+	if err != nil {
+		return nil, err
+	}
+	roles, err := c.roles(id)
+	if err != nil {
+		return nil, err
+	}
+	for i := range seats {
+		seats[i].Role = roles[seats[i].Handle]
+	}
+	return seats, nil
+}
+
+// roles is each member handle's role in team, as its status record names it (Plan 00265 R90):
+// none for no record, or with no Status wired. A record that cannot be read is an error.
+func (c *Cmd) roles(team paths.TeamID) (map[string]string, error) {
+	out := map[string]string{}
+	if c.Status == nil {
+		return out, nil
+	}
+	rec, found, err := c.Status(team)
+	if err != nil {
+		return nil, fmt.Errorf("the roles of team %s: %w", team, err)
+	}
+	if !found {
+		return out, nil
+	}
+	for _, m := range rec.Members {
+		if m.Role != "" {
+			out[m.Handle] = m.Role
+		}
+	}
+	return out, nil
+}
+
+// SeatRoles is the role of each of checkout's pool seats of team that the team's status record
+// names, keyed by seat (the session name's role, Plan 00265 R90 Q7). checkout is a path, which
+// is resolved as the working directory is.
+func (c *Cmd) SeatRoles(checkout, team string) (map[string]string, error) {
+	id, err := paths.ParseTeamID(team)
+	if err != nil {
+		return nil, fmt.Errorf("team %s: %w", team, err)
+	}
+	store, key, _, err := Here(c.Getenv, func() (string, error) { return checkout, nil })
+	if err != nil {
+		return nil, err
+	}
+	names, err := PoolSeats(store, key, id)
+	if err != nil {
+		return nil, err
+	}
+	roles, err := c.roles(id)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, n := range names {
+		h, ok := proto.ParseHandle(n.String())
+		if role := roles[n.String()]; ok && role != "" {
+			out[h.Seat] = role
+		}
+	}
+	return out, nil
 }
 
 // errNoLife is a Cmd asked for seats to offer with no team lifecycle wired: a removed team's

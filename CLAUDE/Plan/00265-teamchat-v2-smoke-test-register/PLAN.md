@@ -90,7 +90,7 @@ the coordinator's worker restarts.
   ahead of its upstream after a fetch, and `--force` runs anyway. The batch after 24. Built in Go, since
   run.bash may not grow (bash-limits ratchet).
 
-- [ ] 🔄 **Task 4.2**: R90 and R89 (the owner, 26 Nov 10:44Z): a human never needs a seat
+- [x] ✅ **Task 4.2**: R90 and R89 (the owner, 26 Nov 10:44Z): a human never needs a seat
   number. A standing rule, built in this order:
 
   1. A detector first (Defence Before Fix): no human-facing text (a message, an error, a
@@ -110,10 +110,11 @@ the coordinator's worker restarts.
   (`seatchoice.Pick`). Step 1's text check, the gate `seat-number-text` (`src-go/qa/seattext`,
   blocking in `qa-changed` and `qa-all`, red at 47 then green), with its sweep of the docs, help
   and launcher messages (step 4's text half); step 2's bare `--teams` taking the one team this
-  checkout has seats in. Left: plain `cc`, the unattended pick, step 3 (restore), session names
-  by role. Report:
-  [subagent-reports/261126-task-4-2-build.md](subagent-reports/261126-task-4-2-build.md);
-  what is left: [HANDOFF-4.2.md](HANDOFF-4.2.md).
+  checkout has seats in. Then plain `cc` joining its seat, the unattended pick, step 3
+  (`ccy-sessions restore`'s seat pass and its dry run in words), session names by role, and rows
+  naming each seat's role and first prompt. Outside this task: why R89's records were missing,
+  and asking for a seat's own model in words. Report (parts one to four):
+  [subagent-reports/261126-task-4-2-build.md](subagent-reports/261126-task-4-2-build.md).
 
 ## Success Criteria
 

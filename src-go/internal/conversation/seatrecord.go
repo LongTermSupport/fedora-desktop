@@ -359,24 +359,49 @@ func NeverUsed(checkout, list string, where Where) (bool, error) {
 // that conversation's transcript is here. 0 is a seat with no conversation to resume: no record,
 // or one whose transcript is gone. A record that cannot be read is an error.
 func SeatLastRan(checkout string, s membership.Seat) (int64, error) {
+	ran, err := SeatRan(checkout, s)
+	return ran.MS, err
+}
+
+// Ran is what a seat ran in a checkout, read from its seat record.
+type Ran struct {
+	// Recorded is whether the seat has a record here at all.
+	Recorded bool
+	// MS is when its conversation last ran, Unix milliseconds, while the transcript is here; 0 is
+	// no conversation to resume (no record, or its transcript is gone).
+	MS int64
+	// Prompt is that conversation's first prompt, cut to one line (transcript.FirstPrompt); ""
+	// when MS is 0 or it has none.
+	Prompt string
+}
+
+// SeatRan is what s ran in checkout (Plan 00265 R89, R90): its record, when its conversation last
+// ran while the transcript is here, and that conversation's first prompt. A record or transcript
+// that cannot be read is an error.
+func SeatRan(checkout string, s membership.Seat) (Ran, error) {
 	r, found, err := readSeatRecord(checkout, s)
 	if err != nil || !found {
-		return 0, err
+		return Ran{}, err
 	}
 	dir, err := transcript.Dir(membership.KindCcy, checkout, "")
 	if err != nil {
-		return 0, err
+		return Ran{}, err
 	}
-	fi, err := os.Stat(filepath.Join(dir, r.SessionID+".jsonl"))
+	path := filepath.Join(dir, r.SessionID+".jsonl")
+	fi, err := os.Stat(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return 0, nil
+		return Ran{Recorded: true}, nil
 	case err != nil:
-		return 0, fmt.Errorf("the transcript of seat %s@%s's conversation: %w", s.Seat, s.Team, err)
+		return Ran{}, fmt.Errorf("the transcript of seat %s@%s's conversation: %w", s.Seat, s.Team, err)
 	case !fi.Mode().IsRegular():
-		return 0, nil
+		return Ran{Recorded: true}, nil
 	}
-	return r.WrittenMS, nil
+	prompt, err := transcript.FirstPrompt(path)
+	if err != nil {
+		return Ran{}, fmt.Errorf("the first prompt of seat %s@%s's conversation: %w", s.Seat, s.Team, err)
+	}
+	return Ran{Recorded: true, MS: r.WrittenMS, Prompt: prompt}, nil
 }
 
 // TranscriptOf is the ccy transcript of the conversation id in checkout, refused when it is not

@@ -236,9 +236,14 @@ server, `cc` in a project directory offers a detached one back, and `ccy-session
 both kinds. From the keyboard the two feel identical; only the container differs.
 
 A launch with `--teams` names its session for its seats instead:
-the launcher, the team, the project and the seat's number, so `ccy --teams team-a` in the
-fedora-desktop checkout, taking its fourth seat, starts `ccy-team-a-fedora-desktop-4`, and the tab, whose title is the session name, shows the
-team, the project, the seat and the launcher. tmux keeps no `.` or `:` in a session name, so the
+the launcher, the team, the project and the seat's role, so `ccy --teams team-a` in the
+fedora-desktop checkout, taking the team's coordinator seat, starts
+`ccy-team-a-fedora-desktop-coordinator`, and the tab, whose title is the session name, shows the
+team, the project, the role and the launcher. The role is the one the team's status record names
+for the seat; where two seats of the team in the checkout have the same role (two workers), each
+is named by its seat's number instead, which is the only thing that tells them apart, and a seat
+with no role known (an agent-bus team's) is named by its seat too. The name is only shown: a
+session is never chosen by typing it. tmux keeps no `.` or `:` in a session name, so the
 parts are joined with `-`, and the launcher stays first because the `ccy-`/`cc-` prefix is how
 the re-attach offer and `ccy-sessions` tell the two kinds apart. A `cc --teams <team>` whose seat
 is chosen inside the session keeps `cc-<project>`. The form has one home,
@@ -247,7 +252,7 @@ is chosen inside the session keeps `cc-<project>`. The form has one home,
 A launch that would start a new session takes over a stopped record of its own instead: when
 the session registry holds exactly one record of the same folder and launcher, for the same
 seats (in any order; none for a launch in none), whose session is not running, the session gets
-that record's name. So `ccy --teams team-a` taking that fourth seat, beside a session declared as `ccy-fixed` with
+that record's name. So `ccy --teams team-a` taking that coordinator seat, beside a session declared as `ccy-fixed` with
 `ccy-sessions declare` starts `ccy-fixed`, and its record replaces the declared one rather than
 standing beside it for the next restore to start too. The declared record's
 `fresh-if-no-conversation` mark is kept; its arguments become this launch's. Two such records
@@ -340,6 +345,15 @@ is wanted, `ccy-sessions forget <name>` removes it (refused for a live session).
 `ccy-sessions restore NAME...` restores and judges only the named records, so a stale
 neighbour cannot fail it; `restore --dry-run` prints `would fail <name>: <why>` on stdout for
 each record that would fail, and exits 1 (fedora-desktop#396).
+
+**A restore brings back team seats as well as sessions.** After the records, `ccy-sessions restore` (with no names) looks at every checkout that holds agent team seats. It starts each
+teamchat seat that has a conversation recorded there, that no running session holds and that no
+record covers, in its checkout, resuming that conversation. Each seat gets a record of its own,
+so later boots restore it like any other session. A seat is reported in words:
+`would start the coordinator of <team> in <checkout>, resuming "<first prompt>" (last ran 2 hours ago)`.
+A seat whose conversation's transcript is gone, or a host (`cc`) seat, is not started; the
+restore says so and names the launch that brings it back (`ccy --teams <team>` or
+`cc --teams <team>` in that checkout). None of these counts as a failed restore.
 
 **A record resumes by its recorded id.** A restore appends `--resume <id>`, so a session
 launched without `--continue` comes back on the conversation it recorded, not fresh

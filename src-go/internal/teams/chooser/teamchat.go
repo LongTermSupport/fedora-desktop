@@ -42,9 +42,10 @@ type Teamchat struct {
 	// Pool is this checkout's pool seats of team of kind, each with the session a take would be
 	// refused for: the only source a seat is chosen from, so a held seat is never taken (issue 423).
 	Pool func(team, kind string) ([]seatchoice.Seat, error)
-	// LastRan is when seat of team last ran in checkout (conversation.SeatLastRan): 0 for a seat
-	// with no conversation to resume there. Nil is every seat never used (Plan 00265 R90).
-	LastRan func(checkout, team, seat string) (int64, error)
+	// LastRan is when seat of team last ran in checkout and its conversation's first prompt
+	// (conversation.SeatRan): 0 and "" for a seat with no conversation to resume there. Nil is
+	// every seat never used (Plan 00265 R90, Q5).
+	LastRan func(checkout, team, seat string) (int64, string, error)
 	// Reattach puts this terminal on the running session that holds a seat; an error says why it
 	// cannot (open in another terminal, not running).
 	Reattach func(ctx context.Context, session string) error
@@ -156,8 +157,12 @@ func pickedWords(team, memberType string, s seatchoice.Seat, of int, nowMS int64
 	switch {
 	case of == 1:
 		return "Team " + team + " is on teamchat: this checkout's one " + memberType + " seat of it."
+	case s.Used() && s.Prompt != "":
+		return "Team " + team + " is on teamchat: resuming " + seatchoice.InWords(s, team) + ", which last ran here " +
+			seatchoice.Ago(nowMS, s.LastRanMS) + `: "` + s.Prompt + `".`
 	case s.Used():
-		return "Team " + team + " is on teamchat: resuming this checkout's seat of it that last ran " + seatchoice.Ago(nowMS, s.LastRanMS) + "."
+		return "Team " + team + " is on teamchat: resuming " + seatchoice.InWords(s, team) + ", which last ran here " +
+			seatchoice.Ago(nowMS, s.LastRanMS) + "."
 	}
 	return "Team " + team + " is on teamchat: a free seat of it in this checkout (none has run here yet)."
 }
@@ -178,7 +183,7 @@ func (c *Chooser) poolOf(ctx context.Context, team, memberType string) ([]seatch
 		return nil, c.failed(err)
 	}
 	for i := range seats {
-		if seats[i].LastRanMS, err = c.Teamchat.LastRan(here.Top, team, seats[i].Name); err != nil {
+		if seats[i].LastRanMS, seats[i].Prompt, err = c.Teamchat.LastRan(here.Top, team, seats[i].Name); err != nil {
 			return nil, c.failed(fmt.Errorf("when seat %s of %s last ran here: %w", seats[i].Name, team, err))
 		}
 	}

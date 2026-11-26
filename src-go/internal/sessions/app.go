@@ -26,6 +26,9 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/system"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
@@ -186,6 +189,9 @@ type App struct {
 	// restore --check asks them as a ccy launch would (fedora-desktop#284).
 	Hostname func() (string, error)
 	LookPath func(string) (string, error)
+	// TeamStatus reads a teamchat team's status record, which names each seat's role, for the
+	// restore's seat pass (Plan 00265 R89).
+	TeamStatus func(paths.TeamID) (status.Record, bool, error)
 
 	cfg      Config
 	writeErr error // the first failed write to Stdout through out
@@ -349,6 +355,9 @@ func (a *App) wireSeams() {
 	}
 	if a.LookPath == nil {
 		a.LookPath = exec.LookPath
+	}
+	if a.TeamStatus == nil {
+		a.TeamStatus = system.StatusRecord
 	}
 }
 

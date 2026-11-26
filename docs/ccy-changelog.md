@@ -17,6 +17,21 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.97 — container 2.84.98
+
+- `ccy-sessions restore` (no names) also brings back team seats (Plan 00265 R89). After the
+  records, it starts each teamchat seat in a seat checkout that has a conversation recorded
+  there, that no running session holds and that no record covers. Each seat gets a record of its
+  own and is said in words, such as `would start the coordinator of <team> in <checkout>,
+  resuming "<first prompt>"`. A seat whose transcript is gone, or a host seat, is named with the
+  launch that brings it back.
+- The seat question and the line a launch prints name a seat by its role and its
+  conversation's first prompt (`The coordinator of <team>: last ran 2 hours ago, "..."`), never
+  by its number (R90, Q5).
+- A team session is named by its seat's role when no other seat of the team in the checkout has
+  that role (`ccy-<team>-<project>-coordinator`); the number stays only to tell two workers
+  apart (R90, Q7).
+
 ## 3.124.96 — container 2.84.98
 
 - teamchat: a member lists each event it drops that was addressed to it (its drop ledger, kept

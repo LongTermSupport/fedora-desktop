@@ -413,6 +413,9 @@ func (a *App) restoreSessions(ctx context.Context, dryRun bool, names []string) 
 			return scopeErr
 		}
 		a.sayf("ccy session registry: nothing to restore (%s does not exist).\n", regdir)
+		if len(names) == 0 {
+			run.seatPass(ctx, registry.Reading{})
+		}
 		run.writeManifest(manifest)
 		return run.result()
 	}
@@ -486,6 +489,9 @@ func (r *restoreRun) restoreAll(ctx context.Context, reading registry.Reading, m
 	}
 	for i, rec := range reading.Records {
 		r.record(ctx, rec, reading.Files[i])
+	}
+	if len(r.names) == 0 {
+		r.seatPass(ctx, reading)
 	}
 	r.writeManifest(manifest)
 	if len(reading.Records)+len(reading.Problems) == 0 {

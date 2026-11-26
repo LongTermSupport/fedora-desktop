@@ -8,8 +8,9 @@
 //	S1  Order: numbered seats first, by number, then named ones by name (v1's _seat_order).
 //	S2  Default: the free seat that last ran here (the newest), else the lowest free seat; none
 //	    when every seat is held.
-//	S3  Row: the seat in words (Plan 00265 R90), never its name or handle: when it last ran here,
-//	    free with nothing to resume, or the session holding it with the re-attach.
+//	S3  Row: the seat in words (Plan 00265 R90), never its name or handle: its role in the team
+//	    (Describe), when it last ran here and its conversation's first prompt (Q5), free with
+//	    nothing to resume, or the session holding it with the re-attach.
 //	S4  WaysOn: every seat in words, then the plain launch by team (which finds or asks for the
 //	    seat), a held seat's re-attach, and a new seat (AddCommand, `ccy-teams seats add <team>`).
 //	S9  Pick: the seat a launch takes without asking: the one free seat with a conversation
@@ -39,6 +40,11 @@ type Seat struct {
 	// LastRanMS is when the seat's conversation last ran in this checkout (its seat record, while
 	// the transcript is here), Unix milliseconds; 0 is a seat with no conversation to resume.
 	LastRanMS int64
+	// Role is the seat's role in the team, as the team's status record names its member
+	// (coordinator, worker); "" where none is known.
+	Role string
+	// Prompt is the first prompt of the conversation it last ran, cut to one line; "" for none.
+	Prompt string
 }
 
 // Held is whether a session holds the seat.
@@ -111,17 +117,51 @@ func Pick(seats []Seat) (Seat, bool) {
 	return Seat{}, false
 }
 
-// Row is the seat as the chooser shows it, in words: when it last ran here (nowMS is the time
-// now), free with nothing to resume, or the session holding it with the re-attach. It never names the seat
-// or its handle (Plan 00265 R90): the chooser maps the row back to the seat.
+// Row is the seat as the chooser shows it, in words: its role, when it last ran here (nowMS is
+// the time now) and its first prompt, free with nothing to resume, or the session holding it with
+// the re-attach. It never names the seat or its handle (Plan 00265 R90): the chooser maps the row
+// back to the seat.
 func Row(s Seat, team string, nowMS int64) string {
 	switch {
+	case s.Held() && s.Role != "":
+		return "Running now in session " + s.HeldBy + " (" + InWords(s, team) + "): re-attach it"
 	case s.Held():
 		return "Running now in session " + s.HeldBy + ": re-attach it"
+	case s.Used() && s.Prompt != "":
+		return Describe(s, team) + ": last ran " + Ago(nowMS, s.LastRanMS) + `, "` + s.Prompt + `"`
 	case s.Used():
-		return "A seat of " + team + ": last ran " + Ago(nowMS, s.LastRanMS)
+		return Describe(s, team) + ": last ran " + Ago(nowMS, s.LastRanMS)
+	case s.Role != "" && s.Role != roleCoordinator:
+		return "A free " + s.Role + " seat of " + team
+	case s.Role == roleCoordinator:
+		return "The coordinator of " + team + ": free, with nothing to resume"
 	}
 	return "A free seat of " + team
+}
+
+// roleCoordinator is the role a team has one of.
+const roleCoordinator = "coordinator"
+
+// Describe is the seat in words by its role in team (Plan 00265 R90): "The coordinator of
+// <team>", "A worker of <team>", or "A seat of <team>" with no role known.
+func Describe(s Seat, team string) string {
+	switch s.Role {
+	case "":
+		return "A seat of " + team
+	case roleCoordinator:
+		return "The coordinator of " + team
+	}
+	return "A " + s.Role + " of " + team
+}
+
+// InWords is Describe inside a sentence: "the coordinator of <team>".
+func InWords(s Seat, team string) string { return lowerFirst(Describe(s, team)) }
+
+func lowerFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToLower(s[:1]) + s[1:]
 }
 
 // Ago is how long before nowMS thenMS was, in words.

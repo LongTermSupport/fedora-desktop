@@ -382,7 +382,9 @@ Usage:
   ccy-teams internal session-name <ccy|cc> <project> <seats>
                                    print the name of the tmux session a launch starts: for
                                    <seats> (a <seat>@<team>,... list, read as seat-check reads
-                                   it) <launcher>-<team>-<project>-<seat>, several seats joined
+                                   it) <launcher>-<team>-<project>-<role> where no other seat of
+                                   the team here has that role (coordinator, worker), else
+                                   <launcher>-<team>-<project>-<seat>, several seats joined
                                    with '_'; with no seat, a list seat-check refuses, a team
                                    alone or a name over 120 characters, <launcher>-<project>. The first of the name,
                                    <name>-2, <name>-3 ... no session on ccy's tmux server has.

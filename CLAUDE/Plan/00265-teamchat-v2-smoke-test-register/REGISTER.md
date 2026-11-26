@@ -1816,7 +1816,9 @@ before the move to v2. Filled in as causes are found.
     and `ccy-sessions restore` says that teamchat seats are restored by it.
   - Find and fix why the session records were missing.
 - **Severity:** high (a reboot loses every seat's session, and the documented route restores
-  none). **Issue:** TBF. **State:** open; planned with R90 as PLAN Task 4.2.
+  none). **Issue:** TBF. **State:** the one command is built (PLAN Task 4.2):
+  `ccy-sessions restore` starts every seat no record covers, and its dry run speaks in words.
+  Why the session records were missing is still open, outside Task 4.2.
 
 ## R90: owner standing rule — a human never needs a seat number
 
@@ -1839,10 +1841,12 @@ before the move to v2. Filled in as causes are found.
   - Built, part two: the gate `seat-number-text` over docs, embedded help and the launchers'
     messages (same shapes as the Go rule; red 47, then green), with the docs, help and launcher
     rewrite; a bare `ccy --teams` takes the one team this checkout has seats in.
-  - Still to build: plain `cc` joining its seat; the unattended pick; R89's restore seat pass
-    and its dry run; session names by role.
+  - Built, parts three and four: plain `cc` joins its seat; the unattended pick; R89's restore
+    seat pass and its dry run in words; session names by role; rows naming each seat's role
+    and its conversation's first prompt.
 - **Severity:** high (an owner rule; today's restore asks for exactly what it forbids).
-  **Issue:** TBF. **State:** in progress (parts one and two built).
+  **Issue:** TBF. **State:** fixed (PLAN Task 4.2 ✅). Asking for a seat's own model in words
+  is not built (`seats model` takes a seat, for scripts).
 
 ## R91: an update leaves a host cc seat unstartable, with no migration
 

@@ -2,11 +2,15 @@
 // name of the tmux session a ccy or cc launch starts, which is also what the tab shows
 // (files/etc/tmux.conf titles the terminal with #S).
 //
-//   - N1. A launch in seats is named for them: `<launcher>-<team>-<project>-<seat>`, so
-//     `ccy --teams 4@team-a` in the fedora-desktop checkout starts
-//     `ccy-team-a-fedora-desktop-4`. Several seats are joined with '_' in list order
-//     (`ccy-alpha-proj-1_beta-proj-3`). Team and seat names hold only letters, digits and '-',
-//     so nothing is mapped; tmux would not keep a '.' or ':' in a session name.
+//   - N1. A launch in seats is named for them: `<launcher>-<team>-<project>-<role>`, where the
+//     seat's role (its team's status record, Command.Roles) is one no other pool seat of the team
+//     in this checkout has, else `<launcher>-<team>-<project>-<seat>` (Plan 00265 R90, Q7: the
+//     number is kept only to tell two seats of one role apart). So the coordinator's seat of
+//     team-a in the fedora-desktop checkout starts `ccy-team-a-fedora-desktop-coordinator`, and
+//     its second worker `ccy-team-a-fedora-desktop-4`. An agent-bus team has no role here.
+//     Several seats are joined with '_' in list order (`ccy-alpha-proj-1_beta-proj-3`). Team and
+//     seat names and roles hold only letters, digits and '-', so nothing is mapped; tmux would
+//     not keep a '.' or ':' in a session name. A role lookup that fails is exit 1.
 //   - N2. The launcher (ccy for a container seat, cc for a host one) comes first, not last as
 //     in the owner's example (`team-a · fedora-desktop.4 · ccy`): the `ccy-` and `cc-` prefix
 //     is how the re-attach offer, ccy-sessions and its declare tell a container session from a
@@ -48,6 +52,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -65,6 +70,64 @@ var (
 // Name is the session name for a launch of launcher in project and seats (a canonical
 // `<seat>@<team>,...` list, or empty), and a note for stderr when the seats were not used.
 func Name(launcher, project, seats string) (string, string, error) {
+	return NameBy(launcher, project, seats, nil)
+}
+
+// Labels is the word each seat of a list is named by, keyed by `<seat>@<team>`: its role where
+// the role is unique among the checkout's pool seats of the team (N1); a seat not in it is named
+// by its seat.
+type Labels map[string]string
+
+// RolesOf answers checkout's pool seats of team with their roles, keyed by seat
+// (system.Cmd.SeatRoles).
+type RolesOf func(checkout, team string) (map[string]string, error)
+
+// roleWord is a role that can stand in a session name for its seat.
+var roleWord = regexp.MustCompile(`^[a-z][a-z-]*$`)
+
+// RoleLabels is the label of each seat of seats in checkout (N1): a seat whose role no other pool
+// seat of its team has is named by the role. A team outside teamchat's grammar (an agent-bus
+// team) is not asked; a list the seat check would refuse has none. A lookup that fails is an
+// error.
+func RoleLabels(checkout, seats string, roles RolesOf) (Labels, error) {
+	labels := Labels{}
+	parsed, ok := parseSeats(seats)
+	if !ok || roles == nil {
+		return labels, nil
+	}
+	asked := map[string]map[string]string{}
+	var err error
+	for _, s := range parsed {
+		if _, idErr := paths.ParseTeamID(s.Team); idErr != nil {
+			continue
+		}
+		byTeam, seen := asked[s.Team]
+		if !seen {
+			if byTeam, err = roles(checkout, s.Team); err != nil {
+				return nil, fmt.Errorf("the roles of team %s's seats here: %w", s.Team, err)
+			}
+			asked[s.Team] = byTeam
+		}
+		role := byTeam[s.Seat]
+		if roleWord.MatchString(role) && countOf(byTeam, role) == 1 {
+			labels[s.Seat+"@"+s.Team] = role
+		}
+	}
+	return labels, nil
+}
+
+func countOf(roles map[string]string, role string) int {
+	n := 0
+	for _, r := range roles {
+		if r == role {
+			n++
+		}
+	}
+	return n
+}
+
+// NameBy is Name with each seat named by its label where it has one (N1).
+func NameBy(launcher, project, seats string, labels Labels) (string, string, error) {
 	if launcher != "ccy" && launcher != "cc" {
 		return "", "", fmt.Errorf("%w: the launcher is %q, not ccy or cc", errUsage, launcher)
 	}
@@ -72,7 +135,7 @@ func Name(launcher, project, seats string) (string, string, error) {
 		return "", "", fmt.Errorf("%w: the project %q is not letters, digits, '_' and '-'", errUsage, project)
 	}
 	plain := launcher + "-" + project
-	parts, ok := seatParts(project, seats)
+	parts, ok := seatParts(project, seats, labels)
 	if !ok {
 		return plain, "", nil
 	}
@@ -83,20 +146,31 @@ func Name(launcher, project, seats string) (string, string, error) {
 	return named, "", nil
 }
 
-// seatParts is `<team>-<project>-<seat>` for every seat of the list, the owner's order (team,
-// project, seat number) and the one place to change it. The list is read as the seat check
+// seatParts is `<team>-<project>-<seat>` for every seat of the list, the seat named by its label
+// where it has one, the owner's order (team, project, seat) and the one place to change it. The list is read as the seat check
 // reads it (whitespace removed, membership.ParseSeats), so cc's list as typed and ccy's
 // canonical one name a session alike; false when it names no seat or the check would refuse it.
-func seatParts(project, seats string) ([]string, bool) {
-	parsed, err := membership.ParseSeats(strings.Join(strings.Fields(seats), ""))
-	if err != nil || len(parsed) == 0 {
+func seatParts(project, seats string, labels Labels) ([]string, bool) {
+	parsed, ok := parseSeats(seats)
+	if !ok {
 		return nil, false
 	}
 	parts := make([]string, 0, len(parsed))
 	for _, s := range parsed {
-		parts = append(parts, s.Team+"-"+project+"-"+s.Seat)
+		label := s.Seat
+		if l := labels[s.Seat+"@"+s.Team]; l != "" {
+			label = l
+		}
+		parts = append(parts, s.Team+"-"+project+"-"+label)
 	}
 	return parts, true
+}
+
+// parseSeats is the list as the seat check reads it (whitespace removed, membership.ParseSeats);
+// false when it names no seat or the check would refuse it.
+func parseSeats(seats string) ([]membership.Seat, bool) {
+	parsed, err := membership.ParseSeats(strings.Join(strings.Fields(seats), ""))
+	return parsed, err == nil && len(parsed) > 0
 }
 
 // Free is the first of base, base-2, base-3 ... that no session in taken has.
@@ -161,6 +235,9 @@ func Takeover(reading registry.Reading, launcher, dir, seats string, running []t
 // Command is `ccy-teams internal session-name`.
 type Command struct {
 	Server Server
+	// Roles answers the checkout's pool seats of a team with their roles (N1); nil names every
+	// seat by its seat.
+	Roles RolesOf
 	// Records reads the session registry.
 	Records func() (registry.Reading, error)
 	Stdout  io.Writer
@@ -173,10 +250,18 @@ func (c Command) Run(ctx context.Context, args []string) term.ExitCode {
 	if len(args) != 4 {
 		return c.say(term.ExitUsage, errUsage.Error()+". See ccy-teams --help.")
 	}
-	base, note, err := Name(args[0], args[1], args[2])
+	_, _, err := Name(args[0], args[1], args[2])
 	if err == nil && (!filepath.IsAbs(args[3]) || filepath.Clean(args[3]) != args[3]) {
 		err = fmt.Errorf("%w: the checkout %q is not an absolute path", errUsage, args[3])
 	}
+	if err != nil {
+		return c.say(term.ExitUsage, err.Error()+". See ccy-teams --help.")
+	}
+	labels, err := RoleLabels(args[3], args[2], c.Roles)
+	if err != nil {
+		return c.say(term.ExitFailure, "no session name could be chosen: "+err.Error())
+	}
+	base, note, err := NameBy(args[0], args[1], args[2], labels)
 	if err != nil {
 		return c.say(term.ExitUsage, err.Error()+". See ccy-teams --help.")
 	}

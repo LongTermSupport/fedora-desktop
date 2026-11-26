@@ -20,8 +20,9 @@
 #     the same claude cannot happen, whoever races whom.
 #
 # Session names are <launcher>-<project>, then <launcher>-<project>-2, and so on; a launch in
-# team seats is named for them instead, <launcher>-<team>-<project>-<seat> (ccy-teams internal
-# session-name), so the tab, which tmux titles with the session name, shows the seat. A
+# team seats is named for them instead, <launcher>-<team>-<project>-<role>, or -<seat> where two
+# seats share a role (ccy-teams internal session-name), so the tab, which tmux titles with the
+# session name, shows the seat. A
 # container is not named after its session: it is <project>_yolo, tied to the session by its
 # ccy-session label.
 # Running ccy in a project that has a detached session — the one a dead terminal left

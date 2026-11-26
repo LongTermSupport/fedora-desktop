@@ -87,8 +87,12 @@ Usage:
                                                   A record with no conversation to resume and
                                                   not marked fresh-if-no-conversation is
                                                   stale: no restore can start it, and its
-                                                  message says to forget it
-  ccy-sessions restore --check                    start nothing: judge every record the next
+                                                  message says to forget it. With no NAME,
+                                                  each teamchat seat in a seat checkout that
+                                                  has a conversation there, no running
+                                                  session and no record is then started from
+                                                  a record of its own, and said in words
+  ccy-sessions restore --check                   start nothing: judge every record the next
                                                   boot's restore would start, live sessions
                                                   included, one line each on stdout:
                                                   "<name> RESTORABLE" or
