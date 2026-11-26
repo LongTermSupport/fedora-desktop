@@ -3,6 +3,7 @@ package privatenames
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -74,8 +75,13 @@ type Env struct {
 const usageText = `usage: qa-private-names COMMAND
 
 Install-specific names (agent teams, seats, containers, hosts, client projects) must not reach
-this public repository. The terms are learned from the agent bus and the machine's names, kept in
-<git dir>/private-terms, and never printed: findings name the place and the source only.
+this public repository. The terms are learned from both agent buses ('pingbus status' and
+'teamchat status': this session's own teams and their members only) and the machine's names, kept
+in <git dir>/private-terms, and never printed: findings name the place and the source only.
+
+No bus client reports the other teams its bus host serves, so those, and any other name the
+owner wants blocked, go in <git dir>/private-terms-pinned (one per line, # lines skipped). A
+pinned name always blocks, whatever its length, and is never copied into the learned list.
 
   refresh            learn the terms and write the list; print the count
   staged             the added lines of the staged change (pre-commit)
@@ -93,9 +99,10 @@ when the bus's members change. Terms named in <git dir>/private-terms-export-ski
 line, by the owner's decision) are left out of it and still blocked here.
 
 In a ccy container a list that cannot be built is exit 2, never a skip. A session on no team
-(pingbus status exits 78) has no team names to learn and judges against the machine's names; the
-list is unbuilt only when no name at all was learned. Elsewhere, with no agent bus and no list,
-the scan says so and passes. Exit codes: 0 clean, 1 findings, 2 cannot judge.
+(pingbus status exits 78, teamchat status 69) has no team names to learn and judges against the
+machine's names; the list is unbuilt when no name at all was learned, or when a bus reported a
+session but taught no team or member name and nothing is pinned. Elsewhere, with no agent bus and
+no list, the scan says so and passes. Exit codes: 0 clean, 1 findings, 2 cannot judge.
 `
 
 // Main runs the command and returns the exit status.
@@ -193,50 +200,157 @@ func (a app) terms(errOut *emit.Emitter) ([]Term, ExitCode, bool) {
 	if err != nil {
 		return nil, fail(errOut, err), false
 	}
-	status, found, err := a.busStatus()
+	bus, err := a.busStatus()
 	if err != nil {
 		return nil, fail(errOut, err), false
 	}
-	fresh := Derive(Inputs{Status: status, Hostnames: a.env.Hostnames, Public: public})
+	fresh := Derive(Inputs{Status: bus.status, Hostnames: a.env.Hostnames, Public: public})
 	if a.env.Container && len(fresh) == 0 {
-		return nil, fail(errOut, fmt.Errorf("in a ccy container the private-name guard learned no names (agent bus found: %t, host names: %d); a gate that cannot build its list has not passed, it has not run", found, len(a.env.Hostnames))), false
+		return nil, fail(errOut, fmt.Errorf("in a ccy container the private-name guard learned no names (agent bus found: %t, host names: %d); a gate that cannot build its list has not passed, it has not run", bus.found, len(a.env.Hostnames))), false
 	}
 	stored, err := a.stored(listPath)
 	if err != nil {
 		return nil, fail(errOut, err), false
 	}
-	terms := withoutPublic(Union(fresh, withoutFirstWords(stored, fresh)), public)
-	if len(terms) == 0 {
-		return nil, ExitOK, true
+	pinned, err := a.pinned(filepath.Join(strings.TrimSpace(common), PinnedName))
+	if err != nil {
+		return nil, fail(errOut, err), false
 	}
-	if werr := a.env.WriteFile(listPath, []byte(Format(terms))); werr != nil {
-		return nil, fail(errOut, fmt.Errorf("the term list cannot be written: %w", werr)), false
+	learned := withoutPublic(Union(fresh, withoutFirstWords(stored, fresh)), public)
+	if a.env.Container && bus.session && !holdsBusName(learned) && len(pinned) == 0 {
+		return nil, fail(errOut, errors.New("in a ccy container the agent bus reported a session but taught the private-name guard no team or member name, so the session's own team is unguarded; put the team's name in <git dir>/"+PinnedName+" (one per line)")), false
 	}
-	return terms, ExitOK, true
+	if len(learned) > 0 {
+		if werr := a.env.WriteFile(listPath, []byte(Format(learned))); werr != nil {
+			return nil, fail(errOut, fmt.Errorf("the term list cannot be written: %w", werr)), false
+		}
+	}
+	return Union(learned, pinned), ExitOK, true
 }
+
+// holdsBusName is whether terms hold a name learned from an agent bus.
+func holdsBusName(terms []Term) bool {
+	for _, t := range terms {
+		if t.Source == SourceTeam || t.Source == SourceMember {
+			return true
+		}
+	}
+	return false
+}
+
+// pinned is the owner's pinned list: one name per line, `#` lines and blank lines ignored. A
+// pinned name always blocks (no length, generic-word or public-token rule drops it), and it is
+// never copied into the learned list, so deleting the pin ends the block. An absent list is
+// empty; an unreadable one is an error.
+func (a app) pinned(path string) ([]Term, error) {
+	data, err := a.env.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("the pinned list %s is unreadable: %w", PinnedName, err)
+	}
+	var out []Term
+	for line := range strings.SplitSeq(string(data), "\n") {
+		name := strings.TrimSpace(line)
+		if name != "" && !strings.HasPrefix(name, "#") {
+			out = append(out, Term{Source: SourcePinned, Text: name})
+		}
+	}
+	return out, nil
+}
+
+// PinnedName is the owner's pinned list's file name inside the git directory, beside the term
+// list and as untracked: the names no bus client in a container can report (another team on the
+// same bus host, a client), blocked always. Unlike ExportSkipName it adds terms; it removes none.
+const PinnedName = "private-terms-pinned"
+
+// teamchatNoRuntimeExit is `teamchat status` outside a member session (exits.ExitNoRuntime).
+const teamchatNoRuntimeExit = 69
 
 // busNoTeamExit is the status `pingbus status` exits with in a session that is on no team: an
 // ordinary state, since a session need not be launched on one, and it has no team or member name
 // to report.
 const busNoTeamExit = 78
 
-// busStatus is the agent bus's status report. A client that cannot be started is "not found"; one
-// that answers "no team" has nothing to report, which is an empty status; one that runs and fails
-// otherwise is an error, since a half-known list would read as a pass. A session with no team
-// still learns the machine's host names, and matcher refuses a container that learns no names.
-func (a app) busStatus() (string, bool, error) {
-	res, err := a.run(proc.Cmd{Argv: []string{"pingbus", "status"}, Dir: a.env.Cwd})
-	if err == nil {
+// busReport is what the agent buses said: the status lines Derive reads, whether any bus client
+// could be started, and whether one answered for a session (so had a team to report).
+type busReport struct {
+	status         string
+	found, session bool
+}
+
+// busStatus asks both agent buses for this session's teams: v1 (`pingbus status`, TSV lines) and
+// v2 (`teamchat status`, JSON Lines records, turned into the same lines). Each reports only the
+// session's own teams and their members; no bus client in a container can name the other teams
+// its bus host serves, which is what the owner's pinned list is for. A client that cannot be
+// started is "not found"; one that answers "no team" (pingbus 78) or "not a member session"
+// (teamchat 69) has nothing to report; one that runs and fails otherwise is an error, since a
+// half-known list would read as a pass. A session with no team still learns the machine's host
+// names, and terms refuses a container that learns no names.
+func (a app) busStatus() (busReport, error) {
+	var rep busReport
+	clients := []struct {
+		name    string
+		noTeam  int
+		toLines func(string) (string, error)
+	}{
+		{"pingbus", busNoTeamExit, func(s string) (string, error) { return s, nil }},
+		{"teamchat", teamchatNoRuntimeExit, teamchatLines},
+	}
+	for _, c := range clients {
+		res, err := a.run(proc.Cmd{Argv: []string{c.name, "status"}, Dir: a.env.Cwd})
+		if err != nil {
+			continue
+		}
+		rep.found = true
 		switch res.Code {
 		case 0:
-			return res.Stdout, true, nil
-		case busNoTeamExit:
-			return "", true, nil
+			lines, err := c.toLines(res.Stdout)
+			if err != nil {
+				return busReport{}, err
+			}
+			rep.status += lines
+			rep.session = true
+		case c.noTeam:
 		default:
-			return "", true, fmt.Errorf("pingbus status exited %d", res.Code)
+			return busReport{}, fmt.Errorf("%s status exited %d", c.name, res.Code)
 		}
 	}
-	return "", false, nil
+	return rep, nil
+}
+
+// teamchatRecord is the part of a `teamchat status` record that names a team or a member.
+type teamchatRecord struct {
+	Kind   string `json:"kind"`
+	Team   string `json:"team"`
+	Name   string `json:"name"`
+	Handle string `json:"handle"`
+}
+
+// teamchatLines turns teamchat's team and member records into Derive's TEAM and MEMBER lines; a
+// line that is not a JSON record is an error (by its number, never its text).
+func teamchatLines(out string) (string, error) {
+	var b strings.Builder
+	for n, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var rec teamchatRecord
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			return "", fmt.Errorf("teamchat status output is unreadable at line %d", n+1)
+		}
+		switch rec.Kind {
+		case "team":
+			b.WriteString("TEAM\t" + rec.Team + "\t" + rec.Handle + "\n")
+			if rec.Name != rec.Team {
+				b.WriteString("TEAM\t" + rec.Name + "\n")
+			}
+		case "member":
+			b.WriteString("MEMBER\t" + rec.Team + "\t" + rec.Handle + "\n")
+		}
+	}
+	return b.String(), nil
 }
 
 // stored is the list the last run left; an absent one is empty, an unreadable or damaged one an error.
