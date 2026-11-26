@@ -613,7 +613,10 @@ filled in as each cause is known.
   - (5) two suites without `set -e` now stop when `mktemp` fails.
   - Each code fix was red first and is green now.
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
-  fixed on v2-smoke for the batch after 13 (not yet on F44); (b) is for the daemon's upstream.
+  the parts through ccy 3.124.72 (fsx's exclusive temporary, remove forgetting seat records and
+  never following a link above them, `--fresh` for an unused seat, rule `temp-not-exclusive`)
+  are on F44 (`e67e28d72`, 26 Nov). The lock port, (3), the widening and the review fixes
+  (ccy 3.124.73 to 3.124.77) are on v2-smoke for the next batch; (b) is for the daemon's upstream.
   The six branches (ci/v2-batch3, 3b, 3c and the three old agent branches) wait for the
   owner's yes to delete them, asked by the coordinator once this is green.
 
@@ -685,8 +688,8 @@ filled in as each cause is known.
   reads questions. The engine's fake `Refetch` now keeps each fetch's room. No rule: the
   sweep found one instance, and the wrong and right sites share a shape
   ([R68](reports/R68.md)).
-- **Severity:** high (breaks the documented answer path). **Issue:** TBF. **State:** fixed on
-  v2-smoke, batch 20 (`f59504a18`); not yet run live.
+- **Severity:** high (breaks the documented answer path). **Issue:** TBF. **State:** on F44
+  (`e67e28d72`, 26 Nov; batch 20, `f59504a18`); not yet run live.
 
 ## R67: the status-line golden test reports a process that died as it was killed as outliving the render
 
@@ -702,8 +705,8 @@ filled in as each cause is known.
   well short of the grandchild's 60 s sleep); a passing step waits only until the process ends.
   `TestOutlivesDecision` was red on the old decision. The sweep found no other instance
   ([R67](reports/R67.md)).
-- **Severity:** low (a false red on an unrelated batch). **Issue:** TBF. **State:** fixed on
-  v2-smoke, batch 18 (6b300c2a0).
+- **Severity:** low (a false red on an unrelated batch). **Issue:** TBF. **State:** on F44
+  (`e67e28d72`, 26 Nov; batch 18, 6b300c2a0).
 
 ## R66: the edit-time lint hook lints the project-rule fixtures, which carry deliberate findings
 
@@ -733,8 +736,8 @@ filled in as each cause is known.
   later (v1 `written_ms` against v2 `written_ms`), which fixes a session already running without
   a relaunch. Repair on such a session is now refused by name as a v2 verb. Report:
   [reports/R65.md](reports/R65.md).
-- **Severity:** high (the printed repair hint does harm). **Issue:** TBF. **State:** fixed on
-  v2-smoke, batch 17 (`76d9bf5f0`); not yet run live. Live check: the team confirms after its reboot
+- **Severity:** high (the printed repair hint does harm). **Issue:** TBF. **State:** on F44
+  (`e67e28d72`, 26 Nov; batch 17, `76d9bf5f0`); not yet run live. Live check: the team confirms after its reboot
   that the directory does not come back and the session lists its teams.
 
 ## R64: a link restart re-judges the questions room and rate-drops the owner's posts
@@ -771,7 +774,7 @@ filled in as each cause is known.
   so). A post past the limit is delivered, counted in `status`'s `counts.human_over_limit` and
   logged with one line naming it. Report: [reports/R64.md](reports/R64.md).
 - **Severity:** high (the owner's words can be dropped for good). **Issue:** TBF. **State:**
-  fixed on v2-smoke, batch 13 (544ebda3d); the human exemption on v2-smoke, batch 16
+  on F44 (`e67e28d72`, 26 Nov): batch 13 (544ebda3d) and the human exemption, batch 16
   (`d9a4fcc80`); not yet run live.
 
 ## R63: `declare` fails a converge while a declared session runs with a record not its own
@@ -788,8 +791,8 @@ filled in as each cause is known.
   verdict of its own, `<name> DEFERRED`. The line says the record is written when `declare` runs
   again after the session stops. Nothing is written while the session runs. A record that differs
   while the session is stopped is still refused without `--replace`.
-- **Severity:** medium (a play's converge). **Issue:** TBF. **State:** fixed on v2-smoke, batch
-  14 (`f1e50d031`); not yet run live. Report: [reports/R63.md](reports/R63.md).
+- **Severity:** medium (a play's converge). **Issue:** TBF. **State:** on F44 (`e67e28d72`, 26 Nov;
+  batch 14, `f1e50d031`); not yet run live. Report: [reports/R63.md](reports/R63.md).
 
 ## R62: `project_walk_open` does not take a regular-file check written as a switch case
 
@@ -806,7 +809,7 @@ filled in as each cause is known.
   `||`) and whose body leaves, with a fixture in `rules/testdata`. Its message names the forms it
   takes.
 - **Severity:** low (a correct guard refused; a by-hand run finds the accepted form). **Issue:**
-  TBF. **State:** fixed on v2-smoke, batch 15 (`0db93cad0`; reports/R62.md): a tagless switch
+  TBF. **State:** on F44 (`e67e28d72`, 26 Nov; batch 15, `0db93cad0`; reports/R62.md): a tagless switch
   clause that leaves on a failed check (alone, in `||`, or listed) guards what follows when
   every earlier clause leaves or holds the check; `break`/`fallthrough` in a clause and `&&`
   are no guard; the message names the forms taken.
@@ -857,8 +860,8 @@ filled in as each cause is known.
   - The leave notice: no change (withdrawn).
 - **Not ours:** the session network policy has to admit a hot-joined team's port. That is the
   owner's host configuration.
-- **Severity:** high (a join reported done that never happened). **Issue:** TBF. **State:** fixed
-  on v2-smoke, batch 12 (`b239a00a6`, `2a0b1854c`: the host reads a running older image's
+- **Severity:** high (a join reported done that never happened). **Issue:** TBF. **State:** on
+  F44 (`2e057a895`, 26 Nov; batch 12, `b239a00a6`, `2a0b1854c`: the host reads a running older image's
   report.json, which has no `down`, as down null; `8d93dd3d7`: container 2.84.82, ccy
   3.124.60); not yet run live. Detail: `reports/R60.md`.
 
@@ -876,8 +879,8 @@ filled in as each cause is known.
   entry is a team served elsewhere, offered as before. Every chooser (session add, launches,
   the `--teams` chooser, seats add) consults it. Residual: an `absent` entry later deleted
   leaves no removal record. Detail: `reports/R59.md`.
-- **Severity:** medium. **Issue:** #386 (related). **State:** fixed on v2-smoke, batch 19
-  (058938264); not yet run live.
+- **Severity:** medium. **Issue:** #386 (related). **State:** on F44 (`e67e28d72`, 26 Nov;
+  batch 19, 058938264); not yet run live.
 
 ## R57: `teamchat version` names all of `src-go`, so equal teamchat builds disagree
 
@@ -905,8 +908,8 @@ filled in as each cause is known.
   says what the digest names. The label is renamed `ccy-image-source-commit` (the image-source
   commit, never HEAD; a HEAD label would change the image every commit). No rule: the class is
   semantic; the sweep found the two instances ([R57](reports/R57.md)).
-- **Severity:** low (misleading, harmless). **Issue:** TBF. **State:** fixed on v2-smoke, batch 21
-  (`9114b2b70`; ccy 3.124.66, container 2.84.86); not yet run live.
+- **Severity:** low (misleading, harmless). **Issue:** TBF. **State:** on F44 (`e67e28d72`, 26 Nov;
+  batch 21, `9114b2b70`, and the label note; ccy 3.124.66, container 2.84.86); not yet run live.
 
 ## R56: a Lightning instance on a busy team's rooms grows to 75 GB resident
 
