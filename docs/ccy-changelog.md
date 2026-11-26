@@ -17,6 +17,63 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.104 — container 2.84.103
+
+- No change to what the image's teamchat does. Its owed receipt tests (Plan 00267 Task 2.3) now
+  wait for the reports room to be joined before they post. Before this, a join that came late
+  hung a test until `go test` timed out.
+
+## 3.124.103 — the host applies a checkout's mounts and compose files only as a person approved them
+
+Plan 00266 Phase A (security, Defence Before Fix). A ccy session writes its checkout, so it
+could edit `.claude/ccy/mounts` to widen the binds of its own next launch, or the compose files a
+restore starts with `up -d` on the host.
+
+- `.claude/ccy/mounts` is read on the host by `ccy-teams internal project-mounts` (Go, the bash
+  validator removed): a file whose content no person approved is refused at every launch, naming
+  the file and `ccy-teams approve mounts <checkout>`; a restore stops unattended and never asks.
+  The deny list grew to the paths the host runs code from (`~/.local/bin`, shell start-up files,
+  user units, autostart, the container engine's configuration, `~/.local/state`), refuses every
+  directory above a denied path (`~/.config`, `~/.local`), and judges the path a link resolves to.
+- A launch nobody attends (a restore, a restart's relaunch) starts compose files only with the
+  content recorded when a person started them, or approved with `ccy-teams approve compose`.
+- `ccy-teams approve mounts|compose [<checkout>]` shows what it approves and asks `[y/N]` at a
+  terminal; the SHA-256 is kept under `~/.local/state/ccy/approved/`.
+- After the deploy, approve each checkout's mounts file before its next launch, and each restored
+  compose project before the next reboot.
+- Container image unchanged.
+
+## 3.124.102 — container 2.84.102
+
+- The image's teamchat no longer drops an agent's message for rate or for the delivery budget
+  (Plan 00267 Task 3.1). A message past the receive window or past the budget now waits until
+  the window has room, then is delivered. `recv` takes it at once. If the held messages fill
+  pending's share for agents, the next one is bounced with reason `rate`: it is listed in the
+  drop ledger, and its sender gets a `bounced` receipt. The `held back:` line no longer
+  appears, because nothing is held back.
+
+## 3.124.101 — container 2.84.101
+
+- The image's teamchat no longer loses what a refused store write found (issue #443). A proof
+  round whose write fails keeps the deliveries it found in the transcript, and the next round
+  proves them; before, they went missing an hour later. A `recv` ack whose write fails keeps
+  its messages' content, so the next ack delivers them. A Stop whose write fails is recorded
+  at the next Stop while the session is idle.
+
+## 3.124.100 — container 2.84.100
+
+- `ccy-sessions verify-restore` now also reports the LXC containers that
+  `teamchat-lxc-boot.service` brings back (Plan 00266 Task C.3). It does this only where that
+  unit is enabled. After the session lines it prints `lxc:<c> RUNNING`,
+  `lxc:<c> NOT-RUNNING <state>`, `lxc:<c> NOT-RECORDED` and `lxc NO-RECORD`. A recorded
+  container that is not running fails the check, and so does a missing record. `--wait` looks
+  again while a container is down.
+- The set comes from the new read-only `teamchat-admin lxc check-running`. verify-restore runs
+  it through sudo with no password, under the rule play-teamchat installs while an LXC member
+  is present (`/etc/sudoers.d/teamchat-lxc-check-running`).
+- `ccy-sessions` is rebuilt on the host. The image is rebuilt only because it is built from
+  `internal/systemd`, which gains `UnitEnabled`. Nothing in the image calls it.
+
 ## 3.124.99 — container 2.84.99
 
 - ccy-teams reads a team's status record under its configured teamchat root

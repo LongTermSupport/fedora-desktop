@@ -221,6 +221,25 @@ func lxcRecordRunning(ctx context.Context, e Env, args []string) term.ExitCode {
 	return answer(e, b.String())
 }
 
+// lxcCheckRunning is `lxc check-running` (Plan 00266 C.3): lxc.CheckRunning, one line a
+// container. It only reads and judges nothing: exit 0 whatever it finds, so the caller that
+// judges (ccy-sessions verify-restore, through its sudoers rule) tells a finding from a fault.
+func lxcCheckRunning(ctx context.Context, e Env, args []string) term.ExitCode {
+	d, code := lxcBootDeps(e, args, "lxc check-running")
+	if code != term.ExitOK {
+		return code
+	}
+	lines, err := lxc.CheckRunning(ctx, d)
+	if err != nil {
+		return failWith(e, err)
+	}
+	var b strings.Builder
+	for _, l := range lines {
+		b.WriteString(l.String() + "\n")
+	}
+	return answer(e, b.String())
+}
+
 // lxcBoot is `lxc boot` (Plan 00266 C.2), the boot unit's one start: lxc.StartRecorded, then
 // lxc.Reconcile whatever the start found, so one container that will not start keeps no other
 // container's seats down. Every line of both on stdout, printed before any error; non-zero when

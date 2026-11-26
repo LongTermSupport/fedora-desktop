@@ -61,6 +61,7 @@ var argKeys = map[string][]string{
 	apply.OpRoleApply:     {keyTeamFile},
 	apply.OpTeamApply:     {"input", "approved", "reg_key"},
 	OpTeamView:            {keyTeamFile},
+	OpTeamTraffic:         {keyTeamFile, keySinceMS, keyUntilMS},
 	OpMemberDisconnected:  {keyTeamFile, keyHandle, keyRun, keySinceMS},
 	apply.OpHumanPassword: {keyTeamFile, keyName},
 	apply.OpHumanLogout:   {keyTeamFile, keyName},
@@ -101,6 +102,8 @@ func Serve(ctx context.Context, open Opener, req Request) Answer {
 	switch req.Op {
 	case OpTeamView:
 		return serveView(ctx, open, team)
+	case OpTeamTraffic:
+		return serveTraffic(ctx, open, team, args)
 	case OpMemberDisconnected:
 		return serveDisconnected(ctx, open, team, args)
 	case OpRestoreSecure, OpRestoreCheck, OpRestoreSwap, OpRestoreExport, OpRestoreFinish, OpRestoreRevert:

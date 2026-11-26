@@ -34,32 +34,43 @@ func (w *world) peerTexts(n int) {
 	}
 }
 
-// T19 (B 2.7.3, 15b): an agent's 11th PEER item within 600 s never enters pending and is one in
-// the batch's HeldBack; the window slides on the clock, so the item after it is admitted; a
-// human's items are never held back.
-func TestAFloodingPeerIsHeldBack(t *testing.T) {
+// T19 (B 2.7.3, 15b), Plan 00267 C4: an agent's 11th PEER item within 600 s enters pending held
+// to the budget window's next free slot, never dropped and never a HeldBack; the slots reserved
+// count, so the next is held to the same slot; past the window an item is not held; a human's
+// items are never held.
+func TestAFloodingPeerIsHeldToTheNextFreeSlot(t *testing.T) {
 	w := newWorld(t)
 	_, release := w.gated(w.newTeam())
+	now := w.clk.WallMS()
 	w.peerTexts(11)
 	for range 11 {
 		w.say(alice, human("from a human", user(me)))
 	}
 	release()
 	b := w.batch()
-	if len(b.Items) != 21 || b.HeldBack[user(peer)] != 1 || len(b.HeldBack) != 1 {
+	if len(b.Items) != 22 || len(b.HeldBack) != 0 {
 		t.Fatalf("items %d, held back %v", len(b.Items), b.HeldBack)
 	}
-	w.clk.StepWall(300_000)
-	w.peerTexts(1)
-	release()
-	if b := w.batch(); len(b.Items) != 0 || b.HeldBack[user(peer)] != 1 {
-		t.Fatalf("within the window: items %d, held back %v", len(b.Items), b.HeldBack)
+	var held []int64
+	for _, it := range b.Items {
+		if it.Pending.NotBefore != 0 {
+			held = append(held, it.Pending.NotBefore)
+		}
+	}
+	if len(held) != 1 || held[0] != now+proto.DeliveryWindowMs {
+		t.Fatalf("held to %v, want one item to %d", held, now+proto.DeliveryWindowMs)
 	}
 	w.clk.StepWall(300_000)
 	w.peerTexts(1)
 	release()
-	if b := w.batch(); len(b.Items) != 1 || len(b.HeldBack) != 0 {
-		t.Fatalf("past the window: items %d, held back %v", len(b.Items), b.HeldBack)
+	if b := w.batch(); len(b.Items) != 1 || b.Items[0].Pending.NotBefore != now+proto.DeliveryWindowMs {
+		t.Fatalf("within the window: %+v", b.Items)
+	}
+	w.clk.StepWall(300_000)
+	w.peerTexts(1)
+	release()
+	if b := w.batch(); len(b.Items) != 1 || b.Items[0].Pending.NotBefore != 0 || len(b.HeldBack) != 0 {
+		t.Fatalf("past the window: %+v, held back %v", b.Items, b.HeldBack)
 	}
 }
 

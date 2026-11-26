@@ -156,6 +156,21 @@
 # configured teamchat root (on this host the same path as before, so nothing changes here).
 # Check afterwards: `ccy-sessions restore --dry-run` names the seats it would start in words,
 # and a new seat session's tmux name ends in its role.
+# Plan 00266 C.3 (ccy 3.124.100, container 2.84.100): ccy-sessions is rebuilt so verify-restore also reports the
+# LXC containers the boot unit brings back (lxc:<container> RUNNING / NOT-RUNNING <state> /
+# NOT-RECORDED, lxc NO-RECORD), wherever teamchat-lxc-boot.service is enabled, and fails on a
+# recorded container not running. With the unit disabled it only says so. The same single
+# image rebuild covers it (built from internal/systemd; nothing in it changes). It needs
+# play-teamchat below for its sudoers rule.
+# Issue #443 (ccy 3.124.101, container 2.84.101): the same single image rebuild gives the image's
+# teamchat a proof that keeps what a round found when its store write fails, so the next round
+# proves it (it no longer goes missing); a failed recv ack keeps its messages' content; a failed
+# Stop write is recorded at the next Stop. Sessions started after the rebuild get it.
+# Plan 00267 Task 3.1 (ccy 3.124.102, container 2.84.102): the same single rebuild gives the
+# image's teamchat rate and budget holds instead of drops. An agent's message past either limit
+# waits for the window's next free slot, then is delivered. Past pending's agent share it is
+# bounced `rate`, with a receipt to its sender. Sessions started after the rebuild get it.
+# Container 2.84.103 (ccy 3.124.104) is the same single rebuild: only teamchat's tests changed.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC
@@ -194,6 +209,23 @@ playbooks/imports/play-claude-yolo.yml
 # sender a `bounced` receipt; the link posts those receipts as teamchat.receipt in the team's
 # reports room, keeping each until the homeserver has it. Member sessions started after the
 # run get it.
+# Plan 00268 Task 1.3: the teamchat-admin it installs gains the read-only verb
+# `team traffic --team T --since <time> --until <time> [--json]`, a team's event counts per hour
+# by room, type, typed key, relation and membership, with no content. Nothing runs it during
+# the play; the bus host's admin seat runs it afterwards (00268's bus-host-commands.md).
+# Plan 00266 C.3: teamchat-admin gains the read-only `lxc check-running`. While an LXC member
+# is declared present, the play installs /etc/sudoers.d/teamchat-lxc-check-running (checked
+# with visudo), which lets the teamchat owner group run that one command with no password;
+# with no LXC member the file is removed. Afterwards, on such a host:
+# `sudo -n /usr/local/sbin/teamchat-admin lxc check-running` prints one UP/DOWN/UNRECORDED line
+# per container (NO-RECORD until the first shutdown after C.2), and
+# `ccy-sessions verify-restore` ends with the lxc: lines.
+# Issue #443: the host kit and the LXC members' copies carry the same teamchat as the image
+# above (a refused proof, ack or Stop write loses nothing). Member sessions started after the
+# run get it.
+# Plan 00267 Task 3.1: the host kit and the LXC copies carry the same teamchat as the image
+# above (rate and budget hold a message instead of dropping it). Member sessions started after
+# the run get it.
 playbooks/imports/play-teamchat.yml
 
 # Plan 00265 R79: finishes the private-name guard's setup. It ASKS at the terminal for each
@@ -259,3 +291,9 @@ playbooks/imports/optional/common/play-photography.yml
 # /dev/null) is no longer pointed back at the shared file at each prompt, and the shared-history
 # redirect now lives in history-record.bash. It takes effect in terminals opened after the run.
 changed-plays
+
+# Plan 00266 Phase A (ccy 3.124.103): play-claude-yolo.yml (listed above) installs the launcher's
+# libraries and rebuilds ccy-teams with `approve`. Then, at a terminal, before the next launch of
+# each checkout with a .claude/ccy/mounts file: `ccy-teams approve mounts <checkout>` (read what it
+# shows first). Before the next reboot, for each restored session with compose files:
+# `ccy-teams approve compose <checkout>`. A refused restore is named by `ccy-sessions verify-restore`.

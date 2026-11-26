@@ -154,6 +154,16 @@ func (w *world) owedTeam(rc *fakeReceipts) (*Team, chan time.Duration) {
 	return tm, waits
 }
 
+// joinedOwedTeam is receiptTeam once the reports room is joined. The join runs beside the
+// session, and an owed receipt added before it is kept for a backoff on the fake clock that
+// nothing advances, so a test that waits for its post hangs until go test's timeout.
+func (w *world) joinedOwedTeam(rc *fakeReceipts) chan time.Duration {
+	w.t.Helper()
+	tm, waits := w.owedTeam(rc)
+	waitReportsJoined(w.t, tm)
+	return waits
+}
+
 func (w *world) myReceipts() []fakehs.Receipt {
 	var out []fakehs.Receipt
 	for _, r := range w.srv.Receipts() {
@@ -321,7 +331,7 @@ func (w *world) owedSendFault(status int, errcode string) {
 func TestAnOwedReceiptIsPostedInTheReportsRoom(t *testing.T) {
 	w := newWorld(t)
 	rc := newFakeReceipts()
-	w.receiptTeam(rc)
+	w.joinedOwedTeam(rc)
 	id := w.say(alice, human("one", user(me)))
 	rc.addOwed(bounceOf(id))
 	if got := w.sentOwed(rc); got != bounceOf(id) {
@@ -388,7 +398,7 @@ func TestAnOwedReceiptPostedTwiceIsOneEvent(t *testing.T) {
 	w := newWorld(t)
 	rc := newFakeReceipts()
 	rc.failOwedOnce = errors.New("disk full")
-	waits := w.receiptTeam(rc)
+	waits := w.joinedOwedTeam(rc)
 	id := w.say(alice, human("one", user(me)))
 	rc.addOwed(bounceOf(id))
 	w.sentOwed(rc)
@@ -408,7 +418,7 @@ func TestARemovedTeamPostsNoMoreOwedReceipts(t *testing.T) {
 	w := newWorld(t)
 	rc := newFakeReceipts()
 	rc.sentErr = team.ErrRemoved
-	w.receiptTeam(rc)
+	w.joinedOwedTeam(rc)
 	one, two := w.say(alice, human("one", user(me))), w.say(alice, human("two", user(me)))
 	rc.addOwed(bounceOf(one))
 	rc.addOwed(bounceOf(two))

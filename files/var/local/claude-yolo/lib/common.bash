@@ -408,74 +408,22 @@ check_git_repo() {
 # SECURITY: Ensure .claude/ccy/ is protected and check for tracked sensitive files
 # ═══════════════════════════════════════════════════════════════════════════════
 # ═══════════════════════════════════════════════════════════════════════════════
-# Project mounts: extra host binds declared in the tracked .claude/ccy/mounts
+# Project mounts: extra host binds declared in the checkout's mounts file
 # ═══════════════════════════════════════════════════════════════════════════════
 #
-# One `<host-src>:<container-dst>[:ro|rw]` per line, `#` comments and blank
-# lines ignored. Read on the HOST before the container exists (ccy.env cannot
-# do this: it is sourced in-container, after the mounts are fixed). Every line
-# goes through ccy_validate_mount_line; the source must already exist on disk,
-# because a FUSE mount that is not up yet binds as an empty directory and the
-# session would see nothing. Any problem aborts the launch with every finding
-# listed: a tracked file that binds host paths must never half-apply.
-#
-# Opt out of a project's declared mounts with CCY_NO_PROJECT_MOUNTS=1, or
-# comment the line out. Fills PROJECT_MOUNTS with `-v src:dst:opt` tokens.
+# Read on the HOST before the container exists, by `ccy-teams internal project-mounts`
+# (src-go/internal/checkoutpin): every line valid, every source there, and the file's content
+# the content a person approved with `ccy-teams approve mounts`, since the container can write
+# it. Any problem stops the launch (a restore's unattended stop) with every finding listed.
+# CCY_NO_PROJECT_MOUNTS=1 launches without them. Fills PROJECT_MOUNTS with `-v src:dst:opt`.
 load_project_mounts() {
-    local mounts_file=".claude/ccy/mounts"
+    local out
     PROJECT_MOUNTS=()
-
-    [ -f "$mounts_file" ] || return 0
-
-    if [ "${CCY_NO_PROJECT_MOUNTS:-}" = "1" ]; then
-        echo -e "${COLOR_YELLOW}⚠  CCY_NO_PROJECT_MOUNTS=1: ignoring $mounts_file${COLOR_RESET}"
-        return 0
-    fi
-
-    local line lineno=0 problems=0 parsed src dst opt mount_lines=()
-    local -A seen_dst=()
-    mapfile -t mount_lines <"$mounts_file" || { print_error "$mounts_file cannot be read, so its project mounts cannot be checked"; return 1; }
-    for line in "${mount_lines[@]}"; do
-        lineno=$((lineno + 1))
-        line="${line%%#*}"
-        line="${line#"${line%%[![:space:]]*}"}"
-        line="${line%"${line##*[![:space:]]}"}"
-        [ -z "$line" ] && continue
-
-        if ! parsed=$(ccy_validate_mount_line "$line" "$HOME" "$PWD" 2>&1); then
-            echo -e "${COLOR_RED}✗ $mounts_file line $lineno:${COLOR_RESET}" >&2
-            echo "$parsed" >&2
-            problems=$((problems + 1))
-            continue
-        fi
-        IFS='|' read -r src dst opt <<< "$parsed"
-
-        if [ ! -e "$src" ]; then
-            echo -e "${COLOR_RED}✗ $mounts_file line $lineno:${COLOR_RESET}" >&2
-            echo "  host path does not exist: $src" >&2
-            echo "  If it is a mount (e.g. an rclone FUSE mount), start it first: the bind" >&2
-            echo "  captures what is there at launch, and an absent mount binds as nothing." >&2
-            problems=$((problems + 1))
-            continue
-        fi
-        if [ -n "${seen_dst[$dst]:-}" ]; then
-            echo -e "${COLOR_RED}✗ $mounts_file line $lineno:${COLOR_RESET}" >&2
-            echo "  container path declared twice: $dst" >&2
-            problems=$((problems + 1))
-            continue
-        fi
-        seen_dst[$dst]=1
-        PROJECT_MOUNTS+=(-v "$src:$dst:$opt")
-        echo "✓ Project mount: $src → $dst ($opt)"
-    done
-
-    if [ "$problems" -gt 0 ]; then
-        echo "" >&2
-        print_error "$problems problem(s) in $mounts_file — not launching."
-        echo "  Fix the lines above, comment them out, or set CCY_NO_PROJECT_MOUNTS=1" >&2
-        echo "  to launch without this project's declared mounts." >&2
+    out=$(ccy-teams internal project-mounts) || {
+        if ccy_launch_unattended; then ccy_unattended_stop project-mounts "the project mounts were refused (see above): approve them with ccy-teams approve mounts $PWD"; fi
         return 1
-    fi
+    }
+    [ -z "$out" ] || mapfile -t PROJECT_MOUNTS <<<"$out"
 }
 
 # The .claude/ccy/ directory contains sensitive session data that should NEVER

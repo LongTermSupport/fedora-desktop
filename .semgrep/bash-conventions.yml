@@ -575,3 +575,44 @@ rules:
     metadata:
       category: correctness
       confidence: HIGH
+
+  # Rule: the host launcher applies no checkout file a container session can write, unless a
+  # person approved its content (Defence Before Fix; Plan 00266 Task A.1; CLAUDE/QA.md
+  # "ccy-host-applies-checkout-config"; the Go half is project_checkout_config_pin).
+  #
+  # A ccy session writes its checkout, .claude/ccy/ included. The launcher read
+  # .claude/ccy/mounts on the host and bound what it named into the next container, and ran
+  # `up -d` on the checkout's compose file as the host user, both with nobody asked, so a
+  # container could widen its own next launch, unattended at a restore after a reboot.
+  #
+  # WRONG: mapfile -t lines <.claude/ccy/mounts     (the host parses the container's words)
+  # WRONG: ccy_compose_up() { ... if "$@" up -d; then ... }   (no pin asked first)
+  # RIGHT: PROJECT_MOUNTS from `ccy-teams internal project-mounts`, which refuses a file
+  #        whose hash is not the one a person approved (ccy-teams approve mounts)
+  # RIGHT: the function asks `ccy-teams internal checkout-pin compose ...` before its `up`
+  #
+  # The mounts path is caught on any line that is not a comment. A compose `up`, `run` or
+  # `create` (the command "$@", podman-compose, docker-compose, docker compose, or a variable
+  # whose name holds "compose", at a command position) is caught in a function with no
+  # checkout-pin line above it. Not caught: such a command outside a function, a compose run
+  # through a variable named otherwise, and the mounts path built from pieces.
+  - id: ccy-host-applies-checkout-config
+    pattern-either:
+      - pattern-regex: '(?m)^(?![ \t]*#)[^\n#]*\.claude/ccy/mounts\b'
+      - pattern-regex: '(?sm)^[A-Za-z_][A-Za-z0-9_]*\(\)[ \t]*\{[ \t]*\n(?:(?!^\}[ \t]*$)(?!^[^\n#]*\bcheckout-pin\b).)*?^(?![ \t]*#)[^\n#]*?(?:^[ \t]*|[;&|(!][ \t]*|\b(?:then|do|else|if|while|until|exec|command|time)[ \t]+)(?:"\$@"|podman-compose|docker-compose|docker[ \t]+compose|"?\$\{?\w*[Cc][Oo][Mm][Pp][Oo][Ss][Ee]\w*(?:\[@\])?\}?"?)[ \t]+(?:up|run|create)\b'
+    paths:
+      include:
+        - 'files/var/local/claude-yolo/**'
+        - 'files/var/local/claude-code/**'
+    message: >
+      ccy-host-applies-checkout-config: a container session can write this checkout file, and
+      the host launcher applies it (binds what .claude/ccy/mounts names, or runs a compose file
+      on the host). Read the mounts through `ccy-teams internal project-mounts` and ask
+      `ccy-teams internal checkout-pin compose` before a compose up: both refuse content no
+      person approved (ccy-teams approve). See CLAUDE/QA.md "ccy-host-applies-checkout-config".
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: security
+      confidence: HIGH
+      dbf-class: host launcher applies container-writable checkout config

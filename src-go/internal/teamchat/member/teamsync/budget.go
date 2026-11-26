@@ -14,20 +14,13 @@ func budgeted(v proto.Verdict) bool {
 }
 
 // admit is the delivery budget applied as v would enter pending: deliver_per_sender items per
-// (team, sender) per DeliveryWindowMs. An item over it never enters pending and is one more in
-// the batch's HeldBack for its sender (n3e-D1). The window lives in memory only, so a link
-// restart resets it.
-func (s *sess) admit(j *judged, v proto.Verdict) bool {
+// (team, sender) per DeliveryWindowMs. It is when the item may be shown: the budget window's next
+// free slot for an item over it, which enters pending held until then and is never dropped (Plan
+// 00267 C4). The window lives in memory only, so a link restart resets it.
+func (s *sess) admit(j *judged, v proto.Verdict) int64 {
 	if !budgeted(v) {
-		return true
+		return j.now
 	}
 	key := proto.DeliveryKey(s.a.Team, v.Event.Sender)
-	if j.budget.Admit(key, s.roster.Limits.DeliverPerSender, proto.DeliveryWindowMs, j.now) {
-		return true
-	}
-	if j.batch.HeldBack == nil {
-		j.batch.HeldBack = map[string]int64{}
-	}
-	j.batch.HeldBack[v.Event.Sender]++
-	return false
+	return j.budget.Reserve(key, s.roster.Limits.DeliverPerSender, proto.DeliveryWindowMs, j.now)
 }

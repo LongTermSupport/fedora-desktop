@@ -50,12 +50,24 @@ func parseVerify(args []string) (time.Duration, string) {
 // "<name> WAITING-AT-PROMPT <which>", "<name> DEAD <why>" or "<name> NOT-STARTED <why>" (a
 // recorded session the restore could not start). Exit 0 only if all are OK. --wait polls until
 // the restore has settled, or the time is up. An empty manifest is a restore that had no record
-// to start; one whose every record failed holds a NOT-STARTED entry for each.
+// to start; one whose every record failed holds a NOT-STARTED entry for each. The LXC set
+// follows (verifyLXC, Plan 00266 C.3), reported whatever the sessions' half found, and exit 0
+// needs both halves to pass.
 func (a *App) verifyRestore(ctx context.Context, args []string) term.ExitCode {
 	wait, problem := parseVerify(args)
 	if problem != "" {
 		return a.usageError(problem)
 	}
+	deadline := a.Now().Add(wait)
+	sessions := a.verifySessions(ctx, wait)
+	if containers := a.verifyLXC(ctx, deadline); sessions == term.ExitOK {
+		return containers
+	}
+	return sessions
+}
+
+// verifySessions is verify-restore's half for the sessions this boot's restore brought up.
+func (a *App) verifySessions(ctx context.Context, wait time.Duration) term.ExitCode {
 	regdir, err := registry.Dir(a.Getenv)
 	if err != nil {
 		a.failErr(err)

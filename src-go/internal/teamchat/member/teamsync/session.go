@@ -909,12 +909,14 @@ func (s *sess) take(j *judged, v proto.Verdict, id string, restored func(int64) 
 	}
 	switch v.Outcome {
 	case proto.Deliver:
-		if !s.admit(j, v) {
-			return
-		}
 		p := state.Pending{
 			ID: v.Event.ID, Room: room, Item: itemKind(v.Kind), SentMS: v.Event.OriginTs,
 			From: v.Event.Sender, Restored: restored != nil && restored(v.Event.OriginTs),
+		}
+		// Past the receive window or the delivery budget the item is held, never dropped (Plan
+		// 00267 C4): its receive slot is reserved first, then its budget slot.
+		if at := max(v.NotBefore, s.admit(j, v)); at > j.now {
+			p.NotBefore = at
 		}
 		if p.Item == records.KindPing {
 			p.Verb = new(v.Content.Ping.Verb)

@@ -352,6 +352,29 @@ func TestDispatchInternalGoCacheIsTheCacheCommand(t *testing.T) {
 	}
 }
 
+// The approval verbs reach the pin command: the launcher's two read the working directory (this
+// package's, which holds neither file), and approve refuses with no terminal to ask at.
+func TestDispatchPinVerbs(t *testing.T) {
+	h := newHarness(t)
+	h.Env["CCY_STATE_DIR"] = t.TempDir()
+	for _, run := range []struct {
+		args []string
+		code term.ExitCode
+	}{
+		{[]string{"internal", "project-mounts"}, term.ExitOK},
+		{[]string{"internal", "checkout-pin", "compose", "true"}, term.ExitOK},
+		{[]string{"internal", "checkout-pin", "compose", "maybe"}, term.ExitUsage},
+		{[]string{"approve", "mounts"}, term.ExitFailure},
+	} {
+		if code := h.app.Run(run.args); code != run.code {
+			t.Errorf("%q: exit %d, want %d: %s", run.args, code, run.code, h.ErrOut.String())
+		}
+	}
+	if !strings.Contains(h.ErrOut.String(), "a person at a terminal") {
+		t.Fatalf("approve without a terminal said %q", h.ErrOut.String())
+	}
+}
+
 func TestDispatchInternalSessionNameIsTheNameCommand(t *testing.T) {
 	h := newHarness(t)
 	h.On("tmux -L ccy list-sessions", "ccy-alpha-proj-4 0 /elsewhere\n", 0)

@@ -810,6 +810,38 @@ func TestLXCBootReconcilesAfterARefusedContainer(t *testing.T) {
 	}
 }
 
+// lxc check-running (Plan 00266 C.3, which ccy-sessions verify-restore asks through sudo): no
+// argument; one line a container, the record compared with the containers now, exit 0 whatever
+// it finds (verify-restore judges), and the record left as it was.
+func TestLXCCheckRunning(t *testing.T) {
+	w := newWorld(t)
+	boxes := stopped("box-1", "box-3")
+	boxes.states["box-2"] = lxccmd.Running
+	sys := w.lxcSys(t, lxcDecl(t), boxes)
+	if out := w.lxcVerb(sys, "", "lxc", "check-running", "extra"); out.code != term.ExitUsage {
+		t.Fatalf("an argument: %d %s", out.code, out.stderr)
+	}
+	if out := w.lxcVerb(sys, "", "lxc", "check-running"); out.code != term.ExitOK || out.stdout != "NO-RECORD\t\t"+paths.LXCRunningFile+"\nUNRECORDED\tbox-2\t\n" {
+		t.Fatalf("no record: %d %q %s", out.code, out.stdout, out.stderr)
+	}
+	if err := os.MkdirAll(w.root+paths.AdminStateRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	box1, err := paths.ParseContainerName("box-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lxcstate.WriteRunning(w.root, []paths.ContainerName{box1}); err != nil {
+		t.Fatal(err)
+	}
+	if out := w.lxcVerb(sys, "", "lxc", "check-running"); out.code != term.ExitOK || out.stdout != "DOWN\tbox-1\tSTOPPED\nUNRECORDED\tbox-2\t\n" {
+		t.Fatalf("a recorded container down: %d %q %s", out.code, out.stdout, out.stderr)
+	}
+	if got, err := lxcstate.ReadRunning(w.root); err != nil || len(got) != 1 || got[0] != box1 {
+		t.Fatalf("the record changed: %v %v", got, err)
+	}
+}
+
 // lxc record-started (Plan 00266 C.2, the play's seed of the started record): no argument; with
 // no team's record there is no seat to record.
 func TestLXCRecordStarted(t *testing.T) {

@@ -88,8 +88,18 @@ file and line.
 
 ### Phase 3: never lose under limits (C3, C4)
 
-- [ ] ⬜ **Task 3.1**: Rate and budget hold the item (`NotBefore`) instead of dropping it. A full
-  agent share of pending bounces `rate`.
+- [x] ✅ **Task 3.1**: Rate and budget hold the item (`NotBefore`) instead of dropping it. A full
+  agent share of pending bounces `rate`. Built: `proto.Window.Reserve` gives the window's next
+  free slot (`TestReserveGivesTheNextFreeSlot`); rule 10 delivers an agent event past the
+  receive window with that slot as `Verdict.NotBefore` (`TestVerdictRate`, routing corpus
+  updated), and teamsync's budget reserves its own slot instead of a `HeldBack`
+  (`TestAFloodingPeerIsHeldToTheNextFreeSlot`); `Pending.not_before` holds the later of the two,
+  only on an agent item (`TestAHeldItemsSlotIsKeptAndChecked`). The delivery loop waits for the
+  slot (`TestAHeldItemIsDeliveredAtItsSlot`); `recv` hands a held item at once, since the session
+  asked for it. A held item that finds pending's agent share full is bounced `rate` through the
+  drop ledger and owed receipts of Phase 2 (`TestAHeldItemPastTheAgentShareBouncesRate`). No
+  item is held back now, so the `held back:` line (A 11.4) is never written; Phase 5 decides its
+  text with the `held(rate)`/`held(budget)` receipts of Phase 4.
 - [ ] ⬜ **Task 3.2**: A transient forge failure retries to a deadline. A stale item on replay is
   delivered marked late with its send time; a waiting-only verb whose sender gave up bounces
   `expired`.

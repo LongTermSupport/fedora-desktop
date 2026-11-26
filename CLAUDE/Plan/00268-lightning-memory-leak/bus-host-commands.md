@@ -93,6 +93,44 @@ Notes:
   Matrix spec since v1.3), and the `humans`/`members` shape of the roster's content as the API
   returns it (`proto/roster.go` reads those keys).
 
+## The traffic probe: counts per hour (Task 1.3)
+
+`teamchat-admin team traffic` counts a team's events over a window of up to 7 days, per hour
+(UTC), room, event type, typed teamchat key, relation (`thread`, `reply`, `edit`) and membership
+change. It needs a `teamchat-admin` built from the commit that added it or later (the
+teamchat play's `admin` tag installs it on the bus host).
+
+```bash
+sudo teamchat-admin team traffic --team '<team>' --since 2026-11-25T00:00:00Z --until 2026-11-26T00:00:00Z
+sudo teamchat-admin team traffic --team '<team>' --since 2026-11-25T00:00:00Z --until 2026-11-26T00:00:00Z --json
+```
+
+- **Route:** root reads the team's `team.json` and asks the `teamchat-ctl` child (the same
+  child as every other admin verb, op `team.traffic`). The child reads its own `admin.token`
+  and `rooms.json` and pages each room's `/messages` backwards from the newest event, 500 at a
+  time, until a page holds an event older than `--since`. The token is never in any argv and
+  never printed. It sends GET requests only, writes nothing and takes no team lock, so a seat
+  can start while it reads.
+- **No content:** the child parses each event and keeps only its type, time, typed key,
+  relation and membership. No body, sender or event id leaves the child. An event type that is
+  not a plain name counts as `(other)`, an unknown relation or membership as `(other)`, two
+  typed keys as `(several)`. Root checks the child's answer strictly before printing it.
+- **Bounds:** at most 1,000 pages per room. A room that does not reach `--since` within that
+  fails the whole read ("narrow the window"), so a part is never shown as the whole. At most
+  4,096 distinct rows.
+- **Output:** the table gives each room's events and pages read, the events per hour for each
+  room (quiet hours show 0), then one row per hour, room, type, typed key, relation and
+  membership. `--json` prints one document with the keys `v`, `team`, `since`, `until`,
+  `rooms`, `hours`, `rows` and `not_counted`.
+- **Not counted:** `m.read` receipts, typing and presence are ephemeral and not kept in room
+  history, so no `/messages` read can count them. A `teamchat.receipt` event is in history and
+  is counted by its typed key. A membership change (`m.room.member`: join, leave, invite) is
+  the nearest record of a seat starting or stopping.
+- **Exit codes:** 64 for a bad flag or window, 70 for a team not applied, 69 when the
+  homeserver did not answer, 1 for any other failure.
+- **The runs Task 1.3 owes:** the busy team for 25 Nov (`--since 2026-11-25T00:00:00Z --until 2026-11-26T00:00:00Z`), then a quieter team over the same day. Record the anonymised
+  counts, with no team names, in RESEARCH.md.
+
 ## What to look for
 
 Anything in 17:05:00Z-17:09:12Z that is rare in the rest of the window: an edit (`rel` =

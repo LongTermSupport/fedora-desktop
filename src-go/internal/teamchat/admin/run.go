@@ -154,7 +154,7 @@ func buildTable() []verb {
 			table = append(table, verb{name: head + " " + w, class: class, run: runs[head+" "+w]})
 		}
 	}
-	group(ClassRoot, "team", "apply", "approve", "remove", "rotate-ca", "seal", "export", "import", "carry-check")
+	group(ClassRoot, "team", "apply", "approve", "remove", "rotate-ca", "seal", "export", "import", "carry-check", "traffic")
 	group(ClassRoot, "member", "add", "return", "park", "retire", "reissue", "set")
 	group(ClassRoot, "role", "apply")
 	group(ClassRoot, "human", "password", "devices", "logout", "lock", "unlock")
@@ -164,7 +164,7 @@ func buildTable() []verb {
 	group(ClassRoot, "restore")
 	group(ClassRoot, "restore-drill")
 	group(ClassRoot, "health")
-	group(ClassRoot, "lxc", "apply", "restart", "start", "stop", "reconcile", "record-running", "boot", "record-started")
+	group(ClassRoot, "lxc", "apply", "restart", "start", "stop", "reconcile", "record-running", "boot", "record-started", "check-running")
 	group(ClassRoot, "check")
 	group(ClassRoot, "migrate", "preflight", "stage", "fence", "fence-status", "capture", "carry", "commit",
 		"accept", "archive", "archive-check", "unfence", "rollback", "export", "export-verify")

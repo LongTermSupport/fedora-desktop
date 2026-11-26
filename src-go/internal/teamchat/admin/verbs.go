@@ -111,10 +111,11 @@ func rootRuns() map[string]func(context.Context, Env, []string) term.ExitCode {
 	runs := map[string]func(context.Context, Env, []string) term.ExitCode{
 		"team apply": teamApply, "team approve": teamApprove, verbTeamRemove: teamRemove, "team rotate-ca": teamRotateCA,
 		"team seal": teamSeal, verbTeamExport: teamExport, "team import": teamImport, "team carry-check": teamCarryCheck,
+		verbTraffic:  teamTraffic,
 		"role apply": memberVerb(apply.OpRoleApply),
 		"health":     healthVerb, "element check": elementVerb(false), "element apply": elementVerb(true),
 		"lxc apply": lxcApply, "lxc restart": lxcRestart, "lxc start": lxcStart,
-		"lxc stop": lxcStop, "lxc reconcile": lxcReconcile,
+		"lxc stop": lxcStop, "lxc reconcile": lxcReconcile, "lxc check-running": lxcCheckRunning,
 		"lxc record-running": lxcRecordRunning, "lxc boot": lxcBoot, "lxc record-started": lxcRecordStarted,
 		"backup": backupVerb, "backups": backupsVerb, "restore": restoreVerb, "restore-drill": restoreDrill,
 		"units list": unitsList, "units print": unitsPrint,

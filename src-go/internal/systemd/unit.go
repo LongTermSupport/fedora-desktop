@@ -22,6 +22,24 @@ func (s *Systemd) UnitActive(ctx context.Context, unit string) (bool, error) {
 	return err == nil, nil
 }
 
+// UnitEnabled is the word "systemctl is-enabled" prints for a system unit (enabled, disabled,
+// not-found, masked...), which it prints whatever its exit; a run that prints no word, or a
+// systemctl that could not run, is an error. It asks as the caller: no root is needed.
+func (s *Systemd) UnitEnabled(ctx context.Context, unit string) (string, error) {
+	res, err := s.Runner.Run(ctx, execx.Cmd{Name: systemctlBin, Args: []string{"is-enabled", unit}})
+	word := strings.TrimSpace(string(res.Stdout))
+	if exitErr, ok := errors.AsType[*execx.ExitError](err); ok && exitErr != nil && word != "" {
+		return word, nil
+	}
+	if err == nil && word == "" {
+		err = errors.New("it printed no state")
+	}
+	if err != nil {
+		return "", named("systemctl is-enabled "+unit, err)
+	}
+	return word, nil
+}
+
 // DefaultTarget is the unit the machine boots into ("systemctl get-default"), such as
 // graphical.target on a desktop.
 func (s *Systemd) DefaultTarget(ctx context.Context) (string, error) {

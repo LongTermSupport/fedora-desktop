@@ -897,3 +897,50 @@ func TestABootTimePastWhatTheProofCountsIsTheBootClocksStart(t *testing.T) {
 func receiptFor(r state.Receipt, id string) bool {
 	return r.ID == id && r.Room == proto.PurposeMain
 }
+
+// Issue #443: a proof round whose store write fails loses none of its finds. The round's scan
+// moved the mark past the nonce, so the next round, with the store writable again, still
+// proves the entry from what the failed round found.
+func TestAFailedProofWriteIsProvenByTheNextRound(t *testing.T) {
+	pw := newProofWorld(t)
+	a := tid(t, "alpha")
+	pw.live(a)
+	text := pw.deliver(a, true, humanItem(a, 1, startWall, "hello"))
+	pw.failWrites(a)
+	pw.tr.Record(text, faketranscript.Idle, 0)
+	size := fileSize(t, pw.tr.Path())
+	pw.until(func() bool {
+		m := pw.e.proof.marks[pw.tr.Path()]
+		return m != nil && m.mark.Offset == size
+	})
+	pw.until(func() bool { return strings.Contains(pw.log.String(), "the proof's write failed") })
+	if s := pw.store(a); len(s.Awaiting) != 1 {
+		t.Fatalf("a failed write settled the store: %+v", s)
+	}
+	pw.mendWrites(a)
+	n := pw.e.proof.rounds.Load()
+	pw.local(pw.e.pokeProof)
+	pw.until(func() bool { return pw.e.proof.rounds.Load() > n })
+	if s := pw.store(a); len(s.Awaiting) != 0 || len(s.Pending) != 0 || len(s.Missed) != 0 || !slices.Equal(ledgerIDs(s), []string{evID(1)}) {
+		t.Fatalf("after the next round: %+v", s)
+	}
+}
+
+// The Stop that starts the quiet clock, refused by the store, is recorded at the next Stop
+// while the session is still idle, not only after a prompt and another Stop.
+func TestAFailedStopWriteIsRecordedAtTheNextStop(t *testing.T) {
+	pw := newProofWorld(t)
+	a := tid(t, "alpha")
+	pw.live(a)
+	pw.deliver(a, false, humanItem(a, 1, startWall, "one"))
+	pw.failWrites(a)
+	check(t, pw.e.SetSession(t.Context(), SessionFacts{Idle: true}))
+	if s := pw.store(a); s.Awaiting[0].StopMS != nil {
+		t.Fatalf("a refused write recorded the Stop: %+v", s.Awaiting[0])
+	}
+	pw.mendWrites(a)
+	check(t, pw.e.SetSession(t.Context(), SessionFacts{Idle: true}))
+	if s := pw.store(a); s.Awaiting[0].StopMS == nil {
+		t.Fatalf("the next Stop did not record it: %+v", s.Awaiting[0])
+	}
+}

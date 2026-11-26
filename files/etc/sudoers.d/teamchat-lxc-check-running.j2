@@ -1,0 +1,8 @@
+# {{ ansible_managed }}
+# Plan 00266 C.3: ccy-sessions verify-restore reports the LXC containers the boot unit was to
+# bring back. The record of the containers running at the last shutdown and the container list
+# are root's alone, so it asks this one read-only command, with no password. The command takes
+# no argument and none can be given: sudo refuses any argument list but the one written here.
+# It starts, stops and writes nothing, and prints only container names and state words. This
+# grants no general root.
+%{{ teamchat_owner_group }} ALL=(root) NOPASSWD: {{ tc_admin_link }} lxc check-running

@@ -197,6 +197,10 @@ type Pending struct {
 	// within sizePending.
 	RelayedBy string `json:"relayed_by,omitempty"`
 	Q         int64  `json:"q,omitempty"`
+	// NotBefore is when a held agent item may be delivered over the socket, in wall
+	// milliseconds (Plan 00267 C3, C4): the next free slot of the receive window or the delivery
+	// budget it was over; absent for an item not held.
+	NotBefore int64 `json:"not_before,omitempty"`
 }
 
 // OfQuestionsSync is whether p is an item of the questions room's own sync, which a member that
@@ -816,6 +820,7 @@ func (s *Store) checkPending(c *rules, server string) {
 		c.need(validPendingID(p.ID, p.Item) && slices.Contains(storeRooms, p.Room) && slices.Contains(storeItems, p.Item) &&
 			validMS(p.SentMS) && validUser(p.From, server) && (p.Handed == nil || nonceRe.MatchString(*p.Handed)) && validVerb(p.Item, p.Verb), "a pending entry is not well formed")
 		c.need(validRelay(p, server), "a pending entry's relay account is not a coordinator's on a HUMAN item of questions")
+		c.need(validMS(p.NotBefore) && (p.NotBefore == 0 || !reserved(p.Item)), "a pending entry's slot is not a time, or is on a HUMAN or TIMEOUT item")
 		c.need(reminderPlaced(p.ID, p.Room, p.Item), reminderRule)
 		c.need(!seen[p.ID], "pending holds an id twice")
 		seen[p.ID] = true

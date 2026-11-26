@@ -1920,6 +1920,28 @@ message the site already prints; the reason is one lower-case word with hyphens 
 `ccy_known_prompts` name for a launch question), the sentence says what a person must do. For a
 restart, pass the session id as a third argument and it names the manual `ccy --resume`.
 
+### ccy-host-applies-checkout-config
+
+**What it is.** In `.semgrep/bash-conventions.yml` (the `qa-patterns` gate), under
+`files/var/local/claude-yolo/` and `files/var/local/claude-code/`: a non-comment line naming
+`.claude/ccy/mounts`, and a compose `up`, `run` or `create` (the command `"$@"`,
+`podman-compose`, `docker-compose`, `docker compose`, or a variable whose name holds `compose`, at
+a command position) in a function with no `checkout-pin` line above it. The Go half is
+`project_checkout_config_pin` ([GoProjectRules.md](GoProjectRules.md#project_checkout_config_pin)).
+
+**Why.** Class "host launcher applies container-writable checkout config" (Plan 00266 Task A.1). A
+ccy session writes its checkout, and the launcher bound what `.claude/ccy/mounts` named and ran
+`up -d` on the checkout's compose file as the host user, unasked, so a container could widen its
+own next launch, unattended at a restore. Red on the tree before the fix: `lib/common.bash:425`
+(the mounts reader) and `lib/network-management.bash:941` (`ccy_compose_up`), nothing else.
+
+**How to fix.** Take the mounts from `ccy-teams internal project-mounts`, and ask
+`ccy-teams internal checkout-pin compose <unattended>` before a compose up: both refuse content no
+person approved with `ccy-teams approve`.
+
+**Not caught.** A compose command outside a function, one run through a variable named
+otherwise, and the mounts path built from pieces.
+
 ### ready-wait-ignores-child-exit
 
 **What it is.** A loop that waits for a process this code started to become ready,

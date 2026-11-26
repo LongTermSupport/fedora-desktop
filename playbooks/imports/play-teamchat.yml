@@ -960,3 +960,25 @@
         name: teamchat-lxc-boot.service
         enabled: "{{ tc_lxc_present_members | length > 0 }}"
       tags: [teams]
+
+    # ccy-sessions verify-restore reports the LXC set the boot unit brings back (Plan 00266
+    # C.3), wherever that unit is enabled. The record and the container list are root's, so the
+    # owner group may run the one read-only `lxc check-running`, exactly, with no password (see
+    # the file for why that is safe). It exists exactly while the boot unit is enabled.
+    - name: Let the Owner Group Check the LXC Set Without a Password (a Scoped sudoers Rule)
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/etc/sudoers.d/teamchat-lxc-check-running.j2"
+        dest: /etc/sudoers.d/teamchat-lxc-check-running
+        owner: root
+        group: root
+        mode: "0440"
+        validate: "visudo -cf %s"
+      when: tc_lxc_present_members | length > 0
+      tags: [teams]
+
+    - name: Remove the LXC Check sudoers Rule While No LXC Member Is Present
+      ansible.builtin.file:
+        path: /etc/sudoers.d/teamchat-lxc-check-running
+        state: absent
+      when: tc_lxc_present_members | length == 0
+      tags: [teams]

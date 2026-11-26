@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/checkoutpin"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
@@ -216,9 +217,6 @@ const (
 // prefixCcy is a ccy session's launcher prefix.
 const prefixCcy = "ccy"
 
-// composeFiles are the compose files the launcher's has_compose_files looks for in a project.
-var composeFiles = []string{"docker-compose.yml", "docker-compose.yaml", "podman-compose.yml", "podman-compose.yaml", "compose.yml", "compose.yaml"}
-
 // composeUnanswered is why a ccy record would stop its first restore at the compose question,
 // or "": its project has compose files, it holds no compose= answer, and its launch can meet the
 // question (a recorded --no-network meets none). `restore --check` and `declare` refuse such a
@@ -229,7 +227,7 @@ func composeUnanswered(rec registry.Record, file string) string {
 		return ""
 	}
 	var found []string
-	for _, name := range composeFiles {
+	for _, name := range checkoutpin.ComposeFiles {
 		if info, err := os.Stat(filepath.Join(rec.Dir, name)); err == nil && info.Mode().IsRegular() {
 			found = append(found, name)
 		}

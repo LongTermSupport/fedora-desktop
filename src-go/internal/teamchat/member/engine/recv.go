@@ -519,9 +519,9 @@ func (e *Engine) settleTeam(id paths.TeamID, ack string, now int64, wrote bool, 
 		moved, changed bool
 		back           bool
 	)
-	err := e.changeLocked(id, func(h *held, s *state.Store) (bool, error) {
-		var left []state.Pending
-		left, back = settleStore(h, s, ack, now, deliver)
+	var left []state.Pending
+	err := e.changeLocked(id, func(_ *held, s *state.Store) (bool, error) {
+		left, back = settleStore(s, ack, now, deliver)
 		floor, moved = raiseFloors(s, left)
 		changed = len(left) > 0 || back
 		if changed && wrote {
@@ -532,6 +532,10 @@ func (e *Engine) settleTeam(id paths.TeamID, ack string, now int64, wrote bool, 
 	if err != nil {
 		return false, false, err
 	}
+	// Memory follows the disk: the delivered items' content is forgotten once the write holds.
+	for _, p := range left {
+		delete(e.teams[id].content, p.ID)
+	}
 	if moved {
 		e.floorRaised(id, floor)
 	}
@@ -540,7 +544,7 @@ func (e *Engine) settleTeam(id paths.TeamID, ack string, now int64, wrote bool, 
 
 // settleStore is settle in one store's copy; it is the items that left pending, and whether
 // any went back to pending.
-func settleStore(h *held, s *state.Store, ack string, now int64, deliver func(*state.Store, state.Pending, int64) bool) ([]state.Pending, bool) {
+func settleStore(s *state.Store, ack string, now int64, deliver func(*state.Store, state.Pending, int64) bool) ([]state.Pending, bool) {
 	var left []state.Pending
 	back := false
 	// An item awaiting proof is handed to its delivery's nonce; only its proof settles it.
@@ -552,7 +556,6 @@ func settleStore(h *held, s *state.Store, ack string, now int64, deliver func(*s
 			continue
 		}
 		if deliver(s, it, now) {
-			delete(h.content, it.ID)
 			left = append(left, it)
 			continue
 		}

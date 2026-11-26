@@ -99,12 +99,19 @@ func (r running) normal() running {
 
 // ReadRunning is the containers that ran at the last shutdown, sorted; no file is none.
 func ReadRunning(root string) ([]paths.ContainerName, error) {
+	containers, _, err := ReadRunningRecord(root)
+	return containers, err
+}
+
+// ReadRunningRecord is ReadRunning, and whether the record was written at all: a shutdown that
+// recorded no container running is told apart from one that recorded nothing.
+func ReadRunningRecord(root string) ([]paths.ContainerName, bool, error) {
 	var r running
 	found, err := readBoot(root+paths.LXCRunningFile, &r, func() any { return r.normal() })
 	if err != nil || !found {
-		return nil, err
+		return nil, false, err
 	}
-	return r.Containers, nil
+	return r.Containers, true, nil
 }
 
 // WriteRunning writes the containers, sorted and each once, root 0600 atomically. A file there

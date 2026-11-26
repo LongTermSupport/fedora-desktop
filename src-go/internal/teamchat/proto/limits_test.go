@@ -251,3 +251,27 @@ func TestTheForgeBoundsAreN3dD31s(t *testing.T) {
 		t.Fatalf("reserve %d of 5000, %d with no limit; want 1000", ForgeReceiveReserve(5000), ForgeReceiveReserve(0))
 	}
 }
+
+// Plan 00267 C4: an admission over the limit is reserved the window's next free slot, never
+// refused, and the slots reserved meanwhile count as admitted, so each later one is later still
+// and the limit holds over every span.
+func TestReserveGivesTheNextFreeSlot(t *testing.T) {
+	var w Window
+	for i := range 3 {
+		if at := w.Reserve("a", 3, ReceiveWindowMs, int64(i)); at != int64(i) {
+			t.Fatalf("admission %d within the limit = %d, want now", i, at)
+		}
+	}
+	want := []int64{ReceiveWindowMs, ReceiveWindowMs + 1, ReceiveWindowMs + 2, 2 * ReceiveWindowMs}
+	for i, at := range want {
+		if got := w.Reserve("a", 3, ReceiveWindowMs, 10); got != at {
+			t.Fatalf("reservation %d = %d, want %d", i, got, at)
+		}
+	}
+	if w.Admit("a", 3, ReceiveWindowMs, ReceiveWindowMs+5) {
+		t.Fatal("an admission took a reserved slot")
+	}
+	if at := w.Reserve("b", 3, ReceiveWindowMs, 10); at != 10 {
+		t.Fatalf("another key = %d", at)
+	}
+}

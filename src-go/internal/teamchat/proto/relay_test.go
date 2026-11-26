@@ -128,8 +128,8 @@ func TestARelayIsNotRateLimitedOrStale(t *testing.T) {
 	for range j.Roster.Limits.RecvPerSenderMinute {
 		j.Judge(mustParse(t, event(coordID, 0, string(text.Content.Compact()))))
 	}
-	if v := j.Judge(mustParse(t, event(coordID, 0, string(text.Content.Compact())))); v.Outcome != Drop || v.Reason != ReasonRate {
-		t.Errorf("the coordinator's text past the window: %v %q, want rate", v.Outcome, v.Reason)
+	if v := j.Judge(mustParse(t, event(coordID, 0, string(text.Content.Compact())))); v.Outcome != Deliver || v.NotBefore <= j.NowMs {
+		t.Errorf("the coordinator's text past the window: %v %q not before %d, want held", v.Outcome, v.Reason, v.NotBefore)
 	}
 	late := (j.Roster.Limits.HumanMaxAgeS + 1) * 1000
 	if v := judge(t, workerID, PurposeMain).Judge(mustParse(t, event(coordID, late, string(relay.Content.Compact())))); v.Outcome != Deliver {

@@ -112,3 +112,24 @@ func TestRunningRoundTrip(t *testing.T) {
 		t.Fatalf("a file that does not decode was replaced: %v", err)
 	}
 }
+
+// Plan 00266 C.3: a record that was never written is told apart from one that lists none, so
+// a verify can say the last shutdown recorded nothing at all.
+func TestRunningRecordSaysWhetherOneWasWritten(t *testing.T) {
+	root := startedRoot(t)
+	if got, found, err := ReadRunningRecord(root); err != nil || found || len(got) != 0 {
+		t.Fatalf("no file: %v %v %v", got, found, err)
+	}
+	if err := WriteRunning(root, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, found, err := ReadRunningRecord(root); err != nil || !found || len(got) != 0 {
+		t.Fatalf("none running: %v %v %v", got, found, err)
+	}
+	if err := WriteRunning(root, []paths.ContainerName{box(t, "c1")}); err != nil {
+		t.Fatal(err)
+	}
+	if got, found, err := ReadRunningRecord(root); err != nil || !found || !slices.Equal(got, []paths.ContainerName{box(t, "c1")}) {
+		t.Fatalf("one running: %v %v %v", got, found, err)
+	}
+}

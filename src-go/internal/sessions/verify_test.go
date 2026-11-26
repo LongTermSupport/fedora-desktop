@@ -27,6 +27,7 @@ func verifyHost(t *testing.T) *harness {
 		"200 1 bash -c trampoline", "300 1 bash -c trampoline",
 	}, "\n") + "\n")})
 	h.fake.On([]string{"podman", "ps"}, execx.Result{Stdout: []byte("a_yolo_1\n")})
+	h.fake.On([]string{"systemctl", "is-enabled", "teamchat-lxc-boot.service"}, execx.Result{Stdout: []byte("disabled\n"), ExitCode: 1})
 	return h
 }
 
@@ -208,7 +209,7 @@ func TestVerifyRestorePassesWhenEverythingIsPastItsPrompts(t *testing.T) {
 	if code != 0 || report != "ccy-a OK|cc-c OK" {
 		t.Fatalf("%d %q", code, report)
 	}
-	if h.stderr() != "" {
+	if h.stderr() != "teamchat-lxc-boot.service is disabled, so there is no LXC set to verify.\n" {
 		t.Fatalf("stderr %q", h.stderr())
 	}
 }

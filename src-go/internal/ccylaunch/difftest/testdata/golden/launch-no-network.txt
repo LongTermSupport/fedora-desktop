@@ -58,6 +58,7 @@ podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude
 podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}'
 podman run --rm --cgroup-parent agents.slice --pids-limit 16384 --memory 8192m --memory-reservation 6144m --entrypoint claude claude-yolo:latest --version
 curl -fsSL https://registry.npmjs.org/@anthropic-ai/claude-code/latest
+ccy-teams internal project-mounts
 ccy-teams internal go-cache difftest-project
 ccy-teams internal claim-container-name difftest-project yolo '{pid}'
 podman rm -f difftest-project_yolo

@@ -570,6 +570,30 @@ that set-going has not typed into, it says on stderr whether a `ccy-sessions set
 running to do it, or that none is and `ccy-sessions set-going` is the command to run once the
 boot's own `ccy-sessions-set-going` unit has ended.
 
+On a host where play-teamchat enabled `teamchat-lxc-boot.service` (an LXC member is declared
+present), the report goes on with the LXC containers that boot unit brings back (Plan 00266
+C.3), one line each after the sessions'. They come from `teamchat-admin lxc check-running`,
+which compares the containers recorded at the last shutdown with the containers now. The
+record and the container list are root's, so it runs through sudo with no password, under
+the rule play-teamchat installs at `/etc/sudoers.d/teamchat-lxc-check-running` for the
+teamchat owner group, which allows that one command and no argument.
+
+- `lxc:<c> RUNNING`: recorded and running.
+- `lxc:<c> NOT-RUNNING <state>`: recorded and not running. `<state>` is lxc-info's word, or
+  `ABSENT` when the host has no such container. It fails the check, and `--wait` looks again
+  until it runs or the time is up.
+- `lxc:<c> NOT-RECORDED`: running, but the shutdown did not record it, so something else
+  started it (`lxc.start.auto`, or the host's own IaC). It is said on stderr and passes.
+- `lxc NO-RECORD`: no record of the last shutdown exists, so the set to bring back is unknown.
+  It fails.
+
+The LXC lines are printed even when a session failed, and the exit is 0 only when both halves
+pass. With the boot unit disabled or not installed, it says so on stderr and asks nothing.
+A sudo that wants a password, a check that fails, or a line it cannot read fails the run;
+could not look is never a state. Whether each container's seats came back is reported by
+`journalctl -u teamchat-lxc-boot -b --no-pager | cat` (the boot unit's `lxc reconcile` lines),
+not by verify-restore.
+
 | Situation at boot                         | What restore does                                                                                                                 |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | Record present, directory exists          | Starts the session detached                                                                                                       |
@@ -2022,17 +2046,41 @@ mount, declare it once and commit it. One bind per line, `#` comments allowed:
 run code or read other variables. Symlinks inside the checkout do not work for this:
 the link is carried into the container, its target is not.
 
-Because the file is tracked, a clone declares binds of the cloner's host paths. So
-every line is validated on the host and **any problem refuses the launch** with every
-finding listed, before a container exists:
+Because the file is tracked, a clone declares binds of the cloner's host paths, and a
+session writes its own checkout, so a container could widen the binds of its next launch.
+So the file is applied only as **you approved it**, and every line is validated on the
+host (`ccy-teams internal project-mounts`); **any problem refuses the launch** with every
+finding listed, before a container exists.
+
+**Approving.** The first launch with a mounts file, and the first after any change to it,
+refuses and names the file and the verb. Read the file, then run, at a terminal on the
+host:
+
+```bash
+ccy-teams approve mounts <checkout>     # <checkout> defaults to this directory
+```
+
+It shows each host path resolved and the container path it binds to, and asks `[y/N]`. A
+yes records the file's SHA-256 under `~/.local/state/ccy/approved/` (beside the session
+registry, outside every checkout and out of reach of any mounts line); from then on that
+exact content applies at every launch and restore. It needs a terminal, so neither a
+session nor a pipe can approve, and a restore after a reboot never asks: it stops, names
+the file, and `ccy-sessions verify-restore` reports it. The rules each line meets:
 
 - Both paths must be absolute, with no `..` segments.
-- The host path may not be `/`, your home directory itself, a credential or launcher
-  state directory (`~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.claude`,
-  `~/.claude-tokens`, `~/.config/gh`, keyrings, `~/.password-store`), a system
-  directory (`/etc`, `/root`, `/run`, `/proc`, `/sys`, `/dev`, `/boot`), or the project
-  directory or any directory above it (that would expose sibling projects).
-- The host path must already exist. A FUSE mount that is not up yet binds as an empty
+- The host path may not be `/`, your home directory itself, the project directory or any
+  directory above it (that would expose sibling projects), nor be under, or hold, a
+  denied path: credentials (`~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.claude`,
+  `~/.claude.json`, `~/.claude-tokens`, `~/.config/gh`, keyrings, `~/.password-store`),
+  the launcher's state (`~/.local/state`, or `$CCY_STATE_DIR`'s directory, and
+  `~/.cache/ccy`), what the host runs as you (`~/.local/bin`, `~/bin`, the shell start-up
+  files, `~/.gitconfig`, `~/.config/git`, user systemd units, autostart and
+  `environment.d`, the container engine's configuration and storage, desktop entries,
+  GNOME Shell extensions, tmux's configuration), and the system directories (`/etc`,
+  `/root`, `/run`, `/var/run`, `/var/local`, `/proc`, `/sys`, `/dev`, `/boot`). So
+  `~/.config` and `~/.local` are refused whole; bind the folder inside them you need.
+- The host path must already exist, and the path it resolves to (a link followed) meets
+  the same rules. A FUSE mount that is not up yet binds as an empty
   directory, so start the mount first. Restart ccy after the mount restarts: the bind
   captured the old instance.
 - The container path may not be `/`, `/workspace` itself, anything under
@@ -2055,6 +2103,15 @@ CCY_NO_PROJECT_MOUNTS=1 ccy
 
 Or comment the line out. To reject a cloned project's mounts permanently, delete or
 edit the file; the launcher never re-creates it.
+
+**Compose files.** A restore (and a restart's relaunch, or any launch nobody attends)
+replays `--compose start` as `up -d` on the host, so it starts only compose content a
+person started: the launch where you answered yes, or gave `--compose start` at a
+terminal, records the SHA-256 of the compose files, their overrides, `.env` and every file
+they `include` or `extend`. A launch nobody attends refuses content not recorded, naming
+`ccy-teams approve compose <checkout>`, which shows the files and asks as above. A file
+included from outside the checkout, a link in a compose file's place and a `.env` setting
+`COMPOSE_FILE` are refused: no approval could cover what they read.
 
 ### Per launch: `CCY_EXTRA_MOUNTS`
 

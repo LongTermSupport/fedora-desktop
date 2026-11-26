@@ -1,6 +1,6 @@
 # Plan 00266: seat restart after reboot
 
-**Status**: In Progress (Task C.2 is built and awaits the host deploy and a live reboot; Phases A, B and Task C.4 are design for the owner, unbuilt until the owner has seen them)
+**Status**: In Progress (Tasks C.2 and C.3 are built and await the host deploy and a live reboot; Phases A and B are cleared to build, and Task C.4 after C.2 ships, by the coordinator's decision of 2026-11-26 19:01Z, journal 191831Z, which the owner may reverse)
 **Created**: 2026-11-26
 **Owner**: dev
 **Priority**: High (Phase A is a security gap)
@@ -43,14 +43,27 @@ The full findings, each with file and line, are in [DESIGN.md](DESIGN.md).
 
 ### Phase A: checkout content the host applies (security; Defence Before Fix)
 
-- [ ] ⬜ **Task A.1**: Name the class "host launcher applies container-writable checkout
+- [x] ✅ **Task A.1**: Name the class "host launcher applies container-writable checkout
   config". Write its detector, prove it red on `.claude/ccy/mounts` and the compose start,
-  and sweep for every other instance.
-- [ ] ⬜ **Task A.2**: Make `.claude/ccy/mounts` an allowlist. Require approval of a changed
+  and sweep for every other instance. **Built:** the semgrep rule
+  `ccy-host-applies-checkout-config` (`.semgrep/bash-conventions.yml`, blocking in
+  `qa-patterns`) was red on exactly `lib/common.bash:425` and `lib/network-management.bash:941`;
+  the Go rule `project_checkout_config_pin` was red on `internal/sessions/restore.go:220` only.
+  The sweep found three more instances, put to the coordinator: `.claude/ccy/.last-launch.conf`
+  applied by a headless launch (its SSH key and network), a host `cc` in a checkout a container
+  also mounts (`.claude/settings.json` hooks), and host git in a mounted checkout
+  (`.git/config`). They are not fixed here.
+- [x] ✅ **Task A.2**: Make `.claude/ccy/mounts` an allowlist. Require approval of a changed
   file at an attended launch, with the approved file's hash kept outside the checkout. An
-  unattended restore refuses a changed file.
-- [ ] ⬜ **Task A.3**: Under restore, `--compose start` refuses a compose file whose hash differs
-  from the one recorded at the attended launch.
+  unattended restore refuses a changed file. **Built:** `src-go/internal/checkoutpin` (K1-K4,
+  V1-V3): `ccy-teams internal project-mounts` replaces the bash reader and validator; only the
+  approved content applies; `ccy-teams approve mounts <checkout>` (a terminal and a yes) records
+  its SHA-256 under `~/.local/state/ccy/approved/`. The deny list now covers what the host runs
+  as the user, every directory above a denied path, and the path a link resolves to.
+- [x] ✅ **Task A.3**: Under restore, `--compose start` refuses a compose file whose hash differs
+  from the one recorded at the attended launch. **Built:** `ccy_compose_up` asks
+  `ccy-teams internal checkout-pin compose <unattended>` first; the digest covers the compose
+  files, overrides, `.env` and every file they include or extend.
 - [ ] ⬜ **Task A.4**: Derive the record's `launcher` from its prefix (a fixed table), never
   executing a recorded path.
 - [ ] ⬜ **Task A.5**: Replay arguments through an allowlist of the launcher's own flags. No
@@ -248,11 +261,34 @@ Decision for C.2 (and the fix for today's start):
     SD10), so it would have refused every container on a host. `units.Manager.Containers` is a
     separate, start-only adapter for `lxc@` instances, and `host.Systemd` still refuses `lxc@`.
 
-- [ ] ⬜ **Task C.3**: verify-restore reports the LXC set.
+- [x] ✅ **Task C.3**: verify-restore reports the LXC set. **Built (26 Nov):**
+
+  - `teamchat-admin lxc check-running` (root, read-only, always exit 0) compares
+    `_lxc-running.json` with the containers now. It prints `UP`, `DOWN <state|ABSENT>`,
+    `UNRECORDED`, and `NO-RECORD` when the record was never written
+    (`lxcstate.ReadRunningRecord` tells that apart from an empty record).
+  - `ccy-sessions verify-restore` asks it only where `teamchat-lxc-boot.service` is enabled
+    (`systemctl is-enabled`, read as the user). It then prints `lxc:<c> RUNNING|NOT-RUNNING <state>|NOT-RECORDED` and `lxc NO-RECORD`
+    after the session lines, whatever the sessions' half found.
+  - `NOT-RUNNING` and `NO-RECORD` fail, and `--wait` looks again while a container is down.
+    `NOT-RECORDED` is told on stderr and passes.
+  - **Departures:**
+    - The record and lxc-ls are root's, and verify-restore runs as the user (the self-update
+      cycle runs it through runuser). So play-teamchat installs
+      `/etc/sudoers.d/teamchat-lxc-check-running` for `teamchat_owner_group` while an LXC member is
+      present, allowing that one command with no argument. This follows the agent-bus
+      read-only rule; it has no host variable to turn it off.
+    - A running container the record does not name passes. The boot unit promises at least
+      the recorded set, and `lxc.start.auto` or a host's own IaC may start more.
+    - verify-restore does not judge seats. `lxc boot`'s reconcile lines in the boot unit's
+      journal do that, so the open item above (a guest not ready when reconcile reaches it)
+      still waits for the live reboot.
+    - A stale record (a shutdown whose record unit failed, leaving the one before) cannot be
+      told from a fresh one. The record carries no boot stamp.
 
 - [ ] ⬜ **Task C.4**: a restarted LXC seat signs in from its team's own token pool, on the token
   it was on before. Asked for by another team's owner (26 Nov) for their containers, and agreed
-  by the coordinator. Design only until the owner has seen it; built after C.2 ships.
+  by the coordinator. Cleared to build (journal 191831Z); built after C.2 ships.
 
   - **The last-launch record:** the seat's launch writes, beside the record of its conversation,
     the token's pool name (a file's basename, never the secret, a descriptor or an inode) and its
