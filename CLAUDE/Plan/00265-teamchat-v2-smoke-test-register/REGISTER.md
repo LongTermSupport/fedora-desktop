@@ -1264,20 +1264,27 @@ before the move to v2. Filled in as causes are found.
   seat's `teamchat history` (direction "in", kind "peer"), but none reached the session.
   `teamchat recv` returns nothing. Status shows pending 0, ignored 63, dropped 420. Every
   delivery the session did get from 25 Nov on was a PING (fetch).
-- **Read in code (26 Nov):**
-  - A history "in" entry means the link judged the event and stored it for delivery, so this is
-    not a receive drop. R64's rate and replay fix does not apply.
-  - The loss is between the store and the session: the push into Claude Code's inbox socket
-    (`member/engine/deliver.go`, `deliverloop.go`, `member/inbox/inbox.go`). A host seat differs
-    from a container seat only in the socket the link finds (`member/link/facts.go:288`
-    `socketProcess`, `:307` `refuseSocket`).
-  - Unchecked hypothesis: an item is marked delivered after a socket write no reader took, and a
-    PING gets through only because it makes the session fetch.
-- **Owed:** the seat's link-log lines for one missing id, and its status delivery and runtime
-  records. Then the cause, a test that fails first, the fix (batch 24, first item), and the
-  live proof: a `say` to a host seat shows in its session.
-- **Severity:** high (a host worker cannot be given work by message). **Issue:** TBF.
-  **State:** open; not fixed in `e67e28d72` or `bf9ec613`.
+- **Correction (08:14Z, from the seat's link log):** my first read said the loss was between
+  the store and the session. That was wrong. The link drops the messages at receive.
+  - Its `link.log` holds 433 lines `teamsync lts-ops: dropped <id>: sender`, covering every
+    PEER from every sender. The coordinator's 07:54Z job is among them.
+  - The 14 "in"/"peer" history items are the same drops: that binary's history records a
+    dropped item too.
+  - Pings are not in the log, and both were delivered.
+- **Cause (read in code, matches all the evidence):** this is issue #422.
+  - That seat's member is `human_text: false`, and its kit is ccy 3.124.41 (teamchat digest
+    90f502ac…).
+  - Before #422 was fixed, the judge's `human_text` gate dropped every agent text with
+    `sender`, not only a relayed human's words. A ping is not text, so it passed.
+  - F44 has the fix: dc6b81aac, "an agent say reaches a human_text false worker". The gate is
+    now `c.Text.Relay != nil && !HumanText(self)` (`proto/verdict.go:461-464`).
+  - F44 also has c8a011430 ("a drop is counted under its reason; history, sent and reply say
+    who an item is for"), which covers most of R71.
+- **Live proof owed after the rollout to that machine:** a `say` to the host seat is delivered,
+  and its `link.log` has no new `sender` drop.
+- **Severity:** high (a host worker could not be given work by message). **Issue:** #422.
+  **State:** fixed on F44 (`e67e28d72`); that machine runs an older kit, so it waits on the
+  deploy there.
 
 ## R70: a sender is not told its message was dropped
 
