@@ -63,7 +63,9 @@ another batch; this plan decides at the end whether it stays.
   - **Still owed:** the runs on the busy team for 25 Nov and on a quieter team, by the bus
     host's admin seat, after the teamchat play's `admin` tag installs the new binary.
 
-- [ ] ⬜ **Task 1.3a**: The stall window first: the bus host's admin seat runs
+- [ ] 🚫 **Task 1.3a** (blocked until Tuesday 1 Dec: only the laptop's seat reaches the bus
+  host, and the laptop is off; the coordinator sends this to it then, 26 Nov 19:56Z): The stall
+  window first: the bus host's admin seat runs
   [bus-host-commands.md](bus-host-commands.md) for 25 Nov 17:00:00Z-17:15:00Z in the busy team's
   main, questions and reports rooms (event shapes only, no bodies). Name the event shape at or
   just before 17:09:12Z that could start a GUI-thread runaway (RESEARCH.md 8.1).
