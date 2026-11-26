@@ -552,9 +552,14 @@ filled in as each cause is known.
   (`supervisor-plugins/ccy_lifecycle.py`, which ships in the image, and `.claude/ccy/claude-supervise.py`)
   and the launcher's bash (`lib/*.bash` writes to `.tmp.$$`) still create pid-named temporaries
   without an exclusive create and rename them; Defence Before Fix owes a semgrep rule for Python
-  and bash, its sweep and the fixes. (3) unchecked: whether a session record that outlives the
-  team's removal can still lead `ForSeats` (which falls back to session records when a seat has
-  none) to resume the old team's conversation.
+  and bash, its sweep and the fixes. (3) checked in the code, not yet run: when a seat has no
+  seat record, `ForSeats` falls back to the teamchat sessions' desired membership
+  (`conversation/seats.go`, `v2Sessions`). `remove` takes only the team's running sessions off
+  it (`sessionsOff`, H29) and never touches the desired file of a stopped session that can
+  still be restored. So after `remove` and a new team of the same name, a plain
+  `ccy --teams <seat>@<team>` can resume the old team's conversation through such a session.
+  The fix (remove also takes stopped sessions off the team, or the fallback refuses a desired
+  file older than the team) is a design choice put to the coordinator.
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
   open: review findings (1) and (3); the owner's call on the old branch's lock on seat-record
   writes (4001e4789); the branches stay until a human deletes them (after the carry-over they
