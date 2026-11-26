@@ -1866,7 +1866,8 @@ before the move to v2. Filled in as causes are found.
   dead team and cut a coordinator off.
 - **Cause (read in code):** the list's teamchat rows are every team with a pool seat in the
   checkout (`teams/chooser/teamchat.go` `withTeamchat`, `teams/system/cmd.go` `PoolTeams`).
-  R59 drops only a team this machine's host_vars declare removed. The agent-bus rows were judged
+  R59 (`Life`) drops only a team this machine's host_vars declare removed, or declared present
+  but not installed; neither asks whether the team answers. The agent-bus rows were judged
   live (`entries`, the homeserver unit's state); the teamchat rows were never judged.
 - **Class:** a team offered to choose whose liveness nobody judged. No analyzer can tell a
   judged list from an unjudged one in general, so the defence is the seam: the list refuses to
