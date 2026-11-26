@@ -29,24 +29,21 @@ func (r *run) checkRecording(ctx context.Context) error {
 // recording (W20). sox writes the recording's name plus suffix inside a directory of this run's
 // own beside it, never at a name in the shared temporary directory where a link could be planted
 // first (rule project_temp_not_exclusive, issue 417).
-func (r *run) audioTool(ctx context.Context, what, suffix string, args ...string) error {
+func (r *run) audioTool(ctx context.Context, what, suffix string, args ...string) (err error) {
 	dir, err := os.MkdirTemp(filepath.Dir(r.wav), filepath.Base(r.wav)+".sox-")
 	if err != nil {
 		return r.fail(ctx, what+" failed: "+err.Error())
 	}
-	err = r.soxInto(ctx, what, filepath.Join(dir, filepath.Base(r.wav)+suffix), args...)
-	if rerr := os.RemoveAll(dir); rerr != nil {
-		if err != nil {
-			r.log.say("[WSI] cannot remove " + dir + ": " + rerr.Error())
-			return err
+	defer func() {
+		if rerr := os.RemoveAll(dir); rerr != nil {
+			if err != nil {
+				r.log.say("[WSI] cannot remove " + dir + ": " + rerr.Error())
+				return
+			}
+			err = r.fail(ctx, what+" failed: "+rerr.Error())
 		}
-		return r.fail(ctx, what+" failed: "+rerr.Error())
-	}
-	return err
-}
-
-// soxInto is audioTool's sox run, writing output, then the rename over the recording.
-func (r *run) soxInto(ctx context.Context, what, output string, args ...string) error {
+	}()
+	output := filepath.Join(dir, filepath.Base(r.wav)+suffix)
 	stderr := io.Writer(nil)
 	if r.o.debug {
 		stderr = r.env.Stderr

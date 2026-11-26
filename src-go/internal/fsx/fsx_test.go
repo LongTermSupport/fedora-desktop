@@ -3,6 +3,7 @@ package fsx
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -34,6 +35,32 @@ func TestWriteAtomicLeavesTheWholeFileAndNoTemporary(t *testing.T) {
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("entries %v, %v: a temporary was left behind", entries, err)
+	}
+}
+
+// A link planted at the name the temporary once had (<path>.tmp.<pid>) is not followed: the
+// write never lands where it points (issue 417, rule project_temp_not_exclusive).
+func TestWriteAtomicFollowsNoPlantedLink(t *testing.T) {
+	dir := t.TempDir()
+	victim := filepath.Join(t.TempDir(), "victim")
+	if err := os.WriteFile(victim, []byte("mine\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "record")
+	if err := os.Symlink(victim, path+".tmp."+strconv.Itoa(os.Getpid())); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteAtomic(path, "record", []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(victim); err != nil || string(got) != "mine\n" {
+		t.Fatalf("the planted link was followed: %q, %v", got, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "new\n" {
+		t.Fatalf("read %q, %v", got, err)
+	}
+	if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+		t.Fatalf("the record is %v, %v", info, err)
 	}
 }
 

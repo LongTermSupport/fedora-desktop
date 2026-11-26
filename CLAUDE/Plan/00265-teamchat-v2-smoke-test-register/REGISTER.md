@@ -515,8 +515,20 @@ filled in as each cause is known.
   created without O_EXCL) with its sweep and the `fsx.WriteAtomic` fix.
 - **Next:** compare them with U4, carry over what U4 lacks (the rule and its sweep first), then
   retire the branches. They are not deleted until that is done.
+- **Compared (25-26 Nov, untracked/scratch/r36-compare.md):** a2be… is inside adff…, which is
+  inside a1ae… (9 commits; before this carry-over none was in F44 or v2-smoke by `git cherry`). U4 covers the resume,
+  `--fresh`/`--rebind`, `--set` and the selector reader. Missing: (c) the rule, its sweep and the
+  `fsx` fix; (a) `ccy-teams remove` keeps a removed team's seat records; (b) the `--fresh` hints
+  (`declare.py`, `queries.go`, `chooser/list.go`, `StartCcy`) and a named new seat still exit 64.
+  U4's records have another layout, so (a) and (b) are rewritten, not picked. Owner's call: the
+  old branch's lock on seat-record writes (4001e4789), which U4 lacks.
+- **Carried over (c), on v2-smoke for the next batch:** the rule (fc14af2ed; red: the same 5
+  sites on today's tree: untagged, busfailpoints, tuwunel, ccyteamstest, difftest), the sweep (c91c9f125) and the `fsx` fix (18bfa02d3;
+  `TestWriteAtomicFollowsNoPlantedLink` red on the old code, green on the fix); ccy 3.124.68,
+  container 2.84.88.
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
-  open.
+  open: (a) and (b) to rewrite; the branches stay until a human deletes them (after the
+  carry-over they are covered by behaviour, not by git history).
 
 ## R49: a worker's failed questions join was reported as "event not found"
 

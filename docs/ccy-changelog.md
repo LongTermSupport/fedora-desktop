@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.68 — container 2.84.88
+
+- **Files written whole never follow a planted link.** The shared atomic writer (`fsx`, used by
+  the seat conversation records, the session registry and other writers on the host and in the
+  image) wrote `<file>.tmp.<pid>`, a name another party could predict, with a create that follows
+  a link there. It now creates `<file>.tmp.<random>` exclusively. A Go rule,
+  `project_temp_not_exclusive`, holds every such temporary to an exclusive create or a private
+  directory; ftp-camera, vmtest, wsi and convert were fixed with it (Plan 00265 R36, carried
+  over from the earlier #417 work).
+
 ## 3.124.67 — container 2.84.87
 
 - **The image-source digest refuses a listed path that names no file.** A typo or a trailing
