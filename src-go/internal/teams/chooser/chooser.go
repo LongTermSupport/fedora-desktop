@@ -264,7 +264,7 @@ func (c *Chooser) bare(ctx context.Context, memberType string) term.ExitCode {
 	}
 	entries, err := c.entries(ctx, repo)
 	if err == nil {
-		entries, err = c.withTeamchat(memberType, entries)
+		entries, err = c.withTeamchat(ctx, memberType, entries)
 	}
 	if err != nil {
 		return c.failed(err)

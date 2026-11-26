@@ -36,6 +36,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/placeissued"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
@@ -196,7 +197,7 @@ func Wire(h *host.Host) *App {
 		Issuer: seatadd.SudoIssuer{Sudo: h.Sudo}, Place: placeissued.Place,
 	}
 	chosen.Teamchat = &chooser.Teamchat{
-		Live: sys.Live, SeatCount: sys.SeatCount, Handles: sys.Handles, Teams: sys.PoolTeams,
+		Live: sys.Live, SeatCount: sys.SeatCount, Handles: sys.Handles, Teams: sys.PoolTeams, Answers: sys.Answers,
 		Pool: sys.PoolState, Reattach: chooser.TmuxReattach(h.Tmux, h.Getenv),
 		NewSeat: adder.NewSeat(sys.Getwd, func(msg string) { h.Print(h.Stderr, msg+"\n") }),
 	}
@@ -483,6 +484,8 @@ func newSystem(h *host.Host) *system.Cmd {
 		Status:   system.StatusRecord,
 		Sessions: teamchatlaunch.RegistrySessions{Open: h.Registry},
 		Life:     teamLife(h),
+		Reach:    seat.VersionsReach{Clock: matrix.SystemClock()},
+		Timers:   matrix.SystemTimers(),
 	}
 }
 

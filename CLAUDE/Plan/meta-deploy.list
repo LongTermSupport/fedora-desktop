@@ -115,6 +115,9 @@
 # Plan 00265 R82: the same run builds and installs /var/local/claude-code/chat-client-info, the
 # one command a cc --teams seat may use to read the chat clients' flatpak info, permissions and
 # running instances (no arguments, no other flatpak verb). The deny rules are unchanged.
+# Issue #430 (ccy 3.124.87): ccy-teams and the claude-yolo front are rebuilt so a bare ccy --teams
+# or cc --teams list leaves out a teamchat team whose bus does not answer (each asked at most
+# 5 s, all at once), naming each above the list with why. The image is unchanged.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC

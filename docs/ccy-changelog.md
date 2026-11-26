@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.87 — container 2.84.94
+
+- A bare `ccy --teams` (or `cc --teams`, and with `--resume`) no longer offers a teamchat team
+  whose bus does not answer: each team with a pool seat in the checkout has its homeserver asked
+  for its versions, as that seat would reach it, all at once and at most 5 s each. A team that
+  does not answer (retired with its server gone, or its bus stopped) is no row of the list, so it
+  cannot be chosen, and is named above the list with why (issue #430). A team whose seat record
+  cannot be read stops the list with the reason instead. The image is unchanged.
+
 ## 3.124.86 — container 2.84.94
 
 - A restore (`ccy-sessions restore`, its `--check`, `declare` and a team restart) no longer

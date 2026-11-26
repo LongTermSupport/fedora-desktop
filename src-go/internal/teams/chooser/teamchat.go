@@ -3,9 +3,11 @@ package chooser
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatchoice"
@@ -33,6 +35,10 @@ type Teamchat struct {
 	// Teams are the teams with a pool seat of any kind in this checkout, sorted: each is a
 	// teamchat team here, whether or not it has a seat of the launch's kind yet.
 	Teams func() ([]string, error)
+	// Answers is "" when team's bus answers this checkout's pool seats, else the words of why it
+	// does not (system.Cmd.Answers, bounded); an error is a bus that cannot be judged. The list
+	// offers a team only when it answers (issue 430).
+	Answers func(ctx context.Context, team string) (string, error)
 	// Pool is this checkout's pool seats of team of kind, each with the session a take would be
 	// refused for: the only source a seat is chosen from, so a held seat is never taken (issue 423).
 	Pool func(team, kind string) ([]seatchoice.Seat, error)
@@ -205,19 +211,30 @@ func (c *Chooser) unattendedWays(ctx context.Context, memberType, list string) t
 
 // withTeamchat puts this checkout's teamchat teams first in the list (they cover it: their
 // seats were issued to it), leaving out a name the list already has; that one is refused by the
-// launch, which names both.
-func (c *Chooser) withTeamchat(memberType string, entries []entry) ([]entry, error) {
+// launch, which names both. A team whose bus does not answer is dead here (retired, its server
+// gone, or its bus stopped): it is no row, so it cannot be chosen, and it is named above the list
+// with why (issue 430).
+func (c *Chooser) withTeamchat(ctx context.Context, memberType string, entries []entry) ([]entry, error) {
 	tc := c.teamchatFor(memberType)
 	if tc == nil {
 		return entries, nil
+	}
+	if tc.Answers == nil {
+		return nil, errors.New("ccy-teams: the teamchat teams cannot be listed: no probe of a team's bus is wired, and a team is never offered unjudged")
 	}
 	teams, err := tc.Teams()
 	if err != nil {
 		return nil, err
 	}
+	teams = slices.DeleteFunc(teams, func(team string) bool { return inTeams(entries, team) })
+	dead, err := deadTeams(ctx, tc, teams)
+	if err != nil {
+		return nil, err
+	}
 	var v2 []entry
-	for _, team := range teams {
-		if inTeams(entries, team) {
+	for i, team := range teams {
+		if dead[i] != "" {
+			c.say("Not offered: team " + team + " is dead in this checkout, since its bus does not answer (" + dead[i] + ").")
 			continue
 		}
 		seats, seatsErr := tc.SeatCount(team, memberType)
@@ -230,6 +247,25 @@ func (c *Chooser) withTeamchat(memberType string, entries []entry) ([]entry, err
 		})
 	}
 	return append(v2, entries...), nil
+}
+
+// deadTeams asks every team's bus at once (each probe is bounded by Answers itself, so the list
+// waits for the slowest one, not their sum): why each does not answer, "" for one that does, in
+// the order of teams. The first probe that cannot judge is the error.
+func deadTeams(ctx context.Context, tc *Teamchat, teams []string) ([]string, error) {
+	why := make([]string, len(teams))
+	errs := make([]error, len(teams))
+	var wg sync.WaitGroup
+	for i, team := range teams {
+		wg.Go(func() { why[i], errs[i] = tc.Answers(ctx, team) })
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			return nil, fmt.Errorf("whether team %s's bus answers: %w", teams[i], err)
+		}
+	}
+	return why, nil
 }
 
 // teamchatStanding is a teamchat team's standing column: its seats of the launch's kind.

@@ -30,6 +30,10 @@ type teamchatRig struct {
 	poolErr     error
 	reattachErr error
 	reattached  []string
+	// dead is why each team whose bus does not answer does not (Answers); answersErr fails it.
+	// Answers is asked from one goroutine per team, so these are only read.
+	dead       map[string]string
+	answersErr error
 }
 
 // ofKind is team's seats of kind, as system.Cmd answers them: a rig seat "N" is of every kind
@@ -55,9 +59,10 @@ func (r *teamchatRig) ofKind(team, kind string) []seatchoice.Seat {
 
 func newTeamchatRig(t *testing.T, entries string, seats map[string][]string) *teamchatRig {
 	t.Helper()
-	r := &teamchatRig{rig: newRig(t, entries), seats: seats, held: map[string]string{}}
+	r := &teamchatRig{rig: newRig(t, entries), seats: seats, held: map[string]string{}, dead: map[string]string{}}
 	r.c.Teamchat = &Teamchat{
-		Pool: func(team, kind string) ([]seatchoice.Seat, error) { return r.ofKind(team, kind), r.poolErr },
+		Answers: func(_ context.Context, team string) (string, error) { return r.dead[team], r.answersErr },
+		Pool:    func(team, kind string) ([]seatchoice.Seat, error) { return r.ofKind(team, kind), r.poolErr },
 		Reattach: func(_ context.Context, session string) error {
 			r.reattached = append(r.reattached, session)
 			return r.reattachErr
@@ -339,6 +344,61 @@ func TestTheListShowsThisCheckoutsTeamchatTeams(t *testing.T) {
 	if calls := r.Spawned(); calls["systemctl is-active agent-bus-hs@"+v2Team+".service"] != 0 {
 		t.Fatalf("a teamchat team's homeserver was asked of systemd: %v", calls)
 	}
+}
+
+// deadTeam is a team with a seat in the rig's checkout whose bus does not answer: retired, its
+// server gone, or its bus stopped (issue 430).
+const deadTeam = "lts-retired"
+
+// deadWhy is what the rig's Answers says of deadTeam.
+const deadWhy = "its homeserver at https://127.0.0.1:8448 does not answer: connection refused"
+
+// Issue 430 (the owner: "when selecting team I'm presented with lists of dead teams - this MUST
+// be fixed"): a teamchat team whose bus does not answer is never a row of the list, so it cannot
+// be chosen; it is named above the list in words, with why.
+func TestATeamchatTeamWhoseBusDoesNotAnswerIsNotOffered(t *testing.T) {
+	r := newTeamchatRig(t, alphaCovers+betaWiden, map[string][]string{v2Team: {"2"}, deadTeam: {"1"}})
+	r.dead[deadTeam] = deadWhy
+	r.Script.Fzf = []string{"|ABORT"}
+	exit(t, r.run("--type=podman"), term.ExitOK, r.rig)
+	rows := r.Script.Rows[0]
+	if slices.ContainsFunc(rows, func(row string) bool { return strings.Contains(row, deadTeam) }) {
+		t.Fatalf("a dead team was offered: %q", rows)
+	}
+	if !slices.ContainsFunc(rows, func(row string) bool { return strings.Contains(row, v2Team) }) {
+		t.Fatalf("the live teamchat team was not offered: %q", rows)
+	}
+	contains(t, "stderr", r.stderr(), "Not offered: team "+deadTeam+" is dead", "its bus does not answer", deadWhy)
+	r.lacksOutput(t)
+}
+
+// Issue 430: with the dead teams left out, a checkout whose one live team is a teamchat one takes
+// it without a list, as when the dead ones were never there.
+func TestTheOneLiveTeamAmongDeadOnesIsTakenWithoutAList(t *testing.T) {
+	r := newTeamchatRig(t, "", map[string][]string{v2Team: {"2"}, deadTeam: {"1"}, "lts-stopped": {"1"}})
+	r.dead[deadTeam] = deadWhy
+	r.dead["lts-stopped"] = "its homeserver at https://127.0.0.1:8449 gave no answer within 5s"
+	exit(t, r.run("--type=podman"), term.ExitOK, r.rig)
+	if r.payload.String() != "2@"+v2Team+"\n" || len(r.Script.Rows) != 0 {
+		t.Fatalf("payload %q rows %v", r.payload.String(), r.Script.Rows)
+	}
+	contains(t, "stderr", r.stderr(), "Not offered: team "+deadTeam, "Not offered: team lts-stopped", "gave no answer within 5s")
+}
+
+// Issue 430: whether a bus answers that cannot be judged stops the list, and with no probe wired
+// the list refuses: a teamchat team is never offered unjudged.
+func TestATeamchatTeamWhoseBusCannotBeJudgedIsNotOffered(t *testing.T) {
+	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2"}})
+	r.answersErr = errors.New("the seat.json cannot be read")
+	exit(t, r.run("--type=podman"), term.ExitFailure, r.rig)
+	contains(t, "stderr", r.stderr(), "the seat.json cannot be read")
+	r.lacksOutput(t)
+
+	r = newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2"}})
+	r.c.Teamchat.Answers = nil
+	exit(t, r.run("--type=podman"), term.ExitFailure, r.rig)
+	contains(t, "stderr", r.stderr(), "no probe of a team's bus is wired")
+	r.lacksOutput(t)
 }
 
 func TestTheOnlyTeamBeingATeamchatOneIsTakenWithoutAList(t *testing.T) {

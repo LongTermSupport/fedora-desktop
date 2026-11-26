@@ -7,6 +7,7 @@ import (
 	"io"
 	"path/filepath"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
@@ -33,6 +34,9 @@ type Cmd struct {
 	// Life is nil for a team whose pool seats can be taken here, else why not (Life.Check,
 	// register R59): PoolState refuses such a team and PoolTeams leaves it out.
 	Life func(paths.TeamID) error
+	// Reach asks a pool seat's homeserver whether it answers (Answers, issue 430), on Timers.
+	Reach  seat.Reacher
+	Timers matrix.Timers
 }
 
 // Here is the seat store and the checkout key of the working directory, from HOME and
