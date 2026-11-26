@@ -58,3 +58,27 @@ __history_search_record() {
 if [[ " ${PROMPT_COMMAND[*]-} " != *" __history_search_record "* ]]; then
     PROMPT_COMMAND+=(__history_search_record)
 fi
+
+# Up-arrow, `history`, `!prefix` and `fc` see only this terminal's commands, since the
+# Ctrl+R search (history-search.bash) reads every terminal's from the file itself. bash
+# loads HISTFILE after the rc files, so it names nothing until the first prompt, where
+# __history_append (the history block in zz_lts-fedora-desktop.bash) points it back at the
+# shared file. The EXIT trap does the same for a session whose prompt hook never ran
+# (something replaced PROMPT_COMMAND), when it ends by `exit` or Ctrl+D. Closing the
+# terminal is not covered: on SIGHUP bash saves history before any trap runs. An EXIT trap
+# already set is left alone. Only while the search is bound (fzf present): stock Ctrl+R
+# searches the loaded list, and must see all. It lives here, not in history-search.bash,
+# because that file is held at its size by the bash-limits ratchet.
+if command -v fzf >/dev/null && [[ "${HISTFILE-}" == "${HOME}/.local/state/bash/history" ]]; then
+    # __history_shared_file <name> sets <name> to the history file every terminal shares.
+    # Defined only here, where HISTFILE is pointed away from it, so a HISTFILE of the
+    # user's own is never pointed back. A function, not a global: Claude Code's shell
+    # snapshot keeps functions but drops unexported variables.
+    __history_shared_file() {
+        printf -v "$1" '%s' "${HOME}/.local/state/bash/history"
+    }
+    HISTFILE=/dev/null
+    if [[ -z "$(trap -p EXIT)" ]]; then
+        trap '__history_shared_file HISTFILE' EXIT
+    fi
+fi
