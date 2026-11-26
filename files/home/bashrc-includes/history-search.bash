@@ -63,11 +63,6 @@ if command -v fzf >/dev/null; then
     # set is left alone. Kept only when this
     # search is bound: without it, stock Ctrl+R searches the loaded list, and must see all.
     if [[ "${HISTFILE-}" == "${HOME}/.local/state/bash/history" ]]; then
-        # A function, not a global, so Claude Code's shell snapshot keeps it (CLAUDE/QA.md,
-        # shell-snapshot-dropped-name): __history_shared_file <name> sets <name> to the file.
-        __history_shared_file() {
-            printf -v "$1" '%s' "${HOME}/.local/state/bash/history"
-        }
         HISTFILE=/dev/null
         if [[ -z "$(trap -p EXIT)" ]]; then
             trap '__history_shared_file HISTFILE' EXIT

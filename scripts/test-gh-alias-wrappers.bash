@@ -265,11 +265,11 @@ start primary
 echo lts >"$STUB_DIR/alias"
 snap_check "git in a repository with an account's remote" "
 rc=0" git status
-check "  runs as that account over SSH and HTTPS" "yes" "$(grep -F "$account_git" "$STUB_DIR/calls.log" | grep -F -- '--user lts-user)' | grep -q ' status$' && echo yes || echo no)"
+check "  runs as that account over SSH and HTTPS" "yes" "$(grep -q ' status$' <<<"$(grep -F "$account_git" "$STUB_DIR/calls.log" | grep -F -- '--user lts-user)')" && echo yes || echo no)"
 start primary
 snap_check "git-lts" "
 rc=0" git-lts fetch
-check "  runs as that account" "yes" "$(grep -F "$account_git" "$STUB_DIR/calls.log" | grep -q ' fetch$' && echo yes || echo no)"
+check "  runs as that account" "yes" "$(grep -q ' fetch$' <<<"$(grep -F "$account_git" "$STUB_DIR/calls.log")" && echo yes || echo no)"
 start primary
 rm -f "$STUB_DIR/alias"
 snap_check "git in a repository with no account's remote" "

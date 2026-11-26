@@ -46,8 +46,19 @@ After: exit 0, no finding.
   `_git_branch_default_impl` renamed with a double underscore; `_GH_ACCOUNT_USERS` replaced
   by a rendered `case` in `__gh_account_git` (same unknown-alias error).
 - History includes: `__history_search_file` and `__history_shared_file` are now functions
-  that set a named variable with `printf -v` (no fork). Behaviour unchanged:
-  `test-bash-history-search.bash` 37/37, `test-bash-history-session.bash` 9/9.
+  that set a named variable with `printf -v` (no fork), both defined in history-record.bash
+  (history-search.bash is held at its bash-limits record). `__history_append` now points
+  HISTFILE at the shared file whenever history-record.bash was sourced, not only when the
+  search redirected it; where fzf is missing HISTFILE is already that file, so this is a
+  no-op. `test-bash-history-search.bash` 37/37, `test-bash-history-session.bash` 9/9.
+
+## QA
+
+`qa-changed` over these files: semgrep (two `| grep -q` in the new test, fixed) and
+bash-limits (history-search.bash grew, fixed) were real and are green. Not judgeable here:
+ansible-syntax (no vault password file in the container), go-qa (ast-grep is pinned for
+amd64 only; `golangci-lint` and `go test` on `qa/ansible` pass by hand), and
+ccy-version-bump (another lane's uncommitted ccy work in the same tree).
 
 ## Test
 
