@@ -1758,3 +1758,33 @@ before the move to v2. Filled in as causes are found.
   "Not shown" blocks (`routes.go:167`, `:171`) twice.
 - **Fix:** print them once per countdown, with a test for a countdown over one minute.
 - **Severity:** low (noise). **Issue:** TBF. **State:** open.
+
+## R89: no one command restores a machine's teamchat seats after a reboot, and the docs point at one that does not
+
+- **Seen:** the owner, 26 Nov 10:41Z, after the laptop's shutdown-with-update, relayed by the
+  coordinator. `ccy-sessions restore` found one stale record (an old team's), started 0, and
+  had no record of any of the three teamchat seats that ran before the shutdown. The owner
+  (verbatim): "so this was a total fail then!".
+- **What (checked on F44):**
+  - `ccy-sessions restore` starts the sessions in `~/.local/state/ccy/sessions/`, each with its
+    recorded `--resume <id>` (`docs/ccy.md`, "Restore is opt-in per machine").
+  - A teamchat seat resumes by `ccy --teams <key>@<team>` in its checkout, from
+    `.claude/ccy/seat-conversations/` (`docs/ccy.md`, "Team seats resume their conversation";
+    `ccy-teams seats conversation` prints the id).
+  - `ccy-teams restart` acts on v1 teams only (`docs/agent-bus.md`).
+  - So nothing restores every seat on a machine. This seat, asked at 10:12Z, named
+    `ccy-sessions restore` from the first section. That was wrong for these seats, and the
+    coordinator and the owner followed it.
+- **Unchecked:** why the sessions left no record. A record is removed when its session ends,
+  however it ends, and is left behind only when the session is killed. Either these sessions
+  ended before the shutdown killed them, or teamchat seat launches do not write one.
+- **Fix (owner requirement, relayed):**
+  - One command that brings every seat on a machine back on its recorded conversation, with a
+    dry run first. It reads the seat records (`seat-checkouts` and each checkout's
+    `seat-conversations`), not only the session registry, and names any seat it cannot start
+    and why.
+  - The docs say which command restores what. The reboot section names this command first,
+    and `ccy-sessions restore` says that teamchat seats are restored by it.
+  - Find and fix why the session records were missing.
+- **Severity:** high (a reboot loses every seat's session, and the documented route restores
+  none). **Issue:** TBF. **State:** open.
