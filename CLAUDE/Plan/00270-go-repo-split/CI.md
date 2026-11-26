@@ -37,6 +37,11 @@ weaker for having moved.
 moves only to a commit CI passed (branch protection: required checks, signed commits, no
 force push).
 
-**Agent tooling in each new repository:** a `CLAUDE.md` pointing at the shared rules, and the
-hooks daemon installed. That is Task 2.1's checklist, so an agent working in the new
-repository keeps the guards it has here.
+**Agent tooling in each new repository, from its first commits:** a `CLAUDE.md` pointing at
+the shared rules, and the full hooks-daemon setup: the daemon installed, its config and
+handlers, and the planning workflow (`CLAUDE/Plan/`, `mkplan.bash`, plan QA). Its first plan
+carries `HANDOVER.md` (PLAN.md Task 2.4). That is Task 2.3's checklist, so an agent working in
+the new repository keeps the guards it has here.
+
+**History:** none is carried (Q2). gitleaks and the private-names scan run over the tree
+before the initial commit, then over the new repository's own history in CI from then on.
