@@ -84,7 +84,7 @@ The per-package inventory, the dependency graph and every edge to cut are in
 - [ ] ⬜ **Task 1.3**: Make the teamchat packages ccy imports into teamchat's API: the list in
   INVENTORY.md. Each is documented as a stable surface, and the rest of teamchat stays
   unexported.
-- [ ] ⬜ **Task 1.4**: Sort the 68 project rules by scope (INVENTORY.md's qa table): generic,
+- [ ] ⬜ **Task 1.4**: Sort the 67 project rules (`qa/rules/rules_test.go` asserts the count) by scope (INVENTORY.md's qa table): generic,
   teamchat, ccy or this repository. Upstream the generic rules and gates into go-qa-ci (Q3).
   - Acceptance for Phase 1: `go build ./...`, `./scripts/qa-changed.bash` on each commit,
     full `qa-all.bash` green on F44, the boundary rule blocking with an empty ratchet, and
@@ -116,8 +116,9 @@ The per-package inventory, the dependency graph and every edge to cut are in
 - [ ] ⬜ **Task 3.2**: Release `v0.1.0`: static binaries for amd64 and arm64, `sha256sums.txt`,
   signed ([CI.md](CI.md)).
 - [ ] ⬜ **Task 3.3**: fedora-desktop consumes it (Q5). `play-teamchat.yml` and the member kit
-  build the commands from the vendored, pinned module through the `tool` directive (offline,
-  checked by `go.sum`). `teamchat/installplay`'s tests stay here and test the play against the
+  build the commands from the pinned module through `tasks/build-go-command.yml`, as that task
+  builds an external pinned module today (from the module proxy, `-mod=readonly`, checked by
+  `go.sum`; `src-go/go.mod` has no `tool` directive). `teamchat/installplay`'s tests stay here and test the play against the
   pinned module.
   - Acceptance: the play's tests pass, `teamchat-cross-build` passes for both architectures,
     and a `meta-deploy.list` entry is queued (not this weekend). After deploy, the running
@@ -183,8 +184,8 @@ The per-package inventory, the dependency graph and every edge to cut are in
   parity tests against this repository. If that is far off, the v1 packages stay here behind
   the provisioner hook.
 - **Q5. How a host installs the Go commands.** Recommendation: the plays build them from the
-  vendored, pinned module (offline, `go.sum`-checked, the same `tasks/build-go-command.yml`
-  route as today). The signed release binaries are what an LXC or another host installs.
+  pinned module (from the proxy, `-mod=readonly`, `go.sum`-checked: the same
+  `tasks/build-go-command.yml` route an external module takes today). The signed release binaries are what an LXC or another host installs.
 - **Q6. ccy's non-Go payload** (image sources, bash, plugins). Recommendation: a signed
   release tarball pinned by version and sha256 in the play, rather than a git submodule.
 - **Q7. Who writes an LXC seat's network policy.** Recommendation: this repository's host-side
