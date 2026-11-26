@@ -91,7 +91,7 @@ type Clock interface{ Now() time.Time }
 
 // Config is one drill: the machine's root and the uid its records are owned by, the random
 // source of the scratch id, the clock, the key the proof is evidence about, where it runs and the
-// declared drill port.
+// port its command was given (--port).
 type Config struct {
 	Root  string
 	UID   uint32

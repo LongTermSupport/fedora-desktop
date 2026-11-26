@@ -21,7 +21,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 )
 
-// drillPort is the declared drill port the tests apply the scratch team on.
+// drillPort is the --port the tests apply the scratch team on.
 const drillPort = 8470
 
 // plainBundles makes a bundle of any team, as the seat side would.

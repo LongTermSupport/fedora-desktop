@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.99 — container 2.84.99
+
+- ccy-teams reads a team's status record under its configured teamchat root
+  (`CCY_TEAMS_TEAMCHAT_ROOT`, empty on a host), in the session-name role lookup, the seat adder,
+  the system and launch verbs, the team lifecycle check and the seat sweep. On a host the path
+  is the same as before. Test runs no longer read the machine's own teams (Plan 00265, the
+  batch 26 review). The new Go project rule `project_teamchat_root_read` holds this.
+  `internal/teams/system`, which the launcher's Go front builds from, changes, so the launcher
+  version moves. The image is unchanged.
+
 ## 3.124.98 — container 2.84.99
 
 - A teamchat link now posts each receipt it owes a sender (an item it bounced) as a
@@ -31,8 +41,7 @@ Two version numbers move independently — see
 - `ccy-sessions restore` (no names) also brings back team seats (Plan 00265 R89). After the
   records, it starts each teamchat seat in a seat checkout that has a conversation recorded
   there, that no running session holds and that no record covers. Each seat gets a record of its
-  own and is said in words, such as `would start the coordinator of <team> in <checkout>,
-  resuming "<first prompt>"`. A seat whose transcript is gone, or a host seat, is named with the
+  own and is said in words, such as `would start the coordinator of <team> in <checkout>, resuming "<first prompt>"`. A seat whose transcript is gone, or a host seat, is named with the
   launch that brings it back.
 - The seat question and the line a launch prints name a seat by its role and its
   conversation's first prompt (`The coordinator of <team>: last ran 2 hours ago, "..."`), never

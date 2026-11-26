@@ -193,7 +193,7 @@ func Wire(h *host.Host) *App {
 	membershipInit := membership.New(h)
 	sys := newSystem(h)
 	adder := &seatadd.Adder{
-		Getenv: h.Getenv, Status: system.StatusRecord, Life: teamLife(h), Origin: h.Git.RemoteURL, Site: seatadd.HostVarsSite(h.HostVars),
+		Getenv: h.Getenv, Status: system.StatusUnder(h.TeamchatRoot), Life: teamLife(h), Origin: h.Git.RemoteURL, Site: seatadd.HostVarsSite(h.HostVars),
 		Issuer: seatadd.SudoIssuer{Sudo: h.Sudo}, Place: placeissued.Place,
 	}
 	chosen.Teamchat = &chooser.Teamchat{
@@ -440,7 +440,7 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 			return a.GoCache.Run(ctx, rest[1:])
 		case "session-name":
 			return sessionname.Command{
-				Server: a.Host.Tmux, Records: a.readRegistry, Roles: newSystem(a.Host).SeatRoles, Stdout: a.Payload, Stderr: a.Stderr,
+				Server: a.Host.Tmux, Records: a.readRegistry, Roles: a.System.SeatRoles, Stdout: a.Payload, Stderr: a.Stderr,
 			}.Run(ctx, rest[1:])
 		case verbSeatResume:
 			return a.SeatResume.Run(rest[1:])
@@ -487,7 +487,7 @@ func newSystem(h *host.Host) *system.Cmd {
 			}
 			return names, nil
 		},
-		Status:   system.StatusRecord,
+		Status:   system.StatusUnder(h.TeamchatRoot),
 		Sessions: teamchatlaunch.RegistrySessions{Open: h.Registry},
 		Life:     teamLife(h),
 		Reach:    seat.VersionsReach{Clock: matrix.SystemClock()},
@@ -498,7 +498,7 @@ func newSystem(h *host.Host) *system.Cmd {
 // teamLife is every pool seat chooser's judgement of a team's lifecycle on this machine: its
 // status record, else what the host_vars' teamchat_teams declare (register R59).
 func teamLife(h *host.Host) func(paths.TeamID) error {
-	return system.Life{Status: system.StatusRecord, Declared: seatadd.HostVarsTeams(h.HostVars), HostVars: h.HostVars}.Check
+	return system.Life{Status: system.StatusUnder(h.TeamchatRoot), Declared: seatadd.HostVarsTeams(h.HostVars), HostVars: h.HostVars}.Check
 }
 
 // newLaunch is the launcher's verbs over h: membership-init for agent-bus, and for teamchat the
@@ -512,7 +512,7 @@ func newLaunch(h *host.Host, membershipInit *membership.Init, sys *system.Cmd) *
 			in.Getwd = func() (string, error) { return checkout, nil }
 			return in.Lines(ctx, teams)
 		},
-		Membership: membershipInit.Prepare, Status: system.StatusRecord, Life: teamLife(h), Exec: h.Echo.Execer(h.Execer),
+		Membership: membershipInit.Prepare, Status: system.StatusUnder(h.TeamchatRoot), Life: teamLife(h), Exec: h.Echo.Execer(h.Execer),
 		NowMS: nowMS,
 		Parts: storeParts(h),
 		Taker: func(cfg seat.Config) teamchatlaunch.Taker {
@@ -555,7 +555,7 @@ func storeParts(h *host.Host) seat.Config {
 func newSweep(h *host.Host) *seatsweep.Cmd {
 	return &seatsweep.Cmd{
 		Stdout: h.Payload, Stderr: h.Stderr, Getenv: h.Getenv, Parts: storeParts(h), Open: seatsweep.OpenStore,
-		Getwd: os.Getwd, Status: system.StatusRecord, Who: seatsweep.CurrentUser,
+		Getwd: os.Getwd, Status: system.StatusUnder(h.TeamchatRoot), Who: seatsweep.CurrentUser,
 	}
 }
 

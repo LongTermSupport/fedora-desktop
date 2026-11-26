@@ -36,8 +36,8 @@ const (
 const drillHelp = `usage: ` + paths.AdminBinary + ` restore-drill --port <port> [--where host|vm-lab] [--clean]
        ` + paths.AdminBinary + ` restore-drill --clean
 
-Proves restore on this machine: a scratch team (rd- and 12 hex) is applied on the declared drill
-port, which listens on loopback only, seeded, backed up, changed, restored once forced to fail and
+Proves restore on this machine: a scratch team (rd- and 12 hex) is applied on the port --port
+names, listening on loopback only, seeded, backed up, changed, restored once forced to fail and
 once to the end, each clause of host checks H-C5 and H-C15 checked, then removed with purge. The
 proof record restore needs is written only when every clause attempted passed; the pool seat and
 the held session are recorded skipped, so restore stays refused until they can pass. The record
@@ -53,7 +53,7 @@ or an operation failed (no record written), 64 usage, 70 refused.
 `
 
 // restoreDrill is `restore-drill --port P [--where W] [--clean]`: --clean removes the leftovers of an earlier
-// drill, then --port runs a drill on the declared drill port. Its one JSON document says what
+// drill, then --port runs a drill on the port it names. Its one JSON document says what
 // was cleaned and, for a drill, its team, each clause's verdict, what failed and whether the
 // proof record was written. A refusal is 70, a failed check 1 with the document printed.
 func restoreDrill(ctx context.Context, e Env, args []string) term.ExitCode {
@@ -137,7 +137,7 @@ func drillArgs(args []string) (drillRequest, error) {
 		return req, nil
 	}
 	if req.port, err = strconv.Atoi(v); err != nil || strconv.Itoa(req.port) != v || req.port < minDrillPort || req.port > maxDrillPort {
-		return drillRequest{}, usagef("--port is the declared drill port, a number from %d to %d", minDrillPort, maxDrillPort)
+		return drillRequest{}, usagef("--port is the port the drill's scratch team listens on, a number from %d to %d", minDrillPort, maxDrillPort)
 	}
 	return req, nil
 }

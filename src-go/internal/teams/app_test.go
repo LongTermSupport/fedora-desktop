@@ -12,6 +12,8 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -353,7 +355,7 @@ func TestDispatchInternalGoCacheIsTheCacheCommand(t *testing.T) {
 func TestDispatchInternalSessionNameIsTheNameCommand(t *testing.T) {
 	h := newHarness(t)
 	h.On("tmux -L ccy list-sessions", "ccy-alpha-proj-4 0 /elsewhere\n", 0)
-	if code := h.app.Run([]string{"internal", "session-name", "ccy", "proj", "4@alpha", "/w/proj"}); code != term.ExitOK ||
+	if code := h.app.Run([]string{"internal", "session-name", "ccy", "proj", "4@alpha", h.Root}); code != term.ExitOK ||
 		h.Out.String() != "ccy-alpha-proj-4-2\n" {
 		t.Fatalf("exit %d: %q %s", code, h.Out.String(), h.ErrOut.String())
 	}
@@ -366,20 +368,60 @@ func TestDispatchInternalSessionNameReadsTheRegistry(t *testing.T) {
 	state := t.TempDir()
 	h.Env["CCY_STATE_DIR"] = state
 	rec := registry.Record{
-		Name: "ccy-fixed", Dir: "/w/proj", Launcher: "/l/claude-yolo", Prefix: "ccy", Restore: true,
+		Name: "ccy-fixed", Dir: h.Root, Launcher: "/l/claude-yolo", Prefix: "ccy", Restore: true,
 		FreshIfNoConversation: true, Args: []string{"--teams", "4@alpha"},
 	}
 	if err := registry.New(filepath.Join(state, "sessions")).Write(rec); err != nil {
 		t.Fatal(err)
 	}
 	h.On("tmux -L ccy list-sessions", "", 0)
-	if code := h.app.Run([]string{"internal", "session-name", "ccy", "proj", "4@alpha", "/w/proj"}); code != term.ExitOK ||
+	if code := h.app.Run([]string{"internal", "session-name", "ccy", "proj", "4@alpha", h.Root}); code != term.ExitOK ||
 		h.Out.String() != "ccy-fixed yes\n" {
 		t.Fatalf("exit %d: %q %s", code, h.Out.String(), h.ErrOut.String())
 	}
 	h.Env["CCY_STATE_DIR"] = "relative"
-	if code := h.app.Run([]string{"internal", "session-name", "ccy", "proj", "4@alpha", "/w/proj"}); code != term.ExitFailure {
+	if code := h.app.Run([]string{"internal", "session-name", "ccy", "proj", "4@alpha", h.Root}); code != term.ExitFailure {
 		t.Fatalf("a registry with no location: exit %d: %s", code, h.ErrOut.String())
+	}
+}
+
+// The name command names a seat by its role from the team's status record under the world's
+// teamchat root, never the machine's own record (Plan 00265 R90 Q7; project_teamchat_root_read).
+// A checkout that does not exist names no session: the launch's checkout is resolved, and fails.
+func TestDispatchInternalSessionNameReadsRolesUnderTheTeamchatRoot(t *testing.T) {
+	h := newHarness(t)
+	checkout, err := filepath.EvalSymlinks(h.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := paths.SeatStore(filepath.Join(h.Env["HOME"], ".local", "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := paths.CheckoutKeyOf(checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	team, err := paths.ParseTeamID("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle := "proj.4+local.podman"
+	if err := os.MkdirAll(filepath.Join(store.PoolTeam(key, team), handle), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	coordinator := teamtest.V2Member(handle, "podman", false)
+	coordinator.Role = proto.RoleCoordinator
+	h.WriteV2Status(t, "alpha", true, coordinator)
+	h.On("tmux -L ccy list-sessions", "", 0)
+	if code := h.app.Run([]string{"internal", "session-name", "ccy", "proj", "4@alpha", checkout}); code != term.ExitOK ||
+		h.Out.String() != "ccy-alpha-proj-coordinator\n" {
+		t.Fatalf("exit %d: %q %s", code, h.Out.String(), h.ErrOut.String())
+	}
+	h.Out.Reset()
+	if code := h.app.Run([]string{"internal", "session-name", "ccy", "proj", "4@alpha", filepath.Join(h.Root, "gone")}); code != term.ExitFailure ||
+		!strings.Contains(h.ErrOut.String(), "no session name could be chosen") {
+		t.Fatalf("a checkout that is not there: exit %d: %q %s", code, h.Out.String(), h.ErrOut.String())
 	}
 }
 

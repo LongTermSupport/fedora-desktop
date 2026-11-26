@@ -136,6 +136,26 @@
 # Issue #324: the image's teamchat is built from the paths package, which gains the restore
 # drill's names (container 2.84.97); the rebuild is the same single one, and nothing in the
 # image reads the new names.
+# Plan 00267 Tasks 2.1-2.3 (container 2.84.96, 2.84.98, 2.84.99): the same single rebuild gives
+# the image's teamchat a read-receipt queue that, when full, keeps each room's latest receipt
+# (none is lost); a drop ledger of the events a member drops that were addressed to it, kept a
+# week, with a `bounced` receipt owed to each sender; and the sender of those owed receipts,
+# which posts each as a teamchat.receipt in the team's reports room and keeps it until the
+# homeserver has it. Sessions started after the rebuild get it.
+# Plan 00265 R90 (ccy 3.124.94): a plain cc in ccy's tmux, in a checkout holding a host seat of
+# one teamchat team, joins that team (cc --no-teams starts on none); a launch with nobody to
+# ask takes the seat this checkout last worked in, and says so.
+# Plan 00265 R89, R90 (ccy 3.124.97): ccy-sessions and ccy-teams are rebuilt. ccy-sessions
+# restore (no names) now also starts team seats: each teamchat seat with a conversation recorded
+# in its seat checkout that no running session holds and no record covers, each said in words
+# ("would start the coordinator of <team> in <checkout>, resuming ..."). A new team session is
+# named by its seat's role when no other seat of the team there has it
+# (ccy-<team>-<project>-coordinator); the number stays only to tell two workers apart. Running
+# sessions keep their names.
+# Plan 00265 batch 26 fixes (ccy 3.124.99): ccy-teams reads a team's status record under its
+# configured teamchat root (on this host the same path as before, so nothing changes here).
+# Check afterwards: `ccy-sessions restore --dry-run` names the seats it would start in words,
+# and a new seat session's tmux name ends in its role.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC
@@ -165,7 +185,15 @@ playbooks/imports/play-claude-yolo.yml
 # label. This host does not set it, so no drill port is labelled, no port is opened and NO
 # drill runs here. Expected: changed for the teamchat-admin copy and its link; the SELinux tasks
 # unchanged. Afterwards: `sudo teamchat-admin restore --team T --backup N` exits 70 naming the
-# missing restore proof, as it refused before.
+# missing restore proof, as it refused before. With teamchat_restore_drill false the drill
+# port's label task is skipped here (no teamchat_restore_drill_port is set); on a host that sets
+# the port and turns the drill off, the label is now removed.
+# Plan 00267 Phase 2 (Tasks 2.1-2.3): the host kit and the LXC members' copies carry the same
+# teamchat as the image above: a full read-receipt queue keeps each room's latest receipt; a
+# member keeps a drop ledger (a week) of the events addressed to it that it drops and owes each
+# sender a `bounced` receipt; the link posts those receipts as teamchat.receipt in the team's
+# reports room, keeping each until the homeserver has it. Member sessions started after the
+# run get it.
 playbooks/imports/play-teamchat.yml
 
 # Plan 00265 R79: finishes the private-name guard's setup. It ASKS at the terminal for each
