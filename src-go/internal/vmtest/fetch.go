@@ -110,11 +110,22 @@ func checksumEntry(checksumFile, file string) (string, error) {
 }
 
 // download fetches url to dest with a conditional GET, so a current copy costs one request.
+// curl writes into a directory only this run made beside dest, never at a name another party
+// could have planted a link at (rule project_temp_not_exclusive).
 func (c *cli) download(ctx context.Context, url, dest string) error {
-	partial := dest + ".partial"
-	if err := removeIfPresent(partial); err != nil {
-		return err
+	dir, err := os.MkdirTemp(filepath.Dir(dest), "."+filepath.Base(dest)+".fetch-")
+	if err != nil {
+		return failf("cannot make a download directory beside %s: %v", dest, err)
 	}
+	err = c.downloadInto(ctx, url, dest, filepath.Join(dir, filepath.Base(dest)+".partial"))
+	if rerr := os.RemoveAll(dir); rerr != nil {
+		err = errors.Join(err, failf("cannot remove %s: %v", dir, rerr))
+	}
+	return err
+}
+
+// downloadInto is download's work, curl writing partial.
+func (c *cli) downloadInto(ctx context.Context, url, dest, partial string) error {
 	args := []string{"-fL", "--progress-bar", "-o", partial}
 	_, statErr := os.Stat(dest)
 	if statErr == nil {
@@ -122,7 +133,7 @@ func (c *cli) download(ctx context.Context, url, dest string) error {
 	}
 	args = append(args, url)
 	if _, err := c.env.Runner.Run(ctx, execx.Cmd{Name: "curl", Args: args, Stdout: c.env.Stderr, Stderr: c.env.Stderr}); err != nil {
-		return errors.Join(ctxErr(ctx, failf("download failed: %s: %v", url, err)), removeIfPresent(partial))
+		return ctxErr(ctx, failf("download failed: %s: %v", url, err))
 	}
 	info, err := os.Stat(partial)
 	if err == nil && info.Size() > 0 {
@@ -131,9 +142,6 @@ func (c *cli) download(ctx context.Context, url, dest string) error {
 		}
 		c.logf("downloaded %s (%d bytes)", filepath.Base(dest), info.Size())
 		return nil
-	}
-	if err := removeIfPresent(partial); err != nil {
-		return err
 	}
 	if statErr != nil {
 		return failf("no local copy and the server sent nothing: %s", url)

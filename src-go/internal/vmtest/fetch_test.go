@@ -51,11 +51,11 @@ func fetchKit(t *testing.T) *kit {
 func TestE14FetchVerifiesTheArtefact(t *testing.T) {
 	k := fetchKit(t)
 	k.wantCode(k.run("fetch", "server-fast"), term.ExitOK)
-	if k.read("images/"+imageName) != imageBody || k.exists("images/"+imageName+".partial") {
+	if k.read("images/"+imageName) != imageBody || downloadLeftovers(t, k) {
 		t.Fatal("the image was not downloaded into place")
 	}
 	curl := k.lines("curl ")
-	if len(curl) != 2 || curl[0] != "curl -fL --progress-bar -o "+k.path("images/"+imageName+".partial")+" "+imageURL ||
+	if len(curl) != 2 || !privatePartial(k, curl[0], " "+imageURL) ||
 		!strings.HasSuffix(curl[1], "/images/"+checksumName) {
 		t.Fatalf("got %v", curl)
 	}
@@ -82,7 +82,9 @@ func TestE14FetchVerifiesTheArtefact(t *testing.T) {
 		return execx.Result{}, nil
 	})
 	k.wantCode(k.run("fetch", "server-fast"), term.ExitOK)
-	if !slices.Contains(k.lines("curl "), "curl -fL --progress-bar -o "+k.path("images/"+imageName+".partial")+" -z "+k.path("images/"+imageName)+" "+imageURL) {
+	if !slices.ContainsFunc(k.lines("curl "), func(l string) bool {
+		return privatePartial(k, l, " -z "+k.path("images/"+imageName)+" "+imageURL)
+	}) {
 		t.Fatalf("no conditional GET: %v", k.lines("curl "))
 	}
 	k.wantErr("==> " + imageName + " is current (not modified upstream)")
@@ -93,7 +95,7 @@ func TestE14FetchRefusals(t *testing.T) {
 	delete(k.served, imageURL)
 	k.wantCode(k.run("fetch", "server-fast"), term.ExitFailure)
 	k.wantErr("ERROR: download failed: " + imageURL + ": curl exited 22")
-	if k.exists("images/" + imageName + ".partial") {
+	if downloadLeftovers(t, k) {
 		t.Fatal("the partial download was kept")
 	}
 
@@ -146,4 +148,25 @@ func TestE14FetchRefusals(t *testing.T) {
 	k.wantCode(k.run("fetch", "server-fast"), term.ExitFailure)
 	k.wantErr("ERROR: the probe listed no artefact for server-fast-44")
 	assertNoProbeFiles(t, k)
+}
+
+// privatePartial is whether line is the curl of the image writing its partial download inside a
+// directory of the run's own beside the image (rule project_temp_not_exclusive), then rest.
+func privatePartial(k *kit, line, rest string) bool {
+	prefix := "curl -fL --progress-bar -o " + k.path("images/."+imageName+".fetch-")
+	suffix := "/" + imageName + ".partial" + rest
+	return strings.HasPrefix(line, prefix) && strings.HasSuffix(line, suffix) &&
+		!strings.Contains(strings.TrimSuffix(strings.TrimPrefix(line, prefix), suffix), "/")
+}
+
+// downloadLeftovers is whether a download directory or a partial download is left in images/.
+func downloadLeftovers(t *testing.T, k *kit) bool {
+	t.Helper()
+	entries, err := os.ReadDir(k.path("images"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return slices.ContainsFunc(entries, func(e os.DirEntry) bool {
+		return strings.Contains(e.Name(), ".fetch-") || strings.HasSuffix(e.Name(), ".partial")
+	})
 }

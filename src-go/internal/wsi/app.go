@@ -248,8 +248,9 @@ func (r *run) cleanup(ctx context.Context) {
 	r.panel.state(ctx, stateIdle)
 }
 
-// audioFiles is the recording as recorded, resampled and padded (the panel's
-// recorderLaunch.js discardLeftovers names the same three).
+// audioFiles is the recording and the resampled and padded names beside it that versions before
+// issue 417 wrote (the panel's recorderLaunch.js discardLeftovers names the same three); sox now
+// writes inside a directory of its own, which audioTool removes.
 func (r *run) audioFiles() []string {
 	return []string{r.wav, r.wav + ".resampled.wav", r.wav + ".padded"}
 }

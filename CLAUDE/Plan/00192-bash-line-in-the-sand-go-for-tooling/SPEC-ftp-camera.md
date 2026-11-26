@@ -377,7 +377,8 @@ The tests cite these numbers.
   class.
 - E63. `--async-copy` then copies the sorted file into the mount: the mount path must still be
   inside an rclone mount (`findmnt -T <mount path> -t fuse.rclone --noheadings`); the
-  directory is created; the file is written to `.ftp-camera.tmp.<name>` and renamed to
+  directory is created; the file is written to `.ftp-camera.tmp.<random>.<name>`, created
+  exclusively (`os.CreateTemp`; rule `project_temp_not_exclusive`, issue 417), and renamed to
   `<name>` (a failure removes the temporary file). Success: `  [<ts>] copy  <name>  → mount cache (VFS will upload)`, counted. Failure: `  [<ts>] copy fail  <name>  (rc=1; sorted locally, rerun ftp-camera --push)` and the reason indented four spaces, on stderr; counted,
   and the sorted path is listed in the summary.
 - E66. Once the session is stopping (Ctrl+C, TERM, or a part that stopped), the handler starts
