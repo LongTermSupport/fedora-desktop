@@ -127,6 +127,10 @@ type Forge interface {
 type Item struct {
 	Pending state.Pending
 	Verdict proto.Verdict
+	// Held is why the item is held from delivery (proto.HeldReasons: the receive rate, the
+	// delivery budget, a forge check still to run), "" for one not held; the engine owes its
+	// sender a held receipt with it (Plan 00267 C2).
+	Held string
 }
 
 // Counts are a batch's counters (UH1), counted once per event. DroppedBy splits Dropped by its
@@ -311,6 +315,9 @@ type Team interface {
 	Wake()
 	// FlushFloor puts the teamchat.floor marker, at a removal before the store goes (SY10).
 	FlushFloor(ctx context.Context) error
+	// FlushOwed posts the receipts owed, each once in the reports room, at a removal before the
+	// store goes (Plan 00267 C2); each is tried, and the failures are its error.
+	FlushOwed(ctx context.Context, owed []state.Owed) error
 	// FloorRaised is the store's main floor raised outside a sync answer (an ack or a drop
 	// settled what it owed, B 2.3.2), once written; the marker follows. It must not block: the
 	// engine's state goroutine calls it.

@@ -227,9 +227,10 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (state.Floor, error)
 			dropped questionsDrop
 		)
 		now := e.cfg.Clock.WallMS()
+		absent := e.delivers() && !e.liveLocked()
 		out = e.changeLocked(b.Team, func(_ *held, s *state.Store) (bool, error) {
 			var err error
-			if added, err = apply(s, b, now); err != nil {
+			if added, err = apply(s, b, now, absent); err != nil {
 				return false, err
 			}
 			if dropped, err = applyQuestions(s, b); err != nil {
@@ -245,6 +246,7 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (state.Floor, error)
 			return true, nil
 		})
 		if out != nil {
+			e.oweFull(b, out, now)
 			return
 		}
 		// Memory follows the disk: only a written batch's content, counts and answers are kept.
@@ -271,6 +273,31 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (state.Floor, error)
 	return floor, out
 }
 
+// oweFull is a batch the full pending list refused (refused, its write's error): it is fetched
+// again, and meanwhile its items owe their senders held(full), in a write of their own (Plan
+// 00267 C2); an item already pending or delivered owes nothing. On the state goroutine.
+func (e *Engine) oweFull(b team.Batch, refused error, now int64) {
+	var full *state.FullError
+	if !errors.As(refused, &full) || full.List != "pending" {
+		return
+	}
+	if err := e.changeLocked(b.Team, func(_ *held, s *state.Store) (bool, error) {
+		n := len(s.Owed)
+		for _, it := range b.Items {
+			if slices.ContainsFunc(s.Pending, func(p state.Pending) bool { return p.ID == it.Pending.ID }) ||
+				slices.ContainsFunc(s.Ledger, func(l state.Ledger) bool { return l.ID == it.Pending.ID }) {
+				continue
+			}
+			if err := owe(s, it.Pending, proto.ReceiptHeld, proto.ReasonFull, now); err != nil {
+				return false, err
+			}
+		}
+		return len(s.Owed) != n, nil
+	}); err != nil {
+		e.logf("team %s: the held(full) receipts of a refused batch were not written; its next fetch owes them: %v", b.Team, err)
+	}
+}
+
 // keepUncounted is a written batch's uncounted own posts kept for their hook line (QX3), as the
 // store's count was raised; a demotion's write forgets them with the count.
 func (h *held) keepUncounted(b team.Batch) {
@@ -282,16 +309,35 @@ func (h *held) keepUncounted(b team.Batch) {
 	}
 }
 
-// apply is b in a copy of its store at now, its bounces too; it is the items added, with their
-// verdicts.
-func apply(s *state.Store, b team.Batch, now int64) (map[string]proto.Verdict, error) {
-	added := map[string]proto.Verdict{}
+// apply is b in a copy of its store at now, its bounces and receipts too (Plan 00267 C2): an
+// item added held owes its sender held with the reason, or held(absent) when absent (a socket
+// session not taking deliveries); a redacted item is bounced; a recorded answer owes recorded.
+// It is the items added, with their verdicts.
+func apply(s *state.Store, b team.Batch, now int64, absent bool) (map[string]proto.Verdict, error) {
 	if !b.Page {
 		s.Sync.NextBatch, s.Sync.RestoreEpoch, s.Sync.Fresh = b.NextBatch, b.RestoreEpoch, b.Fresh
 	}
 	for room, f := range b.Floors {
 		s.Sync.SetFloor(room, f)
 	}
+	added, err := addItems(s, b, now, absent)
+	if err != nil {
+		return nil, err
+	}
+	if err := applyRedacts(s, b, now); err != nil {
+		return nil, err
+	}
+	if err := oweRecorded(s, b, now); err != nil {
+		return nil, fmt.Errorf("engine: team %s: %w", b.Team, err)
+	}
+	ownedFloors(s)
+	return added, applyBounces(s, b, now)
+}
+
+// addItems is b's new items in s at now, each owing its held receipt (oweHeld); it is the items
+// added, with their verdicts.
+func addItems(s *state.Store, b team.Batch, now int64, absent bool) (map[string]proto.Verdict, error) {
+	added := map[string]proto.Verdict{}
 	known := map[string]bool{}
 	for _, p := range s.Pending {
 		known[p.ID] = true
@@ -313,24 +359,49 @@ func apply(s *state.Store, b team.Batch, now int64) (map[string]proto.Verdict, e
 		case err == nil && p.ForgeUntil != 0:
 			// An unproven ping keeps no verdict, so it is re-fetched and checked again before it
 			// is shown (Plan 00267 Task 3.2).
+			err = oweHeld(s, p, it.Held, now, absent)
 		case err == nil:
 			added[it.Pending.ID] = it.Verdict
+			err = oweHeld(s, p, it.Held, now, absent)
 		case p.NotBefore != 0 && errors.Is(err, state.ErrFull):
 			// A held item past pending's agent share bounces rate (Plan 00267 C4's bound).
-			if err := bounce(s, team.Bounce{ID: p.ID, Room: p.Room, From: p.From, SentMS: p.SentMS, Reason: proto.ReasonRate}, now); err != nil {
-				return nil, fmt.Errorf("engine: team %s: %w", b.Team, err)
-			}
-		default:
+			err = bounce(s, team.Bounce{ID: p.ID, Room: p.Room, From: p.From, SentMS: p.SentMS, Reason: proto.ReasonRate}, now)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("engine: team %s: %w", b.Team, err)
 		}
 	}
-	// An item awaiting proof was shown already; its proof, not a redaction, settles it.
+	return added, nil
+}
+
+// applyRedacts removes b's redacted items from s, each bounced `redacted` to its sender at now.
+// An item awaiting proof was shown already; its proof, not a redaction, settles it.
+func applyRedacts(s *state.Store, b team.Batch, now int64) error {
 	awaiting := awaitingIDs(s)
+	var redacted []state.Pending
 	s.Pending = slices.DeleteFunc(s.Pending, func(p state.Pending) bool {
-		return slices.Contains(b.Redacts, p.ID) && !awaiting[p.ID]
+		gone := slices.Contains(b.Redacts, p.ID) && !awaiting[p.ID]
+		if gone {
+			redacted = append(redacted, p)
+		}
+		return gone
 	})
-	ownedFloors(s)
-	return added, applyBounces(s, b, now)
+	if err := bounceItems(s, redacted, proto.ReasonRedacted, now); err != nil {
+		return fmt.Errorf("engine: team %s: %w", b.Team, err)
+	}
+	return nil
+}
+
+// oweHeld is the held receipt an item just added owes: with its held reason, else held(absent)
+// while the session is absent; none for an item neither holds.
+func oweHeld(s *state.Store, p state.Pending, why string, now int64, absent bool) error {
+	switch {
+	case why != "":
+		return owe(s, p, proto.ReceiptHeld, why, now)
+	case absent:
+		return owe(s, p, proto.ReceiptHeld, proto.ReasonAbsent, now)
+	}
+	return nil
 }
 
 // applyBounces is b's bounces in s at now (Plan 00267 C2, C6): each event once in the drop
@@ -356,7 +427,7 @@ func bounce(s *state.Store, x team.Bounce, now int64) error {
 	if err != nil || !added {
 		return err
 	}
-	return s.AddOwed(state.Owed{Of: x.ID, To: x.From, State: proto.ReceiptBounced, Reason: x.Reason, AtMS: now})
+	return oweTo(s, x.ID, x.From, proto.ReceiptBounced, x.Reason, now)
 }
 
 // ownedFloors is B 2.3.2's floor rule: a room the store owes items in has its floor just below

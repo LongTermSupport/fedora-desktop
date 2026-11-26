@@ -13,6 +13,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
 // B 2.7.3's pace, on the boot clock: one delivery (or membership notice) per paceWait; after a
@@ -368,7 +369,8 @@ func (e *Engine) prepare(j *job, got map[key]fetched) (dial, pace) {
 	}, paceSlot
 }
 
-// dropFailed drops the items whose entry failed a slot, in one write; on the state goroutine.
+// dropFailed drops the items whose entry failed a slot, each bounced `render` to its sender
+// (Plan 00267 C2), in one write; on the state goroutine.
 func (e *Engine) dropFailed(h *held, ids []string) {
 	if len(ids) == 0 {
 		return
@@ -379,6 +381,9 @@ func (e *Engine) dropFailed(h *held, ids []string) {
 	)
 	if err := e.changeLocked(h.id, func(_ *held, s *state.Store) (bool, error) {
 		left := takePending(s, ids)
+		if err := bounceItems(s, left, proto.ReasonRender, e.cfg.Clock.WallMS()); err != nil {
+			return false, err
+		}
 		floor, moved = raiseFloors(s, left)
 		return len(left) > 0, nil
 	}); err != nil {
@@ -448,28 +453,9 @@ func (e *Engine) await(j *job, d dial, size int64) (bool, bool) {
 		moved bool
 	)
 	if err := e.changeLocked(j.id, func(_ *held, s *state.Store) (bool, error) {
-		floor, moved = raiseFloors(s, takePending(s, failed))
-		if len(ids) == 0 {
-			return true, nil
-		}
-		at := e.cfg.Clock.Boot().Milliseconds()
-		a := state.Awaiting{
-			Nonce: d.built.Delivery.Nonce, IDs: slices.Clone(ids),
-			Transcript: state.TranscriptMark{Path: d.transcript, Offset: size}, AtMS: at, Written: state.WrittenUnknown,
-		}
-		if e.sess.idle {
-			a.StopMS = &at
-		}
-		if err := s.AddAwaiting(a); err != nil {
-			return false, err
-		}
-		for i := range s.Pending {
-			if slices.Contains(ids, s.Pending[i].ID) {
-				nonce := a.Nonce
-				s.Pending[i].Handed = &nonce
-			}
-		}
-		return true, nil
+		var err error
+		floor, moved, err = e.awaitIn(s, d, size)
+		return err == nil, err
 	}); err != nil {
 		e.logf("team %s: the delivery is not sent, its awaiting entry was not persisted: %v", j.id, err)
 		return false, false
@@ -479,6 +465,39 @@ func (e *Engine) await(j *job, d dial, size int64) (bool, bool) {
 	}
 	e.countRender(h, failed)
 	return true, len(ids) > 0
+}
+
+// awaitIn is await's write in s: the failed slots dropped, each bounced `render` to its sender
+// (Plan 00267 C2), and with items to show the awaiting entry added, its items handed to the
+// nonce. It is main's floor after the drop and whether it moved.
+func (e *Engine) awaitIn(s *state.Store, d dial, size int64) (state.Floor, bool, error) {
+	ids := d.built.IDs
+	dropped := takePending(s, d.built.Failed)
+	if err := bounceItems(s, dropped, proto.ReasonRender, e.cfg.Clock.WallMS()); err != nil {
+		return state.Floor{}, false, err
+	}
+	floor, moved := raiseFloors(s, dropped)
+	if len(ids) == 0 {
+		return floor, moved, nil
+	}
+	at := e.cfg.Clock.Boot().Milliseconds()
+	a := state.Awaiting{
+		Nonce: d.built.Delivery.Nonce, IDs: slices.Clone(ids),
+		Transcript: state.TranscriptMark{Path: d.transcript, Offset: size}, AtMS: at, Written: state.WrittenUnknown,
+	}
+	if e.sess.idle {
+		a.StopMS = &at
+	}
+	if err := s.AddAwaiting(a); err != nil {
+		return state.Floor{}, false, err
+	}
+	for i := range s.Pending {
+		if slices.Contains(ids, s.Pending[i].ID) {
+			nonce := a.Nonce
+			s.Pending[i].Handed = &nonce
+		}
+	}
+	return floor, moved, nil
 }
 
 // after is step 7's outcome, on the state goroutine. A full write is `written: "yes"` and the

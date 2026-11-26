@@ -128,9 +128,22 @@ file and line.
 
 ### Phase 4: receipts at each point (C2)
 
-- [ ] ⬜ **Task 4.1**: delivered at the transcript proof and at `recv` + ack; held on each held
+- [x] ✅ **Task 4.1**: delivered at the transcript proof and at `recv` + ack; held on each held
   transition; bounced at each verdict and at the post-delivery loss points (render, rejudge,
-  removal, redaction); recorded for a recorded ack.
+  removal, redaction); recorded for a recorded ack. Built in `member/engine/owe.go`: each point
+  queues the receipt in the store's `owed` list (Task 2.3's sender posts it); a PEER or PING
+  sender is owed every state, a HUMAN only a bounce (its `m.read` stays its delivered), a
+  TIMEOUT or NOTICE none. Delivered at `prove`, `findLate` and an ack; held at an item added held
+  (`team.Item.Held`: rate, budget, the forge reason, from teamsync's `heldWhy`), added while a
+  socket session is not live (`absent`), declared missing, refused by the full pending list
+  (`full`, a write of its own), and a forge re-check still failing; bounced at render (both drop
+  sites), a re-fetch judged out (its bounce reason) or `gone`, a redaction, and a removal
+  (`team.Team.FlushOwed` posts its bounces and the receipts owed beside the floor marker, before
+  the store goes); recorded for an ack or late answer not shown as an item. A terminal receipt
+  replaces a held one still queued; a refused receipt refuses its write whole (#443: an ack or
+  proof stays unsettled until the queue has room). Tests: `owe_test.go` (16), teamsync
+  `TestHeldWhy`, `TestFlushOwedPostsEachReceipt`. Not built: held(absent) for items already
+  pending when a live session goes down (only items added while it is down owe it).
 
 ### Phase 5: verbs and text (C5, C6, C7)
 

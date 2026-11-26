@@ -14,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/proof"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
 // B 2.7.4's clocks, on the boot clock (n3e-D9): an entry is missing once the transcript has
@@ -413,13 +414,22 @@ func (e *Engine) settleProof(h *held, found map[string]bool, caught bool, now ti
 	err := e.changeLocked(h.id, func(_ *held, s *state.Store) (bool, error) {
 		wall, at := e.cfg.Clock.WallMS(), now.Milliseconds()
 		for _, a := range st.proven {
-			left = append(left, e.prove(s, a, wall)...)
+			proven, err := e.prove(s, a, wall)
+			if err != nil {
+				return false, err
+			}
+			left = append(left, proven...)
 		}
 		for _, a := range st.missing {
-			declareMissing(s, a, offset(a), at)
+			if err := declareMissing(s, a, offset(a), at, wall); err != nil {
+				return false, err
+			}
 		}
 		for _, m := range st.late {
-			gone, shown := e.findLate(s, m, wall)
+			gone, shown, err := e.findLate(s, m, wall)
+			if err != nil {
+				return false, err
+			}
 			left, twice = append(left, gone...), append(twice, shown...)
 		}
 		s.Missed = slices.DeleteFunc(s.Missed, func(m state.Missed) bool { return now >= expiresAt(m) })
@@ -484,8 +494,10 @@ func (e *Engine) provedNote(h *held, st roundSettled, left []state.Pending, twic
 }
 
 // prove settles a found entry in s: its items out of pending (the ledger already holds a
-// written-yes entry's; an unknown one's go in now), and a receipt for each HUMAN item.
-func (e *Engine) prove(s *state.Store, a state.Awaiting, wall int64) []state.Pending {
+// written-yes entry's; an unknown one's go in now), a read receipt for each HUMAN item, and a
+// delivered receipt owed each other item's sender (Plan 00267 C2); the owed queue's refusal
+// refuses the write.
+func (e *Engine) prove(s *state.Store, a state.Awaiting, wall int64) ([]state.Pending, error) {
 	s.Awaiting = slices.DeleteFunc(s.Awaiting, func(x state.Awaiting) bool { return x.Nonce == a.Nonce })
 	var ids []string
 	for _, p := range s.Pending {
@@ -499,8 +511,11 @@ func (e *Engine) prove(s *state.Store, a state.Awaiting, wall int64) []state.Pen
 			s.AddLedger(ledgerOf(p, wall))
 		}
 		receipt(s, p)
+		if err := owe(s, p, proto.ReceiptDelivered, "", wall); err != nil {
+			return nil, err
+		}
 	}
-	return left
+	return left, nil
 }
 
 func ledgerOf(p state.Pending, wall int64) state.Ledger {
@@ -517,22 +532,28 @@ func receipt(s *state.Store, p state.Pending) {
 }
 
 // declareMissing moves a due entry to missed in s: its items pending again, repeat and held from
-// the socket, and out of the ledger (B 2.7.4).
-func declareMissing(s *state.Store, a state.Awaiting, offset, at int64) {
+// the socket, out of the ledger (B 2.7.4), and each owing its sender held(missing) at wall (Plan
+// 00267 C2); the owed queue's refusal refuses the write.
+func declareMissing(s *state.Store, a state.Awaiting, offset, at, wall int64) error {
 	s.Awaiting = slices.DeleteFunc(s.Awaiting, func(x state.Awaiting) bool { return x.Nonce == a.Nonce })
 	for i := range s.Pending {
 		if h := s.Pending[i].Handed; h != nil && *h == a.Nonce {
 			s.Pending[i].Handed, s.Pending[i].Repeat, s.Pending[i].Held = nil, true, true
+			if err := owe(s, s.Pending[i], proto.ReceiptHeld, proto.ReasonMissing, wall); err != nil {
+				return err
+			}
 		}
 	}
 	s.Ledger = slices.DeleteFunc(s.Ledger, func(l state.Ledger) bool { return slices.Contains(a.IDs, l.ID) })
 	s.AddMissed(state.Missed{Nonce: a.Nonce, IDs: slices.Clone(a.IDs), Offset: offset, AtMS: at})
+	return nil
 }
 
 // findLate is a missed entry found (P9): its items still pending leave as proven; those recv has
 // shown (in the ledger, or handed to a recv now) are seen twice, and a handed one leaves pending
-// too, so a return cannot show it a third time. It is the items that left, and those seen twice.
-func (e *Engine) findLate(s *state.Store, m state.Missed, wall int64) ([]state.Pending, []string) {
+// too, so a return cannot show it a third time. It is the items that left, each owing delivered
+// (Plan 00267 C2), and those seen twice; the owed queue's refusal refuses the write.
+func (e *Engine) findLate(s *state.Store, m state.Missed, wall int64) ([]state.Pending, []string, error) {
 	s.Missed = slices.DeleteFunc(s.Missed, func(x state.Missed) bool { return x.Nonce == m.Nonce })
 	awaiting := awaitingIDs(s)
 	var ids, twice []string
@@ -553,8 +574,11 @@ func (e *Engine) findLate(s *state.Store, m state.Missed, wall int64) ([]state.P
 	for _, p := range left {
 		s.AddLedger(ledgerOf(p, wall))
 		receipt(s, p)
+		if err := owe(s, p, proto.ReceiptDelivered, "", wall); err != nil {
+			return nil, nil, err
+		}
 	}
-	return left, twice
+	return left, twice, nil
 }
 
 // setIdle is SetSession's hunk: the session's idleness, and while it is idle (a Stop, or a

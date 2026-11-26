@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.118 — container 2.84.110
+
+- The image's teamchat posts a receipt to a message's sender at each point of its delivery
+  (Plan 00267 Task 4.1): delivered at the transcript proof or a recv's ack; held while the
+  session is down, the rate or budget holds it, a forge check is still to run, the delivery
+  went missing, or pending is full; bounced when it does not render, a re-fetch judges it out,
+  it is redacted, or the team is removed; recorded for an ack not shown. A HUMAN's message
+  keeps its read receipt.
+
 ## 3.124.117 — container 2.84.109
 
 - `ccy-teams approve compose` shows every line of every file it approves (the compose files,

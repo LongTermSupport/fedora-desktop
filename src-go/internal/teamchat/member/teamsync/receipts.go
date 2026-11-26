@@ -3,6 +3,7 @@ package teamsync
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -187,7 +188,28 @@ var errNoReportsRoom = errors.New("teamsync: the verified roster names no report
 
 // sendOwed is one post of o in the reports room.
 func (s *sess) sendOwed(ctx context.Context, o state.Owed) error {
-	t := s.t
+	return s.t.sendOwed(ctx, s.c, o)
+}
+
+// FlushOwed posts each receipt of owed once in the reports room, at a removal before the store
+// goes (Plan 00267 C2), under the owed sender's transaction IDs, so one it posted already lands
+// once; each is tried, and the failures are the error.
+func (t *Team) FlushOwed(ctx context.Context, owed []state.Owed) error {
+	c, _, err := t.current()
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, o := range owed {
+		if err := t.sendOwed(ctx, c, o); err != nil {
+			errs = append(errs, fmt.Errorf("receipt for %s: %w", o.Of, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// sendOwed is one post of o in the reports room, on the client c.
+func (t *Team) sendOwed(ctx context.Context, c *matrix.Client, o state.Owed) error {
 	roster, verified := t.Roster()
 	switch {
 	case !verified || roster.Rooms.Reports == "":
@@ -199,6 +221,6 @@ func (s *sess) sendOwed(ctx context.Context, o state.Owed) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.c.Send(ctx, roster.Rooms.Reports, proto.MessageType, proto.ReceiptTxn(o.Of, o.To, o.State, o.Reason), content.Compact())
+	_, err = c.Send(ctx, roster.Rooms.Reports, proto.MessageType, proto.ReceiptTxn(o.Of, o.To, o.State, o.Reason), content.Compact())
 	return err
 }

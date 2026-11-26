@@ -226,6 +226,9 @@ type fakeTeam struct {
 	historyErr    error
 	flushes       int
 	flushErr      error
+	// flushedOwed are the receipts FlushOwed was given, in order; flushOwedErr its answer.
+	flushedOwed  []state.Owed
+	flushOwedErr error
 	// raised are the floors FloorRaised was told, in order.
 	raised []state.Floor
 	// ended (below) is set once Run returns; flushedLive counts the flushes made while it ran.
@@ -337,6 +340,13 @@ func (f *fakeTeam) FlushFloor(context.Context) error {
 		f.flushedLive++
 	}
 	return f.flushErr
+}
+
+func (f *fakeTeam) FlushOwed(_ context.Context, owed []state.Owed) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.flushedOwed = append(f.flushedOwed, owed...)
+	return f.flushOwedErr
 }
 
 func (f *fakeTeam) FloorRaised(floor state.Floor) {

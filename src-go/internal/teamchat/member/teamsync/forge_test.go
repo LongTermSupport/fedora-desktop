@@ -135,6 +135,9 @@ func TestATransientForgeFailureIsTakenUnproven(t *testing.T) {
 	if p := b.Items[0].Pending; p.ID != id || p.ForgeUntil != now+proto.ForgeRetryLimitMs || p.NotBefore != now+proto.ForgeRetryEveryMs {
 		t.Errorf("pending %+v", p)
 	}
+	if why := b.Items[0].Held; why != proto.ReasonForgeRate {
+		t.Errorf("the unproven ping's held reason is %q, want %q (Plan 00267 Task 4.1)", why, proto.ReasonForgeRate)
+	}
 	if n := w.log.count("held " + id + ": its forge check gave forge-rate; it is checked again until "); n != 1 {
 		t.Errorf("the held line said %d times; log %q", n, w.log.String())
 	}

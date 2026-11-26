@@ -277,6 +277,7 @@ func (e *Engine) Remove(ctx context.Context, t paths.TeamID) (Removed, error) {
 		tm     team.Team
 		cancel context.CancelFunc
 		userID string
+		owed   []state.Owed
 	)
 	if err := e.do(ctx, func() {
 		h = e.teams[t]
@@ -284,6 +285,9 @@ func (e *Engine) Remove(ctx context.Context, t paths.TeamID) (Removed, error) {
 			h.removed = true
 			h.noteContact()
 			tm, cancel, userID = h.team, h.cancel, h.userID
+			if h.store != nil {
+				owed = removedOwed(h.store, e.cfg.Clock.WallMS())
+			}
 		}
 	}); err != nil {
 		return Removed{}, err
@@ -292,7 +296,7 @@ func (e *Engine) Remove(ctx context.Context, t paths.TeamID) (Removed, error) {
 		return Removed{}, fmt.Errorf("%w: %s", errNotHeld, t)
 	}
 	failpoint.Hit(failpoint.LinkInRemove)
-	e.stopAndFlush(ctx, t, tm, cancel, h.stopped, "before the removal")
+	e.stopAndFlush(ctx, t, tm, cancel, h.stopped, "before the removal", owed)
 	var notices team.Notices
 	if tm != nil {
 		notices = tm.Notices()
@@ -320,18 +324,28 @@ func (e *Engine) stop(t paths.TeamID, cancel context.CancelFunc, stopped <-chan 
 	}
 }
 
-// stopAndFlush stops t's team goroutine and puts its floor marker within flushWait, logging a
-// marker not put (when says at what end). The put is bounded by flushWait alone, not by ctx.
-func (e *Engine) stopAndFlush(ctx context.Context, t paths.TeamID, tm team.Team, cancel context.CancelFunc, stopped <-chan struct{}, when string) {
+// stopAndFlush stops t's team goroutine, then puts its floor marker and posts the receipts owed
+// (a removal's, Plan 00267 C2) beside it, both within flushWait, logging a marker or receipts not
+// put (when says at what end). The puts are bounded by flushWait alone, not by ctx.
+func (e *Engine) stopAndFlush(ctx context.Context, t paths.TeamID, tm team.Team, cancel context.CancelFunc, stopped <-chan struct{}, when string, owed []state.Owed) {
 	e.stop(t, cancel, stopped)
 	if tm == nil {
 		return
 	}
 	fctx, cancelFlush := context.WithTimeout(context.WithoutCancel(ctx), flushWait)
 	defer cancelFlush()
+	var wg sync.WaitGroup
+	if len(owed) > 0 {
+		wg.Go(func() {
+			if err := tm.FlushOwed(fctx, owed); err != nil {
+				e.logf("team %s: receipts owed were not posted %s: %v", t, when, err)
+			}
+		})
+	}
 	if err := tm.FlushFloor(fctx); err != nil {
 		e.logf("team %s: the floor marker was not put %s: %v", t, when, err)
 	}
+	wg.Wait()
 }
 
 // drop is Remove's local half, on the state goroutine.
@@ -402,7 +416,7 @@ func (e *Engine) Shutdown(ctx context.Context) error {
 	}
 	var wg sync.WaitGroup
 	for _, r := range live {
-		wg.Go(func() { e.stopAndFlush(ctx, r.id, r.tm, r.cancel, r.stopped, "at the shutdown") })
+		wg.Go(func() { e.stopAndFlush(ctx, r.id, r.tm, r.cancel, r.stopped, "at the shutdown", nil) })
 	}
 	wg.Wait()
 	var errs []error

@@ -104,12 +104,13 @@ func (*fakeTeam) History(context.Context, string, int) ([]records.History, error
 	return nil, nil
 }
 
-func (f *fakeTeam) Notices() team.Notices             { return f.notices }
-func (*fakeTeam) Wake()                               {}
-func (*fakeTeam) FlushFloor(context.Context) error    { return nil }
-func (*fakeTeam) FloorRaised(state.Floor)             {}
-func (*fakeTeam) VerifyReports(context.Context) error { return nil }
-func (*fakeTeam) ReportsRoom() team.ReportsRoom       { return team.ReportsRoom{State: team.ReportsJoined} }
+func (f *fakeTeam) Notices() team.Notices                       { return f.notices }
+func (*fakeTeam) Wake()                                         {}
+func (*fakeTeam) FlushFloor(context.Context) error              { return nil }
+func (*fakeTeam) FlushOwed(context.Context, []state.Owed) error { return nil }
+func (*fakeTeam) FloorRaised(state.Floor)                       {}
+func (*fakeTeam) VerifyReports(context.Context) error           { return nil }
+func (*fakeTeam) ReportsRoom() team.ReportsRoom                 { return team.ReportsRoom{State: team.ReportsJoined} }
 
 func (*fakeTeam) Questions(context.Context, func(team.QuestionsView) ([]team.Placement, error)) (team.QuestionsView, error) {
 	return team.QuestionsView{}, errors.New("no questions")

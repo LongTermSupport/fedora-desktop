@@ -248,6 +248,9 @@ playbooks/imports/play-claude-yolo.yml
 # Plan 00265 R17: the host kit and the LXC members' copies carry the same teamchat and skill as
 # the image above (a coordinator's message directs the work and approves nothing). Member
 # sessions started after the run get it.
+# Plan 00267 Task 4.1: the host kit and the LXC members' copies carry the same teamchat as the
+# image above (a receipt to the sender at each delivery point, posted in the reports room).
+# Member sessions started after the run get it.
 playbooks/imports/play-teamchat.yml
 
 # Plan 00265 R79: finishes the private-name guard's setup. It ASKS at the terminal for each

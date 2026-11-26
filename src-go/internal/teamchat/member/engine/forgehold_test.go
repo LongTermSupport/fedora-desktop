@@ -51,7 +51,9 @@ func TestAnUnprovenPingStillFailingIsHeldToItsNextCheck(t *testing.T) {
 			if len(s.Pending) != 1 || s.Pending[0].ForgeUntil != want || s.Pending[0].NotBefore != startWall+proto.ForgeRetryEveryMs {
 				t.Fatalf("pending %+v", s.Pending)
 			}
-			if len(s.Dropped) != 0 || len(s.Owed) != 0 {
+			// Its sender is owed held with the check's reason (Plan 00267 Task 4.1), no bounce.
+			wantOwed := []state.Owed{{Of: evID(1), To: agent(ops, 2), State: proto.ReceiptHeld, Reason: proto.ReasonForgeRate, AtMS: startWall}}
+			if len(s.Dropped) != 0 || !slices.Equal(s.Owed, wantOwed) {
 				t.Fatalf("dropped %+v, owed %+v", s.Dropped, s.Owed)
 			}
 			if !strings.Contains(w.log.String(), "its forge check gave forge-rate; it is checked again until") {

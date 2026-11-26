@@ -770,7 +770,29 @@ type judged struct {
 	q *qfold
 	// unproven is each event whose forge check failed transiently, taken as a ping checked
 	// again before delivery, until its deadline (Plan 00267 Task 3.2).
-	unproven map[string]int64
+	unproven map[string]unproven
+}
+
+// unproven is a ping's transient forge failure: the deadline of its checks, and the reason the
+// check gave, which its held receipt carries.
+type unproven struct {
+	until  int64
+	reason string
+}
+
+// heldWhy is the held reason of a delivered item at now: its forge check still to run, else
+// whichever of the receive window's slot (rate) and the delivery budget's (budget) holds it the
+// later; "" for an item not held.
+func heldWhy(rateAt, budgetAt, now int64, forge string) string {
+	switch {
+	case forge != "":
+		return forge
+	case max(rateAt, budgetAt) <= now:
+		return ""
+	case rateAt >= budgetAt:
+		return proto.ReasonRate
+	}
+	return proto.ReasonBudget
 }
 
 // judgeAll is SY4 with SY4a's resolve first: main's events judged oldest first over a Lookup
@@ -938,14 +960,17 @@ func (s *sess) take(j *judged, v proto.Verdict, id string, restored func(int64) 
 		}
 		// Past the receive window or the delivery budget the item is held, never dropped (Plan
 		// 00267 C4): its receive slot is reserved first, then its budget slot.
-		if at := max(v.NotBefore, s.admit(j, v)); at > j.now {
+		budgetAt := s.admit(j, v)
+		if at := max(v.NotBefore, budgetAt); at > j.now {
 			p.NotBefore = at
 		}
 		if p.Item == records.KindPing {
 			p.Verb = new(v.Content.Ping.Verb)
 		}
-		if until, held := j.unproven[id]; held && p.Item == records.KindPing {
-			p.ForgeUntil, p.NotBefore = until, max(p.NotBefore, j.now+proto.ForgeRetryEveryMs)
+		forge := ""
+		if u, held := j.unproven[id]; held && p.Item == records.KindPing {
+			p.ForgeUntil, p.NotBefore = u.until, max(p.NotBefore, j.now+proto.ForgeRetryEveryMs)
+			forge = u.reason
 		}
 		if r := v.Relayed; r != nil {
 			// The relay's account is kept with the item (A 10.6): the store's validRelay holds
@@ -955,7 +980,7 @@ func (s *sess) take(j *judged, v proto.Verdict, id string, restored func(int64) 
 				p.RelayedBy, p.Q = local, r.Q
 			}
 		}
-		j.batch.Items = append(j.batch.Items, team.Item{Pending: p, Verdict: v})
+		j.batch.Items = append(j.batch.Items, team.Item{Pending: p, Verdict: v, Held: heldWhy(v.NotBefore, budgetAt, j.now, forge)})
 		if v.OverLimit {
 			j.overLimit(v.Event.ID, s.roster.Limits.RecvPerSenderMinute)
 		}
@@ -995,9 +1020,9 @@ func (s *sess) ignored(j *judged, v proto.Verdict, id string, lk proto.Lookup, c
 func (j *judged) holdUnproven(id, reason string) {
 	until := j.now + proto.ForgeRetryLimitMs
 	if j.unproven == nil {
-		j.unproven = map[string]int64{}
+		j.unproven = map[string]unproven{}
 	}
-	j.unproven[id] = until
+	j.unproven[id] = unproven{until: until, reason: reason}
 	j.lines = append(j.lines, fmt.Sprintf("held %s: its forge check gave %s; it is checked again until %s",
 		id, reason, time.UnixMilli(until).UTC().Format(time.RFC3339)))
 }

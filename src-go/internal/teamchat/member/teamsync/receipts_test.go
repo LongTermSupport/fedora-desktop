@@ -429,6 +429,36 @@ func TestARemovedTeamPostsNoMoreOwedReceipts(t *testing.T) {
 	}
 }
 
+// Plan 00267 Task 4.1: a removal's receipts are posted at once, each tried, under the owed
+// sender's transaction IDs (so one the sender posted already lands once); the failures are the
+// error, and a team whose reports room is not joined posts none.
+func TestFlushOwedPostsEachReceipt(t *testing.T) {
+	w := newWorld(t)
+	if err := w.newTeam().FlushOwed(t.Context(), []state.Owed{bounceOf("$x")}); err == nil {
+		t.Fatal("a team never joined to the reports room posted")
+	}
+	rc := newFakeReceipts()
+	tm, waits := w.owedTeam(rc)
+	waitReportsJoined(t, tm)
+	one, two := w.say(alice, human("one", user(me))), w.say(alice, human("two", user(me)))
+	check(t, tm.FlushOwed(t.Context(), []state.Owed{bounceOf(one), bounceOf(two), bounceOf(one)}))
+	got := w.postedReceipts()
+	if len(got) != 2 || got[0]["of"] != one || got[1]["of"] != two {
+		t.Fatalf("the reports room holds %+v", got)
+	}
+	w.owedSendFault(http.StatusForbidden, "M_FORBIDDEN")
+	three, four := w.say(alice, human("three", user(me))), w.say(alice, human("four", user(me)))
+	if err := tm.FlushOwed(t.Context(), []state.Owed{bounceOf(three), bounceOf(four)}); err == nil {
+		t.Fatal("a refused post was taken")
+	}
+	if got := w.postedReceipts(); len(got) != 3 || got[2]["of"] != four {
+		t.Fatalf("after a refused post the reports room holds %+v", got)
+	}
+	if n := len(waits); n != 0 {
+		t.Fatalf("the owed sender, owing nothing, waited %d backoffs", n)
+	}
+}
+
 // waitReportsJoined waits for tm to have joined the reports room.
 func waitReportsJoined(t *testing.T, tm *Team) {
 	t.Helper()

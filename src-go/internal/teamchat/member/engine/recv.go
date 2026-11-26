@@ -214,20 +214,43 @@ func (e *Engine) rejudgeAll(got map[key]fetched, c *copies) {
 		if !gone && e.forgeHeld(h, k.id, f.v, c) {
 			continue
 		}
-		var why string
+		var why, reason string
 		if gone {
-			why = "it can no longer be fetched (" + f.err.Error() + ")"
+			why, reason = "it can no longer be fetched ("+f.err.Error()+")", proto.ReasonGone
 		} else {
-			why = e.rejudge(h, k.id, f.v)
+			why, reason = e.rejudge(h, k.id, f.v)
 		}
 		if why == "" {
 			h.content[k.id] = f.v
+			continue
+		}
+		if !e.bounceRejudged(h, k.id, reason, c) {
 			continue
 		}
 		if c.remove(h, k.id) {
 			e.logf("team %s: restored item %s dropped: %s", h.id, k.id, why)
 		}
 	}
+}
+
+// bounceRejudged bounces the item id, re-judged out, with reason (Plan 00267 C2) in h's copy:
+// listed in the drop ledger and a bounced receipt owed its sender, none for "" (no loss). False
+// when the item is kept: its copy cannot be made, or the store refuses the bounce, which leaves
+// it pending for the next re-fetch, so it is never lost unbounced.
+func (e *Engine) bounceRejudged(h *held, id, reason string, c *copies) bool {
+	s := c.of(h)
+	if s == nil {
+		return false
+	}
+	i := slices.IndexFunc(s.Pending, func(it state.Pending) bool { return it.ID == id })
+	if reason == "" || i < 0 {
+		return true
+	}
+	if err := bounceItem(s, s.Pending[i], reason, c.e.cfg.Clock.WallMS()); err != nil {
+		e.logf("team %s: restored item %s is kept: it no longer passes (%s), and its bounce was refused: %v", h.id, id, reason, err)
+		return false
+	}
+	return true
 }
 
 // remove takes the item id out of h's copy, its floor raised as B 2.3.2 says; false when the
@@ -318,7 +341,9 @@ func (e *Engine) commit(stores map[paths.TeamID]*state.Store) map[paths.TeamID]b
 			failed[id] = true
 			continue
 		}
+		before := receiptListsOf(h.store)
 		h.store = s
+		h.tellReceipts(before)
 	}
 	return failed
 }
@@ -333,20 +358,25 @@ func unhanded(s *state.Store) int64 {
 	return n
 }
 
-// rejudge is why a re-fetched item no longer passes: its verdict, or its room's floor; "" when
-// it passes.
-func (e *Engine) rejudge(h *held, id string, v proto.Verdict) string {
+// rejudge is why a re-fetched item no longer passes, "" when it passes, and the reason its
+// sender is bounced: its verdict's, when that is a bounce reason; none for its room's floor,
+// which covers an event already judged (B44), no loss.
+func (e *Engine) rejudge(h *held, id string, v proto.Verdict) (string, string) {
 	if v.Outcome != proto.Deliver {
-		return "it no longer passes: " + v.Reason
+		reason := ""
+		if slices.Contains(proto.BounceReasons, v.Reason) {
+			reason = v.Reason
+		}
+		return "it no longer passes: " + v.Reason, reason
 	}
 	i := slices.IndexFunc(h.store.Pending, func(it state.Pending) bool { return it.ID == id })
 	if i < 0 {
-		return ""
+		return "", ""
 	}
 	if floor, ok := h.store.Sync.Floor(h.store.Pending[i].Room); ok && floor.Covers(v.Event.OriginTs, id) {
-		return "it is not newer than its room's floor"
+		return "it is not newer than its room's floor", ""
 	}
-	return ""
+	return "", ""
 }
 
 // forgeHeld is a re-judged item whose forge check failed (Plan 00267 Task 3.2), in its copy: a
@@ -374,6 +404,10 @@ func (e *Engine) forgeHeld(h *held, id string, v proto.Verdict, c *copies) bool 
 	}
 	if proto.ForgeTransient(v.Reason) && wall < until {
 		p.ForgeUntil, p.NotBefore = until, wall+proto.ForgeRetryEveryMs
+		// Its held receipt, owed once per reason; a refused one is owed again at the next check.
+		if err := owe(s, *p, proto.ReceiptHeld, v.Reason, wall); err != nil {
+			e.logf("team %s: item %s: its held receipt was refused, the next check owes it: %v", h.id, id, err)
+		}
 		e.logf("team %s: item %s: its forge check gave %s; it is checked again until %s",
 			h.id, id, v.Reason, time.UnixMilli(until).UTC().Format(time.RFC3339))
 		return true
@@ -574,6 +608,12 @@ func (e *Engine) settleTeam(id paths.TeamID, ack string, now int64, wrote bool, 
 	var left []state.Pending
 	err := e.changeLocked(id, func(_ *held, s *state.Store) (bool, error) {
 		left, back = settleStore(s, ack, now, deliver)
+		// An item a recv showed and its ack settled is delivered (Plan 00267 C2).
+		for _, p := range left {
+			if err := owe(s, p, proto.ReceiptDelivered, "", now); err != nil {
+				return false, err
+			}
+		}
 		floor, moved = raiseFloors(s, left)
 		changed = len(left) > 0 || back
 		if changed && wrote {

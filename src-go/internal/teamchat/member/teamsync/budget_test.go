@@ -55,6 +55,11 @@ func TestAFloodingPeerIsHeldToTheNextFreeSlot(t *testing.T) {
 	for _, it := range b.Items {
 		if it.Pending.NotBefore != 0 {
 			held = append(held, it.Pending.NotBefore)
+			if it.Held != proto.ReasonBudget {
+				t.Errorf("an item held by the budget gives %q as its held reason", it.Held)
+			}
+		} else if it.Held != "" {
+			t.Errorf("an item not held gives %q as its held reason", it.Held)
 		}
 	}
 	if len(held) != 1 || held[0] != now+proto.DeliveryWindowMs {
@@ -71,6 +76,30 @@ func TestAFloodingPeerIsHeldToTheNextFreeSlot(t *testing.T) {
 	release()
 	if b := w.batch(); len(b.Items) != 1 || b.Items[0].Pending.NotBefore != 0 || len(b.HeldBack) != 0 {
 		t.Fatalf("past the window: %+v, held back %v", b.Items, b.HeldBack)
+	}
+}
+
+// Plan 00267 Task 4.1: an item's held reason is its forge check still to run, else whichever of
+// the receive window and the delivery budget holds it the later; none for an item not held.
+func TestHeldWhy(t *testing.T) {
+	const now = 1000
+	for _, tc := range []struct {
+		rate, budget int64
+		forge, want  string
+	}{
+		{0, 0, "", ""},
+		{now, now, "", ""},
+		{now + 5, 0, "", proto.ReasonRate},
+		{0, now + 5, "", proto.ReasonBudget},
+		{now + 9, now + 5, "", proto.ReasonRate},
+		{now + 5, now + 9, "", proto.ReasonBudget},
+		{now + 5, now + 5, "", proto.ReasonRate},
+		{0, 0, proto.ReasonUnresolved, proto.ReasonUnresolved},
+		{now + 5, now + 9, proto.ReasonForgeRate, proto.ReasonForgeRate},
+	} {
+		if got := heldWhy(tc.rate, tc.budget, now, tc.forge); got != tc.want {
+			t.Errorf("heldWhy(%d, %d, %d, %q) = %q, want %q", tc.rate, tc.budget, now, tc.forge, got, tc.want)
+		}
 	}
 }
 
