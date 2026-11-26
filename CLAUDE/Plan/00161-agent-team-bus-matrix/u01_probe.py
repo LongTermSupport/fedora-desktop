@@ -563,8 +563,9 @@ def send_notice(path: str, token: str, body: str, reply_wait_s: float) -> dict[s
 
 def write_json(path: pathlib.Path, obj: Any) -> None:
     """Atomic, so the other side of the command-file exchange never reads half a file."""
-    partial = path.with_name(path.name + ".partial")
-    partial.write_text(json.dumps(obj, indent=1) + "\n", encoding="utf-8")
+    fd, partial = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".partial")
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(obj, indent=1) + "\n")
     os.replace(partial, path)
 
 

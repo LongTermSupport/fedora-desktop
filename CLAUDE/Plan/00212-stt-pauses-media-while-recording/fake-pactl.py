@@ -18,6 +18,7 @@ pactl, so no real stream's volume is touched. Anything else is exit 1, as pactl'
 import json
 import os
 import sys
+import tempfile
 
 CHANNELS = ["front-left", "front-right"]
 
@@ -28,9 +29,10 @@ def load(path):
 
 
 def save(path, streams):
-    with open(path + ".tmp", "w", encoding="utf-8") as f:
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", suffix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(streams, f)
-    os.replace(path + ".tmp", path)
+    os.replace(tmp, path)
 
 
 def stream(index, pid, volume):

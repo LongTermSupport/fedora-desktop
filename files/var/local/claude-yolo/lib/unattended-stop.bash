@@ -23,7 +23,8 @@ ccy_unattended_stop() {
     local reason="${1:?ccy_unattended_stop requires a reason}" sentence="${2:?ccy_unattended_stop requires a sentence}"
     local sid="${3:-${CCY_RESTART_RELAUNCH_SESSION:-}}" file="${CCY_UNATTENDED_STOP_FILE:-}"
     [ -z "$sid" ] || ccy_restart_refuse "$sid" "$sentence"
-    if [ -n "$file" ] && ! { mkdir -p -- "${file%/*}" && printf '%s %s\n' "$reason" "$sentence" >"$file.tmp" && mv -f -- "$file.tmp" "$file"; }; then
+    local tmp
+    if [ -n "$file" ] && ! { mkdir -p -- "${file%/*}" && tmp=$(mktemp -- "$file.tmp.XXXXXXXXXX") && printf '%s %s\n' "$reason" "$sentence" >"$tmp" && mv -f -- "$tmp" "$file"; }; then
         print_error "Could not write why the launch stopped to $file, so verify-restore cannot name it ($reason)."
     fi
     exit "$CCY_EXIT_UNATTENDED_STOP"

@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck ready-wait-files: tests/helpers/pkg/test_mod.py\ncheck stt-rules-files: tests/helpers/pkg/test_mod.py\ncheck hook-handler-rules-files: tests/helpers/pkg/test_mod.py\ncheck walk-open-files: tests/helpers/pkg/test_mod.py\ncheck stdin-wait-files: tests/helpers/pkg/test_mod.py\ncheck ruff: tests/helpers/pkg/test_mod.py\ncheck unit-tests: tests.helpers.plan_acceptance.test_cited_constant_copy_rule tests.helpers.plan_acceptance.test_plain_member_bundle_rule tests.helpers.pkg.test_mod\ncheck gh-poll\ncheck secret-screen\ncheck hidden-bindings\ncheck gitleaks\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck ready-wait-files: tests/helpers/pkg/test_mod.py\ncheck stt-rules-files: tests/helpers/pkg/test_mod.py\ncheck hook-handler-rules-files: tests/helpers/pkg/test_mod.py\ncheck walk-open-files: tests/helpers/pkg/test_mod.py\ncheck stdin-wait-files: tests/helpers/pkg/test_mod.py\ncheck ruff: tests/helpers/pkg/test_mod.py\ncheck unit-tests: tests.helpers.plan_acceptance.test_cited_constant_copy_rule tests.helpers.plan_acceptance.test_plain_member_bundle_rule tests.helpers.pkg.test_mod\ncheck gh-poll\ncheck secret-screen\ncheck temp-exclusive\ncheck hidden-bindings\ncheck gitleaks\n",
  "stderr": "",
  "status": 0,
  "log": []

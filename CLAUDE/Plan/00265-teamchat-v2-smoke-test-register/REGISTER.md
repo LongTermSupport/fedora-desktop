@@ -540,10 +540,37 @@ filled in as each cause is known.
   `declare.py` and `queries.go`, the chooser's two "name it" lines and Plan 00232's advice give a
   team name or a bare `--teams`, whose picked never-used seat already starts fresh (#423,
   `--given`); a `--fresh` there would drop a picked seat's recorded conversation.
+- **Independent review of the R36 commits (26 Nov 01:37Z), FIX-BEFORE-MERGE; its findings:**
+  (2) `ForgetTeam` followed a link above the team's directory (`.claude`, `.claude/ccy` or
+  `seat-conversations`), so `ccy-teams remove` could delete outside the checkout: fixed, the
+  removal goes through an `os.Root` on the checkout and every directory from `.claude` down must
+  be a real one (red on all three links, green after); ccy 3.124.71. (4) the wiring was untested:
+  a test now holds that `Wire` sets `Ops.ForgetTeam` and that it removes a record. (5) Plan
+  00232's and Plan 00161 U20's named-seat acceptance launches pass `--fresh` (a sweep of the
+  active plan scripts finds no other). (6) docs/agent-bus.md's take-down step names the removal.
+  (1) the class `project_temp_not_exclusive` names, outside Go: rule `temp-not-exclusive`
+  (`.semgrep/temp-exclusive.yml`; shell: a pid-named temporary written or moved by mv; Python:
+  a non-exclusive create the same function renames), red on 13 lines in 11 files plus
+  `ccy_lifecycle.py` and `pingbus/notify.py`, each fixed with `mktemp`/`tempfile.mkstemp` (or
+  `O_EXCL`); gate `scripts/qa-temp-exclusive.bash` (ghscopes engine, `TempExclusive` spec),
+  blocking in `qa-all` (`qa-gates.tsv` row `temp-not-exclusive`) and `qa-changed` (check
+  `temp-exclusive`, SPEC-qa-changed B69), CLAUDE/QA.md "temp-not-exclusive"; ccy 3.124.72,
+  container 2.84.89. Fixed: commits 6633dc113, 4bb754029, 94a6dd0b2 and the wiring commit after
+  them. **OPEN for the owner:** (a) widening the shell rule to fixed suffixes (`"$f.tmp"` then
+  `mv`): a trial found 11 more lines, mostly test and plan scripts; (b) the daemon-deployed
+  `.claude/ccy/claude-supervise.py` (7 sites) and `.claude/provision.sh` (2), which every gate
+  excludes, to report upstream. (3) checked in the code, not yet run: when none of the named
+  seats has a seat record (teamchat only), `ForSeats` falls back to the teamchat sessions' desired membership
+  (`conversation/seats.go`, `v2Sessions`). `remove` takes only the team's running sessions off
+  it (`sessionsOff`, H29) and never touches the desired file of a stopped session that can
+  still be restored. So after `remove` and a new team of the same name, a plain
+  `ccy --teams <seat>@<team>` can resume the old team's conversation through such a session.
+  The fix (remove also takes stopped sessions off the team, or the fallback refuses a desired
+  file older than the team) is a design choice put to the coordinator.
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
-  open: the owner's call on the old branch's lock on seat-record writes (4001e4789); the
-  branches stay until a human deletes them (after the carry-over they are covered by behaviour,
-  not by git history).
+  open: review findings (1) and (3); the owner's call on the old branch's lock on seat-record
+  writes (4001e4789); the branches stay until a human deletes them (after the carry-over they
+  are covered by behaviour, not by git history).
 
 ## R49: a worker's failed questions join was reported as "event not found"
 

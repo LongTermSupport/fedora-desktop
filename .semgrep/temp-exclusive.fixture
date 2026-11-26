@@ -1,0 +1,64 @@
+# Fixture for .semgrep/temp-exclusive.yml, shell (the gate's self-test). Each "ruleid" line marks
+# the line below it as the start of a finding; each "ok" line marks the line below it as clean.
+# Not a script: it holds the shapes the rule judges, so it has no shebang and no .bash name.
+
+# The Plan 00265 R36 instances, as they were.
+ccy_restart_record() {
+    # ruleid: temp-not-exclusive
+    local tmp="$file.tmp.$$"
+    if ! printf '%s\n' "${kept[@]}" "$now" | grep -v '^$' >"$tmp"; then
+        rm -f -- "$tmp"
+        return 1
+    fi
+    mv -f -- "$tmp" "$file"
+}
+
+put_file() {
+    # ruleid: temp-not-exclusive
+    local tmp="${dest%/*}/.${dest##*/}.$PROG.$$" # DEST is an absolute path
+    install -m "$mode" -o "$owner" -g "$group" -T -- "$src" "$tmp"
+    mv -fT -- "$tmp" "$dest"
+}
+
+write_state() {
+    {
+        printf 'a=%s\n' "$a"
+    # ruleid: temp-not-exclusive
+    } > "$state.tmp.$$" && mv -f "$state.tmp.$$" "$state"
+}
+
+fan_out_worker() {
+    # ruleid: temp-not-exclusive
+    part="$cache_dir/$token_name.$BASHPID"
+    _usage_fetch_one "$token" "$part"
+    mv -f "$part.result" "$cache_dir/$token_name.result"
+}
+
+other_shapes() {
+    # ruleid: temp-not-exclusive
+    printf '%s\n' "$value" >"${target}.${$}"
+    # ruleid: temp-not-exclusive
+    mv "/var/tmp/out.${BASHPID}" "$target"
+}
+
+# The fixed shapes.
+fixed() {
+    local tmp
+    # ok: temp-not-exclusive
+    tmp=$(mktemp "$file.XXXXXX")
+    printf '%s\n' "$value" >"$tmp"
+    mv -f -- "$tmp" "$file"
+    # ok: temp-not-exclusive
+    printf '%s\n' "$$" >"$pidfile"
+    # ok: temp-not-exclusive
+    local name="ccy-claude-update-$$"
+    podman run --name "$name" image true
+    # ok: temp-not-exclusive
+    echo "$$" >>"$TEST_STATE/podman.pids"
+    # ok: temp-not-exclusive
+    kill -TERM "$$"
+    # ok: temp-not-exclusive
+    printf '%s\n' "$value" >"$file.tmp"
+    # ok: temp-not-exclusive
+    tmp=$(mktemp -- "$file.tmp.XXXXXXXXXX") && printf x >"$tmp" && mv -f -- "$tmp" "$file"
+}

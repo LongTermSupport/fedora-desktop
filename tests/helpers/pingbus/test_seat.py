@@ -505,8 +505,9 @@ def write_desired(directory: pathlib.Path, seats: list[dict[str, str]], *, gener
     """The host's write: a temporary file in the same directory, then a rename (3.1)."""
     data = {"v": 1, "session": session, "kind": "ccy", "checkout": checkout,
             "generation": generation, "written_ms": T0_MS, "seats": seats, "farewell": farewell or []}
-    temp = directory / f".membership.{generation}.tmp"
-    temp.write_text(json.dumps(data), encoding="utf-8")
+    fd, temp = tempfile.mkstemp(dir=directory, prefix=f".membership.{generation}.", suffix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(data))
     os.replace(temp, directory / membership.DESIRED_FILE)
 
 

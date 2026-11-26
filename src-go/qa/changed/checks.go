@@ -93,6 +93,7 @@ var checkDefs = []checkDef{
 	{id: "boot-hold", fixed: "unit-holds-boot-target rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runBootHold},
 	{id: "gh-poll", fixed: "github-poll-too-often rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runGHPoll},
 	{id: "secret-screen", fixed: "secret-on-normal-screen rules, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runSecretScreen},
+	{id: "temp-exclusive", fixed: "temp-not-exclusive rules, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runTempExclusive},
 	{id: "ready-wait", fixed: "whole gate (no wait ignores the exit of the process it waits for)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runReadyWait},
 	{id: "hidden-bindings", fixed: "whole gate (no action reachable only by a key)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolPython}, run: runHiddenBindings},
 	{id: "lxc-attach-streams", fixed: "whole gate (no command reaching lxc-attach has a standard stream on a file)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runLxcAttachStreams},
@@ -240,6 +241,7 @@ var ruleGateSpecs = map[string]ghscopes.Spec{
 	"boot-hold":          ghscopes.BootHold,
 	"gh-poll":            ghscopes.GHPoll,
 	"secret-screen":      ghscopes.SecretScreen,
+	"temp-exclusive":     ghscopes.TempExclusive,
 }
 
 // dropUnreadRuleGates takes out of the plan each semgrep gate that would read none of the changed
@@ -319,6 +321,10 @@ func runGHPoll(ctx context.Context, s *session, _ *checkPlan) (checkResult, erro
 
 func runSecretScreen(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.semgrepGate(ctx, "qa-secret-screen.bash")
+}
+
+func runTempExclusive(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.semgrepGate(ctx, "qa-temp-exclusive.bash")
 }
 
 // runReadyWaitFiles runs the ready-wait gate over the changed Python and shell files only.

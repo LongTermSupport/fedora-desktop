@@ -58,6 +58,34 @@ func TestForgetTeamRemovesTheRecordsInACheckoutWhoseSessionHasEnded(t *testing.T
 	}
 }
 
+// The real wiring hands ccy-teams remove the forgetting, over the host's own registry (independent
+// review of R36, finding 4: Ops skips the step when it is unset).
+func TestWireGivesRemoveTheForgettingOfTheTeamsSeatRecords(t *testing.T) {
+	h := newHarness(t)
+	if h.app.Ops.ForgetTeam == nil {
+		t.Fatal("Wire leaves Ops.ForgetTeam unset, so remove would forget nothing")
+	}
+	store, err := h.Host.Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkout := t.TempDir()
+	if err := seatcheckouts.Of(store).Add(checkout); err != nil {
+		t.Fatal(err)
+	}
+	const id = "0f8b7c1e-3d2a-4b5c-9e6f-1a2b3c4d5e6f"
+	if err := conversation.RecordSeats(checkout, "1@alpha", id, conversation.SourceExit, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.app.Ops.ForgetTeam("alpha"); err != nil {
+		t.Fatal(err)
+	}
+	record := conversation.SeatRecordPath(checkout, membership.Seat{Seat: "1", Team: "alpha"})
+	if _, err := os.Lstat(record); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("%s: %v", record, err)
+	}
+}
+
 func TestForgetTeamWithNoRegistryIsAnError(t *testing.T) {
 	err := forgetTeam(func() (*registry.Store, error) { return nil, errors.New("no registry") }, "alpha")
 	if err == nil || err.Error() != "no registry" {

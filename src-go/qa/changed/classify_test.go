@@ -332,7 +332,7 @@ func TestTheArchPinGateRunsForTheFilesItGuards(t *testing.T) {
 // #412), so a change of one of those files alone plans each gate; a change of a file the gates
 // never read there plans none of them.
 func TestTheSemgrepGatesRunForTheCCYConfigTheyStillRead(t *testing.T) {
-	gates := []string{"gh-scopes", "find-race", "arch-pin", "argv-leak", "place-issued-token", "boot-hold", "gh-poll", "secret-screen"}
+	gates := []string{"gh-scopes", "find-race", "arch-pin", "argv-leak", "place-issued-token", "boot-hold", "gh-poll", "secret-screen", "temp-exclusive"}
 	files := []string{".claude/ccy/.gitignore", ".claude/ccy/ccy.env", ".claude/ccy/ccy.env.local.dist", ".claude/ccy/mounts"}
 	for _, f := range files {
 		w := newWorld(t)

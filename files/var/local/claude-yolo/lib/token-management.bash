@@ -71,8 +71,7 @@
 # Args: $1 = expiry_date (YYYY-MM-DD)
 # Outputs: colored string (or plain if terminal doesn't support colors)
 colorize_expiry() {
-    local expiry_date="$1"
-    local today
+    local expiry_date="$1" today
     today=$(date +%Y-%m-%d)
 
     # Calculate days remaining
@@ -523,19 +522,18 @@ usage_prime_cache() {
             # Plan 00100 an unreachable endpoint aborted the render and printed
             # no token list at all.
             #
-            # Part-files are named by $BASHPID, this worker's own PID ($$ is the
-            # launcher's, shared by every worker), and the entry is published by ONE
+            # Part-files live in this worker's own directory, made by mktemp -d (an
+            # exclusive create under a random name), and the entry is published by ONE
             # rename, so an entry's file name, status and figures always come from the
             # same fetch: two workers for one name, or two ccy processes, cannot mix them.
             token="$(cat "$token_file")"
-            if [ -n "$token" ]; then
-                part="$cache_dir/$token_name.$BASHPID"
-                _usage_fetch_one "$token" "$part"
-                printf '%s\n%s\n%s\n%s\n' "$filename" "$(cat "$part.status")" \
-                    "$(cat "$part.summary")" "$(tr -c ' -~' ' ' < "$part.cause")" > "$part.result"
-                chmod 600 "$part.result"
-                mv -f "$part.result" "$cache_dir/$token_name.result"
-                rm -f "$part.status" "$part.summary" "$part.cause"
+            if [ -n "$token" ] && part=$(mktemp -d -- "$cache_dir/.$token_name.XXXXXXXXXX"); then
+                _usage_fetch_one "$token" "$part/f"
+                printf '%s\n%s\n%s\n%s\n' "$filename" "$(cat "$part/f.status")" \
+                    "$(cat "$part/f.summary")" "$(tr -c ' -~' ' ' < "$part/f.cause")" > "$part/f.result"
+                chmod 600 "$part/f.result"
+                mv -f "$part/f.result" "$cache_dir/$token_name.result"
+                rm -rf -- "$part"
             fi
             exit 0
         ) &
@@ -1143,8 +1141,7 @@ select_token() {
 
     # Bounded retries (InteractiveScripts rule 02). Counts only invalid input,
     # persists across redraws, and is checked once at the top of the prompt loop.
-    local invalid_attempts=0
-    local max_tries=3
+    local invalid_attempts=0 max_tries=3
 
     # Redraw loop: every path out of the inner prompt either returns or asks for
     # a redraw, so the menu is reprinted only when its content actually changed.

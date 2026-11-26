@@ -55,6 +55,7 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -238,10 +239,17 @@ class State:
         for key, value in record.items():
             if "\n" in value or "=" in key:
                 raise StateError(f"{name}: {key} cannot be written as one key=value line")
-        temporary = self._path(f".{name}.tmp")
-        with open(temporary, "w", encoding="utf-8") as handle:
-            handle.write("".join(f"{key}={value}\n" for key, value in record.items()))
-        os.replace(temporary, self._path(name))
+        target = self._path(name)
+        # An exclusive create under a random name beside the target (rule temp-not-exclusive).
+        fd, temporary = tempfile.mkstemp(dir=os.path.dirname(target), prefix=f".{name}.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write("".join(f"{key}={value}\n" for key, value in record.items()))
+            os.replace(temporary, target)
+        except BaseException:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(temporary)
+            raise
 
     def read_deployed(self) -> str | None:
         record = self._read("deployed")

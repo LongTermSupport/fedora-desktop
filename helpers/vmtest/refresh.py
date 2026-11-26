@@ -29,8 +29,10 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import os
 import pathlib
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 
@@ -101,9 +103,17 @@ def cmd_certify(args: argparse.Namespace) -> int:
         print(f"VMTEST-BASE-NOT-CERTIFIED {record.name} reason={reason}")
         return 0
     target = pathlib.Path(args.base_json)
-    staging = target.with_name(target.name + ".new")
-    staging.write_text(basejson.render_record(advanced), encoding="utf-8")
-    staging.replace(target)
+    # An exclusive create under a random name beside the target (rule temp-not-exclusive).
+    fd, name = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".new")
+    staging = pathlib.Path(name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(basejson.render_record(advanced))
+        os.chmod(staging, 0o644)
+        staging.replace(target)
+    except BaseException:
+        staging.unlink(missing_ok=True)
+        raise
     print(f"VMTEST-BASE-CERTIFIED {advanced.name} revision={advanced.last_upgraded_revision} mirror={advanced.last_upgraded_mirror}")
     return 0
 

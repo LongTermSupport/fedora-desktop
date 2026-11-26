@@ -428,6 +428,7 @@ var gateCheck = map[string]string{
 	"qa-boot-hold.bash":          "boot-hold",
 	"qa-gh-poll.bash":            "gh-poll",
 	"qa-secret-screen.bash":      "secret-screen",
+	"qa-temp-exclusive.bash":     "temp-exclusive",
 }
 
 // suiteRun is one command of a picked suite and the row that gives it, which judges its output.

@@ -140,10 +140,9 @@ _forget_quick_launch_network() {
         return 1
     fi
     [ "$named" = "$network" ] || return 0
-    tmp="$file.tmp.$$"
-    if ! (umask 077 && WANT="LAST_NETWORK=\"$network\"" awk '$0 == ENVIRON["WANT"] { print "LAST_NETWORK=\"\""; next } { print }' "$file" >"$tmp") ||
+    if ! tmp=$(mktemp -- "$file.tmp.XXXXXXXXXX") || ! (umask 077 && WANT="LAST_NETWORK=\"$network\"" awk '$0 == ENVIRON["WANT"] { print "LAST_NETWORK=\"\""; next } { print }' "$file" >"$tmp") ||
         ! mv -f -- "$tmp" "$file"; then
-        [ ! -f "$tmp" ] || rm -f -- "$tmp"
+        rm -f -- "$tmp"
         print_error "Could not rewrite the Quick Launch config $file, so it still names $network and accepting Quick Launch would join it again."
         return 1
     fi

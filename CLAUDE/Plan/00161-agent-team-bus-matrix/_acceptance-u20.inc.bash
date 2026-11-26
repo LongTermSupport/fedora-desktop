@@ -1245,7 +1245,7 @@ u20_named_launch() {
     # records ccy's exit status. With all three streams redirected an exec'd ccy holds no
     # descriptor on the terminal, so tmux reads end of file, takes the pane as exited and sends
     # SIGHUP before ccy writes a byte.
-    command="$(printf '%q ' "${CCY_LAUNCHER}" --headless --no-restore --no-supervise --teams "accb@${TEAM}" \
+    command="$(printf '%q ' "${CCY_LAUNCHER}" --headless --no-restore --no-supervise --teams "accb@${TEAM}" --fresh \
         --prompt "${U20_PROMPT}" -- --input-format stream-json --output-format stream-json --verbose --model "${U20_MODEL}")" || return 1
     command+="$(printf '<%q >%q 2>%q' "${ev}/stdin.fifo" "${ev}/session.out" "${ev}/session.err")" || return 1
     command+="; echo \"\$?\" >$(printf '%q' "${ev}/session.status")"

@@ -71,6 +71,38 @@ func TestForgetTeamRefusesWhatIsNotATeamName(t *testing.T) {
 	}
 }
 
+// A link higher up (a container may write .claude/ccy as its own) must not lead the removal out
+// of the checkout: seat-conversations pointing at another tree that has a directory named for the
+// team (independent review of R36, finding 2).
+func TestForgetTeamRefusesALinkAboveTheTeamsDirectory(t *testing.T) {
+	for _, above := range []string{".claude", ".claude/ccy", seatRecordDir} {
+		t.Run(above, func(t *testing.T) {
+			checkout, elsewhere := t.TempDir(), t.TempDir()
+			victim := filepath.Join(elsewhere, strings.TrimPrefix(seatRecordDir, above), "alpha", "keep")
+			if err := os.MkdirAll(filepath.Dir(victim), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(victim, []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			link := filepath.Join(checkout, above)
+			if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(elsewhere, link); err != nil {
+				t.Fatal(err)
+			}
+			err := ForgetTeam([]string{checkout}, "alpha")
+			if err == nil || !strings.Contains(err.Error(), link) {
+				t.Errorf("err %v", err)
+			}
+			if !exists(t, victim) {
+				t.Errorf("%s, outside the checkout, was removed", victim)
+			}
+		})
+	}
+}
+
 func TestForgetTeamRefusesALinkInPlaceOfTheTeamsDirectory(t *testing.T) {
 	checkout, elsewhere := t.TempDir(), t.TempDir()
 	recordIn(t, checkout, "1@beta")
