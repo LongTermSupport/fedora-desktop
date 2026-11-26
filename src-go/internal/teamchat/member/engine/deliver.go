@@ -55,6 +55,8 @@ type deliveryState struct {
 	fetchAfter   time.Duration
 	gap          bool
 	trailingSent bool
+	// seen is when the link first saw each deliverable item pending (coalesce.go).
+	seen map[string]time.Duration
 }
 
 // hold keeps a persisted batch's trailing facts, with its answered lines (answeredLines).

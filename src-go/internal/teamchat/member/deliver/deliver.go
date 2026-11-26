@@ -139,9 +139,9 @@ func Build(t paths.TeamID, self string, items []Item, f Facts, from Namer, nonce
 	}
 	for i, r := range entries {
 		if i < len(fitted.Entries) {
-			out.IDs = append(out.IDs, r.id)
+			out.IDs = append(out.IDs, r.ids...)
 		} else {
-			out.Left = append(out.Left, r.id)
+			out.Left = append(out.Left, r.ids...)
 		}
 	}
 	out.Left = append(out.Left, unfetched...)
@@ -149,9 +149,14 @@ func Build(t paths.TeamID, self string, items []Item, f Facts, from Namer, nonce
 	return out, nil
 }
 
+// MaxFold is the most notices one entry folds (Plan 00267 Task 7.3): a member that flaps fills
+// entries of its own past it, so no one entry grows without bound.
+const MaxFold = proto.MaxDeliveryEntries
+
+// ranked is one entry and the items it shows: one, or several notices folded into it.
 type ranked struct {
 	entry proto.Entry
-	id    string
+	ids   []string
 }
 
 // mapped is the items sorted out: the entries that render, in A 13.7's order; the items whose
@@ -180,16 +185,53 @@ func mapItems(t paths.TeamID, self string, items []Item, from Namer) mapped {
 			}
 			continue
 		}
-		m.entries = append(m.entries, ranked{e, it.Pending.ID})
+		m.entries = append(m.entries, ranked{e, []string{it.Pending.ID}})
 	}
-	slices.SortStableFunc(m.entries, func(a, b ranked) int {
+	order(m.entries)
+	m.entries = fold(m.entries)
+	order(m.entries)
+	return m
+}
+
+// order is A 13.7's order: by rank, then by time within a rank but TIMEOUT's.
+func order(entries []ranked) {
+	slices.SortStableFunc(entries, func(a, b ranked) int {
 		ra, rb := rank(a.entry.Kind), rank(b.entry.Kind)
 		if ra != rb || a.entry.Kind == proto.KindTimeout {
 			return cmp.Compare(ra, rb)
 		}
 		return cmp.Compare(a.entry.SentMs, b.entry.SentMs)
 	})
-	return m
+}
+
+// fold folds the notices from one sender about one subject, in time order, into the latest of
+// them (Plan 00267 Task 7.3), at most MaxFold to an entry; a carried item and `moved` never
+// fold, and a restored or repeated notice folds only with its like, so its line stays true.
+func fold(entries []ranked) []ranked {
+	type key struct {
+		from, subject    string
+		restored, repeat bool
+	}
+	out := make([]ranked, 0, len(entries))
+	open := map[key]int{}
+	for _, r := range entries {
+		e := r.entry
+		if e.Kind != proto.KindNotice || e.Carried != nil || e.Event == proto.EventMoved {
+			out = append(out, r)
+			continue
+		}
+		k := key{e.From, e.Subject, e.Restored, e.Repeat}
+		at, ok := open[k]
+		if !ok || len(out[at].ids) >= MaxFold {
+			open[k] = len(out)
+			out = append(out, r)
+			continue
+		}
+		prev := out[at].entry
+		e.Earlier = append(slices.Clone(prev.Earlier), proto.EntryEarlier{Event: prev.Event, Reason: prev.Reason, EventID: prev.EventID, SentMs: prev.SentMs})
+		out[at] = ranked{e, append(out[at].ids, r.ids...)}
+	}
+	return out
 }
 
 // rank is the entry's group in A 13.7's order: HUMAN, then PEER and PING together, then

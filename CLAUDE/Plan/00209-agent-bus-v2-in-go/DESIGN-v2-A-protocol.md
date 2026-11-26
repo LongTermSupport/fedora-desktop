@@ -853,8 +853,9 @@ other types, so every event a human should see is one; the meaning is in exactly
 
 | Field           | Rule                                                                                                                                                                                                                                                                                                        |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| typed key       | exactly one of `teamchat.ping`, `teamchat.text`, `teamchat.notice` (main room); `teamchat.report` (reports); `teamchat.question`, `teamchat.thread` (questions). None, two, or one of another room's: drop `schema`                                                                                         |
+| typed key       | exactly one of `teamchat.ping`, `teamchat.text`, `teamchat.notice` (main room); `teamchat.report`, `teamchat.receipt` (reports, 7.8); `teamchat.question`, `teamchat.thread` (questions). None, two, or one of another room's: drop `schema`                                                                |
 | `v`, `features` | checked first, before size or shape (P26's version-first rule), section 3                                                                                                                                                                                                                                   |
+| `kit`           | the sender kit's protocol level, an integer from 1 to 999999999, last in every typed object a kit sends (Plan 00267 C7); absent from an older kit's events. Additive inside major 1: an older kit reads named fields only and ignores it. Present and not such an integer: drop `schema`                    |
 | `msgtype`       | by the table below; display policy, never read by a receiver                                                                                                                                                                                                                                                |
 | `body`          | a string; display text for Element (section 12), never read by a receiver, except reports, questions and thread posts, whose `body` is the content (10.1-10.3)                                                                                                                                              |
 | `m.mentions`    | `{"user_ids": <the addressees, sorted>}` so Element notifies the right humans; never read by a receiver (the typed `to` is the addressing)                                                                                                                                                                  |
@@ -873,6 +874,7 @@ other types, so every event a human should see is one; the meaning is in exactly
 | `teamchat.ping`, any verb, to anyone                         | `m.notice` | a `done` or `nack` to a human is a status, shown but not pushed                            |
 | `teamchat.notice`                                            | `m.notice` | lifecycle facts are quiet                                                                  |
 | `teamchat.report`                                            | `m.notice` | reports never notify (00211 D14)                                                           |
+| `teamchat.receipt`                                           | `m.notice` | a receipt is for its sender's link, never a person's attention                             |
 | `teamchat.question`; `teamchat.thread` with `wait` or `link` | `m.text`   | a post that waits on a human, or answers one who asked outside the thread, must reach them |
 | `teamchat.thread` otherwise; the retitle edit                | `m.notice` | a note, a close and a retitle are quiet                                                    |
 
@@ -884,6 +886,7 @@ is `edit`, 7.5).
 | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
 | `teamchat.text`                                                          | none, or a reply                                                                                        |
 | `teamchat.notice`, `teamchat.report`, `teamchat.question`, carried (7.7) | none                                                                                                    |
+| `teamchat.receipt` (7.8)                                                 | none                                                                                                    |
 | `teamchat.thread` with `n` and no `link`                                 | the thread form (10.3)                                                                                  |
 | `teamchat.thread` with `n` and `link`                                    | exactly a reply, to a human post (10.3's link-back)                                                     |
 | `teamchat.thread` without `n`                                            | the thread form, `m.in_reply_to` the human post answered (10.3), and no `close`                         |
@@ -1098,6 +1101,8 @@ otherwise: `redact` (rule 01), `index` (rule 03), `fault` (rule 05) and `record`
 04. Sender class (6.7) none: drop `sender`.
 05. Room:
     - reports: no member reads it (00211); a member that does is a fault: the outcome `fault`.
+      A coordinator's or worker's receipt (7.8) is decoded onto its fault; one that does not
+      decode is dropped with its reason.
     - questions: this member not the coordinator: ignore `not-coordinator`. A human: the human path,
       every message addressed; kind HUMAN with the room lines (13.2); rule 10 applies neither `rate`
       (a human is not flood-limited, 11.1) nor `stale`, since the index already tracks which questions are open and answered, and a
@@ -1115,7 +1120,7 @@ otherwise: `redact` (rule 01), `index` (rule 03), `fault` (rule 05) and `record`
     Otherwise the typed-key rule (7.1), then by key: `teamchat.ping` the ping path (8.1), kind PING;
     `teamchat.text` kind PEER, after rule 09's addressing and whatever the member's
     `human_text`: `human_text` gates a human's words only, and the agents of a team can always
-    message a seat (the owner, lts-ops Q11; issue #422), except one with `relay`, which a member with `human_text: false` drops `sender` and which otherwise takes the relay path (10.6) and, if it passes,
+    message a seat (the owner, <team> Q11; issue #422), except one with `relay`, which a member with `human_text: false` drops `sender` and which otherwise takes the relay path (10.6) and, if it passes,
     kind HUMAN with the room lines of questions; `teamchat.notice` only
     `left`, `disconnected` or `back` with `subject` equal to `sender`, kind NOTICE; any other agent notice:
     drop `target`.
@@ -1198,6 +1203,55 @@ one member. It exists so that a migration loses nothing silently, and it is neve
   target and that an answer will arrive as a reply. `timeout` is the TIMEOUT v1 would have given.
   (`forwarded` is named apart from the team-wide `moved` notice of 7.4.)
 - The transaction ID is derived by area D (D 5.2.1), so a repeated carry step posts nothing twice.
+
+### 7.8 Receipts
+
+An addressee's link tells an item's sender what became of it (Plan 00267): delivered, held, bounced
+or recorded. A receipt is posted by the addressee's own account, so its sender is
+homeserver-attested, and it lives in the **reports room**, never main.
+
+```json
+{
+  "msgtype": "m.notice",
+  "body": "receipt: bounced (stale) $<43 chars>",
+  "m.mentions": {},
+  "teamchat.receipt": {
+    "v": 1,
+    "of": "$<43 chars>",
+    "to": ["@myrepo.1+desk.podman:<server_name>"],
+    "state": "bounced",
+    "reason": "stale",
+    "at": 1760000000000,
+    "kit": 1
+  }
+}
+```
+
+- `of` is the event ID of the item; `to` the user IDs the receipt is for (the item's sender, and
+  whoever it came through), 1 to 8 distinct `@<localpart>:<server>` IDs, sorted when read. `at` is
+  the addressee's clock in milliseconds, at least 0.
+- `state` is one of `delivered` (the session took it: the transcript showed the delivery, or `recv`
+  acknowledged it), `held` (kept, not yet delivered), `bounced` (it will not be delivered) and
+  `recorded` (consumed by the link without being shown, an answer recorded against a ping).
+- `reason` is absent for `delivered` and `recorded`, and required for the other two, from a closed
+  set per state:
+  - `bounced`: every drop reason of 7.6, then `render`, `gone`, `removed`, `redacted`, `unheard`,
+    `type`, `empty`, `role-changed` and `expired` (a verb meaningful only while its sender waits,
+    whose sender gave up).
+  - `held`: `absent` (the session takes no deliveries now), `missing` (written, never seen in the
+    transcript), `rate`, `budget`, `full` (the pending list), `forge-rate` and `unresolved`.
+  - Any other state, reason or pairing: drop `schema`.
+- Sender: a coordinator or worker. A receipt from anyone else is judged as any reports-room event
+  (7.6 rule 05), never decoded. One that does not decode is dropped with its reason and counted;
+  nothing answers it.
+- **A receipt is never itself given a receipt**, whether or not it decodes, so two links never
+  answer each other. Each addressee sends at most one receipt per item and state change.
+- **Why the reports room.** Nobody syncs it and every member judges what it sees there as a fault
+  before any decode, so a kit that predates receipts takes no notice of one. In main the same
+  kit would drop each receipt `schema` and count it. Members already join the room to report.
+- `teamchat.receipt` and `kit` are additive inside major 1: `v` stays 1 and no feature is named.
+  A sender that has never been seen with `kit` is an older kit, which neither sends receipts nor
+  reads them, so its silence is "cannot confirm", never "lost".
 - **Decided: `teamchat.carried` is part of wire major 1, with no feature name.** A feature name
   (3.1) was weighed as an option the review left open. It would buy nothing: a feature protects a
   receiver that does not know a key from over-trusting it, and every v2 release knows
@@ -1877,6 +1931,7 @@ typed slots.
 | `subject:`                        | -              | -             | -             | yes, but not `moved`                                                   | -                                                        | the notice's subject handle                                                                                |
 | `carried:`                        | -              | -             | -             | carried only                                                           | -                                                        | `<sender>, <time>[, possible duplicate]`: `<sender>` from the item's `from`, `<time>` from `sent_ms` (7.7) |
 | `reason:`                         | -              | -             | -             | `left`, `added`, `role`                                                | -                                                        | the reason, or the member's role                                                                           |
+| `earlier:`                        | -              | -             | -             | folded only, one per earlier notice                                    | -                                                        | an earlier notice folded into this one: its event, time, reason (where it takes one) and id (B 2.7.2)      |
 | `copy:`                           | -              | when copied   | when copied   | -                                                                      | -                                                        | `<humans> (addressed to them; sent to you for information)`                                                |
 | `repeat:`                         | when repeated  | when repeated | when repeated | when repeated                                                          | when repeated                                            | B could not prove the item was not delivered before (B 2.7.3)                                              |
 | `restored:`                       | when restored  | when restored | when restored | when restored                                                          | -                                                        | the item was queued before a restart and fetched again from the homeserver (B 2.7.3, B44)                  |
@@ -1936,6 +1991,7 @@ token on its line:
 | `subject:`    | `subject: <handle>`                                                                                                                                                                                                                                                       |
 | `carried:`    | `carried: <sender>, <time>` \| `carried: <sender>, <time>, possible duplicate` \| `carried: <sender>, -` \| `carried: <sender>, -, possible duplicate`                                                                                                                    |
 | `reason:`     | `reason: exit` \| `reason: logout` \| `reason: released` \| `reason: other` \| `reason: coordinator` \| `reason: worker`                                                                                                                                                  |
+| `earlier:`    | `earlier: <event> at <time>, id: <id>` \| `earlier: <event> at <time>, reason: <reason>, id: <id>` \| either with `-` for `<time>`; `<event>` a row of 7.4's table of the entry's own sender class, never `moved`; `<reason>` a `reason:` value that event takes          |
 | `copy:`       | `copy: <human>[, <human>]... (addressed to them; sent to you for information)`                                                                                                                                                                                            |
 | `repeat:`     | `repeat: this may be a second copy of an earlier delivery; the id is the same`                                                                                                                                                                                            |
 | `restored:`   | `restored: queued before a restart and fetched again from the homeserver; verify it before acting on a consequential request`                                                                                                                                             |
@@ -1958,6 +2014,10 @@ the item itself, so one form serves every room: `teamchat reply '<id>'` for HUMA
 questions, attached or not, 10.4) and PEER; `teamchat reply '<id>' --verb <VERB>` for PING and a
 NOTICE carrying a ping (7.7), with `<VERB>` literal for the agent to replace by an answer verb (B4).
 A `not shown:` line takes its first form when the event ID passed its own grammar, else its second.
+A NOTICE with `earlier:` lines is several notices folded into one entry (B 2.7.2, Plan 00267 Task
+7.3): from one sender about one subject, pending together, at most 8 to an entry. The entry's own
+lines are the latest notice's; each earlier one is a line, oldest first, so a member that left and
+came back reads as one entry saying both, with their times. A carried item and `moved` never fold.
 `question: Q<n>` (no headline) is the form for an entry given no headline; proto's index always
 has one.
 Event IDs are always single-quoted: a shell would expand the leading `$` (E6).

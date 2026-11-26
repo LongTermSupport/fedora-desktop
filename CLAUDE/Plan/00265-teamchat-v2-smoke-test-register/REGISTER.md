@@ -32,7 +32,7 @@ filled in as each cause is known.
 - **Severity:** critical. **Issue:** #422. **Unit:** U2. **State:** fixed (U2), merged into
   `v2-smoke` and on F44 at c1b20004f (the home pin), but in no image until container 2.84.78
   (`09c383f5b`; R54). The live check is in `reports/U2.md`.
-  The owner confirmed the new meaning (lts-ops Q11, A12): `human_text` gates a human's words
+  The owner confirmed the new meaning (<team> Q11, A12): `human_text` gates a human's words
   only. Plan 00209 A 7.6 rule 08 and Plan 00161 D63 now say so.
 
 ## R2: `reply` refuses an item `history` lists
@@ -96,11 +96,13 @@ filled in as each cause is known.
   human has sudo (the laptop). Two later ideas, not now: a route that adds a seat over ssh to the
   bus host, and seats an agent requests.
 - **Owner, 26 Nov (via the coordinator):** typing a seat number is "a dead UX" (they had been
-  given `cc --teams 4@ballicom`). Checked in the code at ccy 3.124.57 and 3.124.72: no number is
-  needed. A teamchat team named alone takes the checkout's one free seat of the launcher's kind,
-  adds one when there is none, and lists several with the lowest free as the default
-  (`chooser/teamchat.go` `teamchatSeat`). The help said only "a team alone asks the seat", so it
-  is reworded on v2-smoke for batch 23 (ccy 3.124.80; `docs/ccy.md` too). Not built, waiting
+  given `cc --teams 4@<team>`). Checked in the code at ccy 3.124.57 and 3.124.72: no number is
+  needed. A teamchat team named alone takes the checkout's only seat of the launcher's kind when
+  that one is free, adds one when there is none, and otherwise lists them with the lowest free
+  (or, all held, a new seat) as the default (`chooser/teamchat.go:92-114` `teamchatSeat`). The
+  help said only "a team alone asks the seat", so it is reworded on v2-smoke (ccy 3.124.80;
+  3.124.81 corrects its "one free seat is taken", which the batch 23 qa-reviewer found looser
+  than the code; `docs/ccy.md` too). Not built, waiting
   for the owner: a plain `cc` with no `--teams` joining the checkout's one team by itself.
 
 ## R6: a `ref` refusal names no cause
@@ -131,7 +133,7 @@ filled in as each cause is known.
 - **Reproduce:** start a coordinator seat; no procedure is shown.
 - **Owner's input (F9, 12:39Z):** messages to a human are walls of text. The procedure must say a
   message to a human is short markdown: the point first in bold, then bullets, a status emoji, and
-  the ask last. Questions are closed when done and bumped while waiting. lts-infra's wording
+  the ask last. Questions are closed when done and bumped while waiting. the infrastructure agents' wording
   ("The owner, and how they want to be spoken to" in its coordinator doc) is input for the
   generic text.
 - **Severity:** high. **Issue:** #420. **State:** open.
@@ -244,7 +246,7 @@ filled in as each cause is known.
 - **Severity:** high (blocks every container-made fix from reaching the estate).
   **Issue:** TBF. **State:** confirmed by the coordinator (A9). The estate accepts four keys, and
   this container's key is not one of them, so the pin check and the dev VMs' self-update refuse
-  these commits. The owner decides (lts-ops Q10): countersign each batch, trust the key, or trust
+  these commits. The owner decides (<team> Q10): countersign each batch, trust the key, or trust
   it at home only. Who signs is not changed here. **Resolved for home (A10, the owner, 12:47Z):**
   no countersigning. The home environment trusts this key (the home dev VM's shared key), and
   the datacentre does not, so it stays on its old pin and skips these commits.
@@ -302,8 +304,8 @@ filled in as each cause is known.
 
 ## R41: a seat cannot be added to a running v2 session (regression against v1)
 
-- **Seen:** this seat, reading the code for F18 and F19 (the owner: Ballicom's coordinator also
-  becomes worker seat 7 on lts-ops), 2026-11-25.
+- **Seen:** this seat, reading the code for F18 and F19 (the owner: another team's coordinator also
+  becomes worker seat 7 on <team>), 2026-11-25.
 - **What:** v1's `ccy-teams session add <session> <team>[/<seat>]` adds a seat to a running
   session. In v2 the keeper already re-reads the session's `desired.json` and the engine can add
   a team while running (`member/keeper/seats.go`, `engine/teams.go`). But `session add`
@@ -313,8 +315,8 @@ filled in as each cause is known.
 - **Multi-team itself works** (from the code, not yet run end to end): one link holds every team,
   each delivery names its team, role and `human_text` are per seat, and the questions verbs check
   coordinatorship per team.
-- **Interim:** relaunch keeping the conversation: `ccy-teams seats conversation 1@ballicom` while
-  the session runs, `/exit`, then `ccy --resume <id> --teams 1@ballicom,7@lts-ops`.
+- **Interim:** relaunch keeping the conversation: `ccy-teams seats conversation 1@<team-B>` while
+  the session runs, `/exit`, then `ccy --resume <id> --teams 1@<team-B>,7@<team>`.
 - **Fix:** `ccy-teams session add` writes the next generation of a teamchat session's
   `desired.json` (after the seat is in the pool).
 - **Cause, checked (U10):** worse than the row said: a v2 launch makes no v1 membership
@@ -419,8 +421,8 @@ filled in as each cause is known.
 
 ## R44: the standard coordinator procedure ships with the team tooling
 
-- **Seen:** the owner, lts-ops questions room 13:55Z (F20): "this needs to be standardised and
-  the ballicom team coordinator needs the same instructions".
+- **Seen:** the owner, <team> questions room 13:55Z (F20): "this needs to be standardised and
+  the <team-B> team coordinator needs the same instructions" (team name replaced).
 - **What:** a team's coordinator learns its procedure from a hand-over note in its own
   repository; another team's coordinator has none. The infrastructure repository has written one
   standard procedure with no project facts in it, plus a project-layer template.
@@ -480,7 +482,7 @@ filled in as each cause is known.
 
 ## R35: the Lightning client setup for a team, with presets
 
-- **Seen:** the owner, lts-ops Q2 and 12:53Z (F13).
+- **Seen:** the owner, <team> Q2 and 12:53Z (F13).
 - **What:** the owner's boundary ruling puts setting up Lightning for a team in fedora-desktop.
   Today that setup is a script in the team's own infrastructure repository. The owner asks
   whether Lightning can be preconfigured when it is set up for a team. The first preset is the
@@ -681,7 +683,7 @@ filled in as each cause is known.
 
 ## R49: a worker's failed questions join was reported as "event not found"
 
-- **Seen:** the devops seat, Task 4.11 (lts-ops), 14:40Z, holding a write on owner words it
+- **Seen:** the devops seat, Task 4.11 (<team>), 14:40Z, holding a write on owner words it
   could not verify (F25).
 - **What:** a worker's `verify` of a questions post joins questions by its invite when refused
   (`teamsync/verbs.go`, `getQuestionsEvent`). When that join failed, the cause went only to
@@ -701,7 +703,7 @@ filled in as each cause is known.
 
 ## R48: the off-host route demanded a dedicated agent user (uid and groups)
 
-- **Seen:** the owner, lts-ops Q8, 14:31Z (F22): "we're still blocked - the whole uid thing is
+- **Seen:** the owner, <team> Q8, 14:31Z (F22): "we're still blocked - the whole uid thing is
   misguided".
 - **What:** K15 (a guest uid that is a host account's is refused) is enforced only by the
   homeserver host's own `lxc apply` and its absent phase (`guestfacts.go:157`, given that host's
@@ -805,7 +807,7 @@ filled in as each cause is known.
 ## R64: a link restart re-judges the questions room and rate-drops the owner's posts
 
 - **Seen:** the coordinator's `teamchat status` after its 18:48Z relaunch, 25 Nov:
-  `"dropped_by":{"rate":45}`, and link.log lines "teamsync lts-ops: dropped $<id>: rate".
+  `"dropped_by":{"rate":45}`, and link.log lines "teamsync <team>: dropped $<id>: rate".
   The coordinator re-fetched all 45 with `teamchat verify`. Every one was a HUMAN post by the
   owner in the questions room, sent 12:42-16:47Z, all already shown before the relaunch. So
   nothing was lost this time.
@@ -1067,7 +1069,7 @@ filled in as each cause is known.
 
 ## R45: Lightning shows no settings button in a collapsed room list with the rail hidden
 
-- **Seen:** the owner, lts-ops questions room, 14:16Z (F21).
+- **Seen:** the owner, <team> questions room, 14:16Z (F21).
 - **What:** with the spaces rail hidden and the room list collapsed to its narrow column, no
   settings or account button is on screen; the owner widened the list by hand to reach them.
   Upstream source at 05d0be9c: the full-width header that carries them is hidden when compact,
@@ -1077,7 +1079,7 @@ filled in as each cause is known.
 
 ## R46: Lightning has no quick toggle to collapse and expand the room list
 
-- **Seen:** the owner, lts-ops questions room, 14:16Z (F21).
+- **Seen:** the owner, <team> questions room, 14:16Z (F21).
 - **What:** collapsing or expanding the room list takes a drag, click or double-click on a 1 px
   divider; Ctrl+B hides the list entirely and no shortcut or button switches its width.
 - **Issue:** upstream [lightning-matrix/lightning#108](https://github.com/lightning-matrix/lightning/issues/108).
@@ -1131,9 +1133,9 @@ before the move to v2. Filled in as causes are found.
 - **What:** the tab should show the team and seat, and follow a switch between tmux sessions.
 - **Owner's spec (F10, 12:47Z):** the tab, the tmux session and the seat all show team, project
   and seat number, and the seat type, which is the launcher used (`ccy` for a container seat,
-  `cc` for a seat on the machine itself). Example: `lts-ops · fedora-desktop.4 · ccy`. The owner
+  `cc` for a seat on the machine itself). Example: `<team> · fedora-desktop.4 · ccy`. The owner
   may still change the order.
-- **More (F15, the laptop host seat, 13:36Z):** that seat's tmux session is `cc-lts-lts-infra`,
+- **More (F15, the laptop host seat, 13:36Z):** that seat's tmux session is `cc-<team>-<project>`,
   which does not name its seat. The tab title inside tmux is tmux's own: `files/etc/tmux.conf`
   sets `set-titles on` with `set-titles-string "tmux: #S  (F12 then Detach leaves it running)"`,
   so the tab shows the session name, and ccy's own title (`CCY: <project>`) is overwritten while
@@ -1270,7 +1272,7 @@ before the move to v2. Filled in as causes are found.
   delivery the session did get from 25 Nov on was a PING (fetch).
 - **Correction (08:14Z, from the seat's link log):** my first read said the loss was between
   the store and the session. That was wrong. The link drops the messages at receive.
-  - Its `link.log` holds 433 lines `teamsync lts-ops: dropped <id>: sender`, covering every
+  - Its `link.log` holds 433 lines `teamsync <team>: dropped <id>: sender`, covering every
     PEER from every sender. The coordinator's 07:54Z job is among them.
   - The 14 "in"/"peer" history items are the same drops: that binary's history records a
     dropped item too.
@@ -1346,10 +1348,14 @@ before the move to v2. Filled in as causes are found.
   - Nothing moves a running session to another token. Plan 00146 (switching through the
     supervisor) is Not Started.
   - A user unit `ccy-session-token-failover` seen on a dev machine is not in this repository.
-  - ⚠️ Plan 00146's decision 3 records an automatic restart on the next declared token, which
-    contradicts the owner's rule that switching is a hot swap the owner triggers.
-- **Severity:** medium. **Issue:** TBF. **State:** open; decision 3 to be settled before 00146
-  starts.
+  - Plan 00146's decision 3 records an automatic restart on the next declared token. That
+    matches the owner's rule (Q65, restated 26 Nov 09:04Z via the coordinator): a
+    usage-limited session moves to another permitted sign-in automatically, with no human
+    present, after a fuzzy cooldown (about 480 s from first seeing the limit, plus a random
+    jitter), and not if the limit clears first. An earlier line here called it a
+    contradiction of "a hot swap the owner triggers"; that wording was wrong at its source and
+    is withdrawn. 00146 Task 2.4 now carries this timing.
+- **Severity:** medium. **Issue:** TBF. **State:** open (Plan 00146 not started).
 
 ## R74: owner requirement — ccy as its own installable package
 
@@ -1395,7 +1401,168 @@ before the move to v2. Filled in as causes are found.
     answer this one call in time (busy, or the host loaded), is reported as starting or
     restarting.
   - The words are wrong, and the state it implies (messages waiting) may be wrong too.
-- **Fix (batch 24):** a held keeper lock with the link `running` is its own state. The words say
-  the link is up but did not answer this call in time, and name the bound. A test runs over a
-  `keeper.json` that says running.
-- **Severity:** low (misleading, not lossy). **Issue:** TBF. **State:** open.
+- **Fix (batch 24, built test-first):**
+  - `ReadDown` also probes `link.lock`. A held keeper.lock, with keeper.json saying `running`
+    and link.lock held, is the new state `busy`. Its text: "teamchat is running but did not
+    answer in time (busy, or the machine is loaded); team messages wait on the server until it
+    does".
+  - With link.lock free, it stays "starting": the link has gone, and the keeper has not yet said
+    so (the e2e row that kills the link holds that).
+  - The status line draws `teamchat busy` if it ever meets this state.
+  - SPEC-n3 LN3 says the same.
+  - The bound was not put in the words: it differs per verb (hooks 300 ms to `wait`'s timeout).
+- **Severity:** low (misleading, not lossy). **Issue:** TBF. **State:** fixed on v2-smoke, waits
+  on batch 24.
+
+## R77: an LXC seat unit cannot find a claude installed under nvm
+
+- **Seen:** a team seat, 26 Nov, checking one project's LXC containers, where claude is an npm
+  package under nvm. `~/.bashrc` loads nvm only in an interactive shell.
+- **Cause (checked in code):** the seat unit's PATH is fixed:
+  `~/.local/bin:/usr/local/bin:/usr/bin:/bin` (`teamchat/host/lxc/unit/unit.go:92`). Its
+  command is the bare word `claude` (`unit.go:72`). So `teamchat-admin lxc start` in such a
+  container finds neither claude nor the node it runs on. Not yet seen failing live.
+- **Fix (with Plan 00266 C.2, before it):**
+  - At every start, the boot replay included, resolve `claude` and `node` through the
+    container user's login shell, and put both directories first in that start's PATH.
+  - Freeze nothing in the unit or the record: a node bump moves the nvm directory.
+  - Refuse loudly only when the lookup finds nothing.
+  - The decision is in Plan 00266 under "Finding the claude command". Test first.
+- **Severity:** high where it applies (no seat starts). **Issue:** TBF. **State:** open.
+
+## R78: run.bash runs from a dirty checkout, or one behind its upstream
+
+- **Seen:** the owner, <team> Q18, 26 Nov 08:58Z (verbatim): "run.bash should block with force
+  escape hatch if the repo is behind remote or uncommited".
+- **Today (checked in run.bash):**
+  - A clean tree is required only before an update or a pin (`assert_clean_worktree`, line
+    1331, called from `fd_checkout` at 823).
+  - The play runs (`--changed`, `--rerun`) only warn on uncommitted changes
+    (`play_batch_warn_dirty`, 2079-2090).
+  - Nothing checks whether the checkout is behind its upstream.
+- **Fix (Plan 00265 Task 4.1, the batch after 24):**
+  - Before any play, run.bash refuses when the checkout has uncommitted changes, is behind its
+    upstream after a `git fetch`, or is ahead of it. Ahead means local commits no remote holds;
+    the coordinator added it on 26 Nov, because the push is the backup. The message says which
+    it is, names the paths or the commit count, and gives the fix (commit or stash; `git pull`;
+    `git push`).
+  - A fetch that fails is a refusal too, never a pass.
+  - A detached pin (`RUN_BASH_GIT_REF`) has no upstream, so only the dirty check applies.
+  - `--force` runs anyway, and says on stderr which check it overrode.
+  - The check is a small Go command that run.bash calls in place of
+    `play_batch_warn_dirty`, because run.bash is on the bash-limits ratchet and may not grow.
+  - Tests: dirty, behind, ahead, fetch failed, clean and current, detached pin, and `--force`
+    over each refusal. The Go uses a real temporary repository with a bare upstream, and
+    `scripts/test-run-bash-*` drives the wiring.
+- **Severity:** medium (a play deployed from code that is not on the remote). **Issue:** TBF.
+  **State:** open.
+
+## R79: the private-name guard learns only this session's own teams
+
+- **Seen:** the batch 23 qa-reviewer, 26 Nov. Another team's private name, once redacted by
+  Plan 00245, came back into tracked plan files through batch 3 and batch 23. No gate blocked
+  it.
+- **Cause (checked, the first wording refuted):** the guard learned no bus name at all here,
+  not even this session's own team. `<git dir>/private-terms` held only `host name` terms (4 on
+  26 Nov). `src-go/qa/privatenames` asked only `pingbus status`, the v1 bus. This session is on
+  teamchat (v2), where pingbus is absent, so the bus taught it nothing. And either bus reports
+  only the session's own teams, so a team beside it on the same bus host was never learnable.
+  Two gaps: (a) teamchat was not asked; (b) neighbouring teams are never learned.
+- **What a container can see (checked):** `teamchat status` gives `team` and `member` records
+  for this session's teams only; the membership mount holds this session's teams only; the
+  host's team list is not mounted. Other teams' names cannot be learned from inside a
+  container, so the owner pins them.
+- **Fix (Defence Before Fix), 81a4f18cd:**
+  - The guard asks both buses through the one process seam: `pingbus status` and
+    `teamchat status` (team and member records; exit 69, not a member session, is an empty
+    answer; any other failure or unreadable output is exit 2).
+  - `<git dir>/private-terms-pinned`, one name per line: always blocked, whatever the length,
+    never printed, never copied into the learned list, carried into the published denylist.
+    The route for a neighbouring team. (`private-terms-export-skip` is the opposite: it only
+    keeps learned terms out of the denylist.)
+  - In a container, a bus that reports a session but teaches no team or member name is exit
+    2 unless a name is pinned.
+  - Red: `teamchat_test.go` (a teamchat session with no pingbus, or pingbus 78, whose team and
+    members must block; the pinned neighbour; the session that teaches no name) failed before
+    the fix and passes after. Real tree: `refresh` learned 4 terms before, 19 after.
+- **Sweep owed (the owner's call):** with the fix, `tree HEAD` finds 23 hits of two newly
+  learned terms (this session's own team and one member handle) in plan 00161, 00209 and 00265
+  files. They were never guarded. Until they are replaced or allowlisted, the local
+  `qa-private-names` gate is red.
+- **Also owed:** the name's remaining lines on F44 (one append-only journal entry, and
+  history) are the owner's decision, asked through the coordinator 26 Nov.
+- **Severity:** high (a public repository). **Issue:** TBF. **State:** open.
+
+## R80: a worker cannot verify the owner's authorisation in the questions room
+
+- **Seen:** the laptop host seat, reported by the coordinator, 26 Nov. A worker ran
+  `teamchat verify` on the id of an owner post in the questions room that authorised its job,
+  and got exit 23, `not-found`. The rule "verify before acting" then cannot be followed by the
+  very worker the owner authorised.
+- **Cause (checked): R12 on an old build, not a new fault.** The seat passed `--room questions`
+  (its message, 09:14:44Z). It runs kit `90f502ac` (ccy 3.124.41), a src-go tree whose
+  `getQuestionsEvent` (`teamsync/verbs.go:245`) joins the questions room only on a 403. Tuwunel
+  answers a reader who has not joined 404, so no join is tried and verify answers 23. That is
+  R12. Its fix (join on a 404 too, `verbs.go:254`) and R49's (a failed join is refused as
+  forbidden, naming the cause, never as not-found) are both in F44's tree as of e67e28d72.
+- **Fix:** none new. The laptop update to F44's build carries both. After its relaunch the host
+  seat re-runs the same verify, and that re-run closes this row (the coordinator has arranged
+  it).
+- **Severity:** medium (a worker either acts unverified or cannot act). **Issue:** none (R12).
+  **State:** fixed on F44; awaiting the re-run on the updated laptop.
+
+## R81: a coordinator cannot read its own team room by time window
+
+- **Seen:** the coordinator, 26 Nov, during the Lightning incident (Plan 00268). It needed the
+  team room's events from one 15-minute window the day before, to find what set off the
+  runaway.
+- **What (checked by the coordinator):** `teamchat history` returns only the latest entries,
+  with `--limit` from 1 to 100 (exit 64 outside that range). It has no time window and no
+  paging. It also covers only what that member received and sent, not the room. A window a day
+  old is out of reach for any member, so incident work needs a homeserver-admin read on the bus
+  host, by a seat that holds that access.
+- **Fix:**
+  - A coordinator-only read of its own team's rooms by time window:
+    `teamchat history --room main --since <time> --until <time>`, paged, not capped at 100.
+  - A `--shape` mode that prints each event's type, time, thread or relation, size and sender
+    role, without bodies, for incident work that must not copy message text.
+  - Workers keep their own-traffic view.
+  - Tests: a window across a page boundary; an empty window; `--shape` printing no body; a
+    worker refused the room-wide read, with a message naming the cause.
+- **Severity:** medium (incident evidence is out of reach of the team's own tools).
+  **Issue:** TBF. **State:** open.
+
+## R82: the team launch's deny on the Lightning app id blocks reading its version
+
+- **Seen:** the laptop host seat, 26 Nov, triaging Plan 00268. `flatpak info` on Lightning's
+  app id was refused, so the seat could not read the build of the app it was asked to triage.
+- **Cause (checked):** `files/var/local/claude-code/cc-teams-settings.json:26`, which the team
+  launch passes as `--extra-settings`, denies `Bash(*org.lightning_matrix.Lightning*)`: any
+  command that names the app id. The Read and Edit denies on the app's `~/.var/app/...` tree
+  (lines 12-15) are what refused the seat's reads of the sandbox data.
+- **Why the glob is broad (by design, not an accident):** a path-only glob would not stop
+  `flatpak run --command=sh <app id> …` or `flatpak enter`, which reach the app's data, keys and
+  tokens from inside its sandbox without naming a `~/.var` path. Claude Code's deny beats any
+  allow, so an allow rule for `flatpak info` cannot carve it out.
+- **Options (the owner's call, since it touches the protection of chat keys and tokens):**
+  1. Keep the glob. The build is read from `/proc/<pid>/root/.flatpak-info`, which already
+     worked, and `laptop-commands.md` documents that route.
+  2. Keep the glob, and add a small read-only command deployed by the play that prints only
+     Lightning's installed version and commit (no data path, no `run`/`enter`). Its argv does not
+     name the app id.
+  3. Narrow the glob to the dangerous verbs (`*flatpak run*Lightning*`, `*flatpak enter*`, and
+     the data path). This is weaker: every new route into the sandbox must be thought of in
+     advance.
+  - The owner (26 Nov, relayed by the laptop seat, unverified): "ah its probably to prevent
+    agents hijacking lightning - maybe we can hole punch for flatpak info?"
+  - Recommended: 2, which is that hole punch in a fail-closed shape. The broad deny stays, and
+    the one command allowed through is fixed by the play: it runs `flatpak info` (and
+    `--show-permissions`) and `flatpak ps` for the chat-client app ids it was built with, and
+    takes no app id, path or flag from its caller. Option 3 is rejected: a deny-list of verbs
+    fails open on any route it misses (`flatpak-spawn`, an alias, a direct path to the binary).
+    Claude Code cannot express "allow only this command, deny the rest of the app id" while
+    the broad deny exists, because a deny beats any matching allow. Until 2 ships, use 1.
+  - Any change gets a test that a data-path read and a `flatpak run --command` into the app are
+    still refused, and an independent review before it merges.
+- **Severity:** low (the build was read another way). **Issue:** TBF. **State:** open, owner
+  decision.

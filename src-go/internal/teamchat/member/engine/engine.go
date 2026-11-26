@@ -157,6 +157,8 @@ type Engine struct {
 	waits atomic.Int64
 	// timer disarms the one TIMEOUT timer, nil while none is armed (n3d-D7).
 	timer func() bool
+	// coalescing is the window a delivery waits out (coalesce.go), set once by New.
+	coalescing window
 }
 
 // New is an engine over cfg; its goroutine runs from Run.
@@ -183,6 +185,7 @@ func New(cfg Config) (*Engine, error) {
 		teams: map[paths.TeamID]*held{}, refused: map[paths.TeamID]paths.RunID{},
 		desired: state.DesiredApplied, acks: map[string]bool{}, sent: map[paths.TeamID]wire.State{},
 		kick: make(chan struct{}, 1), members: make(chan memberReq), hit: hitPoint, unusable: cfg.Unusable,
+		coalescing: coalesce,
 	}
 	e.ends = cfg.NewEnds(EndsConfig{Engine: e, Run: cfg.Run, Clock: cfg.Clock, Log: cfg.Log})
 	return e, nil

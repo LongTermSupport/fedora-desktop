@@ -59,10 +59,10 @@ file and line.
 
 ### Phase 1: protocol (DESIGN.md C1, C7)
 
-- [ ] ⬜ **Task 1.1**: The `teamchat.receipt` key (v 1), its decoder and closed reason set,
+- [x] ✅ **Task 1.1**: The `teamchat.receipt` key (v 1), its decoder and closed reason set,
   added inside protocol major 1. Test first, with corpus and agreement tests.
-- [ ] ⬜ **Task 1.2**: A `kit` field on every typed send, ignored by old kits.
-- [ ] ⬜ **Task 1.3**: The receipt-of-receipt guard (one receipt per item and addressee).
+- [x] ✅ **Task 1.2**: A `kit` field on every typed send, ignored by old kits.
+- [x] ✅ **Task 1.3**: The receipt-of-receipt guard (one receipt per item and addressee).
 
 ### Phase 2: receiver bookkeeping (C2, C6)
 
@@ -103,6 +103,59 @@ file and line.
   absent, compacting and restarting sessions are held, then delivered.
 - [ ] ⬜ **Task 6.3**: Old-kit interop, and a failpoint between the drop-ledger write and the
   receipt send that yields exactly one receipt after a restart.
+
+### Phase 7: turn efficiency (the owner, Q19, 26 Nov)
+
+The owner: "teamchat should try to buffer events messages etc and batch deliver info, batch
+responses should also be encouraged from agents." Then, 26 Nov 09:10Z (relayed by the
+coordinator): "I'd suggest any unfetched status receipts are sent along with the next batch. Ask
+fedora dekstop to generally look for turn efficiency opportuntities and make a plan to get this
+implemented - a single turn carrying multiple types of info, status, mesages etc at once. Its
+not an API its an agentic interface - design it this way. I see no reason to limit to 8
+messages but we do need to limit turn/message size by volume"
+
+So a delivery is designed for an agent's turn, not as an API call: one delivery carries every
+kind of information pending for the session at once, each kind in its own section, and is
+limited by volume only.
+
+Today (checked): one delivery carries up to 8 entries in 12 KiB (`proto/delivery.go:16-17`,
+`Fit` at :129-157), one team's pending at a time (`member/deliver/deliver.go:112-150`). The
+deliver loop sends as soon as something is pending and then waits `paceWait` 2 s
+(`member/engine/deliverloop.go:21-26`); that is a pace, not a window, so a burst is split across
+the first delivery and the next. Delivery debouncing (Plan 00209 Task 3.5, issue #129) is
+planned, not built; this phase builds it here and closes that task.
+
+- [x] ✅ **Task 7.1**: A coalesce window before a delivery: items for one session are held for a
+  short quiet bound with a ceiling, then delivered as one. A HUMAN item and a halt ping skip the
+  hold. Test first, on the fake clock. This supersedes Plan 00209 Task 3.5, whose gate (after
+  Plan 00246 Task 8.8) the owner's Q19 lifts for this work (the coordinator, 26 Nov).
+- [ ] 🔄 **Task 7.2** (revised by the owner, 26 Nov 09:10Z): A receipt never gets a delivery of
+  its own. An unfetched receipt (one the sender has not read by `status`) rides in the next
+  delivery, folded into a compact status section; a bounce likewise. Done: a receipt is never
+  an item, so it can never make a delivery (`TestAReceiptIsNeverAnItem`, 5ad4357b8). To do: the
+  status section carrying the unfetched receipts and bounces, once batches 2-4 send them.
+- [x] ✅ **Task 7.3**: Notices from one sender about one member pending together fold into one
+  entry, the latest, with an `earlier:` line for each before it (e.g. left then back).
+- [x] ✅ **Task 7.4**: The skill text (`member/kit/skill.txt` and the plugin's copy, which must
+  stay identical) asks a seat to answer several messages in one reply where it can. The line,
+  agreed with the coordinator: "When a delivery holds several messages, or more arrive while you
+  work, answer them together: one reply per sender covering each of their messages, not one
+  reply per message. A closed verb (ack, done) still goes to its own ping."
+- [x] ✅ **Task 7.5**: The human message debounce (the owner asked for it in Q19): a settle
+  window on HUMAN items only. Each new HUMAN item from the same human restarts a 3 s wait,
+  capped at 10 s from the first, so several quick messages arrive as one delivery and cost one
+  turn. 3 s covers a person sending a thought in two or three short posts. The 10 s cap bounds
+  how late the first message can be. A halt ping passes straight through. Test first, on the
+  fake clock.
+- [ ] ⬜ **Task 7.6**: The 8-entry cap goes (the owner: "I see no reason to limit to 8
+  messages"). A delivery is limited by volume only (its bytes on the wire); what does not fit
+  carries to the next delivery, and the delivery says how much is still pending.
+- [ ] ⬜ **Task 7.7**: One delivery carries every kind pending at once (HUMAN items, PEER
+  messages, pings, notices, receipts, bounces, the trailing facts), each in its own section, so
+  a turn reads it all.
+- [ ] ⬜ **Task 7.8**: A survey of the whole agent-side surface for further turn savings
+  (deliveries, verb outputs, `status`, `recv` and `verify` outputs, the skill's procedures):
+  each opportunity with its saving and its cost, in `TURN-SURVEY.md` in this plan folder.
 
 ## Success Criteria
 

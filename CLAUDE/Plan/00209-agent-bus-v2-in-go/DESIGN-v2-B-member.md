@@ -1517,6 +1517,16 @@ golden files of A 14 are B's renderer tests. What B owns is what A 13 leaves to 
 - **Which items, and when.** A delivery holds one team's items (A 13.1, 2.7.3), at most 8 entries
   and 12 KiB on the wire (E9), the rest following in the next delivery. Both caps are provisional
   until host check H4 measures the socket's real limit.
+- **Folding notices** (Plan 00267 Task 7.3). The NOTICE items of one delivery from one sender
+  about one subject are one entry: the latest, with an A 13.2 `earlier:` line for each before it,
+  at most 8 to an entry. A member that left and came back costs one entry, which says both with
+  their times. Every folded item is in the delivery and goes to the ledger with it; a carried item
+  and `moved` never fold, and a restored or repeated notice folds only with its like.
+- **Receipts never get a delivery of their own** (Plan 00267 Task 7.2, revised by the owner 26
+  Nov). A `teamchat.receipt` (A 7.8) is read in the reports room, which is judged as a fault and
+  never makes an item, and one sent in main is dropped `schema`. An unfetched receipt, and a
+  bounce, ride in the next delivery, folded into a compact status section (Plan 00267 Task 7.2,
+  to be built with batches 2-4).
 - **Re-checking every slot.** Each slot is checked against A 13.2's grammar as the line is
   rendered (E3, P77). A slot that fails is a bug in the validator: the item is not rendered, it
   moves to the dropped count with reason `render` (`session.json` `unusable.render`, shown by
@@ -1599,6 +1609,14 @@ The frame text (A 13.5) is placed by the SessionStart hook at every SessionStart
   the ledger holds is dropped before it (a missing delivery's items are not in the ledger, above); an event whose served `origin_server_ts` is not newer than
   its room's floor is dropped after it (both logged, B44); one that passes is rendered with
   `restored:` and `"restored": true`.
+- **The coalesce window** (Plan 00267 Tasks 7.1, 7.5; supersedes Plan 00209 Task 3.5). A team's
+  pending items wait until they are quiet, so a burst costs the session one turn: agent items
+  until 2 s after the newest, at most 10 s after the oldest; with a HUMAN item pending, the human
+  settle instead, until 3 s after the newest HUMAN item, at most 10 s after the oldest (a person's
+  thought sent in two or three short posts arrives as one delivery, and the first waits at most
+  10 s). A halt ping skips both: the delivery goes at once with whatever is pending. Times are
+  when the link first saw each item pending, on the boot clock; a held team's trailing facts wait
+  with its items.
 - **Pacing and choosing the team:** at most one delivery every 2 s; items that arrive meanwhile
   join the next (E13). Each delivery holds one team's items. The next delivery is for the team
   holding the oldest pending HUMAN item, else the team holding the oldest pending item of any kind,

@@ -77,7 +77,7 @@ type Outcome int
 // The outcomes. Record is an answer recorded against one of this member's pings and not
 // delivered (rule 09); Index a questions-room post for the question index (rule 03); Redact an
 // admin redaction of an item still held (rule 01); Fault an event judged in the reports room,
-// which no member reads (rule 05).
+// which no member reads (rule 05), with a decoded receipt in Content.
 const (
 	Deliver Outcome = iota + 1
 	Ignore
@@ -233,12 +233,27 @@ func (j Judge) Judge(raw Value) Verdict {
 	case v.Class == SenderNone:
 		return drop(v, ReasonSender)
 	case j.Purpose == PurposeReports:
-		v.Outcome = Fault
-		return v
+		return j.reports(v)
 	case j.Purpose == PurposeQuestions:
 		return j.questions(v)
 	}
 	return j.main(v)
+}
+
+// reports is rule 05 in the reports room, which no member reads: every event is a fault. A
+// coordinator's or worker's receipt (A 7.8) is decoded onto its fault for the sender's own
+// reading, and a receipt that does not decode is dropped with its reason, never receipted.
+func (j Judge) reports(v Verdict) Verdict {
+	v.Outcome = Fault
+	if _, receipt := v.Event.Content.Get(KeyReceipt); !receipt || v.Class != SenderCoordinator && v.Class != SenderWorker {
+		return v
+	}
+	c, reason := DecodeContent(v.Event.Content, ReportKeys)
+	if reason != "" {
+		return drop(v, reason)
+	}
+	v.Content = c
+	return v
 }
 
 // notMessage is rule 01: an admin's redaction of a well-formed event ID is Redact; the rest

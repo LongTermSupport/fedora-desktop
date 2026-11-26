@@ -19,6 +19,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/colour"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/cli"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/client"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/lock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
@@ -785,6 +786,14 @@ func TestLinkDownForms(t *testing.T) {
 		if want := redRow("👥 "+tc.want) + "\n"; code != term.ExitOK || out != want {
 			t.Fatalf("%s: exit %d, out %q, want %q", tc.name, code, out, want)
 		}
+	}
+}
+
+// A busy link (link.lock taken between this line's probe and ReadDown's) is never drawn as
+// stopped.
+func TestDownTextBusy(t *testing.T) {
+	if got := downText(client.Down{State: client.DownBusy, Kind: state.KindCCY, Session: "work-1"}); got != "teamchat busy" {
+		t.Fatalf("busy: %q", got)
 	}
 }
 

@@ -404,3 +404,47 @@ func TestAReportsEventInAnAnswerIsAFaultAndNoItem(t *testing.T) {
 	}
 	w.noBatch()
 }
+
+// receiptEvent is a teamchat.receipt peer sends in room, and the event as the server holds it.
+func (w *world) receiptEvent(local, room string, r proto.Receipt) (string, json.RawMessage) {
+	w.t.Helper()
+	c := w.client(local)
+	if _, err := c.Join(w.t.Context(), room); err != nil {
+		w.t.Fatalf("%s joins %s: %v", local, room, err)
+	}
+	content, err := proto.ReceiptContent(r)
+	check(w.t, err)
+	id, err := c.Send(w.t.Context(), room, proto.MessageType, "", content.Compact())
+	check(w.t, err)
+	raw, err := c.GetEvent(w.t.Context(), room, id)
+	check(w.t, err)
+	return id, raw
+}
+
+// Plan 00267 Task 7.2: a receipt never costs a session a turn. A well-formed receipt in the
+// reports room is decoded onto its fault and is never an item, so no delivery ever carries it
+// (one sent in main is dropped `schema` by the judge: proto's "receipt in main" row). The
+// sender reads its receipts by status, not by a delivery.
+func TestAReceiptIsNeverAnItem(t *testing.T) {
+	w := newWorld(t)
+	r := proto.Receipt{Of: "$" + strings.Repeat("p", 43), To: []string{user(me)}, State: proto.ReceiptDelivered, At: startMS}
+	_, inReports := w.receiptEvent(peer, w.ids.Reports, r)
+	tm := w.newTeam()
+	s := &sess{t: tm, c: w.client(me), a: proto.Anchors{Server: server, Team: teamName, MainRoom: w.main, Self: user(me)}, roster: w.roster}
+	forged := matrix.SyncResponse{NextBatch: "s1", Join: map[string]matrix.RoomUpdate{
+		w.ids.Reports: {Timeline: matrix.Timeline{Events: []json.RawMessage{inReports}}},
+	}}
+	if err := s.handle(t.Context(), "", answer{resp: forged}); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	for {
+		select {
+		case b := <-w.eng.batches:
+			if len(b.Items) != 0 {
+				t.Errorf("a receipt became an item: %+v", b.Items)
+			}
+		default:
+			return
+		}
+	}
+}

@@ -42,6 +42,10 @@ const (
 // (B 2.4.2), which a hook gives as its own recovery line.
 const msgStarting = "teamchat is starting or restarting; team messages wait on the server"
 
+// msgBusy is that text when the link holds link.lock but did not answer in time (register R76):
+// a link that is up, stopped or slow, never one that is starting.
+const msgBusy = "teamchat is running but did not answer in time (busy, or the machine is loaded); team messages wait on the server until it does"
+
 // sgrRed is the escape the status line draws a link that does not answer with.
 const sgrRed = "\x1b[31m"
 
@@ -137,17 +141,18 @@ func (w *world) claudeSeated(flags ...string) *session {
 
 // startAnswered is the answer of the session's SessionStart hook once the link has answered it.
 // The hook dials the link once and, when the answer is later than its 300 ms deadline (LN2), as
-// it is on a loaded host, gives its own recovery line, which says teamchat is starting, and the
-// link never learns the session. Claude Code fires SessionStart again on a resume, so the row
-// asks again until the answer is not that line. Only SessionStart: Stop blocks once per pending
-// set, so a Stop the link answered late would answer differently when asked again.
+// it is on a loaded host, gives its own recovery line, which says teamchat is starting or (the
+// link holding link.lock) busy, and the link never learns the session. Claude Code fires
+// SessionStart again on a resume, so the row asks again until the answer is neither line. Only
+// SessionStart: Stop blocks once per pending set, so a Stop the link answered late would answer
+// differently when asked again.
 func (s *session) startAnswered() string {
 	s.w.t.Helper()
-	starting := withContext(evStart, msgStarting)
+	starting, busy := withContext(evStart, msgStarting), withContext(evStart, msgBusy)
 	var got string
 	eventually(s.w.t, func() bool {
 		got = answer(s.w.t, s.hook(evStart))
-		return got != starting
+		return got != starting && got != busy
 	}, s.describe)
 	return got
 }
@@ -269,7 +274,8 @@ func (s *session) lastLink() int {
 }
 
 // A hook whose link does not answer (HK1, OF1): the link is stopped, so its socket accepts and
-// says nothing, and the hook gives its own line within its deadline, as the verbs' recovery text
+// says nothing while it still holds link.lock, and the hook gives its own line within its
+// deadline, the busy form of the verbs' recovery text (register R76)
 // on the two events that take context and {} on the two that do not, each exiting 0. Once the
 // link is continued the hook is answered by the link again.
 func TestClaudeLinkSilent(t *testing.T) {
@@ -278,7 +284,7 @@ func TestClaudeLinkSilent(t *testing.T) {
 	link := s.lastLink()
 	freeze(t, link)
 	for _, ev := range []string{evPrompt, evStart} {
-		if got, want := answer(t, s.hook(ev)), withContext(ev, msgStarting); got != want {
+		if got, want := answer(t, s.hook(ev)), withContext(ev, msgBusy); got != want {
 			t.Fatalf("%s with the link stopped answered\n%s\nwant\n%s", ev, got, want)
 		}
 	}

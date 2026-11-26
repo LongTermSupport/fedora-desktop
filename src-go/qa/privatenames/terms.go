@@ -3,7 +3,11 @@
 // projects. This is a public repository, and CLAUDE.md "Public Repository" says none of them
 // belongs in it. The localhost.yml denylist cannot know them (the file is absent where agents
 // commit, and never held them), so this package learns them from the places an agent session can
-// read: the agent bus's own status report and the machine's host names.
+// read: the status reports of both agent buses (v1 `pingbus status`, v2 `teamchat status`) and the
+// machine's host names. Each bus reports only this session's own teams and their members; inside
+// a container nothing names the other teams the same bus host serves (the membership mount holds
+// this session's teams only), so those reach the gate through the owner's pinned list
+// (PinnedName), which always blocks and is never written by this package.
 //
 // The terms are written to a list inside the git directory (never tracked, never committable),
 // read back by the next run so a team that left the bus stays guarded, and only ever reported by
@@ -25,6 +29,7 @@ const (
 	SourceTeam     = "agent-bus team"
 	SourceMember   = "agent-bus member"
 	SourceHostname = "host name"
+	SourcePinned   = "owner pin"
 )
 
 // MinSpecificLength is the shortest term that may block a commit. A shorter word is a word, not

@@ -151,6 +151,8 @@ func downText(d client.Down) string {
 		return "teamchat restarting"
 	case client.DownStarting:
 		return "teamchat starting"
+	case client.DownBusy:
+		return "teamchat busy"
 	}
 	if (d.Kind == state.KindCCY || d.Kind == state.KindLXC) && d.Session != "" {
 		return "teamchat stopped: ccy-teams restart " + d.Session

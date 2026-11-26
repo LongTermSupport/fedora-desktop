@@ -452,6 +452,9 @@ func buildWorld(t *testing.T, delivery string, prep func(*Config), ready func(*E
 	prep(&cfg)
 	w.e, err = New(cfg)
 	check(t, err)
+	// The windows (Plan 00267 Phase 7) are held off here so a test's timeline is its own; the
+	// window tests (coalesce_test.go) turn them back on in ready.
+	w.e.coalescing = window{}
 	ready(w.e)
 	ctx, cancel := context.WithCancel(context.Background())
 	ran := make(chan error, 1)

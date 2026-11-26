@@ -52,9 +52,9 @@ Options:
                          passphrase is refused unless your ssh-agent holds it (ssh-add it)
   --teams [TEAM | SEAT@TEAM[,SEAT@TEAM...]]
                          Join agent team bus teams, one seat each. Bare --teams lists the
-                         teams (Tab marks several). A team alone asks the seat (on teamchat only
-                         for a real choice: one free seat is taken, none adds one, Enter takes
-                         the lowest free). Name seats (--teams 1@dev-team,qa2@other-team) when
+                         teams (Tab marks several). A team alone on teamchat takes its only seat
+                         if free, adds one if none, else asks (Enter: lowest free, else a new
+                         one). Name seats (--teams 1@dev-team,qa2@other-team) when
                          nobody can be asked. A seat is held by one session. The seats' recorded
                          conversation is resumed; with none, exit 64 names the repair (ccy-teams
                          seats conversation SEATS --set ID) and --fresh, which starts a new one.

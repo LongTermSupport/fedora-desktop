@@ -200,10 +200,21 @@ func (e *Engine) look() ([]looked, time.Duration) {
 			continue
 		}
 		l, at := lookAt(h, now)
+		if hold := e.coalescing.dueAt(h.delivery.arrivals(l.items, now)); hold > now {
+			// The team's items wait out the coalesce window (Plan 00267 Tasks 7.1, 7.5), its
+			// trailing facts with them.
+			at = hold
+			if fd, has := h.delivery.factsAt(h.health.Stopped); has && fd > now {
+				at = min(at, fd)
+			}
+			l = looked{}
+		}
 		if at > 0 && (due == 0 || at < due) {
 			due = at
 		}
-		out = append(out, l)
+		if l.h != nil {
+			out = append(out, l)
+		}
 	}
 	return out, due
 }

@@ -282,6 +282,7 @@ func agentTexts(t *testing.T) map[string]string {
 	for i, d := range []client.Down{
 		{State: client.DownRestarting, NextMS: 5_000},
 		{State: client.DownStarting},
+		{State: client.DownBusy},
 		{State: client.DownFailed, Kind: state.KindCCY, Session: "work-1"},
 		{State: client.DownFailed, Kind: state.KindLXC, Session: "work-1"},
 		{State: client.DownFailed, Kind: state.KindHost},
@@ -570,5 +571,26 @@ func TestTheSkillTeachesARelayedAnswer(t *testing.T) {
 		if !strings.Contains(skill, want) {
 			t.Errorf("SKILL.md does not say %q", want)
 		}
+	}
+}
+
+// Plan 00267 Task 7.4: the skill asks a seat to answer several messages in one reply per sender,
+// in section 2 after the reply: line, in the words agreed with the coordinator (wrapped as the
+// skill is, so compared with its whitespace folded).
+func TestTheSkillAsksForOneReplyPerSender(t *testing.T) {
+	const want = "When a delivery holds several messages, or more arrive while you work, answer them " +
+		"together: one reply per sender covering each of their messages, not one reply per message. " +
+		"A closed verb (ack, done) still goes to its own ping."
+	skill := shippedSkill(t)
+	folded := strings.Join(strings.Fields(skill), " ")
+	at := strings.Index(folded, want)
+	if at < 0 {
+		t.Fatalf("SKILL.md does not say %q", want)
+	}
+	section2 := strings.Index(folded, "## 2. Answering and starting")
+	replyLine := strings.Index(folded, "Answer an entry with the command on its reply: line")
+	section3 := strings.Index(folded, "## 3.")
+	if replyLine < section2 || at < replyLine || at > section3 {
+		t.Errorf("the line is at %d, not in section 2 (%d to %d) after the reply: line (%d)", at, section2, section3, replyLine)
 	}
 }

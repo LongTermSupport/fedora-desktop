@@ -87,7 +87,7 @@ func TestRP3AReportIsPostedToTheReportsRoom(t *testing.T) {
 	if got := f.notices.sentRooms(); !slices.Equal(got, []string{reportsRoomOf(ops)}) {
 		t.Fatalf("the report went to %v, want the reports room alone", got)
 	}
-	want := `{"msgtype":"m.notice","body":"Tests pass\nAll 12 of them.","format":"org.matrix.custom.html","formatted_body":"<p>Tests pass<br>All 12 of them.</p>","m.mentions":{},"teamchat.report":{"v":1}}`
+	want := `{"msgtype":"m.notice","body":"Tests pass\nAll 12 of them.","format":"org.matrix.custom.html","formatted_body":"<p>Tests pass<br>All 12 of them.</p>","m.mentions":{},"teamchat.report":{"v":1,"kit":1}}`
 	if got := string(lastContent(t, f)); got != want {
 		t.Errorf("the PUT's content\n got %s\nwant %s", got, want)
 	}
