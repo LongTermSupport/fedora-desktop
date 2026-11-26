@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.69 — container 2.84.88
+
+- **A team taken down forgets its seats' conversations.** `ccy-teams remove` now removes the
+  team's seat conversation records (`.claude/ccy/seat-conversations/<team>/`) in every checkout
+  that holds seats or runs a session, so a team made again under the same name resumes nothing
+  of the old one; a record that cannot be removed fails the command, naming it. `ccy-teams` is
+  rebuilt; the image is unchanged (Plan 00265 R36, issue #417).
+
 ## 3.124.68 — container 2.84.88
 
 - **Files written whole never follow a planted link.** The shared atomic writer (`fsx`, used by

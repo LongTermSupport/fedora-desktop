@@ -302,6 +302,13 @@ func (o *Ops) confirmDown(ctx context.Context, team string, purge bool) term.Exi
 	} else {
 		o.Term.Say("Team " + team + " is down; its data is kept in /var/lib/agent-bus/" + team + ".")
 	}
+	if o.ForgetTeam != nil {
+		if err := o.ForgetTeam(team); err != nil {
+			o.Term.PrintError("Team " + team + " is down, but its seats' conversation records could not all be removed: " + err.Error())
+			return term.ExitFailure
+		}
+		o.Term.Say("Its seats' conversation records are removed, so a team made again as " + team + " resumes nothing of this one.")
+	}
 	return term.ExitOK
 }
 

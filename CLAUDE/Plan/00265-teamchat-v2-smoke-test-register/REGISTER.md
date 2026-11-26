@@ -526,8 +526,13 @@ filled in as each cause is known.
   sites on today's tree: untagged, busfailpoints, tuwunel, ccyteamstest, difftest), the sweep (c91c9f125) and the `fsx` fix (18bfa02d3;
   `TestWriteAtomicFollowsNoPlantedLink` red on the old code, green on the fix); ccy 3.124.68,
   container 2.84.88.
+- **(a) rewritten for U4's layout, on v2-smoke:** `ccy-teams remove`, once the team is down,
+  removes `.claude/ccy/seat-conversations/<team>/` in every checkout of the seat-checkouts list
+  and of the running sessions (`conversation.ForgetTeam`; a link in its place is refused), and
+  fails naming what it could not remove; ccy 3.124.69. Unchecked gap: a teamchat checkout whose
+  session has ended and that never entered the seat-checkouts list keeps its records.
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
-  open: (a) and (b) to rewrite; the branches stay until a human deletes them (after the
+  open: (b) to rewrite; the branches stay until a human deletes them (after the
   carry-over they are covered by behaviour, not by git history).
 
 ## R49: a worker's failed questions join was reported as "event not found"

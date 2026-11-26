@@ -183,6 +183,7 @@ func Wire(h *host.Host) *App {
 	list.Settings = settings.New(h, kit, o.ApplyTeams, o.Locked, s.ChangeRole)
 	session := hot.New(h, kit, s.Roles)
 	o.SessionsIn, o.TakeOut = session.SessionsIn, session.TakeOut
+	o.ForgetTeam = func(team string) error { return forgetTeam(h.Registry, team) }
 	list.Session = session
 	chosen := chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams, o.Locked)
 	chosen.Probe = pick.Probe
