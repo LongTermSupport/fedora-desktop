@@ -807,7 +807,7 @@ func repositoryVars(fsys fs.FS) (map[string]bool, error) {
 
 // scanPlayUX runs the six rules, command-always-changed, changed-when-on-success,
 // install-guard-trusts-record,
-// filter-list-unchecked and pipx-name-not-canonical over each YAML file under dirs
+// filter-list-unchecked, pipx-name-not-canonical and checkout-by-home-path over each YAML file under dirs
 // (roles/vendor skipped), then duplicate-managed-block, scratch-always-changed and
 // image-build-arg-volatile over all of them together.
 func scanPlayUX(fsys fs.FS, dirs []string, f *Findings) error {
@@ -827,7 +827,7 @@ func scanPlayUX(fsys fs.FS, dirs []string, f *Findings) error {
 				return fmt.Errorf("a file could not be read: %w", err)
 			}
 			sources = append(sources, yamlSource{rel: rel, data: data})
-			found := playUX(rel, data, repoVars)
+			found := append(playUX(rel, data, repoVars), checkoutByHomePath(rel, data)...)
 			if !slices.ContainsFunc(found, func(v string) bool { return strings.Contains(v, ": cannot be parsed as YAML") }) {
 				found = append(found, commandAlwaysChanged(rel, data)...)
 				found = append(found, changedWhenOnSuccess(rel, data)...)

@@ -12,7 +12,7 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
-    repo_path: "{{ lookup('env', 'HOME') }}/Projects/fedora-desktop"
+    repo_path: "{{ root_dir }}"
     # A bus host's teamchat-ctl state root: one directory per team it serves
     # (internal/teamchat/paths.CtlStateRoot; installplay's test holds the two equal).
     pn_ctl_state_root: /var/lib/teamchat-ctl

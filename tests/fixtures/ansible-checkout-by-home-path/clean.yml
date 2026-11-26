@@ -1,0 +1,27 @@
+# Fixture for checkout-by-home-path (src-go/qa/ansible/checkouthome.go; CLAUDE/QA.md): nothing
+# here may be reported.
+- hosts: desktop
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    # The checkout that runs the play, wherever it is cloned.
+    repo_path: "{{ root_dir }}"
+    # A comment naming ~/Projects/fedora-desktop is prose.
+    state_dir: "/home/{{ user_login }}/.local/state/fedora-desktop"
+    extension_name: fedora-desktop@fedora-desktop
+    self_update_clone: /var/lib/fedora-desktop/deploy
+  tasks:
+    - name: Point git at the hooks
+      community.general.git_config:
+        scope: local
+        repo: "{{ root_dir }}"
+        name: core.hooksPath
+        value: scripts/git-hooks
+    - name: Tell the user how to start a project
+      ansible.builtin.debug:
+        msg:
+          - "    cd ~/Projects/your-project"
+          - "    ccy ~/Projects/fedora-desktop-fork"
+    - name: Run a script of the checkout
+      ansible.builtin.command:
+        argv: ["{{ root_dir }}/scripts/qa-private-names.bash", pin]
+        chdir: "{{ root_dir }}"

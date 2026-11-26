@@ -1661,4 +1661,13 @@ before the move to v2. Filled in as causes are found.
     commit (a workaround, logged here).
   - Re-scan every commit made here since the hooks stopped (`qa-private-names range`), to
     find any other leak that went in.
+- **Cause (found):** `play-git-hooks-security.yml` set `repo_path` to
+  `~/Projects/fedora-desktop`, not the checkout running the play (`root_dir`). This checkout is
+  elsewhere, so the play set `core.hooksPath` on the other checkout, and its own verify step
+  passed by looking there too. The host confirmed: this checkout's hooksPath is empty, the other
+  checkout's is set. Fixed by the commit that adds the qa-ansible rule `checkout-by-home-path`
+  (red on the play, green after `repo_path: "{{ root_dir }}"`; no other instance in
+  `playbooks/ tasks/ vars/ environment/`). Report: `subagent-reports/261126-dbf-repo-path.md`.
+  The play still has to run on the host (queued through `r79-private-names.bash` in
+  `meta-deploy.list`); the session-start hooksPath detector above is still to do.
 - **Severity:** high (all local security gates off, silently). **Issue:** TBF. **State:** open.
