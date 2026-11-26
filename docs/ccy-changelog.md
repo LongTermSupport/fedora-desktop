@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.82 — container 2.84.91
+
+- teamchat in the image adds `guest find-claude`, the op an LXC seat start runs to ask the
+  seat user's interactive login shell where claude and node are (R77). A ccy session does
+  not use it; the image carries it because the teamchat binary is built from one source.
+
 ## 3.124.81 — container 2.84.90
 
 - teamchat in the image carries Plan 00267 Phase 7, the first turn-efficiency steps:

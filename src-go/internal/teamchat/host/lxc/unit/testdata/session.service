@@ -13,7 +13,7 @@ WorkingDirectory=/srv/agent1/src/repo.1
 RuntimeDirectory=teamchat-session-e4b3edb4f90f1516
 RuntimeDirectoryMode=0700
 Environment=XDG_RUNTIME_DIR=/run/teamchat-session-e4b3edb4f90f1516 HOME=/srv/agent1
-Environment=PATH=/srv/agent1/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=/run/teamchat-session-e4b3edb4f90f1516.env
 ExecStart=/usr/bin/tmux -S /run/teamchat-session-e4b3edb4f90f1516/tmux.sock new-session -d -s teamchat-session-alpha-repo-1-2-e4b3edb4f90f1516 /usr/local/bin/teamchat run --claude --kind lxc --key e4b3edb4f90f1516 --resume-recorded -- claude
 TimeoutStopSec=30
 Restart=no

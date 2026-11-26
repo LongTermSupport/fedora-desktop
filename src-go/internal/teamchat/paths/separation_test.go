@@ -176,6 +176,7 @@ func idNames(t *testing.T) map[string][]string {
 	names := map[string][]string{
 		"SessionUnit":         {SessionUnit(mustTeam(t, "ops"), sampleCheckout, 1)},
 		"GuestRuntimeDir":     {GuestRuntimeDir(sampleSeatKey(t))},
+		"GuestSessionEnvFile": {GuestSessionEnvFile(sampleSeatKey(t))},
 		"ServerBinary":        {ServerBinary(version)},
 		"AdminBinaryCopy":     {AdminBinaryCopy(digest)},
 		"HostKitDir":          {HostKitDir(digest).String()},

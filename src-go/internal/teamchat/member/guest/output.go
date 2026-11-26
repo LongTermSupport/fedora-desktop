@@ -16,12 +16,14 @@ type What string
 
 // Op is a guest operation's output contract: its verb, the fixed set of what it may report
 // changed (TB2.4: the host refuses any other line), and whether it may exit 75, which only an
-// op that takes a seat lock does (GU1), and whether it acts on one seat's key (`--key`).
+// op that takes a seat lock does (GU1), whether it acts on one seat's key (`--key`), and the
+// fixed set of programs it may answer the path of (`FOUND<TAB><program><TAB><path>`, R77).
 type Op struct {
 	Verb    string
 	Changes []What
 	Busy    bool
 	Keyed   bool
+	Finds   []string
 }
 
 // opSet is a set of ops by verb. The package holds one, `registry`; a test builds its own, so
@@ -45,6 +47,7 @@ func (s *opSet) add(op Op) Op {
 		panic("guest: " + op.Verb + " registered twice")
 	}
 	op.Changes = slices.Clone(op.Changes)
+	op.Finds = slices.Clone(op.Finds)
 	s.ops = append(s.ops, op)
 	return op
 }
@@ -56,6 +59,7 @@ func (s *opSet) all() []Op {
 	ops := make([]Op, len(s.ops))
 	for i, op := range s.ops {
 		op.Changes = slices.Clone(op.Changes)
+		op.Finds = slices.Clone(op.Finds)
 		ops[i] = op
 	}
 	return ops
@@ -71,6 +75,16 @@ func (s *opSet) changesOf(verb string) ([]What, bool) {
 	return nil, false
 }
 
+// findsOf is the set of programs verb may answer the path of; false for a verb not in the set.
+func (s *opSet) findsOf(verb string) ([]string, bool) {
+	for _, op := range s.all() {
+		if op.Verb == verb {
+			return op.Finds, true
+		}
+	}
+	return nil, false
+}
+
 // Ops is every guest op, each with a copy of its set.
 func Ops() []Op { return registry.all() }
 
@@ -78,7 +92,12 @@ func Ops() []Op { return registry.all() }
 // (TB2.4); false for a verb that is not a guest op.
 func ChangesOf(verb string) ([]What, bool) { return registry.changesOf(verb) }
 
-// Output is a guest op's stdout: nothing but its `CHANGED<TAB><what>` lines.
+// FindsOf is the set of programs verb may answer the path of, for the host's parser of its
+// stdout; false for a verb that is not a guest op.
+func FindsOf(verb string) ([]string, bool) { return registry.findsOf(verb) }
+
+// Output is a guest op's stdout: nothing but its `CHANGED<TAB><what>` lines, and an op that finds
+// programs its `FOUND<TAB><program><TAB><path>` lines.
 type Output struct {
 	w  io.Writer
 	op Op
@@ -97,6 +116,21 @@ func (o *Output) Changed(what What) error {
 		panic(fmt.Sprintf("guest: %s may not report %q changed", o.op.Verb, what))
 	}
 	if _, err := io.WriteString(o.w, changedPrefix+string(what)+"\n"); err != nil {
+		return fmt.Errorf("stdout: %w", err)
+	}
+	return nil
+}
+
+// foundPrefix starts every answer line of an op that finds programs.
+const foundPrefix = "FOUND\t"
+
+// Found prints the path found of program. A program outside the op's set panics, as Changed
+// does; the path is the caller's, checked before it is printed.
+func (o *Output) Found(program, path string) error {
+	if !slices.Contains(o.op.Finds, program) {
+		panic(fmt.Sprintf("guest: %s may not answer the path of %q", o.op.Verb, program))
+	}
+	if _, err := io.WriteString(o.w, foundPrefix+program+"\t"+path+"\n"); err != nil {
 		return fmt.Errorf("stdout: %w", err)
 	}
 	return nil

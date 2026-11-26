@@ -6,6 +6,9 @@
 // The unit is started only on demand (`teamchat-admin lxc start --member`), never at boot
 // and never by itself (owner, Plan 00257): it has no [Install] section, so nothing can enable
 // it, and Restart=no.
+//
+// It keeps no PATH (Plan 00265 R77): it names the seat's environment file under /run, which
+// each start writes with the PATH it found through the seat user's login shell.
 package unit
 
 import (
@@ -89,7 +92,7 @@ func Render(s Session) ([]byte, error) {
 		"RuntimeDirectory=" + strings.TrimPrefix(runtimeDir, "/run/"),
 		"RuntimeDirectoryMode=0700",
 		"Environment=XDG_RUNTIME_DIR=" + runtimeDir + " HOME=" + s.Home,
-		"Environment=PATH=" + s.Home + "/.local/bin:/usr/local/bin:/usr/bin:/bin",
+		"EnvironmentFile=" + paths.GuestSessionEnvFile(key),
 		execStartKey + execStart,
 		"TimeoutStopSec=30",
 		"Restart=no",

@@ -45,11 +45,13 @@ type Checker struct {
 	Run        execx.Runner
 	Kernel     Kernel
 	SystemDirs []string
+	// Shell finds claude as a session start does: through the user's login shell (R77).
+	Shell Shell
 }
 
 // NewChecker is the checker of the real guest.
 func NewChecker() Checker {
-	return Checker{Sys: OS{}, Run: execx.OS{}, Kernel: LinuxKernel{}, SystemDirs: SystemDirs}
+	return Checker{Sys: OS{}, Run: execx.OS{}, Kernel: LinuxKernel{}, SystemDirs: SystemDirs, Shell: NewShell()}
 }
 
 const (
@@ -100,7 +102,8 @@ type facts struct {
 }
 
 // Check is `guest check --user U --team T` (GU2): the caller is U (GU1); the reach facts on
-// stdin are T's; gh, tmux and claude are on the unit's PATH; gh is logged in to github.com;
+// stdin are T's; gh and tmux are on the unit's PATH; the user's login shell finds claude, as a
+// session start finds it (R77); gh is logged in to github.com;
 // pidfd and inotify work; the homeserver answers. The first miss is 78 with the check's code.
 func (c Checker) Check(ctx context.Context, u paths.GuestUser, team paths.TeamID, in Input) error {
 	id, err := Establish(c.Sys, u)
@@ -118,12 +121,18 @@ func (c Checker) check(ctx context.Context, id *Identity, team paths.TeamID, in 
 	name := exits.Name(id.User.String())
 	unitPath := UnitPath(id.Root.Path(), c.SystemDirs)
 	found := map[string]string{}
-	for _, p := range []struct{ name, code string }{{"gh", exits.CodeGh}, {"tmux", exits.CodeTmux}, {"claude", exits.CodeClaude}} {
+	for _, p := range []struct{ name, code string }{{"gh", exits.CodeGh}, {"tmux", exits.CodeTmux}} {
 		path, ok := lookPath(unitPath, p.name)
 		if !ok {
 			return exits.New(p.code, &team, msgProgram, exits.Name(p.name), name)
 		}
 		found[p.name] = path
+	}
+	if _, err := c.Shell.Find(ctx, id); err != nil {
+		if e, ok := errors.AsType[*exits.Error](err); ok {
+			e.Team = &team
+		}
+		return err
 	}
 	if err := c.ghLoggedIn(ctx, found["gh"], unitPath, id.Root.Path()); err != nil {
 		return exits.New(exits.CodeGh, &team, msgGh, ghCause(err), name)

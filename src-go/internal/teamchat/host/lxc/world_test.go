@@ -38,6 +38,8 @@ const (
 	agentGID  = 1001
 	checkout  = "/srv/agent1/src/repo"
 	kitDigest = "0123456789abcdef"
+	// nvmBin is where agent1's login shell finds claude and node (R77).
+	nvmBin    = "/srv/agent1/.nvm/versions/node/v22.1.0/bin"
 	oldDigest = "fedcba9876543210"
 	runID     = "00112233aabbccdd"
 	agentAddr = "192.0.2.5"
@@ -256,6 +258,8 @@ type fakeLXC struct {
 	states  int
 	listErr error
 	log     *[]string
+	// found is guest find-claude's answer (R77): the paths the seat user's login shell finds.
+	found map[string]string
 }
 
 func (f *fakeLXC) Containers(context.Context) ([]string, error) {
@@ -341,6 +345,9 @@ func (f *fakeLXC) Guest(_ context.Context, a lxccmd.Attach, op guest.Op, args []
 		if err := answer(c); err != nil {
 			return lxccmd.GuestResult{}, err
 		}
+	}
+	if op.Verb == guest.OpFind.Verb {
+		return lxccmd.GuestResult{Found: f.found}, nil
 	}
 	return lxccmd.GuestResult{}, nil
 }
@@ -566,7 +573,7 @@ func newWorld(t *testing.T) *world {
 	writeTree(t, host, map[string]string{"kit/bin/teamchat": "binary", "kit/plugin/hooks.json": "{}"})
 	w := &world{
 		t: t, host: host, origin: "v2",
-		lxc:    &fakeLXC{boxes: map[string]*box{}},
+		lxc:    &fakeLXC{boxes: map[string]*box{}, found: map[string]string{guest.ProgramClaude: nvmBin + "/claude", guest.ProgramNode: nvmBin + "/node"}},
 		roster: &fakeRoster{roster: map[paths.TeamID]map[string]string{}},
 		clock:  &fakeClock{now: time.UnixMilli(1_700_000_000_000)},
 		boot:   clock.NewFake(time.Hour, 1_700_000_000_000),

@@ -214,6 +214,11 @@ func ParseSessionUnit(name string) (SeatKey, error) {
 // RuntimeDirectory= under /run: the key alone, so B's sockets below it stay short (C 3.9.1).
 func GuestRuntimeDir(k SeatKey) string { return "/run/" + guestSessionPrefix + k.text() }
 
+// GuestSessionEnvFile is the environment file a seat's session unit names (EnvironmentFile=):
+// the PATH each start finds through the seat user's login shell, written by that start, never
+// kept in the unit (Plan 00265 R77). /run is emptied at every boot.
+func GuestSessionEnvFile(k SeatKey) string { return GuestRuntimeDir(k) + ".env" }
+
 // ServerBinary is the pinned homeserver binary of a version.
 func ServerBinary(v ServerVersion) string { return ServerDir + "/tuwunel-" + v.text() }
 

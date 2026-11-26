@@ -173,7 +173,9 @@ Decision for C.2 (and the fix for today's start):
   - **Tell the asking seat** the release that carries the verb, so it wires the call in then,
     with a check that the verb exists.
   - Logic in Go. Before it: the claude and node lookup above, test first, in the unit and in
-    `lxc start` (register R77).
+    `lxc start` (register R77). The lookup is built (R77 is fixed on v2-smoke). node is
+    optional: a native claude has none beside it, so only a missing claude refuses. `guest check` finds claude the same way, or apply would refuse an nvm seat before its unit exists.
+    The verb, record and unit are not started.
 
 - [ ] ⬜ **Task C.3**: verify-restore reports the LXC set.
 

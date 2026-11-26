@@ -73,6 +73,7 @@ func TestOtherIDDerivedNames(t *testing.T) {
 		{SetLock(set), "/var/lib/teamchat-admin/_sets/s1.lock"},
 		{SessionUnit(mustTeam(t, "ops"), sampleCheckout, 1), "teamchat-session-ops-thing-1-" + sampleKeyText + ".service"},
 		{GuestRuntimeDir(sampleSeatKey(t)), "/run/teamchat-session-" + sampleKeyText},
+		{GuestSessionEnvFile(sampleSeatKey(t)), "/run/teamchat-session-" + sampleKeyText + ".env"},
 		{ServerBinary(version), "/usr/local/lib/teamchat/server/tuwunel-1.2.3"},
 		{AdminBinaryCopy(digest), "/usr/local/lib/teamchat/teamchat-admin-0123456789abcdef"},
 		{HostKitDir(digest).String(), "/usr/local/lib/teamchat/kit/0123456789abcdef"},

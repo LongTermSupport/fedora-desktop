@@ -165,6 +165,7 @@ const (
 // The guest operations' verbs and seat set-aside, which runs names too.
 const (
 	verbGuestCheck  = "guest check"
+	verbFindClaude  = "guest find-claude"
 	verbPlaceBundle = "guest place-bundle"
 	verbMembership  = "guest membership"
 	verbGuestRemove = "guest remove"
@@ -322,6 +323,7 @@ var table = []Verb{
 		Does:  "assembles this build's host kit (program, plugin, hooks, skill, settings) into its own empty digest directory; run by the install play",
 	},
 	{Name: verbGuestCheck, Flags: []Flag{userFlag, required(teamFlag)}, Does: "checks an LXC guest's user can run a member session; stdin the team's reach facts"},
+	{Name: verbFindClaude, Flags: []Flag{userFlag}, Does: "answers where the user's interactive login shell finds claude and node, for the session's PATH"},
 	{Name: verbPlaceBundle, Flags: []Flag{userFlag, keyFlag}, Does: "places the seat bundle on stdin as the keyed seat in the user's home"},
 	{Name: verbMembership, Flags: []Flag{userFlag, keyFlag}, Does: "writes the desired membership on stdin as the keyed seat's desired.json"},
 	{Name: verbGuestRemove, Flags: []Flag{userFlag, keyFlag, required(teamFlag)}, Does: "removes a team's seat files but seat.lock under the seat lock, then the keyed seat's desired.json"},
