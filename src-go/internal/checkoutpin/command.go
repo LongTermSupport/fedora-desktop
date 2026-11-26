@@ -68,14 +68,14 @@ func (c Command) ProjectMounts(args []string) term.ExitCode {
 	if err != nil {
 		return c.fail(err)
 	}
-	content, digest, present, err := MountsDigest(dir)
+	content, _, present, err := MountsDigest(dir)
 	if err != nil {
 		return c.fail(fmt.Errorf("%s/%s cannot be read, so its project mounts cannot be checked: %w", dir, Mounts, err))
 	}
 	if !present {
 		return term.ExitOK
 	}
-	mounts, store, ok := c.validMounts(dir, content, true)
+	mounts, _, digest, store, ok := c.validMounts(dir, content, true)
 	if !ok {
 		c.say("  Fix the lines above, comment them out, or set " + noMountsEnv + "=1 to launch without this project's declared mounts.")
 		return term.ExitFailure
@@ -96,41 +96,73 @@ func (c Command) ProjectMounts(args []string) term.ExitCode {
 	return term.ExitOK
 }
 
-// validMounts is the file's mounts, their sources resolved and judged again, or false with
-// every problem said. A launch (mustExist) needs every source there; an approval does not, since
-// an rclone mount may not be up while a person approves.
-func (c Command) validMounts(dir string, content []byte, mustExist bool) ([]Mount, Store, bool) {
+// validMounts is the file's mounts, their sources resolved and judged again, and the digest an
+// approval of them records (K8), or false with every problem said. A launch (mustExist) needs
+// every source there; an approval does not, since an rclone mount may not be up while a person
+// approves. there says which sources exist.
+func (c Command) validMounts(dir string, content []byte, mustExist bool) (mounts []Mount, there []bool, digest string, store Store, ok bool) {
 	home := c.Getenv("HOME")
 	store, err := Locate(c.Getenv)
 	if err != nil || !filepath.IsAbs(home) {
 		c.say(fmt.Sprintf("✗ the project mounts cannot be judged: HOME is %q (%v)", home, err))
-		return nil, Store{}, false
+		return nil, nil, "", Store{}, false
 	}
 	extra := []string{store.Base()}
-	denied := Denied(home, extra)
-	mounts, problems := ParseMounts(content, home, dir, extra)
-	for i, m := range mounts {
-		resolved, err := filepath.EvalSymlinks(m.Src)
-		if err != nil {
-			if mustExist {
-				problems = append(problems, Problem{Line: m.Line, Why: "host path does not exist: " + m.Src +
-					". If it is a mount (an rclone FUSE mount), start it first: an absent mount binds as nothing."})
-			}
-			continue
+	for _, key := range []string{"XDG_RUNTIME_DIR", "TMUX_TMPDIR"} {
+		if v := c.Getenv(key); filepath.IsAbs(v) {
+			extra = append(extra, filepath.Clean(v))
 		}
-		for _, why := range HostProblems(resolved, home, dir, denied) {
-			problems = append(problems, Problem{Line: m.Line, Why: why + ", which " + m.Src + " leads to"})
-		}
-		mounts[i].Src = resolved
 	}
+	mounts, problems := ParseMounts(content, home, dir, extra)
+	resolved, there, more := resolveMounts(mounts, home, dir, Denied(home, extra), mustExist, c.Getenv("CCY_EXTRA_MOUNTS"))
+	problems = append(problems, more...)
 	for _, p := range problems {
 		c.say("✗ " + dir + "/" + Mounts + " line " + strconv.Itoa(p.Line) + ":\n  " + p.Why)
 	}
 	if len(problems) > 0 {
 		c.say(fmt.Sprintf("%d problem(s) in %s/%s — not applied.", len(problems), dir, Mounts))
-		return nil, store, false
+		return nil, nil, "", store, false
 	}
-	return mounts, store, true
+	digest = mountsApproval(content, mounts, resolved)
+	for i := range mounts {
+		mounts[i].Src = resolved[i]
+	}
+	return mounts, there, digest, store, true
+}
+
+// resolveMounts resolves each mount's source and judges where it leads (K8): to a denied path,
+// or to a path a container of this launch could write a part of; with mustExist, a source not
+// there is a problem too.
+func resolveMounts(mounts []Mount, home, dir string, denied []string, mustExist bool, extraMounts string) (resolved []string, there []bool, problems []Problem) {
+	resolved, there = make([]string, len(mounts)), make([]bool, len(mounts))
+	writable, err := extraWritable(extraMounts)
+	if err != nil {
+		return resolved, there, []Problem{{Line: 0, Why: err.Error()}}
+	}
+	for i, m := range mounts {
+		realPath, exists, err := resolveSource(m.Src)
+		if err != nil {
+			problems = append(problems, Problem{Line: m.Line, Why: "host path cannot be resolved: " + m.Src + ": " + err.Error()})
+			continue
+		}
+		if !exists && mustExist {
+			problems = append(problems, Problem{Line: m.Line, Why: "host path does not exist: " + m.Src +
+				". If it is a mount (an rclone FUSE mount), start it first: an absent mount binds as nothing."})
+		}
+		for _, why := range HostProblems(realPath, home, dir, denied) {
+			problems = append(problems, Problem{Line: m.Line, Why: why + ", which " + m.Src + " leads to"})
+		}
+		resolved[i], there[i] = realPath, exists
+		if m.Opt == "rw" {
+			writable = append(writable, writableSource{path: realPath, line: m.Line})
+		}
+	}
+	for i, m := range mounts {
+		if why := writableProblem(resolved[i], m.Line, writable); resolved[i] != "" && why != "" {
+			problems = append(problems, Problem{Line: m.Line, Why: why})
+		}
+	}
+	return resolved, there, problems
 }
 
 // Compose is V2.
@@ -242,18 +274,22 @@ func (c Command) shown(dir string, kind Kind) (string, bool) {
 		c.say("Read them: a volume they name is bound from this machine, and a build runs its Dockerfile.")
 		return digest, true
 	}
-	content, digest, present, err := MountsDigest(dir)
+	content, _, present, err := MountsDigest(dir)
 	if err != nil || !present {
 		c.say(fmt.Sprintf("✗ no %s to approve in %s (%v)", Mounts, dir, err))
 		return "", false
 	}
-	mounts, _, ok := c.validMounts(dir, content, false)
+	mounts, there, digest, _, ok := c.validMounts(dir, content, false)
 	if !ok {
 		return "", false
 	}
-	c.say("The host paths " + dir + "/" + Mounts + " binds into its sessions' containers:")
-	for _, m := range mounts {
-		c.say("  " + m.Src + " → " + m.Dst + " (" + m.Opt + ")")
+	c.say("The host paths " + dir + "/" + Mounts + " binds into its sessions' containers, each where it resolves now (a link on the way retargeted later is refused):")
+	for i, m := range mounts {
+		absent := ""
+		if !there[i] {
+			absent = ", not there yet"
+		}
+		c.say("  " + m.Src + " → " + m.Dst + " (" + m.Opt + ")" + absent)
 	}
 	return digest, true
 }

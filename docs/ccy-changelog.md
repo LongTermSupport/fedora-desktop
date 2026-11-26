@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.122 — container 2.84.110
+
+- A `.claude/ccy/mounts` approval covers where each host path resolves, not only the file's
+  text: a link on the way retargeted after the approval is refused like an edit. A host path
+  inside the checkout, or at or inside another read-write host path of the same launch (a line
+  of the file, or `CCY_EXTRA_MOUNTS`), is refused, since a container could turn a part of it
+  into a link. The deny list adds `/tmp`, `/var/tmp`, `$XDG_RUNTIME_DIR` and `$TMUX_TMPDIR`
+  (tmux's and podman's sockets), and the desktop, editor and language-tool paths the host
+  loads or runs (dconf, file-manager scripts, user Python, Go and Rust trees, build caches,
+  npm, pip, rclone and browser configuration). **Every existing mounts approval must be given
+  again** (`ccy-teams approve mounts <checkout>`) before the checkout's next unattended restore
+  (Plan 00266 security review, finding 4).
+
 ## 3.124.121 — container 2.84.110
 
 - A launch no longer binds, reads or writes `.claude/ccy/ccy.env.local`,

@@ -78,7 +78,7 @@ func TestParseMountsRefusesEachBrokenRule(t *testing.T) {
 // M4: a directory under the workspace that is not its state, and a path beside a denied one, are
 // fine: the deny list is exact on whole path elements.
 func TestParseMountsAllowsNeighbours(t *testing.T) {
-	_, problems := parse(t, "~/.sshkeys-public:/keys:ro\n/srv:/workspace/data\n~/.config/rclone:/rc:ro\n")
+	_, problems := parse(t, "~/.sshkeys-public:/keys:ro\n/srv:/workspace/data\n~/.config/myapp:/rc:ro\n~/.cargo-notes:/n:ro\n")
 	if len(problems) != 0 {
 		t.Fatalf("problems: %v", problems)
 	}

@@ -21,8 +21,10 @@ type Problem struct {
 // hostDenied are the host paths no mounts line may bind, nor any path under one, nor any
 // directory above one: credentials, the launcher's own state (the session registry and this
 // package's approvals), what the host runs as the user (programs, shell start-up files, user
-// units, autostart entries, the container engine's configuration and storage), and the system
-// roots. ~ is the home directory.
+// units, autostart entries, the container engine's configuration and storage, what the desktop,
+// editors and language tools load or run: dconf, file-manager scripts, MIME handlers, user
+// Python, Go and Rust trees and build caches, npm and pip configuration, browser profiles), and
+// the system roots. ~ is the home directory.
 var hostDenied = []string{
 	"~/.ssh", "~/.gnupg", "~/.aws", "~/.kube", "~/.claude", "~/.claude.json", "~/.claude-tokens",
 	"~/.config/gh", "~/.local/share/keyrings", "~/.password-store",
@@ -32,8 +34,19 @@ var hostDenied = []string{
 	"~/.config/systemd", "~/.local/share/systemd", "~/.config/autostart", "~/.config/environment.d",
 	"~/.config/containers", "~/.local/share/containers", "~/.local/share/applications",
 	"~/.local/share/gnome-shell", "~/.tmux.conf", "~/.config/tmux",
+	"~/.config/dconf", "~/.local/share/nautilus", "~/.config/mimeapps.list", "~/.local/lib", "~/.cache/go-build",
+	"~/.cache/ccy-go-build", "~/go", "~/.cargo", "~/.rustup", "~/.npmrc", "~/.npm", "~/.config/pip", "~/.pypirc",
+	"~/.netrc", "~/.docker", "~/.config/rclone", "~/.vault-token", "~/.config/gcloud", "~/.azure",
+	"~/.vimrc", "~/.vim", "~/.config/nvim", "~/.emacs", "~/.emacs.d", "~/.config/Code", "~/.vscode",
+	"~/.config/fish", "~/.inputrc", "~/.xprofile", "~/.xinitrc", "~/.pam_environment", "~/.mozilla",
+	"~/.config/google-chrome", "~/.config/chromium", "~/.pki", "~/.ansible",
 	"/etc", "/root", "/run", "/var/run", "/var/local", "/proc", "/sys", "/dev", "/boot",
 }
+
+// sharedTmpDirs are the temporary directories every process of the machine shares: tmux's
+// socket (tmux-<uid>, which runs any command it is sent) and other programs' sockets live there,
+// and any process can make a name in them a link (/dev/shm is under /dev).
+var sharedTmpDirs = []string{"/tmp", "/var/tmp"}
 
 // containerDenied are the container paths no line may bind over: the workspace itself and its
 // state, and what the image needs to run. `/` and `/workspace` are refused exactly, the rest with
@@ -86,7 +99,7 @@ func Denied(home string, extra []string) []string {
 	for _, d := range hostDenied {
 		denied = append(denied, expandHome(d, home))
 	}
-	return denied
+	return append(denied, sharedTmpDirs...)
 }
 
 func parseLine(line, home, project string, denied []string) (Mount, []string) {
@@ -140,6 +153,9 @@ func HostProblems(src, home, project string, denied []string) []string {
 	}
 	if src == project || under(project, src) {
 		return []string{"host path is the project or a directory above it: " + src}
+	}
+	if under(src, project) {
+		return []string{"host path is inside the checkout, which a container session writes, so it could make a part of the path a link to any host path: " + src}
 	}
 	for _, d := range denied {
 		if src == d || under(src, d) {

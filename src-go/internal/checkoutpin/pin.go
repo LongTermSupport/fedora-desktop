@@ -19,7 +19,8 @@
 //     pass.
 //   - K3. Verify passes only the recorded digest. Nothing recorded, or another digest, is a
 //     RefusalError naming the file and the exact verb that approves it (ApproveVerb).
-//   - K4. The mounts digest is the bytes of .claude/ccy/mounts; the compose digest covers every
+//   - K4. The mounts digest is the bytes of .claude/ccy/mounts and where each source resolves
+//     (K8); the compose digest covers every
 //     compose file and override present, the .env they are interpolated from and each file they
 //     include or extend, by name and content, so a file appearing changes it. A link in a pinned
 //     file's place, a referenced file outside the checkout and a .env setting COMPOSE_FILE are
@@ -43,6 +44,17 @@
 //     checked again at each use, so a link made after the approval is refused too; a link made
 //     between the check and the engine's own read is not (a live container of the same
 //     checkout could race it).
+//   - K8. A mounts approval covers where each source resolves, not only the file's text: the
+//     digest holds each source's real path (every link on the way followed; one not there yet
+//     through its nearest existing directory), taken again at each launch, so a link retargeted
+//     after the approval is refused like an edit. Device and inode are not held: an rclone
+//     FUSE mount gets a new device number at each mount, so a restore after a reboot would
+//     refuse every such source. A source a container of the launch could write a part of is
+//     refused outright, since it could make that part a link between the check and the bind:
+//     one inside the checkout, or at or inside another read-write source (the file's own lines
+//     and CCY_EXTRA_MOUNTS). The deny list holds the shared temporary directories (/tmp,
+//     /var/tmp; /dev is denied whole), the user's runtime directory and tmux's socket
+//     directory (XDG_RUNTIME_DIR, TMUX_TMPDIR), where tmux's and podman's sockets live.
 package checkoutpin
 
 import (
@@ -175,6 +187,8 @@ func (s Store) Verify(checkout string, kind Kind, digest string) error {
 		return err
 	case !found:
 		return &RefusalError{Kind: kind, Checkout: checkout, Why: "no approval is recorded for its content"}
+	case recorded != digest && kind == KindMounts:
+		return &RefusalError{Kind: kind, Checkout: checkout, Why: "it, or where one of its sources resolves, has changed since it was approved (" + at + ")"}
 	case recorded != digest:
 		return &RefusalError{Kind: kind, Checkout: checkout, Why: "it has changed since it was approved (" + at + ")"}
 	}

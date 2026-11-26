@@ -2073,9 +2073,12 @@ ccy-teams approve mounts <checkout>     # <checkout> defaults to this directory
 ```
 
 It shows each host path resolved and the container path it binds to, and asks `[y/N]`. A
-yes records the file's SHA-256 under `~/.local/state/ccy/approved/` (beside the session
-registry, outside every checkout and out of reach of any mounts line); from then on that
-exact content applies at every launch and restore. It needs a terminal, so neither a
+yes records the SHA-256 of the file and of where each host path resolves under
+`~/.local/state/ccy/approved/` (beside the session registry, outside every checkout and out
+of reach of any mounts line); from then on that exact content, resolving to those same
+paths, applies at every launch and restore. A link on the way retargeted after the approval
+is refused like an edit of the file. An approval made by a ccy older than 3.124.122 covers
+the text only and is refused: approve the file again. It needs a terminal, so neither a
 session nor a pipe can approve, and a restore after a reboot never asks: it stops, names
 the file, and `ccy-sessions verify-restore` reports it. The rules each line meets:
 
@@ -2088,11 +2091,16 @@ the file, and `ccy-sessions verify-restore` reports it. The rules each line meet
   `~/.cache/ccy`), what the host runs as you (`~/.local/bin`, `~/bin`, the shell start-up
   files, `~/.gitconfig`, `~/.config/git`, user systemd units, autostart and
   `environment.d`, the container engine's configuration and storage, desktop entries,
-  GNOME Shell extensions, tmux's configuration), and the system directories (`/etc`,
-  `/root`, `/run`, `/var/run`, `/var/local`, `/proc`, `/sys`, `/dev`, `/boot`). So
-  `~/.config` and `~/.local` are refused whole; bind the folder inside them you need.
-- The host path must already exist, and the path it resolves to (a link followed) meets
-  the same rules. A FUSE mount that is not up yet binds as an empty
+  GNOME Shell extensions, tmux's configuration, editor and language-tool configuration),
+  the system directories (`/etc`, `/root`, `/run`, `/var/run`, `/var/local`, `/proc`,
+  `/sys`, `/dev`, `/boot`), and the shared and runtime directories where tmux's and podman's
+  sockets live (`/tmp`, `/var/tmp`, `$XDG_RUNTIME_DIR`, `$TMUX_TMPDIR`). So `~/.config` and
+  `~/.local` are refused whole; bind the folder inside them you need.
+- The host path may not lie inside the checkout, nor at or inside another read-write host
+  path of the same launch (another line of the file, or `CCY_EXTRA_MOUNTS`): a container
+  writes those, so it could turn a part of the path into a link to any host path.
+- At launch the host path must exist, and the path it resolves to (a link followed) meets
+  the same rules. An approval may name one not there yet. A FUSE mount that is not up yet binds as an empty
   directory, so start the mount first. Restart ccy after the mount restarts: the bind
   captured the old instance.
 - The container path may not be `/`, `/workspace` itself, anything under
@@ -2118,12 +2126,18 @@ edit the file; the launcher never re-creates it.
 
 **Compose files.** A restore (and a restart's relaunch, or any launch nobody attends)
 replays `--compose start` as `up -d` on the host, so it starts only compose content a
-person started: the launch where you answered yes, or gave `--compose start` at a
-terminal, records the SHA-256 of the compose files, their overrides, `.env` and every file
-they `include` or `extend`. A launch nobody attends refuses content not recorded, naming
-`ccy-teams approve compose <checkout>`, which shows the files and asks as above. A file
-included from outside the checkout, a link in a compose file's place and a `.env` setting
-`COMPOSE_FILE` are refused: no approval could cover what they read.
+person approved. The approval covers the SHA-256 of everything compose reads from the
+checkout: the compose files, their overrides, `.env`, every file they `include` or
+`extend`, each build's Dockerfile, each `env_file` and `label_file`, and each config's and
+secret's file. A launch at a terminal whose compose files are not the approved content
+says so, shows every line of every file, and asks `[y/N]`; only a yes starts them and
+records them. A launch nobody attends refuses them, naming
+`ccy-teams approve compose <checkout>`, which shows every line and asks the same way. Refused
+outright, since no approval could cover what they read: a file read from outside the
+checkout, a link in a compose file's place or anywhere in a bind source, build context,
+config or secret path in the checkout, a `.env` setting `COMPOSE_FILE`, a path interpolated
+from a variable other than `${PWD}`, and a compose key ccy does not know (`x-` extensions
+pass). A build context's other files are not covered: they are the project's source.
 
 **Saved Quick Launch choices.** `.claude/ccy/.last-launch.conf` names the token, the SSH
 keys forwarded and the network joined, and a launch nobody attends (a restore, a restart's
