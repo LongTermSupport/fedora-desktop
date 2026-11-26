@@ -291,8 +291,8 @@ playbooks/imports/optional/common/play-photography.yml
 # redirect now lives in history-record.bash. It takes effect in terminals opened after the run.
 changed-plays
 
-# Plan 00266 Phase A (ccy 3.124.102): play-claude-yolo.yml (listed above) installs the launcher's
+# Plan 00266 Phase A (ccy 3.124.103): play-claude-yolo.yml (listed above) installs the launcher's
 # libraries and rebuilds ccy-teams with `approve`. Then, at a terminal, before the next launch of
 # each checkout with a .claude/ccy/mounts file: `ccy-teams approve mounts <checkout>` (read what it
 # shows first). Before the next reboot, for each restored session with compose files:
-# `ccy-teams approve compose <checkout>`. Check: `ccy-sessions restore --check` names any left.
+# `ccy-teams approve compose <checkout>`. A refused restore is named by `ccy-sessions verify-restore`.

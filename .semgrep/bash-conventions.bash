@@ -741,3 +741,47 @@ msg="$(plan_ansible_adhoc localhost -m ansible.builtin.debug -a "$args")"
 plan_ansible_adhoc localhost -m ansible.builtin.copy -a "$args" || return 1
 # ok: plan-ansible-adhoc-stdout-parsed
 plan_ansible_adhoc localhost -m ansible.builtin.copy -a "$args" 2>&1 | tee "$log"
+
+# --- ccy-host-applies-checkout-config ---
+fixture_mounts() {
+    local mounts_file
+    # ruleid: ccy-host-applies-checkout-config
+    mounts_file=".claude/ccy/mounts"
+    mapfile -t lines <"$mounts_file"
+    # ok: ccy-host-applies-checkout-config
+    # a comment naming .claude/ccy/mounts is not code
+    # ok: ccy-host-applies-checkout-config
+    PROJECT_MOUNTS=$(ccy-teams internal project-mounts)
+}
+
+# ruleid: ccy-host-applies-checkout-config
+fixture_compose_unpinned() {
+    while true; do
+        if "$@" up -d; then
+            return 0
+        fi
+    done
+}
+
+# ruleid: ccy-host-applies-checkout-config
+fixture_compose_variable() {
+    echo "Run '$compose_cmd up -d' when ready"
+    $compose_cmd up -d
+}
+
+# ok: ccy-host-applies-checkout-config
+fixture_compose_pinned() {
+    local restore_start=false
+    ccy-teams internal checkout-pin compose "$restore_start" || return 1
+    if "$@" up -d; then
+        return 0
+    fi
+}
+
+# ok: ccy-host-applies-checkout-config
+fixture_compose_words() {
+    echo "Run '$compose_cmd up -d' manually when ready"
+    printf '%s\n' "Then run: podman-compose up -d"
+    ccy_compose_up podman-compose podman-compose
+    podman-compose ps -q
+}

@@ -43,14 +43,27 @@ The full findings, each with file and line, are in [DESIGN.md](DESIGN.md).
 
 ### Phase A: checkout content the host applies (security; Defence Before Fix)
 
-- [ ] ⬜ **Task A.1**: Name the class "host launcher applies container-writable checkout
+- [x] ✅ **Task A.1**: Name the class "host launcher applies container-writable checkout
   config". Write its detector, prove it red on `.claude/ccy/mounts` and the compose start,
-  and sweep for every other instance.
-- [ ] ⬜ **Task A.2**: Make `.claude/ccy/mounts` an allowlist. Require approval of a changed
+  and sweep for every other instance. **Built:** the semgrep rule
+  `ccy-host-applies-checkout-config` (`.semgrep/bash-conventions.yml`, blocking in
+  `qa-patterns`) was red on exactly `lib/common.bash:425` and `lib/network-management.bash:941`;
+  the Go rule `project_checkout_config_pin` was red on `internal/sessions/restore.go:220` only.
+  The sweep found three more instances, put to the coordinator: `.claude/ccy/.last-launch.conf`
+  applied by a headless launch (its SSH key and network), a host `cc` in a checkout a container
+  also mounts (`.claude/settings.json` hooks), and host git in a mounted checkout
+  (`.git/config`). They are not fixed here.
+- [x] ✅ **Task A.2**: Make `.claude/ccy/mounts` an allowlist. Require approval of a changed
   file at an attended launch, with the approved file's hash kept outside the checkout. An
-  unattended restore refuses a changed file.
-- [ ] ⬜ **Task A.3**: Under restore, `--compose start` refuses a compose file whose hash differs
-  from the one recorded at the attended launch.
+  unattended restore refuses a changed file. **Built:** `src-go/internal/checkoutpin` (K1-K4,
+  V1-V3): `ccy-teams internal project-mounts` replaces the bash reader and validator; only the
+  approved content applies; `ccy-teams approve mounts <checkout>` (a terminal and a yes) records
+  its SHA-256 under `~/.local/state/ccy/approved/`. The deny list now covers what the host runs
+  as the user, every directory above a denied path, and the path a link resolves to.
+- [x] ✅ **Task A.3**: Under restore, `--compose start` refuses a compose file whose hash differs
+  from the one recorded at the attended launch. **Built:** `ccy_compose_up` asks
+  `ccy-teams internal checkout-pin compose <unattended>` first; the digest covers the compose
+  files, overrides, `.env` and every file they include or extend.
 - [ ] ⬜ **Task A.4**: Derive the record's `launcher` from its prefix (a fixed table), never
   executing a recorded path.
 - [ ] ⬜ **Task A.5**: Replay arguments through an allowlist of the launcher's own flags. No

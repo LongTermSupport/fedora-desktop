@@ -33,6 +33,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/checkoutpin"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
@@ -69,6 +70,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamchatlaunch"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/winddown"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
 //go:embed usage.txt
@@ -101,6 +103,9 @@ type App struct {
 	ContainerName *containername.Claim
 	// GoCache is `internal go-cache`, the launcher's.
 	GoCache *gocache.Cache
+	// Pin is `approve` (a person's) and `internal project-mounts` and `internal checkout-pin`
+	// (the launcher's): checkout files the host applies, only as a person approved them.
+	Pin checkoutpin.Command
 	// Session is `ccy-teams session ...`, hot control of a running session.
 	Session *hot.Hot
 	// System is `ccy-teams system`, each team's live system, the launcher's.
@@ -220,6 +225,7 @@ func Wire(h *host.Host) *App {
 		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: pick,
 		Chooser: chosen,
 		Picker:  list, Shutdown: down, Restart: again, WindDown: calm, Membership: membershipInit, ContainerName: containername.New(h), GoCache: gocache.New(h),
+		Pin:     newPin(h),
 		Session: session,
 		System:  sys,
 		Launch:  launch,
@@ -302,7 +308,7 @@ func (a *App) run(ctx context.Context, args []string) term.ExitCode {
 		sub = args[0]
 	}
 	switch sub {
-	case "", "create", "lxc-add", "apply", "remove", "backup", "restore", "shutdown", subRestart, subWindDown, "for-checkout", "record-seats",
+	case "", "create", "lxc-add", subApprove, "apply", "remove", "backup", "restore", "shutdown", subRestart, subWindDown, "for-checkout", "record-seats",
 		subChooseSeat, subDescribeSeats, subChooseTeams, subLaunchSummary, subInternal, subSession, subSystem, subSeats:
 	case "-l", "--list", subGraph:
 		if len(args) > 1 {
@@ -342,6 +348,8 @@ func (a *App) run(ctx context.Context, args []string) term.ExitCode {
 // dispatch hands the validated subcommand to the package that implements it.
 func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.ExitCode {
 	switch sub {
+	case subApprove:
+		return a.Pin.Approve(ctx, rest)
 	case "create":
 		return a.inCheckout(func() term.ExitCode { return a.Create.Run(ctx, rest) })
 	case "lxc-add":
@@ -411,6 +419,9 @@ func (a *App) teamSessions(ctx context.Context, sub string, rest []string) term.
 	return a.Shutdown.Run(ctx, rest)
 }
 
+// subApprove is `ccy-teams approve`, a person's approval of a checkout's mounts or compose files.
+const subApprove = "approve"
+
 // subInternal groups the commands only ccy's launcher runs; subSession is hot control.
 const (
 	subInternal = "internal"
@@ -438,6 +449,12 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 			return a.ContainerName.Run(ctx, rest[1:])
 		case "go-cache":
 			return a.GoCache.Run(ctx, rest[1:])
+		case "project-mounts":
+			return a.Pin.ProjectMounts(rest[1:])
+		case "checkout-pin":
+			if len(rest) > 1 && rest[1] == string(checkoutpin.KindCompose) {
+				return a.Pin.Compose(rest[2:])
+			}
 		case "session-name":
 			return sessionname.Command{
 				Server: a.Host.Tmux, Records: a.readRegistry, Roles: a.System.SeatRoles, Stdout: a.Payload, Stderr: a.Stderr,
@@ -450,7 +467,7 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 	}
 	return a.usageError("'internal' takes a command: internal membership-init [--kind=cc] <session> <checkout> <seats>, " +
 		"internal restart-args <session>, internal claim-container-name <project> <suffix> <owner-pid>, " +
-		"internal go-cache <project> [z], internal session-name <ccy|cc> <project> <seats> <checkout>, " +
+		"internal go-cache <project> [z], internal project-mounts, internal checkout-pin compose true|false, internal session-name <ccy|cc> <project> <seats> <checkout>, " +
 		"internal launch-args <session> <checkout> <seats> <Z or empty> -- <mounts...>, " +
 		"internal seat-check <list> [--resolved], internal seat-take <list> [--no-prompt], " +
 		seatResumeUsage + ", " +
@@ -469,6 +486,23 @@ func (a *App) inCheckout(run func() term.ExitCode) term.ExitCode {
 func (a *App) usageError(msg string) term.ExitCode {
 	a.Print(a.Stderr, "ccy-teams: "+msg+" See ccy-teams --help.\n")
 	return term.ExitUsage
+}
+
+// newPin is the approval verbs over h: the question is asked only when stdin and stderr are a
+// terminal, so a session or a pipe cannot approve.
+func newPin(h *host.Host) checkoutpin.Command {
+	pin := checkoutpin.Command{Getenv: h.Getenv, Getwd: os.Getwd, Stdout: h.Payload, Stderr: h.Stderr, Now: time.Now}
+	if h.IsTerminal(h.Stdin) && h.IsTerminal(h.Stderr) {
+		pin.Confirm = func(ctx context.Context, question string) (bool, error) {
+			lines := &ui.Lines{In: h.Stdin, Out: h.Stderr, Prog: "ccy-teams"}
+			answer, err := lines.YesNo(ctx, ui.Here("ccy-teams", "approve"), question, false)
+			if closeErr := lines.Close(); err == nil {
+				err = closeErr
+			}
+			return answer, err
+		}
+	}
+	return pin
 }
 
 // newSystem is `ccy-teams system` over h: the declared v1 teams from the host_vars, the status

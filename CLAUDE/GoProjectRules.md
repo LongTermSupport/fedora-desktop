@@ -104,6 +104,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_root_create_follows_link` | a create through an `os.Root` without O_EXCL, which follows a link inside the root at the last name, O_NOFOLLOW or not, so a dangling link there gets its target created                                                       | the seat-record lock, opened `O_RDWR\|O_CREATE` through the checkout's `os.Root` (Plan 00265 R36, the batch 22b review)                                                                                                 |
 | `project_store_refusal_lost`       | a teamchat seat-store add's refusal (its list full) that reaches no return, so the write goes ahead without the entry and what it stood for is lost                                                                            | teamchat `engine`: the proof logged a full read-receipt queue and went on, so the human never saw the message read (Plan 00267 C2)                                                                                      |
 | `project_teamchat_root_read` | a teamchat machine record (paths' status-root names) handed to a call in ccy-teams with no `TeamchatRoot` in front, so a test world reads the machine's own teams | `teams` wiring: the session-name role lookup and four more read the status record through `system.StatusRecord`, past `teamtest`'s root (Plan 00265 batch 26 review) |
+| `project_checkout_config_pin` | a constant naming a checkout file the host launcher applies (`.claude/ccy/mounts`, a compose file or override) outside `internal/checkoutpin`, so a container session's write to its checkout reaches the host unapproved | `sessions` restore's own compose file list (Plan 00266 Task A.1; its bash half is the semgrep rule `ccy-host-applies-checkout-config`) |
 | `project_memory_ahead_of_store` | teamchat engine memory written inside a store write's change function, which runs before the write, so a refused write leaves memory ahead of the disk | teamchat `engine`: recv's settle forgot each delivered item's content inside its write, so a refused ack left the items pending with nothing to render (issue #443's sweep) |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
@@ -4409,3 +4410,30 @@ holds).
 - Green: `settleStore` takes no `*held`, and `settleTeam` deletes the content of the items that
   left once the write returned (`TestAFailedAckKeepsTheContent`): 0 findings.
 
+### project_checkout_config_pin
+
+**What it is about.** A ccy container writes its checkout, `.claude/ccy/` included, so it writes
+the files the host launcher applies there: `.claude/ccy/mounts`, whose lines become the binds of
+the session's next container, and the compose files, which a restore runs `up -d` on as the host
+user. Applied unasked, either lets a container widen its own next launch, unattended after a
+reboot (Plan 00266 Phase A, class "host launcher applies container-writable checkout config").
+`internal/checkoutpin` reads them only when their content is what a person approved (`ccy-teams
+approve mounts|compose`), whose SHA-256 it keeps outside every checkout.
+
+**What it flags**, in src-go's `internal/` and `cmd/` trees (not the nested `qa` module, whose
+gates scan these files and never apply them; not test files, which plant them), every constant
+string expression, judged whole, whose value is `.claude/ccy/mounts` or a compose file or override
+name (`compose`, `docker-compose`, `podman-compose`, `.yml` or `.yaml`, with or without
+`.override`), outside `internal/checkoutpin`.
+
+**Red.** `go vet -vettool=<driver> -project_checkout_config_pin ./internal/... ./cmd/...` on the
+tree before the fix flagged `internal/sessions/restore.go:220` six times (restore's own compose
+file list); the fixture `qa/rules/testdata/checkoutpin` holds that defect, the mounts path spelt
+whole and in a `+` expression, a command naming a file, and the owner, a test file and a qa
+package. Green: restore asks `checkoutpin.ComposeFiles`.
+
+**Not caught.** A name built at run time, a path joined from pieces each only part of a name
+(`".claude", "ccy", "mounts"`), a file found by listing a directory.
+
+**How to fix.** Ask `internal/checkoutpin`: its names, `MountsDigest`, `ComposeDigest` and
+`Store.Verify`.

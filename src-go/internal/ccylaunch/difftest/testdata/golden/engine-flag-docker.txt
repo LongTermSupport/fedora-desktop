@@ -79,6 +79,7 @@ docker image inspect claude-yolo:latest --format '{{index .Config.Labels "claude
 docker image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}'
 docker run --rm --cgroup-parent agents.slice --pids-limit 16384 --memory 8192m --memory-reservation 6144m --entrypoint claude claude-yolo:latest --version
 curl -fsSL https://registry.npmjs.org/@anthropic-ai/claude-code/latest
+ccy-teams internal project-mounts
 ccy-teams internal go-cache difftest-project
 docker network ls --format '{{.Name}}'
 podman network ls --format '{{.Name}}'

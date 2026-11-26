@@ -208,6 +208,16 @@ Usage:
                                    size), one at a time, the coordinator first, inside a
                                    15-minute window; a compaction that failed or could not
                                    be judged is exit 1. Nothing is ended; shutdown does that
+  ccy-teams approve mounts|compose [<checkout>]
+                                   approve, as a person at a terminal, the content of a
+                                   checkout's .claude/ccy/mounts (the host paths its sessions
+                                   bind) or of its compose files (which a restore starts with
+                                   up -d): it shows what it approves and asks [y/N]; a yes
+                                   records the content's SHA-256 under ~/.local/state/ccy,
+                                   outside every checkout. A launch binds only approved mounts,
+                                   and a launch nobody attends starts only approved compose
+                                   files, since a container session can write both. No
+                                   terminal is exit 1. <checkout> defaults to this directory
   ccy-teams for-checkout        print the team(s) that work on this checkout's GitHub
                                    OWNER/REPO (an organisation team by its owner, unless
                                    it excludes the repository), one per line on stdout, the
@@ -401,6 +411,16 @@ Usage:
                                    The same for CONTAINER_ENGINE=podman and docker.
                                    ccy calls it at each launch, so --rm no longer deletes the
                                    caches at exit
+  ccy-teams internal project-mounts
+                                   print the run arguments (-v and <src>:<dst>:<opt>, one per
+                                   line) of this checkout's .claude/ccy/mounts: every line
+                                   valid, every source there, and its content the approved
+                                   content (approve mounts), else exit 1 naming the file and
+                                   the verb. CCY_NO_PROJECT_MOUNTS=1 ignores the file
+  ccy-teams internal checkout-pin compose true|false
+                                   before a compose up: true (nobody attends) refuses compose
+                                   files whose content is not the recorded one, naming the
+                                   verb; false (a person started them) records it
   ccy-teams internal launch-args <session> <checkout> <seats> <Z or empty> -- <mounts...>
                                    print, one per line, the root ccy's exit is given and the
                                    run arguments for the bus. On agent-bus: membership-init's

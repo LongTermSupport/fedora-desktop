@@ -78,6 +78,7 @@ container-images --engine podman replaced --lock '{sandbox}/run/ccy/image-builds
 container-images --engine podman stale --lock '{sandbox}/run/ccy/image-builds/claude-yolo_latest.lock' --yes '{ccy_version}'
 podman run --rm --cgroup-parent agents.slice --pids-limit 16384 --memory 8192m --memory-reservation 6144m --entrypoint claude claude-yolo:latest --version
 curl -fsSL https://registry.npmjs.org/@anthropic-ai/claude-code/latest
+ccy-teams internal project-mounts
 ccy-teams internal go-cache difftest-project
 podman network ls --format '{{.Name}}'
 docker network ls --format '{{.Name}}'

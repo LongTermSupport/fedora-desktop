@@ -853,15 +853,9 @@ network_has_running_containers() {
 has_compose_files() {
     COMPOSE_FILES=()
     for pattern in "docker-compose.yml" "docker-compose.yaml" "podman-compose.yml" "podman-compose.yaml" "compose.yml" "compose.yaml"; do
-        if [ -f "$pattern" ]; then
-            COMPOSE_FILES+=("$pattern")
-        fi
+        if [ -f "$pattern" ]; then COMPOSE_FILES+=("$pattern"); fi
     done
-
-    if [ ${#COMPOSE_FILES[@]} -gt 0 ]; then
-        return 0
-    fi
-    return 1
+    [ ${#COMPOSE_FILES[@]} -gt 0 ]
 }
 
 # Check if compose services are running and offer to start if not
@@ -941,11 +935,12 @@ CCY_COMPOSE_UP_RETRY_SECONDS=10
 ccy_compose_up() {
     local name="${1:?ccy_compose_up requires a display name}"
     shift
-    local try=1 tries=1 restore_start=false
-    if [[ "${COMPOSE_MODE:-ask}" == start && "${SESSION_RESTORE:-false}" == true ]]; then
-        restore_start=true
-        tries="$CCY_COMPOSE_UP_TRIES"
-    fi
+    local try=1 tries=1 restore_start=false unattended=false
+    [[ "${COMPOSE_MODE:-ask}" == start && "${SESSION_RESTORE:-false}" == true ]] && restore_start=true && tries="$CCY_COMPOSE_UP_TRIES"
+    # The compose files run as this user: a launch nobody attends starts only the content a
+    # person started or approved, since the container can write them (Plan 00266 Task A.3).
+    if [[ "${COMPOSE_MODE:-ask}" == start ]] && ccy_launch_unattended; then unattended=true; fi
+    ccy-teams internal checkout-pin compose "$unattended" || { [[ "$unattended" == false ]] || ccy_unattended_stop compose-unapproved "the compose files were refused (see above): approve them with ccy-teams approve compose $PWD"; return 1; }
     while true; do
         if "$@" up -d; then
             CCY_COMPOSE_ASK_AGAIN=false
@@ -1150,20 +1145,11 @@ _compose_already_running() {
     # Determine available compose command (mirrors _do_compose_start logic)
     local compose_cmd=""
     if [[ "$CONTAINER_ENGINE" = "podman" ]]; then
-        local podman_compose_path
-        if podman_compose_path=$(command -v podman-compose 2>/dev/null) && [[ -n "$podman_compose_path" ]]; then
-            compose_cmd="podman-compose"
-        fi
-    else
-        local docker_compose_path
-        if docker_compose_path=$(command -v docker-compose 2>/dev/null) && [[ -n "$docker_compose_path" ]]; then
-            compose_cmd="docker-compose"
-        else
-            local dc_version
-            if dc_version=$(docker compose version 2>/dev/null) && [[ -n "$dc_version" ]]; then
-                compose_cmd="docker compose"
-            fi
-        fi
+        if command -v podman-compose &>/dev/null; then compose_cmd="podman-compose"; fi
+    elif command -v docker-compose &>/dev/null; then
+        compose_cmd="docker-compose"
+    elif docker compose version &>/dev/null; then
+        compose_cmd="docker compose"
     fi
     [[ -z "$compose_cmd" ]] && return 1
 

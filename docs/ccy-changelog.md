@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.124.102 — the host applies a checkout's mounts and compose files only as a person approved them
+## 3.124.103 — the host applies a checkout's mounts and compose files only as a person approved them
 
 Plan 00266 Phase A (security, Defence Before Fix). A ccy session writes its checkout, so it
 could edit `.claude/ccy/mounts` to widen the binds of its own next launch, or the compose files a

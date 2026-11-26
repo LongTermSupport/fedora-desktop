@@ -2046,17 +2046,41 @@ mount, declare it once and commit it. One bind per line, `#` comments allowed:
 run code or read other variables. Symlinks inside the checkout do not work for this:
 the link is carried into the container, its target is not.
 
-Because the file is tracked, a clone declares binds of the cloner's host paths. So
-every line is validated on the host and **any problem refuses the launch** with every
-finding listed, before a container exists:
+Because the file is tracked, a clone declares binds of the cloner's host paths, and a
+session writes its own checkout, so a container could widen the binds of its next launch.
+So the file is applied only as **you approved it**, and every line is validated on the
+host (`ccy-teams internal project-mounts`); **any problem refuses the launch** with every
+finding listed, before a container exists.
+
+**Approving.** The first launch with a mounts file, and the first after any change to it,
+refuses and names the file and the verb. Read the file, then run, at a terminal on the
+host:
+
+```bash
+ccy-teams approve mounts <checkout>     # <checkout> defaults to this directory
+```
+
+It shows each host path resolved and the container path it binds to, and asks `[y/N]`. A
+yes records the file's SHA-256 under `~/.local/state/ccy/approved/` (beside the session
+registry, outside every checkout and out of reach of any mounts line); from then on that
+exact content applies at every launch and restore. It needs a terminal, so neither a
+session nor a pipe can approve, and a restore after a reboot never asks: it stops, names
+the file, and `ccy-sessions verify-restore` reports it. The rules each line meets:
 
 - Both paths must be absolute, with no `..` segments.
-- The host path may not be `/`, your home directory itself, a credential or launcher
-  state directory (`~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.claude`,
-  `~/.claude-tokens`, `~/.config/gh`, keyrings, `~/.password-store`), a system
-  directory (`/etc`, `/root`, `/run`, `/proc`, `/sys`, `/dev`, `/boot`), or the project
-  directory or any directory above it (that would expose sibling projects).
-- The host path must already exist. A FUSE mount that is not up yet binds as an empty
+- The host path may not be `/`, your home directory itself, the project directory or any
+  directory above it (that would expose sibling projects), nor be under, or hold, a
+  denied path: credentials (`~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.claude`,
+  `~/.claude.json`, `~/.claude-tokens`, `~/.config/gh`, keyrings, `~/.password-store`),
+  the launcher's state (`~/.local/state`, or `$CCY_STATE_DIR`'s directory, and
+  `~/.cache/ccy`), what the host runs as you (`~/.local/bin`, `~/bin`, the shell start-up
+  files, `~/.gitconfig`, `~/.config/git`, user systemd units, autostart and
+  `environment.d`, the container engine's configuration and storage, desktop entries,
+  GNOME Shell extensions, tmux's configuration), and the system directories (`/etc`,
+  `/root`, `/run`, `/var/run`, `/var/local`, `/proc`, `/sys`, `/dev`, `/boot`). So
+  `~/.config` and `~/.local` are refused whole; bind the folder inside them you need.
+- The host path must already exist, and the path it resolves to (a link followed) meets
+  the same rules. A FUSE mount that is not up yet binds as an empty
   directory, so start the mount first. Restart ccy after the mount restarts: the bind
   captured the old instance.
 - The container path may not be `/`, `/workspace` itself, anything under
@@ -2079,6 +2103,15 @@ CCY_NO_PROJECT_MOUNTS=1 ccy
 
 Or comment the line out. To reject a cloned project's mounts permanently, delete or
 edit the file; the launcher never re-creates it.
+
+**Compose files.** A restore (and a restart's relaunch, or any launch nobody attends)
+replays `--compose start` as `up -d` on the host, so it starts only compose content a
+person started: the launch where you answered yes, or gave `--compose start` at a
+terminal, records the SHA-256 of the compose files, their overrides, `.env` and every file
+they `include` or `extend`. A launch nobody attends refuses content not recorded, naming
+`ccy-teams approve compose <checkout>`, which shows the files and asks as above. A file
+included from outside the checkout, a link in a compose file's place and a `.env` setting
+`COMPOSE_FILE` are refused: no approval could cover what they read.
 
 ### Per launch: `CCY_EXTRA_MOUNTS`
 
