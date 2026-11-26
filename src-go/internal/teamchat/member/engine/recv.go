@@ -26,6 +26,12 @@ const (
 	maxBytes   = 12 << 10
 )
 
+// maxRefetch bounds the restored items one turn re-fetches: a recv hands out no more than
+// maxEntries, and a delivery's restored items past it stay pending, counted on its pending
+// line, and are fetched on its next turn. A delivery has no count of entries (Plan 00267 Task
+// 7.6); this bounds the homeserver calls one turn makes, not what a delivery holds.
+const maxRefetch = maxEntries
+
 // refetchWait bounds a restored item's re-fetch: a team whose homeserver does not answer in
 // time keeps its items pending for the next recv, and every other team's items go now.
 const refetchWait = 2 * time.Second
@@ -91,13 +97,13 @@ func (e *Engine) plan(only *paths.TeamID) plan {
 	return p
 }
 
-// refetch re-fetches the restored items among the first maxEntries candidates (B 2.7.3
+// refetch re-fetches the restored items among the first maxRefetch candidates (B 2.7.3
 // "Content"), each team on its own goroutine, its items in order until one fails transiently
 // (an item that is gone is dropped by rejudgeAll and holds none after it); bounded by
 // refetchWait, so one team that does not answer holds no other team's items.
 func (e *Engine) refetch(ctx context.Context, p plan) map[key]fetched {
 	byTeam := map[paths.TeamID][]candidate{}
-	for _, c := range p.cands[:min(len(p.cands), maxEntries)] {
+	for _, c := range p.cands[:min(len(p.cands), maxRefetch)] {
 		if c.fetch && p.teams[c.team] != nil {
 			byTeam[c.team] = append(byTeam[c.team], c)
 		}

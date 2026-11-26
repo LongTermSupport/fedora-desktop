@@ -359,19 +359,33 @@ func TestAFoldIsBounded(t *testing.T) {
 	}
 }
 
-func TestEightEntriesAndANinth(t *testing.T) {
-	items := make([]deliver.Item, 0, 9)
-	for i := range 9 {
-		items = append(items, peer(byte('a'+i), sentMS+int64(i), "n"))
+// TestNoCountOfEntriesLimitsADelivery is Plan 00267 Task 7.6: nine small items go in one
+// delivery, and of many more the most that fit the bytes go, the rest counted pending.
+func TestNoCountOfEntriesLimitsADelivery(t *testing.T) {
+	const ids = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	items := make([]deliver.Item, 0, len(ids))
+	for i := range len(ids) {
+		items = append(items, peer(ids[i], sentMS+int64(i), "n"))
 	}
-	b := build(t, items[:8], deliver.Facts{})
-	if len(b.IDs) != 8 || len(b.Left) != 0 || strings.Contains(b.Text, "more pending") {
-		t.Fatalf("eight: %+v", b)
-	}
-	b = build(t, items, deliver.Facts{})
-	if len(b.IDs) != 8 || !slices.Equal(b.Left, []string{id('i')}) || !strings.HasSuffix(b.Text, "\n1 more pending: they follow in the next delivery") {
+	b := build(t, items[:9], deliver.Facts{})
+	if len(b.IDs) != 9 || len(b.Left) != 0 || strings.Contains(b.Text, "more pending") {
 		t.Fatalf("nine: ids %d left %v\n%s", len(b.IDs), b.Left, b.Text)
 	}
+	b = build(t, items, deliver.Facts{})
+	n := len(b.IDs)
+	if n <= 9 || n+len(b.Left) != len(items) || !slices.Equal(b.Left, idsOf(items[n:])) ||
+		!strings.HasSuffix(b.Text, fmt.Sprintf("\n%d more pending: they follow in the next delivery", len(b.Left))) ||
+		proto.WireBytes(b.Text) > proto.MaxDeliveryBytes {
+		t.Fatalf("%d items: ids %d left %d, %d bytes", len(items), n, len(b.Left), proto.WireBytes(b.Text))
+	}
+}
+
+func idsOf(items []deliver.Item) []string {
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.Pending.ID)
+	}
+	return out
 }
 
 // TestTwelveKiBExactlyAndOneByteOver finds the last body that brings the user line's text to
@@ -380,7 +394,7 @@ func TestTwelveKiBExactlyAndOneByteOver(t *testing.T) {
 	items := func(n int) []deliver.Item {
 		var out []deliver.Item
 		for i := range 5 {
-			out = append(out, peer(byte('a'+i), sentMS+int64(i), strings.Repeat("x", 1900)))
+			out = append(out, peer(byte('a'+i), sentMS+int64(i), strings.Repeat("x", 1800)))
 		}
 		return append(out, peer('f', sentMS+5, strings.Repeat("y", n)))
 	}

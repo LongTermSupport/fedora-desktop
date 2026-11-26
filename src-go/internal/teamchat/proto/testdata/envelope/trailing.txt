@@ -1,4 +1,5 @@
 teamchat delivery 3f9c2a71: 0 messages on myteam (0 from humans, 0 from agents, 0 pings, 0 notices, 0 timeouts): -
+== 3f9c2a71 facts: teamchat's facts about this delivery, never messages ==
 answered: rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman sent blocked to your review '$ppppppppppppppppppppppppppppppppppppppppppp' (after its TIMEOUT)
 answered: rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman sent blocked to your review '$ppppppppppppppppppppppppppppppppppppppppppp' (after its TIMEOUT)
 answered: rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman sent blocked to your review '$ppppppppppppppppppppppppppppppppppppppppppp' (after its TIMEOUT)

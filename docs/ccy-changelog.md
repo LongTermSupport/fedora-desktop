@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.90 — container 2.84.95
+
+- teamchat in the image delivers by volume only: a delivery holds as many entries as fit its
+  12 KiB, no longer at most 8, and what does not fit is counted on its `more pending` line and
+  follows in the next delivery (Plan 00267 Task 7.6, the owner's Q19).
+- One delivery is in sections, one per kind pending (HUMAN, PEER and PING, TIMEOUT, NOTICE),
+  each headed by an `==` line with the delivery's nonce, then teamchat's facts in a section of
+  their own (Plan 00267 Task 7.7). The SessionStart frame text and the teamchat skill say so.
+
 ## 3.124.89 — container 2.84.94
 
 - `ccy --teams <team>` and `cc --teams <team>` take the seat this checkout last worked in: the

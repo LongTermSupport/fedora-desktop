@@ -133,7 +133,8 @@ planned, not built; this phase builds it here and closes that task.
   its own. An unfetched receipt (one the sender has not read by `status`) rides in the next
   delivery, folded into a compact status section; a bounce likewise. Done: a receipt is never
   an item, so it can never make a delivery (`TestAReceiptIsNeverAnItem`, 5ad4357b8). To do: the
-  status section carrying the unfetched receipts and bounces, once batches 2-4 send them.
+  status section carrying the unfetched receipts and bounces, once batches 2-4 send them; it is
+  one more row of `proto`'s `sections` (Task 7.7), with no receipt data to carry yet.
 - [x] ✅ **Task 7.3**: Notices from one sender about one member pending together fold into one
   entry, the latest, with an `earlier:` line for each before it (e.g. left then back).
 - [x] ✅ **Task 7.4**: The skill text (`member/kit/skill.txt` and the plugin's copy, which must
@@ -147,12 +148,23 @@ planned, not built; this phase builds it here and closes that task.
   turn. 3 s covers a person sending a thought in two or three short posts. The 10 s cap bounds
   how late the first message can be. A halt ping passes straight through. Test first, on the
   fake clock.
-- [ ] ⬜ **Task 7.6**: The 8-entry cap goes (the owner: "I see no reason to limit to 8
+- [x] ✅ **Task 7.6**: The 8-entry cap goes (the owner: "I see no reason to limit to 8
   messages"). A delivery is limited by volume only (its bytes on the wire); what does not fit
-  carries to the next delivery, and the delivery says how much is still pending.
-- [ ] ⬜ **Task 7.7**: One delivery carries every kind pending at once (HUMAN items, PEER
+  carries to the next delivery, and the delivery says how much is still pending. Built:
+  `proto.MaxDeliveryEntries` is gone, `Fit` takes the most entries that fit 12 KiB and counts
+  the rest on its `<k> more pending` line (`TestADeliveryIsLimitedByVolumeOnly`,
+  `TestNoCountOfEntriesLimitsADelivery`, `TestADeliveryIsLimitedByItsBytesOnly`). The fold
+  bound `MaxFold` keeps 8 as its own constant, and one turn's re-fetch keeps its bound
+  (`maxRefetch`). `recv`'s own 8-item cap (LN4) is a verb's, not a delivery's (Task 7.8's survey).
+- [x] ✅ **Task 7.7**: One delivery carries every kind pending at once (HUMAN items, PEER
   messages, pings, notices, receipts, bounces, the trailing facts), each in its own section, so
-  a turn reads it all.
+  a turn reads it all. Built: each kind group of A 13.7's order is a section headed by
+  `== <nonce> <KIND>, <k> entries: <what they are> ==`, and the trailing facts follow
+  `== <nonce> facts: ... ==` (`TestADeliveryIsInSections`,
+  `TestEveryKindPendingGoesInOneDeliveryInSections`); the corpus templates, the frame text
+  (item 6), A 13.1 and 13.5, and the skill (both copies) say so. Receipts and bounces get their
+  section with Task 7.2. One team per delivery stays: every team in one delivery is
+  its own design (Task 7.8's survey).
 - [ ] ⬜ **Task 7.8**: A survey of the whole agent-side surface for further turn savings
   (deliveries, verb outputs, `status`, `recv` and `verify` outputs, the skill's procedures):
   each opportunity with its saving and its cost, in `TURN-SURVEY.md` in this plan folder.
