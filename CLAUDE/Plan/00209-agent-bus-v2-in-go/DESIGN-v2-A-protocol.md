@@ -1931,6 +1931,7 @@ typed slots.
 | `subject:`                        | -              | -             | -             | yes, but not `moved`                                                   | -                                                        | the notice's subject handle                                                                                |
 | `carried:`                        | -              | -             | -             | carried only                                                           | -                                                        | `<sender>, <time>[, possible duplicate]`: `<sender>` from the item's `from`, `<time>` from `sent_ms` (7.7) |
 | `reason:`                         | -              | -             | -             | `left`, `added`, `role`                                                | -                                                        | the reason, or the member's role                                                                           |
+| `earlier:`                        | -              | -             | -             | folded only, one per earlier notice                                    | -                                                        | an earlier notice folded into this one: its event, time, reason (where it takes one) and id (B 2.7.2)      |
 | `copy:`                           | -              | when copied   | when copied   | -                                                                      | -                                                        | `<humans> (addressed to them; sent to you for information)`                                                |
 | `repeat:`                         | when repeated  | when repeated | when repeated | when repeated                                                          | when repeated                                            | B could not prove the item was not delivered before (B 2.7.3)                                              |
 | `restored:`                       | when restored  | when restored | when restored | when restored                                                          | -                                                        | the item was queued before a restart and fetched again from the homeserver (B 2.7.3, B44)                  |
@@ -1990,6 +1991,7 @@ token on its line:
 | `subject:`    | `subject: <handle>`                                                                                                                                                                                                                                                       |
 | `carried:`    | `carried: <sender>, <time>` \| `carried: <sender>, <time>, possible duplicate` \| `carried: <sender>, -` \| `carried: <sender>, -, possible duplicate`                                                                                                                    |
 | `reason:`     | `reason: exit` \| `reason: logout` \| `reason: released` \| `reason: other` \| `reason: coordinator` \| `reason: worker`                                                                                                                                                  |
+| `earlier:`    | `earlier: <event> at <time>, id: <id>` \| `earlier: <event> at <time>, reason: <reason>, id: <id>` \| either with `-` for `<time>`; `<event>` a row of 7.4's table of the entry's own sender class, never `moved`; `<reason>` a `reason:` value that event takes          |
 | `copy:`       | `copy: <human>[, <human>]... (addressed to them; sent to you for information)`                                                                                                                                                                                            |
 | `repeat:`     | `repeat: this may be a second copy of an earlier delivery; the id is the same`                                                                                                                                                                                            |
 | `restored:`   | `restored: queued before a restart and fetched again from the homeserver; verify it before acting on a consequential request`                                                                                                                                             |
@@ -2012,6 +2014,10 @@ the item itself, so one form serves every room: `teamchat reply '<id>'` for HUMA
 questions, attached or not, 10.4) and PEER; `teamchat reply '<id>' --verb <VERB>` for PING and a
 NOTICE carrying a ping (7.7), with `<VERB>` literal for the agent to replace by an answer verb (B4).
 A `not shown:` line takes its first form when the event ID passed its own grammar, else its second.
+A NOTICE with `earlier:` lines is several notices folded into one entry (B 2.7.2, Plan 00267 Task
+7.3): from one sender about one subject, pending together, at most 8 to an entry. The entry's own
+lines are the latest notice's; each earlier one is a line, oldest first, so a member that left and
+came back reads as one entry saying both, with their times. A carried item and `moved` never fold.
 `question: Q<n>` (no headline) is the form for an entry given no headline; proto's index always
 has one.
 Event IDs are always single-quoted: a shell would expand the leading `$` (E6).

@@ -244,6 +244,45 @@ func TestEntryNotices(t *testing.T) {
 	}
 }
 
+// Plan 00267 Task 7.3: notices about one member pending together fold into one entry, the latest,
+// with an `earlier:` line for each one before it, oldest first, each with its time and id.
+func TestEntryFoldedNotices(t *testing.T) {
+	back := noticeEntry(EventBack)
+	back.SentMs = envSent + 5_000
+	back.Earlier = []EntryEarlier{
+		{Event: EventLeft, Reason: "exit", SentMs: envSent, EventID: qid('a')},
+		{Event: EventDisconnected, SentMs: envSent + 2_000, EventID: qid('b')},
+	}
+	wantLines(t, "folded", mustLines(t, back)[5:],
+		"sent: 2026-10-21T13:02:16Z",
+		"id: "+qid('n'),
+		"event: back (the member's session is running again after a disconnect)",
+		"subject: "+envWorker,
+		"earlier: left at 2026-10-21T13:02:11Z, reason: exit, id: "+qid('a'),
+		"earlier: disconnected at 2026-10-21T13:02:13Z, id: "+qid('b'),
+		"authority: none. A fact to note; nothing to do unless your own work depends on it.",
+	)
+	for name, bad := range map[string]EntryEarlier{
+		"unknown event":   {Event: "joined", SentMs: envSent, EventID: qid('a')},
+		"moved":           {Event: EventMoved, SentMs: envSent, EventID: qid('a')},
+		"bad reason":      {Event: EventLeft, Reason: "bored", SentMs: envSent, EventID: qid('a')},
+		"reason not used": {Event: EventBack, Reason: "exit", SentMs: envSent, EventID: qid('a')},
+		"admin's event":   {Event: EventParked, SentMs: envSent, EventID: qid('a')},
+		"bad id":          {Event: EventLeft, Reason: "exit", SentMs: envSent, EventID: "$x"},
+	} {
+		e := noticeEntry(EventBack)
+		e.Earlier = []EntryEarlier{bad}
+		if _, err := e.Lines(); slotOf(err) != "earlier" {
+			t.Errorf("%s: %v, want the earlier slot", name, err)
+		}
+	}
+	peer := peerEntry()
+	peer.Earlier = []EntryEarlier{{Event: EventLeft, Reason: "exit", SentMs: envSent, EventID: qid('a')}}
+	if _, err := peer.Lines(); slotOf(err) != "earlier" {
+		t.Errorf("a PEER with earlier notices: %v", err)
+	}
+}
+
 func TestEntryCarried(t *testing.T) {
 	id := qid('c')
 	wantLines(t, "carried text", mustLines(t, carriedEntry("text")),

@@ -1517,6 +1517,17 @@ golden files of A 14 are B's renderer tests. What B owns is what A 13 leaves to 
 - **Which items, and when.** A delivery holds one team's items (A 13.1, 2.7.3), at most 8 entries
   and 12 KiB on the wire (E9), the rest following in the next delivery. Both caps are provisional
   until host check H4 measures the socket's real limit.
+- **Folding notices** (Plan 00267 Task 7.3). The NOTICE items of one delivery from one sender
+  about one subject are one entry: the latest, with an A 13.2 `earlier:` line for each before it,
+  at most 8 to an entry. A member that left and came back costs one entry, which says both with
+  their times. Every folded item is in the delivery and goes to the ledger with it; a carried item
+  and `moved` never fold, and a restored or repeated notice folds only with its like.
+- **Receipts are never entries** (Plan 00267 Task 7.2). A `teamchat.receipt` (A 7.8) is read in
+  the reports room, which is judged as a fault and never makes an item, and one sent in main is
+  dropped `schema`; so no receipt costs a session a turn, and a sender reads its receipts with
+  `status`. A bounce, once one is sent, rides in the next delivery as one trailing line per
+  bounced message, waiting out the coalesce window (2.7.3) when it is the only thing pending
+  (Plan 00267 batches 2-4).
 - **Re-checking every slot.** Each slot is checked against A 13.2's grammar as the line is
   rendered (E3, P77). A slot that fails is a bug in the validator: the item is not rendered, it
   moves to the dropped count with reason `render` (`session.json` `unusable.render`, shown by

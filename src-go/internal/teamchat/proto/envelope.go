@@ -42,6 +42,13 @@ type EntryCarried struct {
 	PossibleDuplicate bool
 }
 
+// EntryEarlier is one notice folded into a later one about the same member from the same
+// sender: its event, its reason where the event takes one, its time and its id.
+type EntryEarlier struct {
+	Event, Reason, EventID string
+	SentMs                 int64
+}
+
 // Entry is one delivered item as B hands it to the renderer: Kind is one of KindHuman,
 // KindPeer, KindPing, KindNotice and KindTimeout, and only the fields A 13.2 gives that kind a
 // line for are read. Empty strings are absent (`-` where the template has one); SentMs out of
@@ -56,10 +63,13 @@ type Entry struct {
 	Verb, Ref, Trust, Branch, Silent string
 	Event, Subject, Reason           string
 	Carried                          *EntryCarried
-	Copy                             []string
-	Body                             string
-	Questions                        bool
-	Repeat, Restored                 bool
+	// Earlier are the notices from the same sender about the same subject folded into this one,
+	// the latest, oldest first (A 13.2's `earlier:` lines; Plan 00267 Task 7.3).
+	Earlier          []EntryEarlier
+	Copy             []string
+	Body             string
+	Questions        bool
+	Repeat, Restored bool
 }
 
 // The fixed sentences of A 13.3.
@@ -277,20 +287,47 @@ func (e Entry) kindLines(l *lines) {
 		}
 		e.reasonLine(l)
 	}
+	e.earlierLines(l)
+}
+
+// reasons are the reasons an event takes, nil for an event with no `reason:` line.
+func reasons(event string) []string {
+	switch event {
+	case EventLeft:
+		return LeftReasons
+	case EventAdded, EventRole:
+		return []string{RoleCoordinator, RoleWorker}
+	}
+	return nil
 }
 
 func (e Entry) reasonLine(l *lines) {
-	var reasons []string
-	switch e.Event {
-	case EventLeft:
-		reasons = LeftReasons
-	case EventAdded, EventRole:
-		reasons = []string{RoleCoordinator, RoleWorker}
-	default:
+	rs := reasons(e.Event)
+	if rs == nil {
 		return
 	}
-	l.check("reason", slices.Contains(reasons, e.Reason))
+	l.check("reason", slices.Contains(rs, e.Reason))
 	l.add("reason: " + e.Reason)
+}
+
+// earlierLines are a folded NOTICE's `earlier:` lines, oldest first: each an event with a gloss
+// a member notice of the same sender class as the entry's own would carry (never `moved`), its
+// time, its reason where the event takes one, and its id.
+func (e Entry) earlierLines(l *lines) {
+	if len(e.Earlier) == 0 {
+		return
+	}
+	l.check("earlier", e.Kind == KindNotice && !e.carried() && e.Event != EventMoved)
+	for _, x := range e.Earlier {
+		rs := reasons(x.Event)
+		l.check("earlier", eventGlosses[x.Event] != "" && x.Event != EventMoved && MemberNotice(x.Event) == MemberNotice(e.Event) &&
+			(rs == nil && x.Reason == "" || slices.Contains(rs, x.Reason)) && ValidEventID(x.EventID))
+		line := "earlier: " + x.Event + " at " + sentTime(x.SentMs)
+		if rs != nil {
+			line += ", reason: " + x.Reason
+		}
+		l.add(line + ", id: " + x.EventID)
+	}
 }
 
 // closingLines are `copy:` `repeat:` `restored:` `authority:` `reply:` `body:` `truncated:`.

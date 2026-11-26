@@ -299,6 +299,66 @@ func TestEntriesFollowTheDeliveryOrder(t *testing.T) {
 	}
 }
 
+// memberNotice is a notice from worker about itself.
+func memberNotice(c byte, at int64, event, reason string) deliver.Item {
+	it := notice(c, at)
+	it.Verdict.Content.Notice = proto.Notice{Event: event, Subject: worker, Reason: reason}
+	return it
+}
+
+// Plan 00267 Task 7.3: notices from one sender about one member pending together fold into one
+// entry, the latest, its earlier ones on `earlier:` lines; every folded item is in the text. A
+// notice from another sender about the same member, and a carried item, stay entries of their own.
+func TestNoticesAboutOneMemberFoldIntoOneEntry(t *testing.T) {
+	added := deliver.Item{
+		Pending: pending('m', "notice", admin, sentMS+1_000),
+		Verdict: &proto.Verdict{Content: proto.Content{Notice: proto.Notice{Event: proto.EventRole, Subject: worker, Role: proto.RoleWorker}}},
+	}
+	items := []deliver.Item{
+		memberNotice('o', sentMS+5_000, proto.EventBack, ""),
+		peer('e', sentMS+9_000, "after the notices"),
+		memberNotice('n', sentMS, proto.EventLeft, "exit"),
+		added,
+		memberNotice('q', sentMS+2_000, proto.EventDisconnected, ""),
+	}
+	b := build(t, items, deliver.Facts{})
+	want := []string{id('e'), id('m'), id('n'), id('q'), id('o')}
+	if !slices.Equal(b.IDs, want) || len(b.Failed) != 0 || len(b.Left) != 0 {
+		t.Fatalf("built ids %v failed %v left %v, want ids %v", b.IDs, b.Failed, b.Left, want)
+	}
+	if len(b.Delivery.Entries) != 3 {
+		t.Fatalf("%d entries, want 3 (the peer, the admin's, the member's folded):\n%s", len(b.Delivery.Entries), b.Text)
+	}
+	pin(t, "notice-folded", b.Text)
+	// A restored notice and a live one stay apart: the restored line is the entry's own.
+	restored := memberNotice('r', sentMS+3_000, proto.EventBack, "")
+	restored.Pending.Restored = true
+	b = build(t, []deliver.Item{memberNotice('n', sentMS, proto.EventLeft, "exit"), restored}, deliver.Facts{})
+	if len(b.Delivery.Entries) != 2 {
+		t.Errorf("a restored notice was folded into a live one:\n%s", b.Text)
+	}
+}
+
+// Plan 00267 Task 7.3: one entry folds at most deliver.MaxFold notices, so a member that flaps
+// cannot make one entry unbounded; the rest fold into the next.
+func TestAFoldIsBounded(t *testing.T) {
+	var items []deliver.Item
+	for i := range deliver.MaxFold + 2 {
+		event, reason := proto.EventLeft, "exit"
+		if i%2 == 1 {
+			event, reason = proto.EventBack, ""
+		}
+		items = append(items, memberNotice(byte('a'+i), sentMS+int64(i)*1_000, event, reason))
+	}
+	b := build(t, items, deliver.Facts{})
+	if len(b.Delivery.Entries) != 2 || len(b.IDs) != len(items) {
+		t.Fatalf("%d entries for %d ids:\n%s", len(b.Delivery.Entries), len(b.IDs), b.Text)
+	}
+	if got := len(b.Delivery.Entries[0].Earlier); got != deliver.MaxFold-1 {
+		t.Errorf("the first fold holds %d earlier notices, want %d", got, deliver.MaxFold-1)
+	}
+}
+
 func TestEightEntriesAndANinth(t *testing.T) {
 	items := make([]deliver.Item, 0, 9)
 	for i := range 9 {
