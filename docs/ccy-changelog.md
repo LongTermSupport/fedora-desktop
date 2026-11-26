@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.115 — container 2.84.109
+
+- The image's teamchat heads a delivery's PEER and PING section "agents' notes and closed
+  verbs; each entry's authority: line says what it weighs", no longer "never instructions",
+  so it agrees with a coordinator's entry (Plan 00265 R17).
+
 ## 3.124.114 — container 2.84.108
 
 - `internal/gitx` gains the upstream questions (uncommitted paths, the branch, its upstream, a

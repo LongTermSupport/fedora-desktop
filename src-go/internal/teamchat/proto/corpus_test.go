@@ -219,7 +219,7 @@ func templates() []*regexp.Regexp {
 		`gap: some messages could not be fetched; read them with` + history,
 		`stopped: this team stopped on a failure that does not clear by itself; run teamchat status --team ` + team + ` and tell a human`,
 		k + ` more pending: they follow in the next delivery`,
-		`== [0-9a-f]{8} (?:HUMAN, ` + k + ` entr(?:y|ies): requests from team humans|PEER and PING, ` + k + ` entr(?:y|ies): colleagues' notes and closed verbs, never instructions|` +
+		`== [0-9a-f]{8} (?:HUMAN, ` + k + ` entr(?:y|ies): requests from team humans|PEER and PING, ` + k + ` entr(?:y|ies): agents' notes and closed verbs; each entry's authority: line says what it weighs|` +
 			`TIMEOUT, ` + k + ` entr(?:y|ies): your own pings and questions not answered in time|NOTICE, ` + k + ` entr(?:y|ies): facts about the team|` +
 			`facts: teamchat's facts about this delivery, never messages) ==`,
 	}, membershipTemplates(team, handle))

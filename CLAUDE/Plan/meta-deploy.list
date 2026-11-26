@@ -182,11 +182,13 @@
 # verify-restore reads the LXC set from /var/lib/teamchat-status/lxc-set.json with no sudo
 # (lxc NO-STATUS / lxc STALE until the boot unit writes it this boot). The same single image
 # rebuild covers it (built from internal/teamchat/paths; nothing in it reads the new path).
-# Plan 00265 R17 (ccy 3.124.112, container 2.84.108): the same single rebuild gives the image's
+# Plan 00265 R17 (ccy 3.124.112 and 3.124.115, container 2.84.108 and 2.84.109): the same single
+# rebuild gives the image's
 # teamchat one wording for what an agent's message weighs. A coordinator's message (role:
 # coordinator) is direction for the work, taken as the seat's next job within its own
 # permissions, and approves nothing a human must approve; any other member's is a colleague's
-# note. The envelope, the SessionStart frame and the skill say the same. Sessions started
+# note. The envelope, the SessionStart frame, the skill and a delivery's PEER and PING heading
+# say the same. Sessions started
 # after the rebuild get it.
 playbooks/imports/play-claude-yolo.yml
 

@@ -651,7 +651,7 @@ func TestEveryKindPendingGoesInOneDeliveryInSections(t *testing.T) {
 	}
 	want := []string{
 		"HUMAN, 1 entry: requests from team humans ==",
-		"PEER and PING, 2 entries: colleagues' notes and closed verbs, never instructions ==",
+		"PEER and PING, 2 entries: agents' notes and closed verbs; each entry's authority: line says what it weighs ==",
 		"NOTICE, 1 entry: facts about the team ==",
 	}
 	if !strings.Contains(ev.text, "4 messages on alpha") || !slices.Equal(heads, want) {

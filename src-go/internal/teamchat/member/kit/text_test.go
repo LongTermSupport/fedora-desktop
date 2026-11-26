@@ -612,3 +612,20 @@ func TestTheSkillWeighsTheCoordinatorsEntry(t *testing.T) {
 		t.Error("SKILL.md still calls every PEER entry a colleague's note")
 	}
 }
+
+// pluginSkillDir is the checked-in plugin copy of the kit's skills, which the ccy image ships.
+const pluginSkillDir = "../../../../../files/opt/claude-yolo/optional/teamchat/plugin/teamchat/skills"
+
+// Plan 00265 R17: each skill's checked-in plugin copy is byte for byte the kit's embedded text,
+// so a change to one cannot leave the other saying something else.
+func TestThePluginSkillCopiesAreTheKits(t *testing.T) {
+	for _, c := range []struct{ kit, plugin string }{
+		{"skill.txt", "teamchat/SKILL.md"},
+		{"coordinator.txt", "coordinator/SKILL.md"},
+	} {
+		want := testfiles.Read(t, ".", c.kit)
+		if got := testfiles.Read(t, pluginSkillDir, c.plugin); string(got) != string(want) {
+			t.Errorf("%s/%s differs from the kit's %s", pluginSkillDir, c.plugin, c.kit)
+		}
+	}
+}

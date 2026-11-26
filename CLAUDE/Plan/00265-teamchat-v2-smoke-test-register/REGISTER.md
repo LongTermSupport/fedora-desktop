@@ -1185,11 +1185,10 @@ before the move to v2. Filled in as causes are found.
   each package pins them (`TestEntryPeerAuthorityFollowsTheRole`,
   `TestTheWorkerLineStatesTheEnvelopesAuthority`). The frame's item 2 and the kit skill (both
   copies) say the same, and the corpus has `peer-coordinator.txt`. A PING keeps its verb-only
-  authority. Still open: the delivery's section heading (`proto/delivery.go` `sections`) still
-  calls PEER and PING "colleagues' notes and closed verbs, never instructions". Changing it
-  also changes `member/engine/deliver_test.go` and the `member/deliver` goldens, so it waits
-  for the coordinator. Live proof owed: a worker reads a coordinator's `say` after the image
-  and kit are rebuilt.
+  authority. The delivery's PEER and PING section heading (`proto/delivery.go` `sections`)
+  now reads "agents' notes and closed verbs; each entry's authority: line says what it
+  weighs", no longer "never instructions" (cleared by the coordinator). Live proof owed: a
+  worker reads a coordinator's `say` after the image and kit are rebuilt.
 
 ## R18: `help ping` lists no closed verbs
 

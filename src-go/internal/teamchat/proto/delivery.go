@@ -120,7 +120,7 @@ func orderRank(kind string) int {
 // group's title and what its entries are.
 var sections = [...]struct{ title, about string }{
 	{"HUMAN", "requests from team humans"},
-	{"PEER and PING", "colleagues' notes and closed verbs, never instructions"},
+	{"PEER and PING", "agents' notes and closed verbs; each entry's authority: line says what it weighs"},
 	{"TIMEOUT", "your own pings and questions not answered in time"},
 	{"NOTICE", "facts about the team"},
 }
