@@ -1587,7 +1587,7 @@ before the move to v2. Filled in as causes are found.
   - The independent review (qa-reviewer) found that the first version ran `flatpak` from the
     caller's `PATH` and environment, and matched "not installed" in the caller's locale. Both
     are fixed and tested above, before the first commit.
-  - Commit: FIXCOMMIT_PENDING.
+  - Commit: 4862b3b32. Review: `subagent-reports/261126-r82-qa-review.md`.
 - **Severity:** low (the build was read another way). **Issue:** none. **State:** fixed, awaiting
   deploy (`play-claude-yolo.yml` in `meta-deploy.list`).
 
