@@ -1408,8 +1408,10 @@ before the move to v2. Filled in as causes are found.
   `~/.local/bin:/usr/local/bin:/usr/bin:/bin` (`teamchat/host/lxc/unit/unit.go:92`). Its
   command is the bare word `claude` (`unit.go:72`). So `teamchat-admin lxc start` in such a
   container finds neither claude nor the node it runs on. Not yet seen failing live.
-- **Fix (with Plan 00266 C.2, before it):** at start, resolve `claude` and `node` once through
-  the container user's interactive login shell. Refuse loudly, naming the one that is missing.
-  Put both directories first in the unit's PATH. The decision is in Plan 00266 under "Finding
-  the claude command". Test first.
+- **Fix (with Plan 00266 C.2, before it):**
+  - At every start, the boot replay included, resolve `claude` and `node` through the
+    container user's login shell, and put both directories first in that start's PATH.
+  - Freeze nothing in the unit or the record: a node bump moves the nvm directory.
+  - Refuse loudly only when the lookup finds nothing.
+  - The decision is in Plan 00266 under "Finding the claude command". Test first.
 - **Severity:** high where it applies (no seat starts). **Issue:** TBF. **State:** open.

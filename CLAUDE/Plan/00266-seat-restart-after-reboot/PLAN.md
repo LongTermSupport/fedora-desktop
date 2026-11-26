@@ -102,17 +102,18 @@ there finds neither `claude` nor the `node` it runs on. This already breaks
 `teamchat-admin lxc start` in such a container, not only a restart after a reboot.
 Decision for C.2 (and the fix for today's start):
 
-- At `lxc start`, the host asks the container user's interactive login shell once for
-  `command -v claude` and `command -v node`, and refuses loudly, naming both, if either is
-  missing.
+- **At every start, the boot replay included,** the host asks the container user's login
+  shell for `command -v claude` and `command -v node`. Both directories go first in the PATH of
+  that start.
 
-- Both directories go first in the unit's PATH.
+- **Nothing resolved is frozen.** Neither the unit file nor the recorded start command keeps
+  the PATH. The reason (from the coordinator, 26 Nov): such a container's play installs the
+  node version its inventory names and removes every other version, so the nvm directory
+  changes after any node bump, and a frozen PATH would refuse at the next boot.
 
-- The recorded start command carries the same resolved PATH, so a boot replay needs no shell
-  of the user's.
+- It refuses loudly, naming what is missing, only when the lookup itself finds nothing.
 
-- Nothing is guessed from a version number. A change of node version shows as a refusal at
-  the next start, with the repair named (start the seat again).
+- Nothing is guessed from a version number or a directory pattern.
 
 - [x] ✅ **Task C.0**: How an LXC seat starts and signs in: answered above.
 
