@@ -190,9 +190,14 @@ Decision for C.2 (and the fix for today's start):
     directory. The play passes the start step only when `lxc_seat_restore_starts_containers` is
     true. With it false, the unit runs only `reconcile`, and the host's own IaC still calls
     `reconcile` itself at the end of its "started" step.
-  - [ ] ⬜ **Decided:** a seat that leaves its team (`lxc apply --phase absent`) is a stop on
+  - [x] ✅ **Decided:** a seat that leaves its team (`lxc apply --phase absent`) is a stop on
     purpose. The record rule already says "not since stopped on purpose", and an IaC removal is
-    one. So `apply --phase absent` takes the seat out of the started record, as `lxc stop --member` does. Reconcile then never reports a seat that can no longer exist.
+    one. So `apply --phase absent` takes the seat out of the started record, as `lxc stop --member` does. Reconcile then never reports a seat that can no longer exist. **Built** (`absent.go`
+    `run.leave`, first step, whether the container runs or not).
+  - The boot unit's build is half done and uncommitted. Its blocker: a container `lxc-start`ed
+    from a unit with `InaccessiblePaths=` (the v1names gate) inherits that mount namespace, so the
+    start goes through `lxc@<name>.service`. The state and the fix are in
+    `subagent-reports/261126-c2-unit.md`.
 
 - [ ] ⬜ **Task C.3**: verify-restore reports the LXC set.
 

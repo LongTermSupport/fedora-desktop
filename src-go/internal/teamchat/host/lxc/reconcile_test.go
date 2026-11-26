@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
@@ -215,5 +216,38 @@ func TestReconcileFaults(t *testing.T) {
 	got, err := Reconcile(context.Background(), w.deps(), nil)
 	if err != nil || len(got) != 1 || got[0].Kind != ReconcileRefused {
 		t.Fatalf("state: %+v %v", got, err)
+	}
+}
+
+// C.2: a seat that leaves its team (`lxc apply --phase absent`) is a stop on purpose, so it is
+// taken out of the record of started seats, and reconcile never reports a seat that cannot exist.
+func TestAbsentForgetsTheStartedSeat(t *testing.T) {
+	w := startedPlaced(t)
+	m := w.member("t1", "c1")
+	m.State = declare.StateAbsent
+	w.declare([]string{"t1"}, m)
+	if _, err := w.apply(PhaseAbsent); err != nil {
+		t.Fatal(err)
+	}
+	if w.started().Has(theSeat(t)) {
+		t.Fatal("the seat that left is still recorded")
+	}
+	if got := w.reconcile(); len(got) != 0 {
+		t.Fatalf("reconcile after the leave: %q", got)
+	}
+}
+
+// A leaving seat whose container is stopped is forgotten too: the leave is on purpose either way.
+func TestAbsentForgetsTheStartedSeatOfAStoppedContainer(t *testing.T) {
+	w := startedPlaced(t)
+	w.lxc.boxes["c1"].state = lxccmd.Stopped
+	m := w.member("t1", "c1")
+	m.State = declare.StateAbsent
+	w.declare([]string{"t1"}, m)
+	if _, err := w.apply(PhaseAbsent); err != nil {
+		t.Fatal(err)
+	}
+	if w.started().Has(theSeat(t)) {
+		t.Fatal("the seat that left is still recorded")
 	}
 }
