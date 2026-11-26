@@ -113,7 +113,8 @@ the coordinator's worker restarts.
   checkout has seats in. Then plain `cc` joining its seat, the unattended pick, step 3
   (`ccy-sessions restore`'s seat pass and its dry run in words), session names by role, and rows
   naming each seat's role and first prompt. Outside this task: why R89's records were missing,
-  and asking for a seat's own model in words. Report (parts one to four):
+  asking for a seat's own model in words, and #444 (a host seat's history is not read). Report
+  (parts one to four):
   [subagent-reports/261126-task-4-2-build.md](subagent-reports/261126-task-4-2-build.md).
 
 ## Success Criteria

@@ -212,9 +212,13 @@ the handoff, since retired (built in the parts below).
 - CCY 3.124.97 (container unchanged): the `tmux-session.bash` comment on session names, with
   its changelog entry.
 
-## Departure from the design, for the owner to confirm
+## Departure from the design: decided by the coordinator, 26 Nov
 
-The design starts each seat as the plain `ccy --teams <team>`. The pass names the seat in the
+The coordinator settled this as an engineering call, not one for the owner. A record naming
+its seat is deterministic, a bare team could take the wrong seat in the middle of a restore,
+and the owner never sees the difference. Design section 3 now says what the code does.
+
+The design started each seat as the plain `ccy --teams <team>`. The pass names the seat in the
 new record's `--teams` instead. The records this same restore has just started do not hold
 their seats yet, so a launch by team could take one of theirs. The seat stays out of everything
 a person reads: the restore's lines are in words, and the record is machine data, as every
@@ -226,7 +230,7 @@ record's canonical list already was.
   this part's scope.
 - R89's third fix, why the session records were missing, stays open. The design puts it
   outside this task.
-- Fault (to file): `conversation.SeatLastRan`/`SeatRan` look for a seat's transcript in ccy's
+- Fault, filed as #444 (not fixed here): `conversation.SeatLastRan`/`SeatRan` look for a seat's transcript in ccy's
   directory only. A host (cc) seat's conversation, under `~/.claude/projects/<mangled>`, always
   reads as never run, so `Pick` and the rows never see a host seat's history. The seat pass
   names host seats rather than judging them.

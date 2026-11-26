@@ -167,9 +167,13 @@ unit already runs it, and it already has `--dry-run` and per-name `NAME...`
    seats, holdings and seat records.
 2. A seat with a recorded conversation that no running session holds, and that no restored
    session record already covers (matched by the seats in its replay argv,
-   `tmux-session.bash:182`), is started as the plain launch: `ccy --teams <team>` (or `cc`) in
-   its checkout, detached. The launch runs `Pick`, so the same seat and conversation come back,
-   and the seat stays out of the argv a person reads.
+   `tmux-session.bash:182`), gets a session record of its own: `ccy`, restore on, `--teams
+   <seat>@<team>`. It is then started from that record, detached in its checkout, the way every
+   record is (`internal/sessions/seatpass.go`). The record names the seat, not only its team.
+   The sessions this same restore has just started do not hold their seats yet, so a launch by
+   team running `Pick` could take one of theirs. Naming the seat is deterministic. The record is
+   machine data, and everything a person reads stays in words (decided by the coordinator,
+   26 Nov; see the plan journal). Host (`cc`) seats are named, not started.
 3. A pool key with no checkout in `seat-checkouts`, a record whose transcript is gone, and a
    genuine choice are each named as not started, with the reason and the command that fixes it.
 

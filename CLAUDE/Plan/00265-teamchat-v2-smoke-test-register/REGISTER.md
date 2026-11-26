@@ -1846,7 +1846,9 @@ before the move to v2. Filled in as causes are found.
     and its conversation's first prompt.
 - **Severity:** high (an owner rule; today's restore asks for exactly what it forbids).
   **Issue:** TBF. **State:** fixed (PLAN Task 4.2 ✅). Asking for a seat's own model in words
-  is not built (`seats model` takes a seat, for scripts).
+  is not built (`seats model` takes a seat, for scripts). A host seat's conversation always
+  reads as never run, because `conversation.SeatRan` looks only in ccy's transcript directory:
+  #444, not fixed here.
 
 ## R91: an update leaves a host cc seat unstartable, with no migration
 
