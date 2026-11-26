@@ -1494,3 +1494,51 @@ before the move to v2. Filled in as causes are found.
   it).
 - **Severity:** medium (a worker either acts unverified or cannot act). **Issue:** none (R12).
   **State:** fixed on F44; awaiting the re-run on the updated laptop.
+
+## R81: a coordinator cannot read its own team room by time window
+
+- **Seen:** the coordinator, 26 Nov, during the Lightning incident (Plan 00268). It needed the
+  team room's events from one 15-minute window the day before, to find what set off the
+  runaway.
+- **What (checked by the coordinator):** `teamchat history` returns only the latest entries,
+  with `--limit` from 1 to 100 (exit 64 outside that range). It has no time window and no
+  paging. It also covers only what that member received and sent, not the room. A window a day
+  old is out of reach for any member, so incident work needs a homeserver-admin read on the bus
+  host, by a seat that holds that access.
+- **Fix:**
+  - A coordinator-only read of its own team's rooms by time window:
+    `teamchat history --room main --since <time> --until <time>`, paged, not capped at 100.
+  - A `--shape` mode that prints each event's type, time, thread or relation, size and sender
+    role, without bodies, for incident work that must not copy message text.
+  - Workers keep their own-traffic view.
+  - Tests: a window across a page boundary; an empty window; `--shape` printing no body; a
+    worker refused the room-wide read, with a message naming the cause.
+- **Severity:** medium (incident evidence is out of reach of the team's own tools).
+  **Issue:** TBF. **State:** open.
+
+## R82: the team launch's deny on the Lightning app id blocks reading its version
+
+- **Seen:** the laptop host seat, 26 Nov, triaging Plan 00268. `flatpak info` on Lightning's
+  app id was refused, so the seat could not read the build of the app it was asked to triage.
+- **Cause (checked):** `files/var/local/claude-code/cc-teams-settings.json:26`, which the team
+  launch passes as `--extra-settings`, denies `Bash(*org.lightning_matrix.Lightning*)`: any
+  command that names the app id. The Read and Edit denies on the app's `~/.var/app/...` tree
+  (lines 12-15) are what refused the seat's reads of the sandbox data.
+- **Why the glob is broad (by design, not an accident):** a path-only glob would not stop
+  `flatpak run --command=sh <app id> …` or `flatpak enter`, which reach the app's data, keys and
+  tokens from inside its sandbox without naming a `~/.var` path. Claude Code's deny beats any
+  allow, so an allow rule for `flatpak info` cannot carve it out.
+- **Options (the owner's call, since it touches the protection of chat keys and tokens):**
+  1. Keep the glob. The build is read from `/proc/<pid>/root/.flatpak-info`, which already
+     worked, and `laptop-commands.md` documents that route.
+  2. Keep the glob, and add a small read-only command deployed by the play that prints only
+     Lightning's installed version and commit (no data path, no `run`/`enter`). Its argv does not
+     name the app id.
+  3. Narrow the glob to the dangerous verbs (`*flatpak run*Lightning*`, `*flatpak enter*`, and
+     the data path). This is weaker: every new route into the sandbox must be thought of in
+     advance.
+  - Recommended: 1 now, 2 if version reads recur. Not 3.
+  - Any change gets a test that a data-path read and a `flatpak run --command` into the app are
+    still refused, and an independent review before it merges.
+- **Severity:** low (the build was read another way). **Issue:** TBF. **State:** open, owner
+  decision.
