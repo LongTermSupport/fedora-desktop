@@ -272,8 +272,9 @@ func (c Command) checkout(given string) (string, error) {
 	return RealCheckout(given)
 }
 
+// say prints one message line, through Shown: a message may quote checkout text (K6).
 func (c Command) say(s string) {
-	if _, err := io.WriteString(c.Stderr, s+"\n"); err != nil {
+	if _, err := io.WriteString(c.Stderr, Shown(s)+"\n"); err != nil {
 		return
 	}
 }

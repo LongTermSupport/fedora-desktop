@@ -125,8 +125,8 @@ func pathProblems(p string) []string {
 	if slices.Contains(strings.Split(p, "/"), "..") {
 		whys = append(whys, "'..' is not allowed: "+p)
 	}
-	if strings.ContainsFunc(p, func(r rune) bool { return r == ',' || r < 0x20 || r == 0x7f }) {
-		whys = append(whys, "a comma or a control character cannot be bound: "+p)
+	if strings.ContainsRune(p, ',') || unshowable(p) {
+		whys = append(whys, "a comma, a control or format character, or a byte that is not UTF-8 cannot be bound: "+p)
 	}
 	return whys
 }

@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.116 — container 2.84.109
+
+- `ccy-teams approve` and the project-mounts check print checkout text through one escaper:
+  a control or format character (a bidi override, a zero-width space) shows as `\u{XXXX}`,
+  never drawn, so an approval screen cannot be made to show another value. The saved launch
+  choices and the mounts paths refuse such characters outright (Plan 00266 security review,
+  finding 11).
+
 ## 3.124.115 — container 2.84.109
 
 - The image's teamchat heads a delivery's PEER and PING section "agents' notes and closed

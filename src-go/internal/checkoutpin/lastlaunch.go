@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode"
 	"unicode/utf8"
 )
 
@@ -82,8 +81,8 @@ func lastLaunchLine(line string) (Setting, error) {
 	if !utf8.ValidString(line) {
 		return Setting{}, errors.New("it is not UTF-8 text")
 	}
-	if strings.ContainsFunc(line, unicode.IsControl) {
-		return Setting{}, errors.New("it holds a control character")
+	if unshowable(line) {
+		return Setting{}, errors.New("it holds a control or format character (K6)")
 	}
 	if strings.HasPrefix(line, "#") {
 		return Setting{}, nil

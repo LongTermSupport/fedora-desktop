@@ -25,6 +25,10 @@
 //     file's place, a referenced file outside the checkout and a .env setting COMPOSE_FILE are
 //     refused: no pin could cover what they make the engine read. Every read goes through one
 //     os.Root of the checkout.
+//   - K6. An approval screen shows what is approved, not what a terminal would draw from it:
+//     every line Command prints goes through Shown, which escapes each control and format
+//     character (a bidi override would reorder a path or value on screen), and the values ccy
+//     writes or binds (the saved launch choices, the mounts paths) refuse them outright.
 package checkoutpin
 
 import (

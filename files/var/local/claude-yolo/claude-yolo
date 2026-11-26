@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.124.115"  # Container 2.84.109: a teamchat delivery's PEER and PING heading points at each entry's authority line; the history is in docs/ccy-changelog.md.
+CCY_VERSION="3.124.116"  # Container 2.84.109: approval screens escape control and format characters; the history is in docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
