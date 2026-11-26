@@ -80,6 +80,9 @@ root on the serving host to gain a seat.
   yet, nothing here says which machine serves it. Once a seat exists, its pool record holds the
   team's canonical homeserver URL (cross-network doc, "A seat is keyed on the homeserver's URL"),
   which names the server but not an ssh route to it.
+- `teamchat_teams` entries (`teamchat/declare` `Team`) have `state` present or absent only; a
+  present entry means "install here". A team served elsewhere has no way to be declared today,
+  hence PLAN D2's `served_by`.
 
 ## 3. Related plans and register rows
 
@@ -103,11 +106,36 @@ seat is "the one this checkout lost" rather than one another checkout holds.
 
 ## 5. Options for reaching the serving host
 
-| Route                                                         | Credential and sudo                                                | Against                                                                                                                                                 |
-| ------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ssh pull from the laptop (recommended)                        | the owner's own ssh key; the owner's password for sudo there, once | needs an account with password sudo on the serving host; needs a route record                                                                           |
-| over the bus, a host agent issues                             | an agent seat with root on the serving host                        | the coupling the owner objects to; an agent holding sudo; the laptop needs a seat to ask with; the credential crosses the homeserver                    |
-| over the bus, a broker with owner approval (Plan 00197 shape) | a daemon on the serving host; the owner approves in a room         | a new daemon and protocol; first seat still has no voice on the bus; out of scope here, can replace the issuer later behind the same `Issuer` interface |
+| Route                                                         | Credential and sudo                                               | Against                                                                                                                                                 |
+| ------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ssh pull from the laptop (chosen)                             | the owner's own ssh key; a narrow NOPASSWD rule there (section 6) | needs the serving host's IaC to declare the rule; needs a declared route                                                                                |
+| over the bus, a host agent issues                             | an agent seat with root on the serving host                       | the coupling the owner objects to; an agent holding sudo; the laptop needs a seat to ask with; the credential crosses the homeserver                    |
+| over the bus, a broker with owner approval (Plan 00197 shape) | a daemon on the serving host; the owner approves in a room        | a new daemon and protocol; first seat still has no voice on the bus; out of scope here, can replace the issuer later behind the same `Issuer` interface |
 
 The ssh route is what the docs already prescribe and what the other repository's scripts do by
-hand; the verb makes it one step and keeps the secret rules.
+hand; the verb makes it one step and keeps the secret rules. Decided by the team coordinator, 26 Nov
+11:07Z (with Q1 and Q2), reversible on the owner's word: ssh is kept, and the password sudo the
+docs describe is replaced by a narrow NOPASSWD rule (section 6). The route is declared on the
+team's `teamchat_teams` entry (`served_by`, PLAN D2), not asked and kept in a seat store as first
+proposed.
+
+## 6. Why the sudoers rule allows one fixed command
+
+The real argument shapes (`admin/verbs.go` `memberFlags`, `parseFlags`; `seatadd.go:100`):
+
+- `member add --team <team> --prefix <prefix> --seat <n> --kind <type> --human-text <bool> --credential password|token`
+- `member reissue --team <team> --handle <handle> --credential password|token`
+
+Flags come in any order, each at most once. The team, prefix, handle and (after D3) the avoid list
+are free text, so a sudoers rule over these verbs needs `*` for them, and sudoers' `*` matches any
+characters including spaces. `teamchat-admin member add --team * --credential password` therefore
+also matches `member add --team <t> --kind lxc --credential token --prefix ... --credential password`.
+The first two words still fix the verb, but which credential and kind are issued would be held only
+by `teamchat-admin` refusing a duplicated flag, not by the rule. No `*` pattern is narrow here.
+
+So the rule names one fixed command line with no arguments (`member serve ""`), and the request
+moves to stdin, where `member serve` checks it strictly: add, reissue or list; type podman or host;
+credential password. The "tiny fixed wrapper" is a verb of `teamchat-admin`, not a separate script,
+so it is typed, tested and installed with the verbs it calls (`/usr/local/sbin/teamchat-admin`,
+`paths.AdminBinaryPath`, linked by `play-teamchat.yml`'s `tc_admin_link`). `sudo -n` needs no tty
+and never prompts, so a missing rule fails at once instead of hanging on a password.
