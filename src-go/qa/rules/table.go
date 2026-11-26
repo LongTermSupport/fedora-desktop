@@ -445,6 +445,7 @@ var realClocks = []allowance{
 	{pkg: "internal/ccylaunch", fn: "Front.pause", reason: "the real side of Front.Pause, the build lock's poll; its tests replace Pause"},
 	{pkg: sessprobePkg, fn: "Probe.sleep", reason: "the real side of Probe.Sleep, the CPU sample; the one test that keeps it samples fixed /proc readings, so nothing races the sleep"},
 	{pkg: "internal/playlock", fn: "sleep", reason: "the real side of Waiter.Sleep, the wait between lock tries; its tests replace Sleep"},
+	{pkg: "internal/conversation", fn: "realLockClock.Sleep", reason: "the real side of lockClock, the seat-record lock's 100 ms poll under its 30 s bound (both constants); its tests replace lockClock whole"},
 	{pkg: sttPkg, fn: "sleep", reason: "the real side of Env.Sleep; its tests replace Sleep"},
 	{pkg: ftpcameraPkg, fn: "sleepContext", reason: "the real side of Env.Sleep; its tests replace Sleep, and NewEnv's test sleeps 0"},
 	{pkg: "internal/vmtest", fn: "sleepContext", reason: "the real side of Env.Sleep; its tests replace Sleep"},

@@ -605,6 +605,12 @@ filled in as each cause is known.
     file at that name. The test was red on both writers.
   - (4) A stopped session running again when the sessions are taken off is left as it is and
     named (red: it was taken off).
+- **Re-reviewed (qa-reviewer, batch 22b `842294f2`): fix before merge**
+  ([report](subagent-reports/261126-qa-reviewer-batch22b.md)). Findings (1) to (4) are closed.
+  The new wait broke `project_realtime_bound`, because `realLockClock.Sleep` had no `realClocks`
+  row. The row is added, as the coordinator chose, and this is the batch's last change. Nit for
+  the next batch: a dangling relative link at the lock gets its target created inside the
+  checkout before the open is refused.
 - **(3) fixed (on v2-smoke, after batch 13):** `remove` asks, while the team is still up and
   once its running sessions are off it, which stopped sessions name it on the agent bus (each
   record's system read as a restore reads it, `conversation.SystemOfRecord`). Once the team is
