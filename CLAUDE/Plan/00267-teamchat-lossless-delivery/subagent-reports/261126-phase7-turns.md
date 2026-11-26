@@ -58,8 +58,14 @@ committed .89.
 
 **Defect (mine):** f1f3aa3af staged the launcher whole from the shared tree. That took in
 another agent's uncommitted R90 help-text edits: the `--teams` usage lines and two refusals.
-Their matching `help.txt` and difftest goldens were not in it. I held the push and asked the
-lead to choose: the R90 owner commits on top, or a revert commit at 3.124.91.
+Their matching `help.txt` and difftest goldens were not in it. It was never pushed. On the
+lead's word I rebuilt it as `195b48352`, whose launcher diff is only my two version lines. The
+R90 edits went in t42-build2's own `ce6b1e9b1`.
+
+My first rebuild of the 7.8 commit took the old commit's whole tree, which would have reverted
+`ce6b1e9b1`. I caught it before any push and rebuilt it from HEAD with only my three paths, as
+`5af0a688d`. The lesson: in a shared tree, build a commit's index from HEAD with your own paths
+added, never from an older commit's tree.
 
 ## Checks
 
