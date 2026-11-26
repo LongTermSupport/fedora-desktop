@@ -194,6 +194,10 @@ playbooks/imports/play-claude-yolo.yml
 # sender a `bounced` receipt; the link posts those receipts as teamchat.receipt in the team's
 # reports room, keeping each until the homeserver has it. Member sessions started after the
 # run get it.
+# Plan 00268 Task 1.3: the teamchat-admin it installs gains the read-only verb
+# `team traffic --team T --since <time> --until <time> [--json]`, a team's event counts per hour
+# by room, type, typed key, relation and membership, with no content. Nothing runs it during
+# the play; the bus host's admin seat runs it afterwards (00268's bus-host-commands.md).
 playbooks/imports/play-teamchat.yml
 
 # Plan 00265 R79: finishes the private-name guard's setup. It ASKS at the terminal for each

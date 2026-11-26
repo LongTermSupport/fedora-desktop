@@ -154,7 +154,7 @@ func buildTable() []verb {
 			table = append(table, verb{name: head + " " + w, class: class, run: runs[head+" "+w]})
 		}
 	}
-	group(ClassRoot, "team", "apply", "approve", "remove", "rotate-ca", "seal", "export", "import", "carry-check")
+	group(ClassRoot, "team", "apply", "approve", "remove", "rotate-ca", "seal", "export", "import", "carry-check", "traffic")
 	group(ClassRoot, "member", "add", "return", "park", "retire", "reissue", "set")
 	group(ClassRoot, "role", "apply")
 	group(ClassRoot, "human", "password", "devices", "logout", "lock", "unlock")

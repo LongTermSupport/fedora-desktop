@@ -94,6 +94,8 @@ func specVerbs() map[string]Class {
 	add(ClassRoot, "team", "apply", "approve", "remove", "rotate-ca")
 	// The sealed carry's verbs (SPEC-carry sections 1-6).
 	add(ClassRoot, "team", "seal", "export", "import", "carry-check")
+	// The read-only traffic probe (Plan 00268 Task 1.3).
+	add(ClassRoot, "team", "traffic")
 	add(ClassRoot, "member", "add", "return", "park", "retire", "reissue", "set")
 	add(ClassRoot, "role", "apply")
 	add(ClassRoot, "human", "password", "devices", "logout", "lock", "unlock")
@@ -161,7 +163,7 @@ func wantBare(t *testing.T, name string, caller Class, got outcome) {
 // flagsFirst are the built verbs that read their flags before their seams (SPEC-n2h HV4).
 var flagsFirst = map[string]bool{
 	"human password": true, "human logout": true, "human devices": true,
-	"migrate export": true, "migrate export-verify": true,
+	"migrate export": true, "migrate export-verify": true, "team traffic": true,
 }
 
 // unbuilt is what a verb this build lacks says, or one built whose seams are not wired.

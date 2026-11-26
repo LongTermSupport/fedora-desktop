@@ -49,9 +49,19 @@ another batch; this plan decides at the end whether it stays.
   memory class, busy thread, growth per instance over an hour, logs, data sizes). Record the
   anonymised results in RESEARCH.md section 1 and re-rank the hypotheses.
 
-- [ ] ⬜ **Task 1.3**: A read-only traffic probe (Go): a team's event counts by room, type,
+- [ ] 🔄 **Task 1.3**: A read-only traffic probe (Go): a team's event counts by room, type,
   relation (thread, reply, edit), receipt and presence change, per hour, over a window, with no
   content. Run on the busy team for 25 Nov and on a quieter team for comparison.
+
+  - **Built, not run:** `teamchat-admin team traffic --team T --since --until [--json]` (package
+    `internal/teamchat/traffic`, the child op `team.traffic`). A verb of the existing admin
+    program, not a new binary: the `teamchat-ctl` child already holds the admin token and the
+    rooms record, so the token never reaches root or any argv. Receipts are counted as
+    `teamchat.receipt` events and presence changes as membership events: `m.read` and presence
+    are ephemeral and in no history. Usage:
+    [bus-host-commands.md](bus-host-commands.md#the-traffic-probe-counts-per-hour-task-13).
+  - **Still owed:** the runs on the busy team for 25 Nov and on a quieter team, by the bus
+    host's admin seat, after the teamchat play's `admin` tag installs the new binary.
 
 - [ ] ⬜ **Task 1.3a**: The stall window first: the bus host's admin seat runs
   [bus-host-commands.md](bus-host-commands.md) for 25 Nov 17:00:00Z-17:15:00Z in the busy team's

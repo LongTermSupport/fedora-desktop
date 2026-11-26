@@ -21,6 +21,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/traffic"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -339,7 +340,9 @@ type Answer struct {
 	Tail       []carry.TailEntry
 	Found      []bool
 	Human      *HumanAnswer
-	Error      *AnswerError
+	// Traffic is team.traffic's counts (Plan 00268 Task 1.3).
+	Traffic *traffic.Counts
+	Error   *AnswerError
 }
 
 // AnswerError is a failed answer's class and one-line message.
@@ -382,8 +385,8 @@ func (a Answer) validate() error {
 
 func (a Answer) validateFailure() error {
 	if a.Handle != "" || a.Credential != nil || a.MainRoom != "" || len(a.Notes) > 0 || a.View != nil || a.Notice != nil ||
-		a.Export != nil || a.Epoch != nil || a.Human != nil {
-		return errors.New("a failed answer carries no handle, credential, main room, notes, view, notice, export, epoch or human")
+		a.Export != nil || a.Epoch != nil || a.Human != nil || a.Traffic != nil {
+		return errors.New("a failed answer carries no handle, credential, main room, notes, view, notice, export, epoch, human or traffic")
 	}
 	if _, ok := classExit[a.Error.Class]; !ok {
 		return fmt.Errorf("error class %s", strconv.Quote(string(a.Error.Class)))
@@ -481,7 +484,7 @@ func DecodeAnswer(raw []byte) (Answer, error) {
 }
 
 func decodeDone(v proto.Value) (Answer, error) {
-	obj, err := keys(v, []string{"v", "ok", "changed"}, "handle", "credential", "notes", keyMainRoom, keyView, keyNotice, keyExport, keyEpoch, keyTail, keyFound, keyHuman)
+	obj, err := keys(v, []string{"v", "ok", "changed"}, "handle", "credential", "notes", keyMainRoom, keyView, keyNotice, keyExport, keyEpoch, keyTail, keyFound, keyHuman, keyTraffic)
 	if err != nil {
 		return Answer{}, err
 	}

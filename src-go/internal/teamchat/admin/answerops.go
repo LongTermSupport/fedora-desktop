@@ -16,6 +16,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/traffic"
 )
 
 // The child's read-only operations (C 3.11.2, n2f-D10).
@@ -59,13 +60,14 @@ func answerFits(op string, a Answer) error {
 	if !a.OK {
 		return nil
 	}
-	got := []bool{a.View != nil, a.Notice != nil, a.Export != nil, a.Epoch != nil, a.Tail != nil, a.Found != nil}
+	got := []bool{a.View != nil, a.Notice != nil, a.Export != nil, a.Epoch != nil, a.Tail != nil, a.Found != nil, a.Traffic != nil}
 	want := []bool{
 		op == OpTeamView, op == OpMemberDisconnected, op == OpRestoreExport,
 		slices.Contains([]string{OpRestoreCheck, OpCarryTail, OpCarryCheck}, op), op == OpCarryTail, op == OpCarryCheck,
+		op == OpTeamTraffic,
 	}
 	if !slices.Equal(got, want) {
-		return fmt.Errorf("its answer to %s does not fit the op (a view, a notice, an export, an epoch, a tail, a found list: %v)", op, got)
+		return fmt.Errorf("its answer to %s does not fit the op (a view, a notice, an export, an epoch, a tail, a found list, traffic: %v)", op, got)
 	}
 	if slices.ContainsFunc([]string{"restore.", "human.", "carry."}, func(p string) bool { return strings.HasPrefix(op, p) }) &&
 		(a.Handle != "" || a.Credential != nil || a.MainRoom != "" || len(a.Notes) > 0) {
@@ -94,6 +96,9 @@ func (a Answer) validateOps() error {
 	}
 	if a.MainRoom != "" && !proto.ValidRoomID(a.MainRoom) {
 		return errors.New("the main room is not a room ID")
+	}
+	if a.Traffic != nil {
+		return a.validateTraffic()
 	}
 	if a.Human != nil {
 		return a.validateHuman()
@@ -266,6 +271,9 @@ func (a Answer) encodeOps() []proto.Member {
 		out = append(out, proto.M(keyEpoch, proto.Obj(proto.M("restore_epoch", proto.Int(e.RestoreEpoch)), proto.M("rev", proto.Int(e.Rev)))))
 	}
 	out = append(out, a.encodeCarry()...)
+	if a.Traffic != nil {
+		out = append(out, proto.M(keyTraffic, traffic.Encode(*a.Traffic)))
+	}
 	if h := a.Human; h != nil {
 		if h.Password != "" {
 			out = append(out, proto.M(keyHuman, proto.Obj(proto.M("password", proto.Str(h.Password)))))
@@ -342,6 +350,13 @@ func decodeOps(a *Answer, obj map[string]proto.Value) error {
 			return err
 		}
 		a.Human = h
+	}
+	if v, given := obj[keyTraffic]; given {
+		c, err := traffic.Decode(v)
+		if err != nil {
+			return err
+		}
+		a.Traffic = &c
 	}
 	if err := decodeCarry(a, obj); err != nil {
 		return err
