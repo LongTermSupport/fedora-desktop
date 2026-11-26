@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00268-lightning-memory-leak](00268-lightning-memory-leak/) - In Progress (research done; laptop evidence next). Find and fix, upstream where it lives, the memory growth that took a busy team's Lightning to 84.7G and an oomd kill.
+
 - [00267-teamchat-lossless-delivery](00267-teamchat-lossless-delivery/) - In Progress (design's three questions answered; build test-first). Every addressed teamchat message ends delivered or bounced, visibly to its sender.
 
 - [00266-seat-restart-after-reboot](00266-seat-restart-after-reboot/) - In Progress (design for the owner). Containers and seats back after a reboot, rebuilt from validated records; first closes checkout config the host applies unasked.

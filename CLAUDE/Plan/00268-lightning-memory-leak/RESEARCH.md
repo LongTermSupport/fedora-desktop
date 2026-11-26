@@ -1,0 +1,346 @@
+# Plan 00268 research: what Lightning is, what teamchat sends it, and why memory might grow
+
+Every fact is marked **checked** (read in code, a release note or a command's output by this
+plan's research) or **unchecked** (reported by someone else, or inferred). Install-specific names
+are replaced: "the busy team", "a quieter team", "the laptop".
+
+## 1. The incident, as reported
+
+All **unchecked** here: relayed from the laptop's host seat (its findings report, read
+2026-11-26; the raw report lives in the estate's own repository, not here).
+
+| Fact                                                                                     | Source                             |
+| ---------------------------------------------------------------------------------------- | ---------------------------------- |
+| systemd-oomd killed the busy team's Lightning scope at 2026-11-25 18:08:56Z, usage 84.7G | `journalctl -b -t systemd-oomd`    |
+| The scope was `app-flatpak-org.lightning_matrix.Lightning-<n>.scope`, in `app.slice`     | the same                           |
+| app.slice memory pressure was 85.55% over 20 s when oomd acted                           | the same                           |
+| The instance had run about seven hours                                                   | the seat's reading                 |
+| A quieter team's instance, same build: 0.35G RSS after 21 h                              | `ps --sort=-rss`                   |
+| The busy team's new instance: 0.57G RSS after 19 min, one sample, so no growth rate      | the same                           |
+| Host: 93 GiB RAM, 8 GiB zram swap; no kernel oom-killer lines that boot                  | `free`, `zramctl`, `journalctl -k` |
+| Firefox was killed by oomd 15 min earlier (8.5G); the pressure was the Lightning scope's | the oomd lines                     |
+
+What the reported numbers imply (arithmetic on unchecked inputs): 84.7G over about seven hours is
+about **12 GiB an hour, about 200 MiB a minute**, on average. The quieter instance grew less than
+0.35G in 21 h. The busy instance's growth is at least two hundred times the quieter one's, while
+teamchat's send limits (section 3.6) bound a team's agent traffic to a few hundred events a
+minute at the very most. So either each event costs the client tens of MiB, or the growth is not
+proportional to events at all (a loop that something in the busy team triggered). This is the
+single most useful constraint on the hypotheses in section 4.
+
+**Not known** (the laptop commands in [laptop-commands.md](laptop-commands.md) close each):
+which Lightning version was running on 25 Nov (0.10.7 reached GitHub on 2026-11-21; when the
+Flatpak updated on the laptop is unknown); which process in the scope held the memory; anon heap
+or shared memory or file; whether the window was focused, which room was open, whether a thread
+panel was open; the busy team's event rate that day.
+
+## 2. Lightning
+
+**Checked** (GitHub API and the source at `lightning-matrix/lightning` `origin/main` `933902d2`,
+2026-11-25, read in an untracked clone):
+
+- Repository: <https://github.com/lightning-matrix/lightning> (moved from `Mizerd/lightning`;
+  the old URL redirects). GPL-3.0. Flatpak id `org.lightning_matrix.Lightning` (from
+  `src-go/internal/matrixclients/clients.json` and the root `org.lightning_matrix.Lightning.yaml`).
+- Stack: a native Qt 6 / QML client (C++ about 21 MB of source, QML 5 MB) over the official
+  Rust Matrix SDK (`matrix-sdk` 0.18, about 9 MB of Rust in `rust/`), joined by a C FFI
+  (`mx_rust_*`). Not Electron, so no V8/Chromium heap; the QML engine has its own JS heap (QV4).
+- Contribution route (`CONTRIBUTING.md`): issues and pull requests on GitHub only; development
+  is mirrored from the maintainer's private GitLab and GitHub branches are force-pushed, so a PR
+  is applied by the maintainer, not merged as-is. A bug report wants the version, platform and a
+  log from `lightning-matrix --console --log-file <path>`, never tokens or message contents.
+- Our record with this maintainer (Plan 00254 Task 2.4, 2.7): issues #75, #76, #78, #79 fixed
+  within a day; #88-#90, #100-#104 handled in 0.10.7.
+- Existing upstream issues about memory: **#98** "High CPU/RAM Usage Windows 11" (open, 4 GB and
+  lag after weeks of use). The maintainer fixed three search-indexer faults for 0.10.7 and could
+  not reproduce the 4 GB; asked for a log with `LIGHTNING_GUI_STALL_TRACE=1` and `--log-file`.
+  **#32** "Constantly writing to disk" (closed, 0.10.1: a crypto-store lock renewed many times a
+  second, and the indexer walking every room). Nothing else matches "memory". No issue reports
+  growth at our scale.
+- 0.10.7's own "Memory and speed" notes (release body, checked):
+  - the idle trim "never ran in a session without input, and never at all once a message had
+    been clicked"; fixed in 0.10.7 (1,158 to 670 MiB in their test);
+  - "History you stay scrolled up in is not trimmed (about 22 MiB per 1,000 messages)";
+  - the on-disk event cache has no size limit;
+  - the 4 GB in #98 was not reproduced.
+- `docs/open-items.md` "2026-11-21 OPEN after the RAM and disk audit": source rows cost about
+  22 MiB per 1,000; the row window bounds delegates to about 300 rows; the QML engine's
+  binding-guard pool keeps its high-water mark (38.5 MB at peak, never returned).
+- `docs/timeline-scrolling.md`: before the idle live-edge trim, "a room left open at the live
+  edge kept every message it received as a delegate: ~0.5 MB per row ... RSS 721 -> 1510 MB in
+  34 min of steady traffic". The trim (`AppController::idleLiveTrimDue`) runs only when: more
+  than 400 rows are loaded, the reader follows the latest, no input for two minutes, **the window
+  is not active**, no account switch, nothing blocking (viewer, popup, expanded group), and
+  **no thread panel or Threads view open** (`historyTrimAllowed`). A thread timeline holds its
+  own event-cache subscriber, so the SDK's shrink cannot run while one is open.
+- Allocator: glibc, with `M_MMAP_THRESHOLD` pinned at 128 KiB and `M_TRIM_THRESHOLD` 2 MiB
+  (`src/app/AllocatorPolicy.h`), and `malloc_trim(0)` after idle (`src/app/IdleTrim.h`: 60 s
+  quiet, at most every 5 min, only when 64 MiB or more is free in the arenas).
+- Diagnostic switches (environment, read by the app; checked by grep, behaviour not run):
+  `LIGHTNING_SCROLL_TRACE` (logs each idle-trim check's inputs), `LIGHTNING_GUI_STALL_TRACE`,
+  `LIGHTNING_SYNC_TRACE`, `LIGHTNING_EDIT_TRACE`, `LIGHTNING_RUST_LOG` (a `tracing` filter for the
+  Rust side), `LIGHTNING_NO_ROLLING_LOG`; the flags `--console --log-file <path>` (32 MiB, rolls
+  to `.1`). Upstream profiles with **heaptrack** (cited in both docs above). Headless runs use
+  `QT_QPA_PLATFORM=offscreen` (`docs/build-and-test.md`); `--backend=mock` runs with no server.
+- teamchat's rooms are unencrypted (no `m.room.encryption`, DESIGN-v2-A 4.1), and since 0.10.1
+  the search indexer walks only encrypted rooms (issue #32's fix), so **the indexer faults of #98
+  should not apply to team rooms** (inferred from the release notes, not from code).
+
+## 3. What teamchat sends that a quiet human room does not
+
+**Checked** in `src-go/internal/teamchat/` and Plan 00209's `DESIGN-v2-A-protocol.md` (the
+protocol spec the code cites as "A n.n").
+
+### 3.1 Rooms and members
+
+- Three rooms per team, created together: main, reports, questions (A 4.1). A human is in all
+  three; every active member in main and reports; every non-parked member in questions.
+- Rosters allow up to 16 humans and 64 members (A 11.2). Room version 12, history `shared`, no
+  encryption, admin-only state.
+- One Lightning instance per team (Plan 00254 D2), so an instance holds one account in three
+  rooms. A human quiet room has one or two other people; a team room has every agent seat.
+
+### 3.2 Event shapes
+
+- Only `m.room.message` is open to members (power levels, A 4.2). No reactions, no redactions
+  (admin only, rare), no stickers, no custom state from members.
+- Every agent event carries exactly one typed key in its content: `teamchat.ping`,
+  `teamchat.text`, `teamchat.notice` (main), `teamchat.report`, `teamchat.receipt` (reports),
+  `teamchat.question`, `teamchat.thread` (questions); also `teamchat.carried` from the admin
+  (`proto/content.go`). Every typed object also carries `"kit"` since Plan 00267 batch 1
+  (2026-11-26, on `v2-smoke`; not deployed at the incident).
+- Bodies carry `format` / `formatted_body` HTML for rich display (Plan 00241; `richtext`).
+- Sizes (A 11.2): any agent content up to 16,384 bytes; ping object 4,096; agent text 4,096;
+  human body 16,384; report 1,500; question 8,000; thread post 4,000; headline 120 code points.
+- `m.mentions` on agent events (pings mention their addressees; up to 32 for a ping, 16 for
+  text, 17 for a notice, 64 for a `moved` notice).
+- `msgtype` `m.notice` for notices, receipts, thread notes, closes and retitles; `m.text` for the
+  rest.
+
+### 3.3 Threads and replies
+
+- An answer to a ping is a thread reply in the ping's thread (`m.thread` with
+  `is_falling_back: true`, A 7.2, `proto.AnswerTo`). So **every answered ping in main is a thread
+  root** with at least one reply: main is a room of many small threads, where a human room has
+  few.
+- Every question in the questions room is a thread root; the coordinator's and humans' posts in
+  it are thread replies (A 10.3). Closes are quiet thread posts.
+
+### 3.4 Edits
+
+- Agents never edit, with one exception: the coordinator's **retitle** of its own question, an
+  `m.replace` with `m.new_content` (A 7.1 row "edits", 10.4; `engine/questionsverbs.go`), sent on
+  `close` and on `retitle`. A human's edit is allowed and delivered as a revision. So edits are
+  rare: at most one or two per question.
+
+### 3.5 Receipts, presence, typing
+
+- **`m.read` receipts:** the link posts one per HUMAN item it delivers (`engine/proof.go`
+  `receipt`, DV5; `matrix/member.go` POST `/receipt/m.read/<event>`). So each human message
+  yields one receipt per agent that delivered it: with k addressed agents, k receipt EDUs reach
+  the human's client per human message. Agent messages get none.
+- **`teamchat.receipt` events** (A 7.8, Plan 00267, built 2026-11-26, not live at the incident):
+  one `m.notice` in the reports room per addressed item per addressee, at each state change
+  (delivered, held, bounced, recorded). Once live this multiplies reports-room traffic by the
+  number of addressees per item; a direct new load on any client that has the reports room open.
+- **Presence:** each link's long-poll `/sync` marks its member online (A 6.6); a clean release
+  sets offline; a dead link goes unavailable then offline by the server's timers. So every seat
+  start, restart or release is a presence change to every member and human. A link that
+  restarts in a loop is a presence storm (link restarts were 0 on the seat the laptop examined;
+  **unchecked** for the busy team on 25 Nov).
+- **Typing:** teamchat sends none (no typing endpoint in `matrix/`; checked by grep).
+- **State events:** only the admin writes state: `teamchat.roster` (main), `teamchat.room` (side
+  rooms), `teamchat.colour`, names, topics, power levels. A roster change (member added, parked,
+  removed, role) rewrites the roster event and may change power levels and membership: rare,
+  bursty at team changes.
+
+### 3.6 Rates
+
+From the roster defaults (A 11.1), per agent sender: a token bucket of `send_burst` 10 refilled
+at `send_per_minute` 20; reports at most 6 an hour; receive limit 60 per sender per minute. The
+admin and humans are not limited. Upper bound for a team: about 20 events a minute per active
+agent, sustained; with ten agents, 200 a minute, plus receipts and presence. Real traffic is far
+below that (agents spend most of the time in model turns); the busy team's real rate on 25 Nov
+is **unchecked** and is the first number Phase 1 needs.
+
+### 3.7 Sync and reconnect pattern of the links
+
+The links are the senders, not the client, so their sync settings change the client only through
+presence (long-poll timeout up to 30 s, `matrix/sync.go`). A link restart re-syncs with a filter
+of its own; the human's client sees only the presence change and any notices (`back`,
+`disconnected`) the link posts.
+
+### 3.8 Compared with a human room
+
+A quiet human room: few senders, few threads, few receipts, presence for two or three people,
+no notices. A team main room: many senders, a thread per answered ping, notices on seat
+lifecycle, presence changes on every seat start, `m.read` fan-in on every human message, rich
+HTML bodies up to 16 KiB, mentions on every ping. The busy team differs from the quieter team
+mostly in volume and in thread count, not in kind (both run the same teamchat).
+
+## 4. Ranked hypotheses
+
+Ordered by how well each fits the one hard constraint (section 1: about 200 MiB a minute on
+average, more than two hundred times the quieter instance), then by how cheap it is to test.
+
+### H1. A client-side loop that a teamchat pattern starts, not per-event cost
+
+**Mechanism:** some pattern puts the client into a retry, re-fetch or re-render loop that
+allocates on every pass and never frees (a pagination or backfill loop on a room with a gap, a
+thread list or Activity re-fetch that never settles, a model reset loop). Candidates named in
+upstream's own open items: `mx_rust_fetch_unread_events` has "no per-room in-flight guard"
+(`docs/open-items.md`, 2026-11-20 review, L6); the highlight-gap tracker and limited-sync gap
+fetches; a thread list re-sort that replaces its whole `QVariantList` model on each change.
+**Why unbounded:** a loop allocates at its own rate, independent of how much the team posts, and
+the trims never run while it is busy (input or not, the idle trim needs quiet).
+**Fits:** the rate (no realistic event rate gives 200 MiB a minute at upstream's measured costs).
+**Test:** on the laptop, CPU time of the instance (high and steady), its request rate to the
+homeserver (the homeserver's access log or the scope's network counters), and growth while the
+team is quiet. In the reproduction: replay a captured busy-team history, then stop all traffic;
+growth that continues with no traffic confirms; growth that stops with traffic refutes. Run with
+`LIGHTNING_SYNC_TRACE=1` and `LIGHTNING_RUST_LOG=matrix_sdk=debug` to see the repeated request.
+
+### H2. Per-event work that grows with history (superlinear), whose garbage is not returned
+
+**Mechanism:** a model rebuilt from all events on every new event (thread list, Activity rows,
+receipt piles, the questions room's many threads), each rebuild allocating in proportion to the
+history held, into the QML JS heap or the binding-guard pool, whose high-water mark is never
+returned (upstream's own finding for the guard pool).
+**Why unbounded:** cost per event rises with events seen, so memory grows as n squared; a busy
+room crosses from harmless to explosive in hours, while a quiet one stays flat for days. This
+fits the busy/quiet divergence without needing a loop.
+**Test:** in the reproduction, drive N events at a fixed rate and plot RSS against N: linear
+refutes, quadratic confirms. Then run each event family alone (threads only, receipts only,
+mentions only) to find which. `QV4_MM_STATS=1` (Qt's JS memory manager statistics) separates JS
+heap growth from C++ heap growth; heaptrack names the allocation site.
+
+### H3. The trims never run for a watched team, so every event is kept
+
+**Mechanism:** the idle live-edge trim needs the window inactive and **no thread panel or Threads
+view open**. A team's human tends to leave the questions room's thread panel or main's thread
+open. Before 0.10.7 the trim also never ran without input or once a message was clicked. Each
+received event then stays as an SDK timeline item and a source row (about 22 MiB per 1,000) and
+the thread panel's replies may not be windowed (unchecked: the row window is the main timeline's).
+**Why unbounded:** nothing drops rows while the blocking condition holds.
+**Fits poorly alone:** at 22 MiB per 1,000, 84.7G needs millions of events. Even at the
+pre-window 0.5 MB a row it needs about 170,000 rows in seven hours. So H3 is an amplifier of H1
+or H2, or a cause only if a per-row cost is far larger for teamchat events (large HTML bodies,
+mention pills, receipt piles).
+**Test:** `LIGHTNING_SCROLL_TRACE=1` logs every trim check's inputs (`idle live-edge trim check ...`); in the reproduction, the same load with and without a thread panel open, focused and not.
+Confirm: growth only with the panel open or the window focused.
+
+### H4. Read-receipt fan-in
+
+**Mechanism:** each human message gets one `m.read` per delivering agent; the client keeps
+per-event receipt sets and renders a receipt pile per row; if superseded receipts are kept
+rather than replaced, they grow with messages times agents.
+**Test:** reproduction with receipts only (a human posts, k fake agents send `m.read`), k from 1
+to 20; growth proportional to k times messages confirms.
+
+### H5. Presence churn
+
+**Mechanism:** every seat start, restart or release is a presence change for every member;
+a seat in a restart loop sends a stream of them. A client that appends presence history, or
+rebuilds the member list per presence event, grows with it.
+**Test:** reproduction with presence only (links that go online and offline every few seconds,
+no messages). Laptop: count `back`/`disconnected` notices and link restarts in the busy team on
+25 Nov.
+
+### H6. Thread-heavy rooms
+
+**Mechanism:** every answered ping is a thread, so main holds hundreds of threads where a human
+room holds a few; each thread may hold its own timeline subscriber (an SDK event cache that never
+shrinks while subscribed), its own list entry and its root preview.
+**Test:** reproduction with many short threads against the same count of plain messages; also
+whether thread timelines are dropped after the thread panel closes (heaptrack, or RSS after
+opening and closing the panel many times).
+
+### H7. Not message memory at all: graphics or shared memory
+
+**Mechanism:** a scene-graph, texture or dmabuf leak in a window that redraws for every event
+(the busy team's window is the one on screen, and it redraws far more often). This is shared or
+GPU memory, not anon heap.
+**Test:** the cgroup's `memory.stat` (`anon` against `shmem`/`file`), smaps (`/memfd:`,
+`/dev/dri`), and `drm-*` lines in `/proc/<pid>/fdinfo`. Mostly `shmem` or drm confirms; mostly
+`anon` refutes.
+
+### Ruled unlikely
+
+- **The search indexer** (#98's faults): only encrypted rooms are indexed since 0.10.1 and team
+  rooms are unencrypted (inferred, section 2).
+- **Edits:** agents send at most one or two retitles per question (section 3.4); too rare to
+  explain the rate, unless a single edit starts a loop (then it is H1).
+
+## 5. Reproduction away from the laptop
+
+### 5.1 What exists
+
+- `src-go/internal/teamchat/matrix/tuwunelhs`: starts a **real Tuwunel** for tests built with
+  `-tags tuwunel`, from the binary `FAKEHS_TUWUNEL_BIN` names (checked). The homeserver the teams
+  really run.
+- `src-go/internal/teamchat/matrix/fakehs`: an in-process fake homeserver (rooms, sync,
+  receipts, presence, threads; checked). Fine for the generator's unit tests; not for Lightning,
+  which needs a real server.
+- `src-go/internal/teamchat/member/wiring` e2e tests and `proto.Composer`: compose
+  byte-identical teamchat events (pings, answers, notices, reports, questions, thread posts,
+  retitles).
+- Plan 00254's `Containerfile.build-test` / `build-test.bash`: builds Lightning's non-Rust tree
+  in podman on Fedora 44 (QML tests only, `-DLIGHTNING_ENABLE_WEBRTC=OFF`).
+- The VM lab (a Fedora desktop VM) for a real Flatpak in a real session.
+
+### 5.2 What must be built
+
+1. **A load generator** (Go, `src-go/`, as all new tooling): signs in as N agent accounts and
+   one or two human accounts on a test team (rooms made by the real rooms engine, so state and
+   power levels match), and replays teamchat's patterns through `proto.Composer`: pings with
+   mentions, thread answers, notices, reports, questions with thread posts and retitles,
+   `m.read` receipts on human posts, presence flaps, big HTML bodies. Each pattern is a switch
+   with a rate, so one variable changes at a time. A replay mode takes a captured shape (counts
+   and timing by type, no content) of the busy team's day.
+2. **A test team on Tuwunel**, created by the same admin code as production, with a human
+   account for Lightning.
+3. **Lightning in a session it can run unattended:** the Flathub Flatpak (the build in use) in
+   the VM lab, or headless in a nested compositor (`weston --backend=headless` or a headless
+   sway), with a D-Bus session and a Secret Service (gnome-keyring) for the token. Sign-in once
+   per instance (the GUI; whether `LIGHTNING_TEST_HOMESERVER/USER/PASSWORD` sign the GUI in is
+   unchecked: they are documented for `--rust-sdk-smoke-test`). `QT_QPA_PLATFORM=offscreen`
+   would change the "window active" condition of H3, so it is used only as one arm.
+4. **A sampler:** every 30 s, the instance's RSS, PSS (`smaps_rollup`), `RssAnon`, the scope's
+   `memory.current` and `memory.stat`, CPU time, and the generator's cumulative event counts by
+   type, into one CSV per run, so RSS can be plotted against events (H2) and against time (H1).
+5. **Arms:** baseline (signed in, no traffic); main pings with answers only; questions threads
+   only; receipts only; presence only; big bodies only; many rooms (several teams on one
+   account is not our layout; several rooms per team is); each with the window focused, not
+   focused, and with a thread panel open.
+
+### 5.3 Profiling Lightning's stack
+
+- **Which allocator site:** heaptrack (upstream's own tool) on a Lightning built from source with
+  debug info; inside the Flatpak, `flatpak run --devel --command=sh` gives the SDK runtime where a
+  debugger exists (whether heaptrack is in `org.kde.Sdk` is unchecked; the fallback is a native
+  build in a podman container from Plan 00254's Containerfile with Rust added).
+- **JS heap or C++ heap:** `QV4_MM_STATS=1` prints QV4 garbage-collector statistics on each
+  collection; `QML_DISABLE_DISK_CACHE` is irrelevant here.
+- **Rust side:** `LIGHTNING_RUST_LOG=matrix_sdk=debug,matrix_sdk_ui=debug` for repeated requests;
+  per-thread glibc arenas (many anon mappings of 64 MiB) in smaps point at Rust/tokio threads
+  rather than the GUI thread's main heap (`[heap]`).
+- **Trim decisions:** `LIGHTNING_SCROLL_TRACE=1`.
+- **Stalls and loops:** `LIGHTNING_GUI_STALL_TRACE=1`, `LIGHTNING_SYNC_TRACE=1`, with
+  `--console --log-file <path>`.
+- **Without a rebuild:** smaps by mapping, `memory.stat`, `/proc/<pid>/task/*/stat` CPU per
+  thread (which thread is busy names the loop's owner: the GUI thread, a QML render thread, a
+  tokio worker), and `gcore` of a test instance (never the owner's) for offline inspection.
+
+## 6. What a fix could look like
+
+- **Upstream (most likely):** an issue on `lightning-matrix/lightning` with the measured growth,
+  the memory class (anon/shmem), the arm of the reproduction that triggers it, and the generator
+  so the maintainer can run it; a pull request where the cause is local (a missing in-flight
+  guard, a model rebuild, a trim condition). Upstream's PR route is documented and they have
+  taken ours before.
+- **teamchat's side, if it is the trigger:** fewer threads in main (an answer as a reply, not a
+  thread), batching or dropping `m.read` receipts, not flapping presence, keeping
+  `teamchat.receipt` events out of rooms a human opens. Only after the cause is shown; teamchat's
+  protocol is not changed on a guess.
+- **The stopgap cap** (a systemd scope MemoryHigh 6G / MemoryMax 8G) is in another batch; it
+  bounds the damage, not the cause. Whether it stays is decided once the fix is verified.
