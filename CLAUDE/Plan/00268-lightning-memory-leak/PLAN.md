@@ -82,11 +82,13 @@ another batch; this plan decides at the end whether it stays.
   limit, can we have something that kills and dumps loads of useful info when it hits the
   limit? so we by definition catch it and get all the details when we need it?". A memory
   tripwire that captures everything before it kills. It extends Task 1.7's watch, which
-  already finds the instance's process and writes a dated record beside its log.
+  already finds the instance's process and appends to one capped file,
+  `lightning-watchdog.log`, beside its log. The dated capture folder below is new.
   - **The limit:** a hard `MemoryMax` on the instance's own cgroup, with a trip line well below
-    it and well above normal. The laptop's baseline is about 650 MB, growing about 12 MiB/h
-    (journal 101655Z), so a trip line of a few GB. Both values come from the team's key in
-    host_vars, never hard-coded.
+    it and well above normal. The laptop's instances differ (journal 101655Z): the busier
+    team's is about 650 MB, growing about 12 MiB/h, the other's about 410 MB, growing about
+    1.8 MiB/h. So a trip line of a few GB, set per team: both values come from the team's key
+    in host_vars, never hard-coded.
   - **Evidence first:** `flatpak run` moves the app into its own `app-flatpak-<id>-<pid>.scope`,
     so a limit on a wrapping scope may not follow it. Find where the process really lands, then
     set the limit on that scope (`systemctl --user set-property`) from the watch, or from the
