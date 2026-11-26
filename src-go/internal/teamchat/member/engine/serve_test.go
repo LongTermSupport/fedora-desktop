@@ -382,3 +382,34 @@ func TestATimeoutRendersFromItsKeyAndTheOutbox(t *testing.T) {
 		t.Fatalf("a timeout whose ping the outbox lacks = %+v", r)
 	}
 }
+
+// Plan 00267 C4's bound: a held agent item that finds pending's agent share full bounces rate
+// (listed in the drop ledger, a bounced receipt owed its sender) instead of refusing the batch;
+// the rest of the batch is kept.
+func TestAHeldItemPastTheAgentShareBouncesRate(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	w.held(ops)
+	batch := make([]team.Item, 0, 1794)
+	for i := 1; i <= 1792; i++ {
+		it := humanItem(ops, i, int64(i), "")
+		it.Pending.Item, it.Verdict.Content.Body = records.KindPeer, "x"
+		it.Pending.From = agent(ops, 2)
+		batch = append(batch, it)
+	}
+	held := batch[0]
+	held.Pending.ID, held.Verdict.Event.ID, held.Pending.SentMS = evID(5000), evID(5000), 900
+	held.Pending.NotBefore = startWall + 60_000
+	batch = append(batch, held, humanItem(ops, 6000, 901, "a human still fits"))
+	_, err := w.e.Persist(t.Context(), team.Batch{Team: ops, NextBatch: "s1", Items: batch})
+	check(t, err)
+	s := w.store(ops)
+	if len(s.Pending) != 1793 || slices.ContainsFunc(s.Pending, func(p state.Pending) bool { return p.ID == evID(5000) }) {
+		t.Fatalf("pending holds %d, the held item among them or the human missing", len(s.Pending))
+	}
+	wantDropped := []state.Dropped{{ID: evID(5000), Room: proto.PurposeMain, From: agent(ops, 2), SentMS: 900, AtMS: startWall, Reason: proto.ReasonRate}}
+	wantOwed := []state.Owed{{Of: evID(5000), To: agent(ops, 2), State: proto.ReceiptBounced, Reason: proto.ReasonRate, AtMS: startWall}}
+	if !slices.Equal(s.Dropped, wantDropped) || !slices.Equal(s.Owed, wantOwed) || s.Sync.NextBatch != "s1" {
+		t.Fatalf("dropped %+v, owed %+v, next batch %q", s.Dropped, s.Owed, s.Sync.NextBatch)
+	}
+}

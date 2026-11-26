@@ -164,6 +164,9 @@ type Verdict struct {
 	// OverLimit marks a team human's post delivered past recv_per_sender_minute: a human is not
 	// flood-limited (A 11.1), and the link counts and logs such a post, a runaway client's trace.
 	OverLimit bool
+	// NotBefore is when a delivered agent event may be shown, in wall milliseconds: NowMs within
+	// the receive window, the window's next free slot past it (Plan 00267 C4).
+	NotBefore int64
 }
 
 // Relayed is the relay's account of the human post it named: the coordinator who relayed it and
@@ -491,8 +494,10 @@ func (j Judge) agent(v Verdict) Verdict {
 		// Dropped here, a relay is lost, as nothing sends it again.
 	case j.stale(v):
 		return drop(v, ReasonStale)
-	case !j.admit(v.Event.Sender):
-		return drop(v, ReasonRate)
+	default:
+		// Past the receive window an agent's event is held to the window's next free slot, never
+		// dropped (Plan 00267 C4).
+		v.NotBefore = j.Flood.Reserve(v.Event.Sender, j.Roster.Limits.RecvPerSenderMinute, ReceiveWindowMs, j.NowMs)
 	}
 	if isAnswer {
 		v.Answer = &answer

@@ -189,7 +189,7 @@ func (e *Engine) pick(ctx context.Context) (*job, time.Duration) {
 // handle), its deliverable items and whether its facts alone are due; on the state goroutine.
 // A restored item still to be fetched waits out a failed re-fetch's backoff.
 func (e *Engine) look() ([]looked, time.Duration) {
-	now := e.cfg.Clock.Boot()
+	now, wall := e.cfg.Clock.Boot(), e.cfg.Clock.WallMS()
 	var (
 		out []looked
 		due time.Duration
@@ -199,7 +199,7 @@ func (e *Engine) look() ([]looked, time.Duration) {
 		if !eligible(h, nil) || h.team == nil || h.handle() == "" || !e.begun(h) {
 			continue
 		}
-		l, at := lookAt(h, now)
+		l, at := lookAt(h, now, wall)
 		if hold := e.coalescing.dueAt(h.delivery.arrivals(l.items, now)); hold > now {
 			// The team's items wait out the coalesce window (Plan 00267 Tasks 7.1, 7.5), its
 			// trailing facts with them.
@@ -219,12 +219,19 @@ func (e *Engine) look() ([]looked, time.Duration) {
 	return out, due
 }
 
-// lookAt is one team's look at now, and the earliest time it falls due (0 for none).
-func lookAt(h *held, now time.Duration) (looked, time.Duration) {
+// lookAt is one team's look at now (wall on the wall clock), and the earliest time it falls due
+// (0 for none). An item held to a later slot (Plan 00267 C3) waits for it.
+func lookAt(h *held, now time.Duration, wall int64) (looked, time.Duration) {
 	l := looked{job: job{id: h.id, h: h, tm: h.team, known: map[string]bool{}}}
 	var due time.Duration
 	for _, p := range h.store.Pending {
 		if p.Handed != nil || p.Held {
+			continue
+		}
+		if p.NotBefore > wall {
+			if at := now + heldWait(p.NotBefore-wall); due == 0 || at < due {
+				due = at
+			}
 			continue
 		}
 		_, known := h.content[p.ID]
@@ -241,6 +248,18 @@ func lookAt(h *held, now time.Duration) (looked, time.Duration) {
 		}
 	}
 	return l, due
+}
+
+// maxHeldWait bounds the loop's wait for a held item's slot, whatever time a store gives it:
+// the loop looks again then, so a slot further off is reached in steps.
+const maxHeldWaitMs = 24 * 60 * 60 * 1000
+
+// heldWait is ms as the loop's wait for a held slot, at most maxHeldWaitMs.
+func heldWait(ms int64) time.Duration {
+	if ms > maxHeldWaitMs {
+		return maxHeldWaitMs * time.Millisecond
+	}
+	return time.Duration(ms) * time.Millisecond
 }
 
 // plan is the job's re-fetch candidates: HUMAN items first, then by sent_ms.

@@ -166,6 +166,10 @@
 # teamchat a proof that keeps what a round found when its store write fails, so the next round
 # proves it (it no longer goes missing); a failed recv ack keeps its messages' content; a failed
 # Stop write is recorded at the next Stop. Sessions started after the rebuild get it.
+# Plan 00267 Task 3.1 (ccy 3.124.102, container 2.84.102): the same single rebuild gives the
+# image's teamchat rate and budget holds instead of drops. An agent's message past either limit
+# waits for the window's next free slot, then is delivered. Past pending's agent share it is
+# bounced `rate`, with a receipt to its sender. Sessions started after the rebuild get it.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC
@@ -218,6 +222,9 @@ playbooks/imports/play-claude-yolo.yml
 # Issue #443: the host kit and the LXC members' copies carry the same teamchat as the image
 # above (a refused proof, ack or Stop write loses nothing). Member sessions started after the
 # run get it.
+# Plan 00267 Task 3.1: the host kit and the LXC copies carry the same teamchat as the image
+# above (rate and budget hold a message instead of dropping it). Member sessions started after
+# the run get it.
 playbooks/imports/play-teamchat.yml
 
 # Plan 00265 R79: finishes the private-name guard's setup. It ASKS at the terminal for each
@@ -283,3 +290,9 @@ playbooks/imports/optional/common/play-photography.yml
 # /dev/null) is no longer pointed back at the shared file at each prompt, and the shared-history
 # redirect now lives in history-record.bash. It takes effect in terminals opened after the run.
 changed-plays
+
+# Plan 00266 Phase A (ccy 3.124.102): play-claude-yolo.yml (listed above) installs the launcher's
+# libraries and rebuilds ccy-teams with `approve`. Then, at a terminal, before the next launch of
+# each checkout with a .claude/ccy/mounts file: `ccy-teams approve mounts <checkout>` (read what it
+# shows first). Before the next reboot, for each restored session with compose files:
+# `ccy-teams approve compose <checkout>`. Check: `ccy-sessions restore --check` names any left.

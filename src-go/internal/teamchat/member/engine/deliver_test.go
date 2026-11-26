@@ -1086,3 +1086,23 @@ func TestARecvBetweenAuthAndTheEntryWins(t *testing.T) {
 		t.Fatalf("an awaiting entry for items a recv took: %+v", s.Awaiting)
 	}
 }
+
+// Plan 00267 C3, C4: an item held to a later slot (rate or budget) is not delivered over the
+// socket before it, and is delivered at it; the loop's timer falls due at the slot.
+func TestAHeldItemIsDeliveredAtItsSlot(t *testing.T) {
+	dw := newDeliveryWorld(t, state.DeliverySocket)
+	a := tid(t, "alpha")
+	dw.live(a)
+	it := peerItem(a, 1, startWall, "held")
+	it.Pending.NotBefore = dw.clk.WallMS() + 30_000
+	dw.persist(a, it)
+	dw.facts(true)
+	dw.settle()
+	if n := dw.dial.dialCount(); n != 0 {
+		t.Fatalf("%d dials before the held item's slot", n)
+	}
+	dw.advance(30 * time.Second)
+	if ev := dw.next(); !strings.Contains(ev.text, evID(1)) {
+		t.Fatalf("delivered at the slot: %+v", ev)
+	}
+}

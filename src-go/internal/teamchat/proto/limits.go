@@ -234,6 +234,23 @@ func (w *Window) Admit(key string, limit int64, spanMs, nowMs int64) bool {
 	return true
 }
 
+// Reserve admits one event of key at the window's next free slot (Plan 00267 C4) and is that
+// slot: now while fewer than limit are within the span, else the time the limit-th latest
+// admission leaves it. A reserved slot counts as admitted, so each later admission or
+// reservation is judged after it.
+func (w *Window) Reserve(key string, limit int64, spanMs, nowMs int64) int64 {
+	times := w.recent(key, spanMs, nowMs)
+	at := nowMs
+	if n := int64(len(times)); limit > 0 && n >= limit {
+		at = max(nowMs, times[n-limit]+spanMs)
+	}
+	if w.Times == nil {
+		w.Times = map[string][]int64{}
+	}
+	w.Times[key] = append(slices.Clone(times), at)
+	return at
+}
+
 // SeedWindow is a window holding times, the admissions of key a store remembers, oldest first
 // whatever order they are given (the caller's slice is not changed): the report window of a
 // `report`, seeded from `outbox.reports` (n3f-D6).

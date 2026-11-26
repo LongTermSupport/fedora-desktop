@@ -758,3 +758,29 @@ func TestRunEndedNone(t *testing.T) {
 		t.Fatalf("an exit that posts nothing: %v", err)
 	}
 }
+
+// Plan 00267 C3: a held agent item keeps its slot through a write; a slot on a HUMAN or TIMEOUT
+// item, which are never held, or one past what a time may be, is refused.
+func TestAHeldItemsSlotIsKeptAndChecked(t *testing.T) {
+	s := sampleStore(t)
+	s.Pending[2].NotBefore = 60_012
+	data, err := s.encode()
+	check(t, err)
+	var back Store
+	check(t, json.Unmarshal(data, &back))
+	if back.Pending[2].NotBefore != 60_012 {
+		t.Fatalf("the slot after a write: %+v", back.Pending[2])
+	}
+	for name, edit := range map[string]func(*Store){
+		"on a HUMAN":   func(s *Store) { s.Pending[0].NotBefore = 60_011 },
+		"on a TIMEOUT": func(s *Store) { s.Pending[1].NotBefore = 60_012 },
+		"past a time":  func(s *Store) { s.Pending[2].NotBefore = proto.MaxSentMs + 1 },
+		"negative":     func(s *Store) { s.Pending[2].NotBefore = -1 },
+	} {
+		s := sampleStore(t)
+		edit(&s)
+		if _, err := s.encode(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: encode = %v, want ErrInvalid", name, err)
+		}
+	}
+}

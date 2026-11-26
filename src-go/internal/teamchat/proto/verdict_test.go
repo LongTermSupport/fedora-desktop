@@ -433,8 +433,8 @@ func TestVerdictFloodedAnswers(t *testing.T) {
 	for i := range j.Flood.Times[workerID] {
 		j.Flood.Times[workerID][i] = testNow
 	}
-	if v = j.Judge(mustParse(t, event(workerID, 0, pingContent(VerbDone, []string{coordID}, commitRef, answerRel(pingEvent))))); v.Reason != ReasonRate || v.Answer != nil {
-		t.Fatalf("a flooded done = %+v", v)
+	if v = j.Judge(mustParse(t, event(workerID, 0, pingContent(VerbDone, []string{coordID}, commitRef, answerRel(pingEvent))))); v.Outcome != Deliver || v.NotBefore != testNow+ReceiveWindowMs || v.Answer == nil {
+		t.Fatalf("a flooded done is held to the next free slot, its answer kept: %+v", v)
 	}
 	if v = j.Judge(mustParse(t, event(workerID, 0, pingContent(VerbAck, []string{coordID}, "", answerRel(pingEvent))))); v.Outcome != Record {
 		t.Fatalf("a flooded ack is still recorded: %+v", v)
@@ -445,14 +445,22 @@ func TestVerdictRate(t *testing.T) {
 	text := event(workerID, 0, textContent([]string{coordID}, ""))
 	checkFloodedVerdicts(t, map[string]verdictCase{
 		"the 60th":      {coordID, "", text, Deliver, "", KindPeer},
-		"the 61st":      {coordID, "", text, Drop, ReasonRate, ""},
+		"the 61st":      {coordID, "", text, Deliver, "", KindPeer},
 		"human flooded": {workerID, "", event(aliceID, 0, humanContent(mention(workerID))), Deliver, "", KindHuman},
 	}, map[string]int{"the 60th": 59, "the 61st": 60, "human flooded": 60})
+	ev := mustParse(t, text)
+	if v := floodedJudge(t, coordID, PurposeMain, workerID, 59).Judge(ev); v.NotBefore != testNow {
+		t.Errorf("the 60th is held: not before %d", v.NotBefore)
+	}
+	if v := floodedJudge(t, coordID, PurposeMain, workerID, 60).Judge(ev); v.NotBefore != testNow+ReceiveWindowMs {
+		t.Errorf("the 61st (Plan 00267 C4) is not before %d, want the window's next free slot %d", v.NotBefore, testNow+ReceiveWindowMs)
+	}
 }
 
 // A 11.1 (R64's follow-up): a team human is not flood-limited. A human post past
 // recv_per_sender_minute is delivered, in main and in questions, and the verdict says it was
-// over the limit, so the link counts and logs it; an agent past the limit is still dropped.
+// over the limit, so the link counts and logs it; an agent past the limit is held to the
+// window's next free slot (Plan 00267 C4).
 func TestVerdictHumanOverTheFloodLimitIsDelivered(t *testing.T) {
 	limit := int(testRoster(t).Limits.RecvPerSenderMinute)
 	rooms := map[string]struct{ self, event string }{
@@ -470,8 +478,8 @@ func TestVerdictHumanOverTheFloodLimitIsDelivered(t *testing.T) {
 		}
 	}
 	text := mustParse(t, event(workerID, 0, textContent([]string{coordID}, "")))
-	if v := floodedJudge(t, coordID, PurposeMain, workerID, limit).Judge(text); v.Outcome != Drop || v.Reason != ReasonRate || v.OverLimit {
-		t.Errorf("an agent over the limit = %v %q, over %v; want a rate drop", v.Outcome, v.Reason, v.OverLimit)
+	if v := floodedJudge(t, coordID, PurposeMain, workerID, limit).Judge(text); v.Outcome != Deliver || v.NotBefore <= testNow || v.OverLimit {
+		t.Errorf("an agent over the limit = %v %q, not before %d, over %v; want held", v.Outcome, v.Reason, v.NotBefore, v.OverLimit)
 	}
 }
 
@@ -483,8 +491,8 @@ func TestVerdictReceiveFlood(t *testing.T) {
 			t.Fatalf("event %d = %+v", i, v)
 		}
 	}
-	if v := j.Judge(content); v.Reason != ReasonRate {
-		t.Fatalf("event 61 = %+v", v)
+	if v := j.Judge(content); v.Outcome != Deliver || v.NotBefore != testNow+ReceiveWindowMs {
+		t.Fatalf("event 61 is held, not dropped = %+v", v)
 	}
 	if v := j.Judge(mustParse(t, event(adminID, 0, noticeContent(EventAdded, workerID, []string{coordID})))); v.Outcome != Deliver {
 		t.Fatalf("the admin is not flood-limited: %+v", v)

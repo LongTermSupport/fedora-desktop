@@ -307,11 +307,19 @@ func apply(s *state.Store, b team.Batch, now int64) (map[string]proto.Verdict, e
 		if verb := it.Verdict.Content.Ping.Verb; p.Item == records.KindPing && verb != "" {
 			p.Verb = &verb // n3d-D30: a ping's verb from its verdict
 		}
-		if err := s.AddPending(p); err != nil {
+		known[it.Pending.ID] = true
+		err := s.AddPending(p)
+		switch {
+		case err == nil:
+			added[it.Pending.ID] = it.Verdict
+		case p.NotBefore != 0 && errors.Is(err, state.ErrFull):
+			// A held item past pending's agent share bounces rate (Plan 00267 C4's bound).
+			if err := bounce(s, team.Bounce{ID: p.ID, Room: p.Room, From: p.From, SentMS: p.SentMS, Reason: proto.ReasonRate}, now); err != nil {
+				return nil, fmt.Errorf("engine: team %s: %w", b.Team, err)
+			}
+		default:
 			return nil, fmt.Errorf("engine: team %s: %w", b.Team, err)
 		}
-		known[it.Pending.ID] = true
-		added[it.Pending.ID] = it.Verdict
 	}
 	// An item awaiting proof was shown already; its proof, not a redaction, settles it.
 	awaiting := awaitingIDs(s)
@@ -329,20 +337,23 @@ func applyBounces(s *state.Store, b team.Batch, now int64) error {
 	if len(b.Bounces) == 0 {
 		return nil
 	}
-	s.PruneDropped(now - state.DroppedKeepMS)
 	for _, x := range b.Bounces {
-		added, err := s.AddDropped(state.Dropped{ID: x.ID, Room: x.Room, From: x.From, SentMS: x.SentMS, AtMS: now, Reason: x.Reason})
-		if err != nil {
-			return fmt.Errorf("engine: team %s: %w", b.Team, err)
-		}
-		if !added {
-			continue
-		}
-		if err := s.AddOwed(state.Owed{Of: x.ID, To: x.From, State: proto.ReceiptBounced, Reason: x.Reason, AtMS: now}); err != nil {
+		if err := bounce(s, x, now); err != nil {
 			return fmt.Errorf("engine: team %s: %w", b.Team, err)
 		}
 	}
 	return nil
+}
+
+// bounce is x in s at now: listed once in the drop ledger, past its keep pruned first, and a
+// bounced receipt owed to its sender when it is new there; a full list refuses.
+func bounce(s *state.Store, x team.Bounce, now int64) error {
+	s.PruneDropped(now - state.DroppedKeepMS)
+	added, err := s.AddDropped(state.Dropped{ID: x.ID, Room: x.Room, From: x.From, SentMS: x.SentMS, AtMS: now, Reason: x.Reason})
+	if err != nil || !added {
+		return err
+	}
+	return s.AddOwed(state.Owed{Of: x.ID, To: x.From, State: proto.ReceiptBounced, Reason: x.Reason, AtMS: now})
 }
 
 // ownedFloors is B 2.3.2's floor rule: a room the store owes items in has its floor just below
