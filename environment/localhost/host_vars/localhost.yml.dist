@@ -105,6 +105,17 @@ passwordless_sudo_for_unattended_deploys: false
 #   n2: 198.51.100.0/24
 #   n3: 203.0.113.0/24
 
+# Optional: names the private-name guard must always block (CLAUDE/SecurityRules.md), such as
+# a client or project name that is not a team name. play-git-hooks-security.yml joins them to
+# the team, member and container names this file declares (and the teams a bus host serves)
+# in <git dir>/private-terms-pinned. Every item must be vault-encrypted, or the play refuses
+# it: make one with `./vault.bash encrypt private_name_term` and paste the `!vault |` block it
+# prints as one list item. This file is gitignored; the vault guards a forced add or a copy.
+# private_name_terms:
+#   - !vault |
+#       $ANSIBLE_VAULT;1.2;AES256;localhost
+#       <encrypted-value-goes-here>
+
 # Optional MOK Password for Secure Boot (DisplayLink, NVIDIA, etc.)
 # Required when installing kernel modules with Secure Boot enabled
 # mok_password: !vault |

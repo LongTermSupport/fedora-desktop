@@ -39,6 +39,41 @@ func TestCreatePrivateIsOwnerOnlyAndRefusesAnExistingFile(t *testing.T) {
 	}
 }
 
+// The pinned list is replaced whole and owner-only, even over a file a looser mode left (os.Create
+// is 0666 less the umask), and nothing of the write is left beside it.
+func TestReplacePrivateIsOwnerOnlyAndWhole(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pinned")
+	f, err := os.Create(filepath.Clean(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := replacePrivate(path, []byte("new\n")); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %o, want 600", info.Mode().Perm())
+	}
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil || string(data) != "new\n" {
+		t.Fatalf("content %q %v", data, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("the directory holds %d entries (%v), want the list alone", len(entries), err)
+	}
+	if err := replacePrivate(filepath.Join(dir, "missing", "pinned"), []byte("x\n")); err == nil {
+		t.Fatal("a write into a missing directory succeeded")
+	}
+}
+
 func TestContainerIsTheWorkspaceCheckout(t *testing.T) {
 	for cwd, want := range map[string]bool{
 		"/workspace": true, "/workspace/.claude/worktrees/x": true, "/workspacey": false, "/home/u/repo": false, "": false,

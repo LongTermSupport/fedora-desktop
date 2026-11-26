@@ -1485,13 +1485,30 @@ before the move to v2. Filled in as causes are found.
   - Red: `teamchat_test.go` (a teamchat session with no pingbus, or pingbus 78, whose team and
     members must block; the pinned neighbour; the session that teaches no name) failed before
     the fix and passes after. Real tree: `refresh` learned 4 terms before, 19 after.
-- **Sweep owed (the owner's call):** with the fix, `tree HEAD` finds 23 hits of two newly
-  learned terms (this session's own team and one member handle) in plan 00161, 00209 and 00265
-  files. They were never guarded. Until they are replaced or allowlisted, the local
-  `qa-private-names` gate is red.
-- **Also owed:** the name's remaining lines on F44 (one append-only journal entry, and
-  history) are the owner's decision, asked through the coordinator 26 Nov.
-- **Severity:** high (a public repository). **Issue:** TBF. **State:** open.
+- **Sweep (55c2f34e6):** the 23 hits of the two newly learned terms were replaced by
+  placeholders. 2 hits remain, both in the 25 Nov journal entry, which is append-only: they wait
+  on the redaction route, the owner's decision (asked through the coordinator 26 Nov), as do the
+  name's lines in history.
+- **The neighbour's name is not yet pinned:** until the host runs the play below, the other
+  team's name that came back in batch 3 and 23 is in no list here, so the guard cannot see it.
+- **Fail closed (batch 23 qa-reviewer item 2):** a bus client that is installed but cannot be
+  started (anything but `exec.ErrNotFound`) was read as absent, so a v2 session whose teamchat
+  failed to start passed on host names. It is now exit 2, in a container and outside one. The
+  container check `len(fresh) == 0` could never fire (host names are always learned); a
+  container with no bus client installed now needs a team or member name, learned (this run or
+  stored) or pinned. teamchat not on PATH stays "absent": the launcher links it only for a v2
+  member session (Dockerfile, `optional/teamchat`). Red then green:
+  `TestABusClientThatCannotStartIsAHardFailure`,
+  `TestAContainerWithNoBusClientNeedsABusNameOrAPin`.
+- **The pinned list is written by a play:** `play-git-hooks-security.yml` runs
+  `qa-private-names pin`, which writes `<git common dir>/private-terms-pinned` (0600, replaced
+  whole) from the inventory's team ids, display names, handles and containers (held to the
+  learned-name rule), the bus host's served teams (`/var/lib/teamchat-ctl/*`), and the owner's
+  vault-encrypted `private_name_terms` (a plaintext item is refused). It refuses a hand-written
+  list and an empty list on a machine with teams. Tests: `privatenames/pin_test.go`,
+  `tests/helpers/private_name_pin/` (the play's Jinja over real `!vault` items).
+- **Severity:** high (a public repository). **Issue:** TBF. **State:** fixed on v2-smoke;
+  waits on the host running the play (meta-deploy) and on the redaction route.
 
 ## R80: a worker cannot verify the owner's authorisation in the questions room
 

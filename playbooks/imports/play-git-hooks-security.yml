@@ -1,5 +1,9 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
+# The private-name guard's pinned list is written by scripts/qa-private-names.bash, which builds
+# the Go tool from the checkout.
+- import_playbook: play-golang.yml
+
 - hosts: desktop
   name: Configure Git Security Hooks
   become: false
@@ -9,6 +13,13 @@
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     repo_path: "{{ lookup('env', 'HOME') }}/Projects/fedora-desktop"
+    # A bus host's teamchat-ctl state root: one directory per team it serves
+    # (internal/teamchat/paths.CtlStateRoot; installplay's test holds the two equal).
+    pn_ctl_state_root: /var/lib/teamchat-ctl
+    # private_name_terms is a list, and only a list's items can each be vaulted.
+    pn_terms_is_list: >-
+      {{ private_name_terms is not defined or (private_name_terms is sequence
+      and private_name_terms is not string and private_name_terms is not mapping) }}
 
   tasks:
     - name: Audience guard — end play on a consumer install
@@ -76,3 +87,77 @@
     - name: Display git hooks status
       ansible.builtin.debug:
         msg: "✓ Git security hooks configured: {{ repo_path }}/scripts/git-hooks"
+
+    # The private-name guard's pinned list (Plan 00265 R79, src-go/qa/privatenames): a ccy
+    # container learns only its own session's teams from the bus, so this machine's inventory
+    # names the rest. `qa-private-names pin` writes <git common dir>/private-terms-pinned (0600,
+    # this user's, replaced whole), which every worktree and the ccy container mounting this
+    # checkout read. Every task that holds a name is no_log; pin prints only a count, and its
+    # stderr never holds a name, so the check after it shows that.
+    - name: Count the private_name_terms Items That Are Not Vault-Encrypted
+      ansible.builtin.set_fact:
+        pn_plaintext_items: "{{ (private_name_terms | default([]) | reject('vault_encrypted') | list | length) if pn_terms_is_list | bool else 0 }}"
+      no_log: true
+
+    - name: Refuse a private_name_terms Item That Is Not Vault-Encrypted
+      ansible.builtin.assert:
+        that:
+          - pn_terms_is_list | bool
+          - pn_plaintext_items | int == 0
+        fail_msg: >-
+          private_name_terms in host_vars must be a list whose every item is vault-encrypted;
+          {{ 'it is not a list' if not pn_terms_is_list | bool else (pn_plaintext_items ~ ' item(s) are plaintext') }}.
+          No value is shown. Make each item with `./vault.bash encrypt private_name_term`, paste the
+          `!vault |` block it prints as one list item, and run this play again.
+        quiet: true
+
+    - name: Read Whether This Machine Serves Teams
+      ansible.builtin.stat:
+        path: "{{ pn_ctl_state_root }}"
+      register: pn_ctl_root
+
+    - name: Read the Teams This Bus Host Serves
+      ansible.builtin.find:
+        paths: "{{ pn_ctl_state_root }}"
+        file_type: directory
+      become: true
+      register: pn_served
+      failed_when: false # FAIL-FAST-OK: no_log hides a failure's reason; the next task fails on it, showing only the module's message
+      no_log: true
+      when: pn_ctl_root.stat.exists
+
+    # A path find skipped is a team directory read or not read; its name is never printed.
+    - name: Check the Served Teams Were Read
+      ansible.builtin.assert:
+        that:
+          - not pn_ctl_root.stat.exists or (pn_served.files is defined and pn_served.skipped_paths | default({}) | length == 0)
+        fail_msg: >-
+          The teams this bus host serves could not all be read from {{ pn_ctl_state_root }}
+          ({{ pn_served.msg | default('some directories were skipped') }}), so the pinned list
+          would miss some.
+        quiet: true
+
+    - name: Write the Private-Name Guard's Pinned List
+      ansible.builtin.command:
+        argv: ["{{ root_dir }}/scripts/qa-private-names.bash", pin]
+        chdir: "{{ root_dir }}"
+        stdin: >-
+          {{ {'teamchat_teams': teamchat_teams | default([]),
+              'teamchat_lxc_members': teamchat_lxc_members | default([]),
+              'agent_bus_teams': agent_bus_teams | default([]),
+              'agent_bus_lxc_members': agent_bus_lxc_members | default([]),
+              'agent_bus_element_teams': agent_bus_element_teams | default([]),
+              'served_teams': pn_served.files | default([]) | map(attribute='path') | map('basename') | list,
+              'private_name_terms': private_name_terms | default([])} | to_json }}
+      register: pn_pin
+      changed_when: pn_pin.stdout is search('pinned list written')
+      failed_when: false # FAIL-FAST-OK: no_log hides a failure's reason; the next task fails on rc, showing the name-free stderr
+      no_log: true
+
+    - name: Check the Pinned List Was Written
+      ansible.builtin.assert:
+        that:
+          - pn_pin.rc == 0
+        fail_msg: >-
+          qa-private-names pin refused (exit {{ pn_pin.rc }}): {{ pn_pin.stderr | trim }}
+        success_msg: "{{ pn_pin.stdout | trim }}"

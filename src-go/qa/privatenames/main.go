@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -60,6 +61,8 @@ type Env struct {
 	// ReadFile and WriteFile reach the list and the allowlist (fs.ErrNotExist when absent).
 	ReadFile  func(path string) ([]byte, error)
 	WriteFile func(path string, data []byte) error
+	// ReplaceFile replaces a file whole and at once (a sibling renamed over it), owner-only.
+	ReplaceFile func(path string, data []byte) error
 	// CreateFile writes a new owner-only file and refuses an existing path with fs.ErrExist.
 	CreateFile func(path string, data []byte) error
 	// EvalSymlinks resolves a path's symbolic links (filepath.EvalSymlinks).
@@ -80,8 +83,10 @@ this public repository. The terms are learned from both agent buses ('pingbus st
 in <git dir>/private-terms, and never printed: findings name the place and the source only.
 
 No bus client reports the other teams its bus host serves, so those, and any other name the
-owner wants blocked, go in <git dir>/private-terms-pinned (one per line, # lines skipped). A
-pinned name always blocks, whatever its length, and is never copied into the learned list.
+owner wants blocked, are in <git dir>/private-terms-pinned (one per line, # lines skipped). A
+pinned name always blocks, whatever its length, and is never copied into the learned list. The
+host's play-git-hooks-security.yml writes it with 'pin': the names the machine's inventory
+knows and the owner's vault-encrypted private_name_terms. It is not edited by hand.
 
   refresh            learn the terms and write the list; print the count
   staged             the added lines of the staged change (pre-commit)
@@ -92,6 +97,11 @@ pinned name always blocks, whatever its length, and is never copied into the lea
   denylist FILE      write the terms that block a commit to FILE (new, mode 0600, outside the
                      repository) as go-qa-ci's public-safety denylist: one ERE per line for
                      grep -E -i, on this tool's word boundaries; print only the count
+  pin                write <git dir>/private-terms-pinned (mode 0600, replaced whole) from the
+                     inventory JSON on stdin (the play's call): team ids, display names,
+                     handles and containers held to the learned-name rule, the bus host's
+                     served teams, and private_name_terms as written; print only the count.
+                     Refuses a list written by hand and an empty one on a machine with teams
   -h, --help         this text
 
 go-qa-ci's GQACI_DENYLIST repository secret is set from the denylist mode's output; refresh it
@@ -128,8 +138,11 @@ func run(args []string, env Env, out, errOut *emit.Emitter) ExitCode {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	a := app{env: env, run: func(c proc.Cmd) (proc.Result, error) { return env.Run.Run(ctx, c) }}
-	if args[0] == "denylist" {
+	switch args[0] {
+	case "denylist":
 		return a.denylist(args[1:], errOut)
+	case "pin":
+		return a.pin(args[1:], out, errOut)
 	}
 	m, code, ok := a.matcher(errOut)
 	if !ok {
@@ -217,6 +230,9 @@ func (a app) terms(errOut *emit.Emitter) ([]Term, ExitCode, bool) {
 		return nil, fail(errOut, err), false
 	}
 	learned := withoutPublic(Union(fresh, withoutFirstWords(stored, fresh)), public)
+	if a.env.Container && !bus.found && !holdsBusName(learned) && len(pinned) == 0 {
+		return nil, fail(errOut, errors.New("in a ccy container no agent bus client is installed to ask, and the private-name guard knows no team or member name, learned or pinned; it has not run. On the host, run play-git-hooks-security.yml, which writes <git dir>/"+PinnedName)), false
+	}
 	if a.env.Container && bus.session && !holdsBusName(learned) && len(pinned) == 0 {
 		return nil, fail(errOut, errors.New("in a ccy container the agent bus reported a session but taught the private-name guard no team or member name, so the session's own team is unguarded; put the team's name in <git dir>/"+PinnedName+" (one per line)")), false
 	}
@@ -300,8 +316,11 @@ func (a app) busStatus() (busReport, error) {
 	}
 	for _, c := range clients {
 		res, err := a.run(proc.Cmd{Argv: []string{c.name, "status"}, Dir: a.env.Cwd})
-		if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
 			continue
+		}
+		if err != nil {
+			return busReport{}, fmt.Errorf("%s status could not be started: %w", c.name, err)
 		}
 		rep.found = true
 		switch res.Code {

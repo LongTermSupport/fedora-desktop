@@ -130,6 +130,15 @@ playbooks/imports/play-claude-yolo.yml
 # src-go tree id.
 playbooks/imports/play-teamchat.yml
 
+# Plan 00265 R79: writes the private-name guard's pinned list, <git dir>/private-terms-pinned
+# (mode 0600, yours), from the team, member and container names host_vars declares, the teams
+# this bus host serves (one sudo, to list /var/lib/teamchat-ctl), and your vault-encrypted
+# private_name_terms; set those first (localhost.yml.dist shows the form). It prints only a
+# count. It stops, naming the cause, on a plaintext private_name_terms item, on a pinned list
+# you wrote by hand (move its names into private_name_terms and delete the file first), or on
+# a machine with teams but no name specific enough to block.
+playbooks/imports/play-git-hooks-security.yml
+
 # Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that
 # is running, the session units are present, not enabled and not linked in
 # multi-user.target.wants. A stopped container is reported offline and skipped. It then ASKS,
