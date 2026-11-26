@@ -77,10 +77,14 @@ file and line.
   undecodable content and for unheard human posts. Built: `proto.Judge.Bounce` and
   `proto.RawAddressees` (`TestBounceSelection`, 20 cases), called by teamsync's `take`
   (`TestADropAddressedHereIsBounced`).
-- [ ] 🔄 **Task 2.3**: A durable receipt queue and its sender loop. The existing `m.read` queue
+- [x] ✅ **Task 2.3**: A durable receipt queue and its sender loop. The existing `m.read` queue
   stops losing when full. Built: the `m.read` queue, full, keeps each room's latest receipt
   (`TestAFullReceiptQueueKeepsEachRoomsLatest`), and the rule `project_store_refusal_lost`
-  holds every other store add to returning its refusal.
+  holds every other store add to returning its refusal. The owed receipts' sender posts each
+  in the reports room (D1) under `proto.ReceiptTxn`, and keeps it through any failure
+  (`TestAnOwedReceiptIsPostedInTheReportsRoom`, `TestARefusedOwedPostIsKeptAndPostedOnTheBackoff`,
+  `TestAnOwedReceiptPostedTwiceIsOneEvent`); a failed record moves nothing in memory
+  (`TestAFailedOwedSentKeepsTheReceipt`).
 
 ### Phase 3: never lose under limits (C3, C4)
 

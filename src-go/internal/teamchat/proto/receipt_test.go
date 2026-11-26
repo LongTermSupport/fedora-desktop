@@ -1,6 +1,7 @@
 package proto
 
 import (
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -267,5 +268,30 @@ func TestComposedReceiptIsReadInTheReports(t *testing.T) {
 		if _, err := ReceiptContent(r); refusalOf(err) != ReasonSchema {
 			t.Errorf("%s: %v, want a schema refusal", name, err)
 		}
+	}
+}
+
+// Plan 00267 Task 2.3: an owed receipt's transaction ID is derived from the receipt (its item,
+// addressee, state and reason, never its time), so a post that may have reached the server is
+// the same transaction after a restart and lands once; it is a store transaction ID.
+func TestReceiptTxn(t *testing.T) {
+	a := ReceiptTxn(pingEvent, workerID, ReceiptBounced, ReasonRate)
+	if a != ReceiptTxn(pingEvent, workerID, ReceiptBounced, ReasonRate) {
+		t.Errorf("the same receipt gave two txns")
+	}
+	others := []string{
+		ReceiptTxn(otherEvent, workerID, ReceiptBounced, ReasonRate),
+		ReceiptTxn(pingEvent, lxcWorkerID, ReceiptBounced, ReasonRate),
+		ReceiptTxn(pingEvent, workerID, ReceiptDelivered, ""),
+		ReceiptTxn(pingEvent, workerID, ReceiptBounced, ReasonExpired),
+		ReceiptTxn(pingEvent+workerID, "", ReceiptBounced, ReasonRate),
+	}
+	for _, o := range others {
+		if o == a {
+			t.Errorf("another receipt shares txn %s", a)
+		}
+	}
+	if !regexp.MustCompile(`^tc[0-9a-f]{32}$`).MatchString(a) {
+		t.Errorf("txn %s is not a store txn", a)
 	}
 }

@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.98 — container 2.84.99
+
+- A teamchat link now posts each receipt it owes a sender (an item it bounced) as a
+  `teamchat.receipt` in the team's reports room (Plan 00267 Task 2.3, decision D1). The receipt
+  stays in the seat's store until the homeserver has the post. A refused post, a reports room
+  not joined yet or none in the roster keeps it, with one log line, and it is posted again after
+  the team's backoff; nothing is dropped. Each receipt's post has a transaction ID derived from
+  the receipt, so a post made again after a restart lands once.
+
 ## 3.124.97 — container 2.84.98
 
 - `ccy-sessions restore` (no names) also brings back team seats (Plan 00265 R89). After the

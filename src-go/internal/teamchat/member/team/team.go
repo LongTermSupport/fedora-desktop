@@ -289,6 +289,11 @@ type Receipts interface {
 	PendingReceipts(t paths.TeamID) (rs []state.Receipt, changed <-chan struct{})
 	// ReceiptSent drops the receipt for id once the homeserver has it.
 	ReceiptSent(ctx context.Context, t paths.TeamID, id string) error
+	// PendingOwed is the team's owed `teamchat.receipt`s not yet posted (Plan 00267 C2), and a
+	// channel closed when they or the read receipts next change.
+	PendingOwed(t paths.TeamID) (owed []state.Owed, changed <-chan struct{})
+	// OwedSent removes the owed receipt o once the homeserver has its post.
+	OwedSent(ctx context.Context, t paths.TeamID, o state.Owed) error
 }
 
 // Team is one team goroutine, as the engine and the link see it.

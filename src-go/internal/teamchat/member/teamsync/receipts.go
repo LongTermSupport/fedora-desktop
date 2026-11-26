@@ -9,11 +9,12 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
-// startReceipts runs B 2.7.5's receipt sender beside the session's long-poll, on its client, and
-// is the stop that ends it and waits for it. A stopped team runs no session, so it sends no
-// receipt; nil Receipts sends none.
+// startReceipts runs B 2.7.5's receipt sender and the owed receipts' sender (Plan 00267 C2)
+// beside the session's long-poll, on its client, and is the stop that ends them and waits for
+// them. A stopped team runs no session, so it sends no receipt; nil Receipts sends none.
 func (s *sess) startReceipts(ctx context.Context) func() {
 	if s.t.cfg.Receipts == nil {
 		return func() {}
@@ -21,6 +22,7 @@ func (s *sess) startReceipts(ctx context.Context) func() {
 	ctx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
 	wg.Go(func() { s.receipts(ctx) })
+	wg.Go(func() { s.owed(ctx) })
 	return func() {
 		cancel()
 		wg.Wait()
@@ -119,4 +121,84 @@ func (s *sess) receipt(ctx context.Context, r state.Receipt) receiptOutcome {
 		t.log.Printf("the sent receipt was not recorded; it is sent again: %v", err)
 		return receiptRetry
 	}
+}
+
+// owed posts each receipt the engine owes as A 7.8's `teamchat.receipt` in the reports room
+// (Plan 00267 C2, decision D1), then reports it posted. Nothing is ever dropped: any failure
+// keeps it and waits the team's backoff, and a refused token waits for the next session.
+func (s *sess) owed(ctx context.Context) {
+	t := s.t
+	delay := time.Duration(0)
+	for {
+		owed, changed := t.cfg.Receipts.PendingOwed(t.cfg.Team)
+		retry := false
+	send:
+		for _, o := range owed {
+			switch s.postOwed(ctx, o) {
+			case receiptEnd:
+				return
+			case receiptRetry:
+				retry = true
+				break send
+			case receiptSent:
+				delay = 0
+			}
+		}
+		if !s.waitReceipts(ctx, changed, retry, &delay) {
+			return
+		}
+	}
+}
+
+// postOwed posts o once, under the transaction ID derived from it, so a post that reached the
+// homeserver and is made again (its record failed, the link restarted) is one event.
+func (s *sess) postOwed(ctx context.Context, o state.Owed) receiptOutcome {
+	t := s.t
+	err := s.sendOwed(ctx, o)
+	switch {
+	case ctx.Err() != nil:
+		return receiptEnd
+	case errors.Is(err, matrix.ErrAuthRefused):
+		t.log.Printf("owed receipts wait for the next session: %s", matrix.Cause(err))
+		return receiptEnd
+	case err != nil:
+		t.log.Printf("receipt for %s kept, posted again after a backoff: %v", o.Of, err)
+		return receiptRetry
+	}
+	switch err := t.cfg.Receipts.OwedSent(ctx, t.cfg.Team, o); {
+	case err == nil:
+		return receiptSent
+	case errors.Is(err, team.ErrRemoved):
+		t.log.Printf("owed receipts end: the team was removed")
+		return receiptEnd
+	case ctx.Err() != nil:
+		return receiptEnd
+	default:
+		t.log.Printf("the posted receipt for %s was not recorded; it is posted again: %v", o.Of, err)
+		return receiptRetry
+	}
+}
+
+// errReportsNotJoined is an owed receipt whose reports room this member has not joined yet.
+var errReportsNotJoined = errors.New("teamsync: the reports room is not joined yet")
+
+// errNoReportsRoom is an owed receipt with no reports room in the verified roster to go to.
+var errNoReportsRoom = errors.New("teamsync: the verified roster names no reports room")
+
+// sendOwed is one post of o in the reports room.
+func (s *sess) sendOwed(ctx context.Context, o state.Owed) error {
+	t := s.t
+	roster, verified := t.Roster()
+	switch {
+	case !verified || roster.Rooms.Reports == "":
+		return errNoReportsRoom
+	case t.ReportsRoom().State != team.ReportsJoined:
+		return errReportsNotJoined
+	}
+	content, err := proto.ReceiptContent(proto.Receipt{Of: o.Of, To: []string{o.To}, State: o.State, Reason: o.Reason, At: o.AtMS})
+	if err != nil {
+		return err
+	}
+	_, err = s.c.Send(ctx, roster.Rooms.Reports, proto.MessageType, proto.ReceiptTxn(o.Of, o.To, o.State, o.Reason), content.Compact())
+	return err
 }

@@ -48,7 +48,8 @@ type held struct {
 	counts  team.Counts
 	// delivery is what the delivery loop holds of the team: its trailing facts and backoff.
 	delivery deliveryState
-	// receipts is closed at the next change of the store's receipts; nil while none waits.
+	// receipts is closed at the next change of the store's read or owed receipts; nil while none
+	// waits.
 	receipts chan struct{}
 
 	// shownMissing are the missed nonces the team's last proven delivery cleared from
@@ -356,7 +357,7 @@ func (e *Engine) drop(h *held) error {
 	err = errors.Join(err, e.removeRoster(h))
 	delete(e.teams, h.id)
 	delete(e.sent, h.id)
-	h.tellReceipts(nil)
+	h.tellReceipts(receiptLists{})
 	e.publish()
 	e.arm()
 	return errors.Join(err, h.writer.Close(), h.lock.Close())
