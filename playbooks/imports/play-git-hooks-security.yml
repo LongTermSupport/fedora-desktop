@@ -116,25 +116,26 @@
         path: "{{ pn_ctl_state_root }}"
       register: pn_ctl_root
 
+    # A command, not find: a no_log task still prints its warnings, and find warns with the path of
+    # an entry it cannot read, which is a team's name. find(1)'s stderr is never shown, only rc.
     - name: Read the Teams This Bus Host Serves
-      ansible.builtin.find:
-        paths: "{{ pn_ctl_state_root }}"
-        file_type: directory
+      ansible.builtin.command:
+        argv: [find, "{{ pn_ctl_state_root }}", -mindepth, "1", -maxdepth, "1", -type, d, -printf, "%f\n"]
       become: true
       register: pn_served
-      failed_when: false # FAIL-FAST-OK: no_log hides a failure's reason; the next task fails on it, showing only the module's message
+      changed_when: false
+      failed_when: false # FAIL-FAST-OK: no_log hides a failure's reason; the next task fails on rc, never printing a name
       no_log: true
       when: pn_ctl_root.stat.exists
 
-    # A path find skipped is a team directory read or not read; its name is never printed.
     - name: Check the Served Teams Were Read
       ansible.builtin.assert:
         that:
-          - not pn_ctl_root.stat.exists or (pn_served.files is defined and pn_served.skipped_paths | default({}) | length == 0)
+          - not pn_ctl_root.stat.exists or pn_served.rc == 0
         fail_msg: >-
-          The teams this bus host serves could not all be read from {{ pn_ctl_state_root }}
-          ({{ pn_served.msg | default('some directories were skipped') }}), so the pinned list
-          would miss some.
+          The teams this bus host serves could not all be listed from {{ pn_ctl_state_root }}
+          (find exited {{ pn_served.rc | default('none') }}; its output is not shown, as it names
+          teams), so the pinned list would miss some.
         quiet: true
 
     - name: Write the Private-Name Guard's Pinned List
@@ -147,7 +148,8 @@
               'agent_bus_teams': agent_bus_teams | default([]),
               'agent_bus_lxc_members': agent_bus_lxc_members | default([]),
               'agent_bus_element_teams': agent_bus_element_teams | default([]),
-              'served_teams': pn_served.files | default([]) | map(attribute='path') | map('basename') | list,
+              'teamchat_site': teamchat_site | default(''),
+              'served_teams': pn_served.stdout_lines | default([]),
               'private_name_terms': private_name_terms | default([])} | to_json }}
       register: pn_pin
       changed_when: pn_pin.stdout is search('pinned list written')

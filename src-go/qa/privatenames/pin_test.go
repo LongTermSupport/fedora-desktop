@@ -17,12 +17,15 @@ const pinInventory = `{
     {"team": "quillworks", "name": "Quill Works Guild", "port": 8448,
      "coordinator": "inkwell-press.1+local.host",
      "duties": {"marblehead-yard.2+local.podman": "host"},
-     "humans": ["someone"], "description": "a team"},
+     "humans": ["someone"], "description": "a team",
+     "trust": {"org": "copperfield-labs", "exclude": ["ledgerline"],
+               "repos": [{"repo": "LongTermSupport/fedora-desktop"}, {"repo": "brightwater-co/tidepool-app"}]}},
     {"team": "dev", "state": "absent"}
   ],
-  "teamchat_lxc_members": [{"team": "quillworks", "container": "otterbank-box", "user": "agent", "seat": 1}],
+  "teamchat_lxc_members": [{"team": "quillworks", "container": "otterbank-box", "user": "agent", "seat": 1, "checkout": "/home/agent/x"}],
   "agent_bus_teams": [{"team": "harborlight", "port": 8008}],
-  "agent_bus_lxc_members": [{"team": "harborlight", "container": "fernhollow-ct"}],
+  "agent_bus_lxc_members": [{"team": "harborlight", "container": "fernhollow-ct", "user": "lanternfish", "repo": "boathouse", "host": "seaglass"}],
+  "teamchat_site": "driftwood-site",
   "agent_bus_element_teams": [{"team": "quillworks", "base_url": "http://192.0.2.1:8448"}, {"team": "saltmarsh"}],
   "served_teams": ["quillworks", "brambleton", "lost+found", "publicname"],
   "private_name_terms": ["Kestrel Analytics", "kiwi", "publicname"]
@@ -32,16 +35,18 @@ const pinInventory = `{
 // form the guard learns a handle: whole, without its site, its project), container and served
 // team, each specific and not public; and every owner item as written, whatever its length.
 var pinnedNames = []string{
-	"brambleton", "fernhollow-ct", "harborlight", "inkwell-press", "inkwell-press.1",
-	"inkwell-press.1+local.host", "Kestrel Analytics", "kiwi", "marblehead-yard",
-	"marblehead-yard.2", "marblehead-yard.2+local.podman", "otterbank-box", "publicname",
-	"Quill Works Guild", "quillworks", "saltmarsh",
+	"boathouse", "brambleton", "brightwater-co", "copperfield-labs", "driftwood-site",
+	"fernhollow-ct", "harborlight", "inkwell-press", "inkwell-press.1",
+	"inkwell-press.1+local.host", "Kestrel Analytics", "kiwi", "lanternfish", "ledgerline",
+	"marblehead-yard", "marblehead-yard.2", "marblehead-yard.2+local.podman", "otterbank-box",
+	"publicname", "Quill Works Guild", "quillworks", "saltmarsh", "seaglass", "tidepool-app",
 }
 
 // allPinNames are every invented name above, none of which may ever be printed.
 var allPinNames = []string{
 	"quillworks", "quill works", "inkwell", "marblehead", "otterbank", "harborlight",
-	"fernhollow", "saltmarsh", "brambleton", "kestrel", "kiwi", "publicname",
+	"fernhollow", "saltmarsh", "brambleton", "kestrel", "kiwi", "publicname", "copperfield",
+	"ledgerline", "brightwater", "tidepool", "lanternfish", "boathouse", "seaglass", "driftwood",
 }
 
 const allowlistFile = "/repo/" + AllowlistPath
@@ -86,7 +91,7 @@ func assertNoNamePrinted(t *testing.T, r rig) {
 }
 
 func TestPinWritesTheExactUnionSortedWithTheHeader(t *testing.T) {
-	fl := files{allowlistFile: "public_tokens:\n  - publicname\n"}
+	fl := files{allowlistFile: "public_tokens:\n  - publicname\n  - LongTermSupport\n"}
 	w := pinRig(pinInventory, fl)
 	if code := w.run("pin"); code != ExitOK {
 		t.Fatalf("exit %d: %s", code, w.text())
@@ -98,7 +103,7 @@ func TestPinWritesTheExactUnionSortedWithTheHeader(t *testing.T) {
 	if strings.Join(got, "\n") != strings.Join(pinnedNames, "\n") {
 		t.Fatalf("pinned names:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(pinnedNames, "\n"))
 	}
-	if !strings.Contains(w.out.String(), "16 names") {
+	if !strings.Contains(w.out.String(), "24 names") {
 		t.Fatalf("the count is not reported: %s", w.text())
 	}
 	assertNoNamePrinted(t, w.rig)
@@ -106,7 +111,7 @@ func TestPinWritesTheExactUnionSortedWithTheHeader(t *testing.T) {
 
 // The guard reads the file pin writes: every pinned name is read back as a pin.
 func TestThePinnedListPinWritesIsTheOneTheGuardReads(t *testing.T) {
-	fl := files{}
+	fl := files{allowlistFile: "public_tokens:\n  - publicname\n  - LongTermSupport\n"}
 	w := pinRig(pinInventory, fl)
 	if code := w.run("pin"); code != ExitOK {
 		t.Fatalf("exit %d: %s", code, w.text())

@@ -60,7 +60,7 @@ PROBE = textwrap.dedent(
     loader = DataLoader()
     variables = loader.load(built) or {}
     variables["pn_terms_is_list"] = trust_as_template(play["vars"]["pn_terms_is_list"])
-    variables["pn_served"] = {"files": [{"path": "/var/lib/teamchat-ctl/brambleton"}]}
+    variables["pn_served"] = {"rc": 0, "stdout_lines": ["brambleton"]}
     templar = Templar(loader=loader, variables=variables)
 
     def render(expr):
@@ -173,7 +173,7 @@ class TestNoNameReachesPlayOutput(unittest.TestCase):
 
     def test_the_tasks_that_print_name_no_variable_that_holds_a_name(self) -> None:
         tasks = self._tasks()
-        holders = ("private_name_terms }}", "teamchat_teams", "agent_bus", "pn_served.files", "skipped_paths }}")
+        holders = ("private_name_terms }}", "teamchat_teams", "agent_bus", "pn_served.stdout", "pn_served.stderr")
         for name in (REFUSE_TASK, CHECK_TASK):
             with self.subTest(task=name):
                 args = tasks[name]["ansible.builtin.assert"]

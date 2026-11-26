@@ -98,8 +98,8 @@ knows and the owner's vault-encrypted private_name_terms. It is not edited by ha
                      repository) as go-qa-ci's public-safety denylist: one ERE per line for
                      grep -E -i, on this tool's word boundaries; print only the count
   pin                write <git dir>/private-terms-pinned (mode 0600, replaced whole) from the
-                     inventory JSON on stdin (the play's call): team ids, display names,
-                     handles and containers held to the learned-name rule, the bus host's
+                     inventory JSON on stdin (the play's call): the team, member, container,
+                     repository and site names, held to the learned-name rule, the bus host's
                      served teams, and private_name_terms as written; print only the count.
                      Refuses a list written by hand and an empty one on a machine with teams
   -h, --help         this text
@@ -234,7 +234,7 @@ func (a app) terms(errOut *emit.Emitter) ([]Term, ExitCode, bool) {
 		return nil, fail(errOut, errors.New("in a ccy container no agent bus client is installed to ask, and the private-name guard knows no team or member name, learned or pinned; it has not run. On the host, run play-git-hooks-security.yml, which writes <git dir>/"+PinnedName)), false
 	}
 	if a.env.Container && bus.session && !holdsBusName(learned) && len(pinned) == 0 {
-		return nil, fail(errOut, errors.New("in a ccy container the agent bus reported a session but taught the private-name guard no team or member name, so the session's own team is unguarded; put the team's name in <git dir>/"+PinnedName+" (one per line)")), false
+		return nil, fail(errOut, errors.New("in a ccy container the agent bus reported a session but taught the private-name guard no team or member name, so the session's own team is unguarded; on the host, declare the team in host_vars (or its name as a vault-encrypted private_name_terms item) and run play-git-hooks-security.yml, which writes <git dir>/"+PinnedName)), false
 	}
 	if len(learned) > 0 {
 		if werr := a.env.WriteFile(listPath, []byte(Format(learned))); werr != nil {

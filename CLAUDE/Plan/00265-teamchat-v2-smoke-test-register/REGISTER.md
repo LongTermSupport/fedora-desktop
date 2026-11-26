@@ -1506,7 +1506,13 @@ before the move to v2. Filled in as causes are found.
   learned-name rule), the bus host's served teams (`/var/lib/teamchat-ctl/*`), and the owner's
   vault-encrypted `private_name_terms` (a plaintext item is refused). It refuses a hand-written
   list and an empty list on a machine with teams. Tests: `privatenames/pin_test.go`,
-  `tests/helpers/private_name_pin/` (the play's Jinja over real `!vault` items).
+  `tests/helpers/private_name_pin/` (the play's Jinja over real `!vault` items). 1461e61b3.
+- **Its qa-reviewer (FIX-BEFORE-MERGE, fixed in the next commit):** the served teams are listed
+  by a no_log `find(1)` command, not the find module, whose warnings name an unreadable entry
+  even under no_log; pin also reads the trusted owners and repositories, the LXC user, repo,
+  host and site, and `teamchat_site`; the guard's message no longer says to hand-edit the
+  pinned list. Owed by the owner before the run: the existing hand-written pinned list is
+  refused by pin, so its names move into `private_name_terms` and the file is deleted.
 - **Severity:** high (a public repository). **Issue:** TBF. **State:** fixed on v2-smoke;
   waits on the host running the play (meta-deploy) and on the redaction route.
 

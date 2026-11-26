@@ -41,23 +41,43 @@ type pinInput struct {
 	AgentBusTeams        []teamEntry `json:"agent_bus_teams"`
 	AgentBusLXCMembers   []lxcEntry  `json:"agent_bus_lxc_members"`
 	AgentBusElementTeams []teamEntry `json:"agent_bus_element_teams"`
+	TeamchatSite         string      `json:"teamchat_site"`
 	ServedTeams          []string    `json:"served_teams"`
 	PrivateNameTerms     []string    `json:"private_name_terms"`
 }
 
 // teamEntry is the part of a team declaration that names something: the id, the display name,
-// and the member handles it names (the coordinator, the duties' keys). humans are left out: they
-// are the people who watch the team, whose public logins appear in this repository by design.
+// the member handles it names (the coordinator, the duties' keys), and the repositories it
+// trusts (v1 keeps org, exclude and repos on the entry, v2 under trust). humans are left out:
+// they are the people who watch the team, whose public logins appear in this repository by
+// design. A url, a port and a network are addresses, not names.
 type teamEntry struct {
 	Team        string            `json:"team"`
 	Name        string            `json:"name"`
 	Coordinator string            `json:"coordinator"`
 	Duties      map[string]string `json:"duties"`
+	trustEntry
+	Trust trustEntry `json:"trust"`
 }
 
-// lxcEntry is the part of an LXC member declaration that names something: its container.
+// trustEntry is a team's trusted repositories: an owner, repositories left out, owner/repo pairs.
+type trustEntry struct {
+	Org     string   `json:"org"`
+	Exclude []string `json:"exclude"`
+	Repos   []struct {
+		Repo string `json:"repo"`
+	} `json:"repos"`
+}
+
+// lxcEntry is the part of an LXC member declaration that names something: its container, its
+// agent user, its repository and host words (v1's handle parts). The checkout is a path whose
+// last word is the repository, which repo or the served handles already give.
 type lxcEntry struct {
 	Container string `json:"container"`
+	User      string `json:"user"`
+	Repo      string `json:"repo"`
+	Host      string `json:"host"`
+	Site      string `json:"site"`
 }
 
 // pin writes the pinned list from the inventory on stdin (Plan 00265 R79).
@@ -123,7 +143,7 @@ func (a app) readPinInput() (pinInput, error) {
 // pinInputKeys are pinInput's JSON keys: the only ones the input may hold.
 var pinInputKeys = []string{
 	"agent_bus_element_teams", "agent_bus_lxc_members", "agent_bus_teams", "private_name_terms",
-	"served_teams", "teamchat_lxc_members", "teamchat_teams",
+	"served_teams", "teamchat_lxc_members", "teamchat_site", "teamchat_teams",
 }
 
 // decodeProblem says what is wrong with the input without quoting it.
@@ -176,13 +196,18 @@ func inventoryTerms(in pinInput, public []string) ([]string, int) {
 			for h := range t.Duties {
 				d.handle(h)
 			}
+			d.trust(t.trustEntry)
+			d.trust(t.Trust)
 		}
 	}
 	for _, list := range [][]lxcEntry{in.TeamchatLXCMembers, in.AgentBusLXCMembers} {
 		for _, m := range list {
-			d.add(SourceMember, m.Container)
+			for _, n := range []string{m.Container, m.User, m.Repo, m.Host, m.Site} {
+				d.add(SourceMember, n)
+			}
 		}
 	}
+	d.add(SourceMember, in.TeamchatSite)
 	for _, s := range in.ServedTeams {
 		if teamIDGrammar.MatchString(s) {
 			teams++
@@ -194,6 +219,19 @@ func inventoryTerms(in pinInput, public []string) ([]string, int) {
 		out = append(out, t.Text)
 	}
 	return out, teams
+}
+
+// trust adds a team's trusted owner, left-out repositories, and each owner/repo's two words.
+func (d *deriver) trust(tr trustEntry) {
+	d.add(SourceTeam, tr.Org)
+	for _, x := range tr.Exclude {
+		d.add(SourceTeam, x)
+	}
+	for _, r := range tr.Repos {
+		owner, repo, _ := strings.Cut(r.Repo, "/")
+		d.add(SourceTeam, owner)
+		d.add(SourceTeam, repo)
+	}
 }
 
 // pinnedUnion is both lists without duplicates (case-folded, the owner's spelling first), sorted
