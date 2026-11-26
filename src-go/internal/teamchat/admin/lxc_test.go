@@ -47,6 +47,17 @@ func (f fakeBoxes) Containers(context.Context) ([]string, error) {
 
 func (f fakeBoxes) State(_ context.Context, c string) (lxccmd.State, error) { return f.states[c], nil }
 
+// Start is the host systemd's start of lxc@<c>.service (lxc.HostUnits), which runs container c.
+func (f fakeBoxes) Start(_ context.Context, unit string) error {
+	c, isLXC := strings.CutPrefix(unit, "lxc@")
+	c, isService := strings.CutSuffix(c, ".service")
+	if !isLXC || !isService || f.states[c] == "" {
+		return errors.New("the fake has no container " + c)
+	}
+	f.states[c] = lxccmd.Running
+	return nil
+}
+
 func (f fakeBoxes) InitPID(context.Context, string) (int, error) {
 	return 0, errors.New("the fake has no pid")
 }
@@ -111,7 +122,7 @@ func (w *world) lxcSys(t *testing.T, decl string, boxes fakeBoxes) *System {
 	sys := w.sys()
 	sys.LXC = func() (*lxc.Deps, error) {
 		return &lxc.Deps{
-			Root: w.root, LockDir: w.root + paths.AdminRunDir, Clock: w, LXC: boxes,
+			Root: w.root, LockDir: w.root + paths.AdminRunDir, Clock: w, LXC: boxes, Units: boxes,
 			Pin: func(context.Context, string) (lxc.Root, error) {
 				r, err := guestroot.OpenDir(t.TempDir())
 				if err != nil {
@@ -704,6 +715,75 @@ func TestLXCReconcile(t *testing.T) {
 	}
 	out = w.lxcVerb(sys, "", "lxc", "reconcile")
 	if out.code != term.ExitFailure || !strings.Contains(out.stdout, "REFUSED\tbox-2/") || !strings.Contains(out.stderr, "1 start refused") {
+		t.Fatalf("refused: %d %q %s", out.code, out.stdout, out.stderr)
+	}
+}
+
+// lxc record-running and lxc start-recorded (Plan 00266 C.2, the boot unit): neither takes an
+// argument. The record holds the containers running when it was taken, and the start starts
+// exactly those, one line a recorded container; non-zero only when a start was refused.
+func TestLXCRecordRunningThenStartRecorded(t *testing.T) {
+	w := newWorld(t)
+	decl := lxcDecl(t)
+	boxes := stopped("box-1", "box-3")
+	boxes.states["box-2"] = lxccmd.Running
+	sys := w.lxcSys(t, decl, boxes)
+	for _, verb := range []string{"record-running", "start-recorded"} {
+		for _, args := range [][]string{{"extra"}, {"--container", "box-1"}} {
+			if out := w.lxcVerb(sys, "", append([]string{"lxc", verb}, args...)...); out.code != term.ExitUsage {
+				t.Errorf("%s %v: %d %s", verb, args, out.code, out.stderr)
+			}
+		}
+	}
+	if out := w.lxcVerb(sys, "", "lxc", "start-recorded"); out.code != term.ExitOK || out.stdout != "" {
+		t.Fatalf("no record: %d %q %s", out.code, out.stdout, out.stderr)
+	}
+	if err := os.MkdirAll(w.root+paths.AdminStateRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if out := w.lxcVerb(sys, "", "lxc", "record-running"); out.code != term.ExitOK || out.stdout != "RECORDED\tbox-2\n" {
+		t.Fatalf("record: %d %q %s", out.code, out.stdout, out.stderr)
+	}
+	boxes.states["box-2"] = lxccmd.Stopped
+	out := w.lxcVerb(sys, "", "lxc", "start-recorded")
+	if out.code != term.ExitOK || out.stdout != "STARTED\tbox-2\t\n" {
+		t.Fatalf("start: %d %q %s", out.code, out.stdout, out.stderr)
+	}
+	if boxes.states["box-1"] != lxccmd.Stopped || boxes.states["box-3"] != lxccmd.Stopped {
+		t.Fatalf("a container not recorded was started: %v", boxes.states)
+	}
+	box9, err := paths.ParseContainerName("box-9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lxcstate.WriteRunning(w.root, []paths.ContainerName{box9}); err != nil {
+		t.Fatal(err)
+	}
+	if out := w.lxcVerb(sys, "", "lxc", "start-recorded"); out.code != term.ExitOK || out.stdout != "MISSING\tbox-9\toffline: container missing\n" {
+		t.Fatalf("missing: %d %q %s", out.code, out.stdout, out.stderr)
+	}
+}
+
+// A refused start is its line and exit 1, naming the count.
+func TestLXCStartRecordedRefusal(t *testing.T) {
+	w := newWorld(t)
+	decl := lxcDecl(t)
+	// The fake refuses to start a container whose state it has as empty.
+	boxes := stopped("box-1")
+	boxes.states["box-1"] = ""
+	sys := w.lxcSys(t, decl, boxes)
+	if err := os.MkdirAll(w.root+paths.AdminStateRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	box1, err := paths.ParseContainerName("box-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lxcstate.WriteRunning(w.root, []paths.ContainerName{box1}); err != nil {
+		t.Fatal(err)
+	}
+	out := w.lxcVerb(sys, "", "lxc", "start-recorded")
+	if out.code != term.ExitFailure || !strings.HasPrefix(out.stdout, "REFUSED\tbox-1\t") || !strings.Contains(out.stderr, "1 container start refused") {
 		t.Fatalf("refused: %d %q %s", out.code, out.stdout, out.stderr)
 	}
 }

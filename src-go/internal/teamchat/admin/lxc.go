@@ -203,6 +203,61 @@ func lxcReconcile(ctx context.Context, e Env, args []string) term.ExitCode {
 	return term.ExitOK
 }
 
+// lxcRecordRunning is `lxc record-running` (Plan 00266 C.2), the boot unit's shutdown half:
+// lxc.RecordRunning, one `RECORDED\t<container>` line a container running now.
+func lxcRecordRunning(ctx context.Context, e Env, args []string) term.ExitCode {
+	d, code := lxcBootDeps(e, args, "lxc record-running")
+	if code != term.ExitOK {
+		return code
+	}
+	running, err := lxc.RecordRunning(ctx, d)
+	if err != nil {
+		return failWith(e, err)
+	}
+	var b strings.Builder
+	for _, c := range running {
+		b.WriteString("RECORDED\t" + c.String() + "\n")
+	}
+	return answer(e, b.String())
+}
+
+// lxcStartRecorded is `lxc start-recorded` (Plan 00266 C.2), the boot unit's start of the
+// containers that ran at the last shutdown: lxc.StartRecorded, one line a recorded container on
+// stdout, printed before any error; non-zero only when a start was refused.
+func lxcStartRecorded(ctx context.Context, e Env, args []string) term.ExitCode {
+	d, code := lxcBootDeps(e, args, "lxc start-recorded")
+	if code != term.ExitOK {
+		return code
+	}
+	lines, err := lxc.StartRecorded(ctx, d)
+	if err != nil {
+		return failWith(e, err)
+	}
+	var b strings.Builder
+	for _, l := range lines {
+		b.WriteString(l.String() + "\n")
+	}
+	if code = answer(e, b.String()); code != term.ExitOK {
+		return code
+	}
+	if n := lxc.BootRefusals(lines); n > 0 {
+		return fail(e.Stderr, term.ExitFailure, fmt.Sprintf("lxc start-recorded: %d container start refused; each REFUSED line names its cause", n))
+	}
+	return term.ExitOK
+}
+
+// lxcBootDeps is the Deps of a boot verb, which takes no argument.
+func lxcBootDeps(e Env, args []string, verb string) (lxc.Deps, term.ExitCode) {
+	sys, code := e.system()
+	if code != term.ExitOK {
+		return lxc.Deps{}, code
+	}
+	if len(args) > 0 {
+		return lxc.Deps{}, fail(e.Stderr, term.ExitUsage, verb+" takes no arguments")
+	}
+	return lxcDeps(e, sys)
+}
+
 // lxcSeatVerbRun is a verb acting on one seat's unit, named by one --member C/K.
 func lxcSeatVerbRun(ctx context.Context, e Env, args []string, verb string,
 	act func(context.Context, lxc.Deps, paths.ContainerName, paths.SeatKey) error,

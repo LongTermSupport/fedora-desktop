@@ -113,6 +113,7 @@ func rootRuns() map[string]func(context.Context, Env, []string) term.ExitCode {
 		"health":     healthVerb, "element check": elementVerb(false), "element apply": elementVerb(true),
 		"lxc apply": lxcApply, "lxc restart": lxcRestart, "lxc start": lxcStart,
 		"lxc stop": lxcStop, "lxc reconcile": lxcReconcile,
+		"lxc record-running": lxcRecordRunning, "lxc start-recorded": lxcStartRecorded,
 		"backup": backupVerb, "backups": backupsVerb, "restore": restoreVerb,
 		"units list": unitsList, "units print": unitsPrint,
 		"human password": humanVerb(apply.OpHumanPassword), "human logout": humanVerb(apply.OpHumanLogout),

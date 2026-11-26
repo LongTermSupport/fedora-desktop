@@ -2,7 +2,8 @@
 // to SD9; DC17; SPEC-n2g SD10): the unit jobs and state of the teams' homeservers that apply,
 // remove and the health tick need, and the state, signal and jobs of the homeserver and the
 // restore's transient units that the backup and the restore need. A Manager holds one system-bus connection, opened on first use and dialled
-// again after it is lost; Host is its host.Systemd and Health its health.Units.
+// again after it is lost; Host is its host.Systemd, Health its health.Units, and Containers
+// the boot unit's start of an LXC container's lxc@ instance (Plan 00266 C.2).
 //
 // Trust: root acts on what this package reports, so every value systemd returns is checked for
 // its D-Bus type, a job's end is taken only from a JobRemoved sent by the bus name's current
@@ -128,6 +129,25 @@ func (m *Manager) Host() host.Systemd { return hostUnits{m} }
 
 // Health is the Manager as health.Units.
 func (m *Manager) Health() health.Units { return healthUnits{m} }
+
+// Containers is the Manager as the boot unit's container start (Plan 00266 C.2): Start of an
+// instance of LXC's own lxc@.service and nothing else, so `lxc start-recorded` runs a container in
+// the host's mount namespace, never in its own unit's private one.
+func (m *Manager) Containers() ContainerUnits { return ContainerUnits{m} }
+
+// ContainerUnits starts lxc@<container>.service, for a container name lxc accepts.
+type ContainerUnits struct{ m *Manager }
+
+// lxcInstance is lxc@<container>.service, the container in lxccmd's and paths' grammar.
+var lxcInstance = regexp.MustCompile(`\Alxc@[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\.service\z`)
+
+// Start starts the container's lxc@ instance and waits for its job.
+func (c ContainerUnits) Start(ctx context.Context, unit string) error {
+	if !lxcInstance.MatchString(unit) {
+		return fmt.Errorf("%w: %q is not an lxc@ container unit", ErrUnitName, unit)
+	}
+	return c.m.checkedJob(ctx, "start", managerStartUnit, unit)
+}
 
 // Close closes the connection if one is open.
 func (m *Manager) Close() error {
@@ -466,6 +486,11 @@ func (m *Manager) job(ctx context.Context, verb, method, unit string) error {
 	if err := checkUnit(unit); err != nil {
 		return err
 	}
+	return m.checkedJob(ctx, verb, method, unit)
+}
+
+// checkedJob is job for a unit its caller has checked.
+func (m *Manager) checkedJob(ctx context.Context, verb, method, unit string) error {
 	what := verb + " " + unit
 	s, err := m.connect(ctx)
 	if err != nil {

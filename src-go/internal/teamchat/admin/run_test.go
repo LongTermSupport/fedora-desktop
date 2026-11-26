@@ -100,7 +100,7 @@ func specVerbs() map[string]Class {
 	for _, v := range []string{"redact", "backup", "backups", "restore", "health", "check", "footprint"} {
 		add(ClassRoot, v)
 	}
-	add(ClassRoot, "lxc", "apply", "restart", "start", "stop", "reconcile")
+	add(ClassRoot, "lxc", "apply", "restart", "start", "stop", "reconcile", "record-running", "start-recorded")
 	add(ClassRoot, "migrate", "preflight", "stage", "fence", "fence-status", "capture", "carry", "commit",
 		"accept", "archive", "archive-check", "unfence", "rollback", "export", "export-verify")
 	add(ClassCtl, "ctl-child")

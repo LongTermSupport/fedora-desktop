@@ -25,13 +25,19 @@ func unitsList(_ context.Context, e Env, args []string) term.ExitCode {
 	return answer(e, b.String())
 }
 
-// unitsPrint is `units print <name>`: the named file's text, exactly as the play installs it.
+// unitsPrint is `units print [--no-container-start] <name>`: the named file's text, exactly as the
+// play installs it. The flag leaves the container start out of the boot unit; no other file
+// differs.
 func unitsPrint(_ context.Context, e Env, args []string) term.ExitCode {
 	known := "the files are " + strings.Join(unitfiles.Names(), ", ")
-	if len(args) != 1 {
+	startContainers := true
+	if len(args) > 0 && args[0] == unitfiles.NoContainerStartFlag {
+		startContainers, args = false, args[1:]
+	}
+	if len(args) != 1 || args[0] == unitfiles.NoContainerStartFlag {
 		return fail(e.Stderr, term.ExitUsage, "units print takes one file name: "+known)
 	}
-	f, found := unitfiles.Lookup(args[0])
+	f, found := unitfiles.LookupFor(args[0], startContainers)
 	if !found {
 		return fail(e.Stderr, term.ExitUsage, "units print: no file "+strconv.Quote(args[0])+": "+known)
 	}

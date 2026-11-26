@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.85 — container 2.84.94
+
+- teamchat in the image is built from sources that name the LXC boot unit's files (the record
+  of the containers running at shutdown, the record and boot units, a drop-in of `lxc@.service`)
+  and its host variable `teamchat_lxc_seat_restore_starts_containers` (Plan 00266 Task C.2). A
+  ccy session does not use them.
+
 ## 3.124.84 — container 2.84.93
 
 - teamchat in the image no longer names a record of the containers running at shutdown, which

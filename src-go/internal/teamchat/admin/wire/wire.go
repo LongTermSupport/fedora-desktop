@@ -154,7 +154,7 @@ func (m machine) system(digest string) (*admin.System, error) {
 		CtlIDs:     m.ctlIDs,
 		Health:     func() (admin.HealthTick, error) { return tick() },
 		Home:       admin.LookupHome,
-		LXC:        sync.OnceValues(func() (*lxc.Deps, error) { return m.lxcDeps(clock, ownerGroup) }),
+		LXC:        sync.OnceValues(func() (*lxc.Deps, error) { return m.lxcDeps(clock, ownerGroup, systemd.Containers()) }),
 		Backup:     backups,
 		// X33: team rotate-ca replaces the CA, the leaf and the LXC record as apply writes files.
 		RotateWrite: state.WriteFile,

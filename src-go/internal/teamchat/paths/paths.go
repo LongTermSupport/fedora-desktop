@@ -101,9 +101,11 @@ const (
 	// can, so it never meets a team's AdminState (C 3.9).
 	AdminLXCDir = AdminStateRoot + "/_lxc"
 	// LXCStartedFile is every seat `lxc start` started and `lxc stop` has not stopped, which
-	// `lxc reconcile` starts again (Plan 00266 C.2). It starts with an underscore, as
-	// AdminLXCDir does.
+	// `lxc reconcile` starts again (Plan 00266 C.2); LXCRunningFile is the containers that ran
+	// when the host last shut down, which `lxc start-recorded` starts at boot. Each starts with an
+	// underscore, as AdminLXCDir does.
 	LXCStartedFile = AdminStateRoot + "/_lxc-started.json"
+	LXCRunningFile = AdminStateRoot + "/_lxc-running.json"
 	CtlStateRoot   = "/var/lib/" + CtlUser
 	// TLSStateRoot holds each team's leaf certificate and key, the one place under /var/lib besides
 	// the status records that the health tick writes: it renews a leaf there while it can only read
@@ -134,6 +136,13 @@ const (
 	SyslogBackup         = Product + "-backup"
 )
 
+// LXCBootService starts the LXC seats again after a boot, and LXCRecordService records the
+// containers running at shutdown for it (Plan 00266 C.2).
+const (
+	LXCBootService   = Product + "-lxc-boot.service"
+	LXCRecordService = Product + "-lxc-record.service"
+)
+
 // Ansible names (D 3.7, 3.8). TeamPortField is the port's key in a HostVarTeams entry.
 const (
 	HostVarTeams        = "teamchat_teams"
@@ -141,11 +150,14 @@ const (
 	HostVarLXCMembers   = "teamchat_lxc_members"
 	HostVarElementTeams = "teamchat_element_teams"
 	HostVarMigrations   = "teamchat_migrations"
-	OnlyTeamsVar        = "teamchat_only_teams"
-	PlayFile            = "playbooks/imports/play-teamchat.yml"
-	ElementPlayFile     = "playbooks/imports/optional/common/play-teamchat-element.yml"
-	AnsibleTag          = Product
-	TeamPortField       = "port"
+	// HostVarLXCStartsContainers is whether the boot unit starts the containers that ran at the
+	// last shutdown (Plan 00266 C.2); false where the host's own IaC starts them.
+	HostVarLXCStartsContainers = "teamchat_lxc_seat_restore_starts_containers"
+	OnlyTeamsVar               = "teamchat_only_teams"
+	PlayFile                   = "playbooks/imports/play-teamchat.yml"
+	ElementPlayFile            = "playbooks/imports/optional/common/play-teamchat-element.yml"
+	AnsibleTag                 = Product
+	TeamPortField              = "port"
 )
 
 // The ccy session's fixed paths (D 3.6): the seat and membership mounts, and the root of its

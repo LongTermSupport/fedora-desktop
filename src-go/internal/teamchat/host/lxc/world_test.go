@@ -262,6 +262,36 @@ type fakeLXC struct {
 	found map[string]string
 }
 
+// fakeUnits is the host's systemd (Deps.Units): a start of lxc@<c>.service is recorded and runs
+// container c, unless stays holds it (a container whose start never reaches RUNNING); err fails a
+// unit's start.
+type fakeUnits struct {
+	lxc     *fakeLXC
+	started []string
+	err     map[string]error
+	stays   map[string]bool
+}
+
+func (u *fakeUnits) Start(_ context.Context, unit string) error {
+	if err := u.err[unit]; err != nil {
+		return err
+	}
+	u.started = append(u.started, unit)
+	c, isLXC := strings.CutPrefix(unit, "lxc@")
+	c, isService := strings.CutSuffix(c, ".service")
+	if !isLXC || !isService || u.stays[c] {
+		return nil
+	}
+	b, err := u.lxc.get(c)
+	if err != nil {
+		return err
+	}
+	u.lxc.mu.Lock()
+	defer u.lxc.mu.Unlock()
+	b.state = lxccmd.Running
+	return nil
+}
+
 func (f *fakeLXC) Containers(context.Context) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -536,6 +566,7 @@ type world struct {
 	t      *testing.T
 	host   string
 	lxc    *fakeLXC
+	units  *fakeUnits
 	roster *fakeRoster
 	bus    *fakeBus
 	clock  *fakeClock
@@ -584,6 +615,7 @@ func newWorld(t *testing.T) *world {
 		listen: []netip.Addr{netip.MustParseAddr(bridgeAddr)},
 	}
 	w.bus = &fakeBus{log: &w.log}
+	w.units = &fakeUnits{lxc: w.lxc}
 	w.lxc.log = &w.log
 	w.roster.log = &w.log
 	return w
@@ -645,6 +677,7 @@ func (w *world) deps() Deps {
 		LockDir:   filepath.Join(w.host, "lock"),
 		Clock:     w.clock,
 		LXC:       w.lxc,
+		Units:     w.units,
 		Pin:       w.pin,
 		Bus:       func(context.Context, Root) (guestbus.Systemd, error) { return w.bus, w.busErr },
 		Roster:    w.roster,

@@ -2,7 +2,8 @@
 // directory and the shared directory, each mode 0644 root (Plan 00246 INSTALL-PATH.md, stage A):
 // the base units of a team's homeserver (DESIGN-v2-C-host.md 3.2.3) and of its TLS terminator
 // (SPEC-cross-network X18a), the health and backup units and timers (C 3.11.1, 3.12.1), and the
-// homeserver's resolver, two files in the directory its unit binds. Go is their one source: `teamchat-admin units print` writes the
+// homeserver's resolver, two files in the directory its unit binds, and the two units that start
+// the LXC seats again after a boot (Plan 00266 C.2). Go is their one source: `teamchat-admin units print` writes the
 // text the play installs, so the bytes on a host are the bytes the unit gates judge
 // (v1names' units test).
 package unitfiles
@@ -197,8 +198,80 @@ func tmpfilesText() string {
 	return out.String()
 }
 
-// Files is every file the play installs, in the order `units list` gives them.
-func Files() []File {
+// NoContainerStartFlag is `units print`'s one flag: the file as a host whose own IaC starts its
+// LXC containers installs it (paths.HostVarLXCStartsContainers false, Plan 00266 C.2).
+const NoContainerStartFlag = "--no-container-start"
+
+// lxcService is LXC's own service, which starts the containers marked to start with the host and
+// stops every container at shutdown.
+const lxcService = "lxc.service"
+
+// recordUnit is paths.LXCRecordService (Plan 00266 C.2): nothing at boot, and at shutdown the
+// containers running then, which the boot unit starts at the next boot. A unit ordered after
+// another stops before it, so this one records while lxc.service still runs the containers. It
+// stays active once started (an inactive unit runs no ExecStop), and its own unit, not the boot
+// unit, takes the record: a boot unit that failed is inactive, and would leave the last record.
+const recordUnit = `[Unit]
+Description=Record the LXC containers running at shutdown, which ` + paths.LXCBootService + ` starts at the next boot
+# stops before lxc.service stops the containers: a unit ordered after another stops before it
+After=` + lxcService + `
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStop=` + paths.AdminBinaryPath + ` lxc record-running
+TimeoutStopSec=120
+` + v1names.InaccessiblePaths + `
+
+[Install]
+WantedBy=multi-user.target
+`
+
+// bootUnit is paths.LXCBootService (Plan 00266 C.2): at boot, the containers that ran at the last
+// shutdown started (when startContainers), then every recorded seat in a running container that
+// is down started again by `lxc reconcile`. It runs after multi-user.target, which wants it, so
+// its start never holds boot (unit-holds-boot-target), and it is bounded. Its private mount
+// namespace (the v1 paths made inaccessible) is no container's: `lxc start-recorded` has the host
+// systemd start each one as its lxc@ instance.
+func bootUnit(startContainers bool) string {
+	what, exec := "the LXC seats that are down again", ""
+	if startContainers {
+		what = "the LXC containers that ran at the last shutdown, then their seats"
+		exec = "ExecStart=" + paths.AdminBinaryPath + " lxc start-recorded\n"
+	}
+	return "[Unit]\n" +
+		"Description=After a boot, start " + what + "\n" +
+		"# after multi-user.target, which wants it, so its start never holds boot\n" +
+		"After=" + lxcService + " multi-user.target\n" +
+		"\n[Service]\n" +
+		"Type=oneshot\n" +
+		exec +
+		"ExecStart=" + paths.AdminBinaryPath + " lxc reconcile\n" +
+		"TimeoutStartSec=30min\n" +
+		v1names.InaccessiblePaths + "\n" +
+		"\n[Install]\n" +
+		"WantedBy=multi-user.target\n"
+}
+
+// containerDropInName is the drop-in of LXC's own lxc@.service, by the unit it extends.
+const containerDropInName = "lxc@.service.conf"
+
+// containerDropIn is paths.LXCContainerDropInFile (Plan 00266 C.2): every lxc@ instance, which
+// is how the boot unit starts a container, ordered before the record unit. systemd stops units in
+// the reverse of that order, so at shutdown the record unit records while every instance runs.
+const containerDropIn = `[Unit]
+# stops after ` + paths.LXCRecordService + `, which records the running containers first
+Before=` + paths.LXCRecordService + `
+`
+
+// Files is every file the play installs, in the order `units list` gives them, as a host whose
+// boot unit starts its containers has them.
+func Files() []File { return FilesFor(true) }
+
+// FilesFor is Files with the boot unit's container start in (startContainers) or left out: the
+// host variable teamchat_lxc_seat_restore_starts_containers, false where the host's own IaC starts its
+// containers. No other file differs.
+func FilesFor(startContainers bool) []File {
 	return []File{
 		{paths.ServerUnitTemplate, paths.ServerUnitTemplateFile, serverUnit()},
 		{paths.TLSUnitTemplate, paths.TLSUnitTemplateFile, terminatorUnit()},
@@ -209,6 +282,9 @@ func Files() []File {
 		{filepath.Base(paths.ResolverStubFile), paths.ResolverStubFile, resolverStub},
 		{filepath.Base(paths.ResolverFile), paths.ResolverFile, resolverStub},
 		{filepath.Base(paths.TmpfilesFile), paths.TmpfilesFile, tmpfilesText()},
+		{paths.LXCRecordService, paths.LXCRecordServiceFile, recordUnit},
+		{paths.LXCBootService, paths.LXCBootServiceFile, bootUnit(startContainers)},
+		{containerDropInName, paths.LXCContainerDropInFile, containerDropIn},
 	}
 }
 
@@ -222,9 +298,12 @@ func Names() []string {
 	return names
 }
 
-// Lookup is the file named name.
-func Lookup(name string) (File, bool) {
-	files := Files()
+// Lookup is the file named name, as Files has it.
+func Lookup(name string) (File, bool) { return LookupFor(name, true) }
+
+// LookupFor is the file named name, as FilesFor(startContainers) has it.
+func LookupFor(name string, startContainers bool) (File, bool) {
+	files := FilesFor(startContainers)
 	i := slices.IndexFunc(files, func(f File) bool { return f.Name == name })
 	if i < 0 {
 		return File{}, false

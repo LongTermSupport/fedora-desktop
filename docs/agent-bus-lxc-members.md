@@ -406,11 +406,23 @@ teamchat_lxc_members:
   seat's name in the play's `lxc apply` lines. `teamchat-admin lxc restart --member` restarts
   it, ending the session that runs.
 - **A started seat comes back after a reboot.** `lxc start` records the seat in a root-only
-  file on the host, and `teamchat-admin lxc stop --member` stops its session and forgets it.
+  file on the host; `teamchat-admin lxc stop --member` stops its session and forgets it, and so
+  does a seat leaving its team (`lxc apply --phase absent`).
   `teamchat-admin lxc reconcile [--container <name>]` starts each recorded seat whose container
   runs and whose session is not live, prints one line a seat (`STARTED`, `LIVE`, `STOPPED`,
   `REFUSED` with its cause), never starts a container, and exits non-zero only when a start was
   refused (Plan 00266 Task C.2).
+- **The play runs it at every boot** while an LXC member is declared present.
+  `teamchat-lxc-record.service` runs `teamchat-admin lxc record-running` at shutdown, before LXC
+  stops the containers, and records the running ones. `teamchat-lxc-boot.service` runs after
+  `multi-user.target` (so it never holds boot): `lxc start-recorded` starts exactly the recorded
+  containers, each as LXC's own `lxc@<container>.service` (the host's `lxc` package must ship
+  that template unit), waits up to a minute for each to run (`STARTED`, `RUNNING`, `MISSING`,
+  `REFUSED` a line), then `lxc reconcile`. A drop-in, `lxc@.service.d/teamchat.conf`, makes the
+  record unit stop before any `lxc@` container does. On a
+  host whose own IaC starts its containers, set `teamchat_lxc_seat_restore_starts_containers: false` in
+  its host_vars: the boot unit then runs only `lxc reconcile`, and that IaC calls
+  `teamchat-admin lxc reconcile` itself once its containers run.
 - **One entry is one seat.** A container may hold any number of entries, for any users and
   checkouts; a coordinator and a worker on one checkout are two entries with two seats. There is
   no `role`: the team's `coordinator` names the coordinator's handle.

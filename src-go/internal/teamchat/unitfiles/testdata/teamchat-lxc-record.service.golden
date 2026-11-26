@@ -1,0 +1,14 @@
+[Unit]
+Description=Record the LXC containers running at shutdown, which teamchat-lxc-boot.service starts at the next boot
+# stops before lxc.service stops the containers: a unit ordered after another stops before it
+After=lxc.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStop=/usr/local/sbin/teamchat-admin lxc record-running
+TimeoutStopSec=120
+InaccessiblePaths=<D 4.2's six v1 paths, each with its "-">
+
+[Install]
+WantedBy=multi-user.target
