@@ -189,8 +189,8 @@ requirement states the need and section 5 states the drop.
 - **B22.** Read receipts for a human's message only after its delivery is proven; pending
   receipts survive a link restart. New: v1 kept them in memory [R23; E16].
 - **B23.** Pacing and caps keep each delivery its own entry under the socket's duplicate filter
-  and rate bucket: at most one delivery every 2 s, a nonce in every delivery, at most 8 entries
-  and 12 KiB per delivery, body cap 2048 rendered bytes, per-sender flood budget, humans never
+  and rate bucket: at most one delivery every 2 s, a nonce in every delivery, at most 12 KiB
+  per delivery and no entry cap (Plan 00267 Task 7.6; `recv` keeps its 8), body cap 2048 rendered bytes, per-sender flood budget, humans never
   held back [E4, E8, E9, E13, E19].
 - **B24.** Humans first: within a delivery, HUMAN entries come before PEER and PING entries. New:
   v1 ordered strictly by time, so a human waited behind agent chatter [E20].

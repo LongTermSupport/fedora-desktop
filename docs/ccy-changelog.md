@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.92 — container 2.84.95
+
+- The `CCY_VERSION` comment, which the rebuild banner prints, is one short line for the current
+  release again; it had grown back to about 12,000 characters of history that this file already
+  holds. Nothing else changes.
+
 ## 3.124.91 — container 2.84.95
 
 - `ccy --help`, the launcher's `--teams` errors and the `ccy.env.local.dist` comment name

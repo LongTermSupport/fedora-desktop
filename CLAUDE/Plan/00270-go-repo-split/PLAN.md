@@ -205,6 +205,8 @@ questions and answers are in [OWNER-QUESTIONS.md](OWNER-QUESTIONS.md).
 ## Dependencies
 
 - Builds on GitHub issue #441 (its design is DESIGN-contained-mode.md) and #431.
+- Overlaps Plan 00262: this plan owns the split (00262's Phases 2 to 4), with no history (Q2)
+  and no wait for v1 removal (Q4). 00262 keeps its Phase 1, interim CI wins not covered here.
 - Meets Plan 00266 C.2 (`lxc@<name>.service`) in Task 5.4. Plan 00209's v1 retirement is not
   a dependency: the v1 bus stays in fedora-desktop (Q4), and Phase 7 is gated.
 - In-flight teamchat plans (00266, 00267, 00269) keep landing in `src-go/internal/teamchat/`

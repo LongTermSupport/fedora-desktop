@@ -1,6 +1,6 @@
 # Plan 00262: split tool repos
 
-**Status**: Proposed (awaiting owner decisions)
+**Status**: Not Started (awaiting owner decisions; the split itself is Plan 00270's, Phase 1 here)
 **Created**: 2026-11-23
 **Owner**: joseph
 **Priority**: Medium
@@ -24,6 +24,14 @@ owner wants the cc, ccy and teamchat tooling in a standalone repository that shi
 released binaries, downloaded straight into an LXC guest, with no fedora-desktop checkout or
 play there. Nothing starts before v2 lands; Plan 00146's token restart is proven on cc and ccy
 first, and LXC members are a near-future target, not a distant one.
+
+**Plan 00270 (go repo split) now owns the split itself** (its Phases 1 to 4 cover this plan's
+Phases 2 to 4, with kit, teamchat and ccy repositories), and decides it differently: no wait for
+v1 removal, since the new repositories carry v2 only and v1 stays here (00270's Q4), and no
+history carried (00270's Q2). What only this plan holds is Phase 1, the interim CI wins inside
+fedora-desktop (measure the Go gate, the Go cache in CI, parallel jobs, parallel helper tests),
+which need no split. Phases 2 to 4 here are not to be worked; they are kept as the proposal
+00270 builds on.
 
 ## Goals
 
