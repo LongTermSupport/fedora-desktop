@@ -508,7 +508,8 @@ func TestForgetTeamRefusesALinkedLock(t *testing.T) {
 	if err := os.Remove(lock); err != nil {
 		t.Fatal(err)
 	}
-	// Relative, so it stays inside the checkout: an os.Root follows such a link unless told not to.
+	// Relative, so it stays inside the checkout: an os.Root follows such a link at the last name,
+	// O_NOFOLLOW or not.
 	if err := os.Symlink("../../../elsewhere", lock); err != nil {
 		t.Fatal(err)
 	}
