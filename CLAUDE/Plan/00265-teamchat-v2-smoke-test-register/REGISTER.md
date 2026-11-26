@@ -612,7 +612,8 @@ filled in as each cause is known.
   the next batch: a dangling relative link at the lock gets its target created inside the
   checkout before the open is refused.
 - **Batch 22c `bf9ec613` (ci/v2-batch13): ready, held off F44.** It adds the `realClocks` row.
-  The reviewer's spot-check of that row passed, and CI run 45773214021 is green. It
+  The reviewer's spot-check of that row passed
+  ([report](subagent-reports/261126-qa-reviewer-batch22c-spotcheck.md)), and CI run 45773214021 is green. It
   fast-forwards from F44 and stays off it until the coordinator says.
 - **(3) fixed (on v2-smoke, after batch 13):** `remove` asks, while the team is still up and
   once its running sessions are off it, which stopped sessions name it on the agent bus (each
