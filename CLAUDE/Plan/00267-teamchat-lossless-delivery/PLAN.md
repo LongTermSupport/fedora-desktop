@@ -155,7 +155,7 @@ planned, not built; this phase builds it here and closes that task.
   the rest on its `<k> more pending` line (`TestADeliveryIsLimitedByVolumeOnly`,
   `TestNoCountOfEntriesLimitsADelivery`, `TestADeliveryIsLimitedByItsBytesOnly`). The fold
   bound `MaxFold` keeps 8 as its own constant, and one turn's re-fetch keeps its bound
-  (`maxRefetch`). `recv`'s own 8-item cap (LN4) is a verb's, not a delivery's (Task 7.8's survey).
+  (`maxRefetch`). `recv`'s own 8-item cap (LN4) is a verb's, not a delivery's: TURN-SURVEY.md.
 - [x] ✅ **Task 7.7**: One delivery carries every kind pending at once (HUMAN items, PEER
   messages, pings, notices, receipts, bounces, the trailing facts), each in its own section, so
   a turn reads it all. Built: each kind group of A 13.7's order is a section headed by
@@ -164,10 +164,10 @@ planned, not built; this phase builds it here and closes that task.
   `TestEveryKindPendingGoesInOneDeliveryInSections`); the corpus templates, the frame text
   (item 6), A 13.1 and 13.5, and the skill (both copies) say so. Receipts and bounces get their
   section with Task 7.2. One team per delivery stays: every team in one delivery is
-  its own design (Task 7.8's survey).
-- [ ] ⬜ **Task 7.8**: A survey of the whole agent-side surface for further turn savings
+  TURN-SURVEY.md item 1, its own design.
+- [x] ✅ **Task 7.8**: A survey of the whole agent-side surface for further turn savings
   (deliveries, verb outputs, `status`, `recv` and `verify` outputs, the skill's procedures):
-  each opportunity with its saving and its cost, in `TURN-SURVEY.md` in this plan folder.
+  each opportunity with its saving and its cost, in [TURN-SURVEY.md](TURN-SURVEY.md).
 
 ## Success Criteria
 
