@@ -131,8 +131,10 @@ func scoped(reading registry.Reading, names []string) (registry.Reading, error) 
 // staleNote is what to say of a record no restore can ever start: one with no conversation to
 // resume that is not marked to start fresh without one. Every later restore would fail on it
 // until it is removed, so the note says how.
-func staleNote(rec registry.Record, why string) string {
-	if why != whyNoConversation || rec.FreshIfNoConversation {
+// A record refused for a conversation recorded under another name is not stale: its refusal
+// names the way to resume it or to start it fresh (conversation.ElsewhereError).
+func staleNote(rec registry.Record, plan restorePlan) string {
+	if plan.why != whyNoConversation || plan.elsewhere || rec.FreshIfNoConversation {
 		return ""
 	}
 	return " " + rec.Name + " is a stale record: no restore can start it. Remove it with: ccy-sessions " + cmdForget + " " + rec.Name
@@ -144,6 +146,7 @@ func staleNote(rec registry.Record, why string) string {
 // about it (usage that could not be read).
 type restorePlan struct {
 	why, sentence, note string
+	elsewhere           bool
 	start               conversation.Start
 }
 
@@ -159,12 +162,13 @@ func (a *App) planRestore(rec registry.Record, file string) restorePlan {
 	}
 	start, err := conversation.StartPlan(rec, conversation.Here(a.Getenv))
 	var argsErr *conversation.ArgsError
+	var elsewhere *conversation.ElsewhereError
 	switch {
 	case errors.As(err, &argsErr):
 		return restorePlan{why: whyArgumentsUnknown, sentence: "the arguments to restore it with could not be worked out: " +
 			err.Error() + keptAt(file)}
 	case err != nil:
-		return restorePlan{why: whyNoConversation, sentence: err.Error() + keptAt(file)}
+		return restorePlan{why: whyNoConversation, sentence: err.Error() + keptAt(file), elsewhere: errors.As(err, &elsewhere)}
 	}
 	return restorePlan{start: start}
 }
@@ -305,7 +309,7 @@ func (a *App) checkRestore(ctx context.Context) term.ExitCode {
 		}
 		plan := a.judgeRestore(ctx, rec, reading.Files[i])
 		if plan.why != "" {
-			a.fail(rec.Name + " cannot be restored: " + plan.sentence + staleNote(rec, plan.why))
+			a.fail(rec.Name + " cannot be restored: " + plan.sentence + staleNote(rec, plan))
 			lines.WriteString(rec.Name + checkLineUnrestorable + plan.why + "\n")
 			refused = append(refused, rec.Name)
 			continue
@@ -529,7 +533,7 @@ func (r *restoreRun) record(ctx context.Context, rec registry.Record, file strin
 	}
 	plan := a.planRestore(rec, file)
 	if plan.why != "" {
-		a.fail("cannot restore " + rec.Name + ": " + plan.sentence + staleNote(rec, plan.why))
+		a.fail("cannot restore " + rec.Name + ": " + plan.sentence + staleNote(rec, plan))
 		r.notStarted(entry, plan.why)
 		return
 	}

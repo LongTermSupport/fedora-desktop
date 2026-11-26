@@ -2593,7 +2593,8 @@ exported error of `internal/conversation` outside that package. Uses are matched
 `types.Info`, so a call, a function value and a variable holding an error are all seen.
 
 **It also flags**, in `conversation.StartPlan` itself, a use of `FreshArgs` when `StartPlan`
-never calls `recordedElsewhere`. fedora-desktop#431: a renamed teamchat session, marked
+never calls `recordedElsewhere` keeping what it found (a call as a statement, or one whose first
+result goes to `_`, does not count). fedora-desktop#431: a renamed teamchat session, marked
 `fresh-if-no-conversation`, had no record under its new name and no seat record, so it was
 started fresh while its checkout's agent-bus record under its old name held its conversation. A
 restore finds a conversation by keys (the session name, the system its teams are on) that a
@@ -2604,6 +2605,10 @@ refused, naming each record found and the repair.
 **Not caught**: a start decided from the text of `conversation.For`'s error or from an error
 type the package exports (its `ArgsError` marks arguments that could not be worked out, which
 is not a lookup error), and start arguments built by hand without the registry's builders.
+Nor does it follow `recordedElsewhere`'s kept result to the fresh start: a `StartPlan` that keeps
+it and then starts fresh whatever it holds (logs it, say) passes. That needs a data-flow check
+from the result to the branch that reaches `FreshArgs`, which `go/analysis` gives only through
+SSA, a weight this one function does not repay; the tests of `elsewhere_test.go` hold it.
 The bash launcher builds no restore arguments (the Go restore passes them), so the class has
 no shell or Python side.
 
@@ -2636,6 +2641,10 @@ do not decide a start, and the rule would flag reads that carry no hazard.
   fresh start the rule's first half already holds to `StartPlan`. Green: `StartPlan` asks
   `recordedElsewhere`; `conversation.TestStartPlanRefusesARenamedTeamchatSessionAndResumesItOnceItsSeatsAreSet`
   and the four other tests of `elsewhere_test.go` reproduce the defect and its bounds.
+- fedora-desktop#431 review, red: fixtures `fix/ignored/internal/conversation` (the call as a
+  statement) and `fix/discarded/internal/conversation` (its findings assigned to `_`, its error
+  kept), each one finding while the rule took any call as asking. Green: the rule counts only a
+  call whose first result is kept; the real tree stays clean (`start.go` keeps `found`).
 
 ### project_screen_state_compared
 

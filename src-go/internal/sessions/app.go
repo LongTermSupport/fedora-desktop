@@ -220,7 +220,7 @@ func (a *App) run(args []string) term.ExitCode {
 		sub = args[0]
 	}
 	switch sub {
-	case "", "notify", cmdReboot, "restore", "set-going", "verify-restore", cmdDeclare, cmdWindDown, cmdForget:
+	case "", "notify", cmdReboot, "restore", "set-going", "verify-restore", cmdDeclare, cmdWindDown, cmdForget, cmdRetire:
 	case "-l", "--list":
 		if len(args) > 1 {
 			return a.usageError(fmt.Sprintf("'%s' takes no further arguments.", sub))
@@ -380,6 +380,8 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 		return a.windDownSessions(ctx, rest)
 	case cmdForget:
 		return a.forget(ctx, rest)
+	case cmdRetire:
+		return a.retireConversation(ctx, rest)
 	case "-l", "--list":
 		return a.list(ctx)
 	default:

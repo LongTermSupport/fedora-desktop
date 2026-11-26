@@ -347,8 +347,9 @@ launched without `--continue` comes back on the conversation it recorded, not fr
 
 **Provisioning can mark a never-run session to start fresh.** A record written by
 provisioning for a session the machine should keep running, before it has ever run, can
-carry the line `fresh-if-no-conversation=yes`. If no conversation is recorded for it (no
-`conversation.json`), the restore starts it fresh instead of refusing it: the same
+carry the line `fresh-if-no-conversation=yes`. If it has no conversation to resume (no
+`conversation.json` of its own, one whose conversation never took a turn, and none its seats
+name), the restore starts it fresh instead of refusing it: the same
 arguments, `--compose` and `--supervise` as a resume, no `--resume` and never `--continue`,
 and on a headless server the same SSH key unlock. A marked record whose conversation is
 recorded is resumed by its id as usual. The mark does not cover a launch without the bus or a
@@ -357,6 +358,17 @@ record keeps the mark. The restore says `started <name> fresh`, its manifest ent
 detail `fresh` and no resume id, `set-going` types nothing into it, and `restore --check`
 reports it `RESTORABLE`. Unmarked records are unchanged. Plan 00135 Phase 13 has the
 owner's decision.
+
+**Not while the checkout holds a conversation under another name.** A rename, or a move of a
+session's teams to teamchat, leaves its conversation in the checkout's `conversation.json`
+under the old name. So while the checkout records a conversation with a transcript (or an
+unreadable record) under a session name no record owns, the restore refuses the record,
+marked or not, and names each one, how to resume it as this session's, and how to start fresh
+on purpose with no terminal: `ccy-sessions retire-conversation CHECKOUT OLD-NAME` (it renames
+that file `conversation.retired.json`), then `ccy-sessions restore NAME` (an unmarked record
+is declared again with the mark first; the message gives the line). `ccy-sessions forget`
+retires the forgotten session's own record, so it holds back nothing; a session ended by
+`/exit` leaves its record, and the refusal names it (fedora-desktop#431).
 
 **`ccy-sessions declare` writes that record.** Run as the user whose session it is (never
 root), it writes the record a `ccy` launch with the same arguments in that folder would write

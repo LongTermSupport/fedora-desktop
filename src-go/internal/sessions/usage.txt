@@ -185,8 +185,29 @@ Usage:
                                                   whatever its name. Refused (exit 1) while a
                                                   live session has the name, or when two
                                                   records answer to it; exit 64 for a name
-                                                  with no record. One line on stdout:
+                                                  with no record. Its conversation.json in its
+                                                  checkout is retired too (renamed
+                                                  conversation.retired.json), first, so it
+                                                  does not hold back a fresh start there (see
+                                                  retire-conversation). One line on stdout:
                                                   "<name> FORGOTTEN"
+  ccy-sessions retire-conversation [--] CHECKOUT NAME
+                                                  retire the conversation record CHECKOUT
+                                                  keeps under session NAME (its
+                                                  conversation.json renamed
+                                                  conversation.retired.json, beside it), once
+                                                  that conversation is no session's: the
+                                                  restore refuses to start a session fresh
+                                                  while its checkout records a conversation
+                                                  under a name no record owns, which a rename
+                                                  leaves behind, and its message names this.
+                                                  Refused (exit 1) when a record answers to
+                                                  NAME (forget it instead), a live session has
+                                                  it, the live list cannot be read, or there
+                                                  is nothing to retire; exit 64 for a
+                                                  CHECKOUT that is not absolute or a NAME that
+                                                  is not a session's. One line on stdout:
+                                                  "<name> RETIRED"
   ccy-sessions -h|--help                          this text
 
 notify and reboot speak to each project through ITS OWN hooks-daemon CLI
@@ -213,8 +234,16 @@ it is named as a failure with how to bring it back by hand (ccy --resume in its 
 picker lists the conversations), and its record is kept. A record is always resumed: one whose
 launch did not continue a conversation is resumed on the one it recorded. The one exception
 is a record provisioning wrote with fresh-if-no-conversation=yes (declare
---fresh-if-no-conversation) for a session that has never run: with no conversation.json, it is started fresh (no --resume, never --continue; manifest
-detail "fresh", left alone by set-going), and restore --check calls it RESTORABLE.
+--fresh-if-no-conversation) for a session that has never run: with no conversation of its
+own (no conversation.json, or one whose conversation never took a turn) and none its seats
+name, it is started fresh (no --resume, never --continue; manifest detail "fresh", left alone
+by set-going), and restore --check calls it RESTORABLE. Not while its checkout records a
+conversation, with a transcript, under a session name no record owns (or one that cannot be
+read): a rename, or a move of its teams to teamchat, leaves the session's conversation there,
+so that record is refused, marked or not, naming each such conversation, how to resume it
+as this session's, and how to start fresh on purpose (retire-conversation, then the
+restore). Forgetting a session retires its own conversation record, so it holds back no
+later fresh start; one ended by /exit leaves its record, which the refusal names.
 Every record the restore could not start (no conversation, its folder gone, an unreadable
 record, a start that failed) is in this boot's restore manifest, so verify-restore reports it
 as NOT-STARTED and fails.

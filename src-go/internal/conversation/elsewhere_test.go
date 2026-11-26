@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 )
 
 // renamed is a ccy session renamed from ccy-proj: its checkout records ccy-proj's conversation,
@@ -38,8 +39,43 @@ func TestStartPlanRefusesARenamedSessionWhoseConversationIsUnderItsOldName(t *te
 		if got.Fresh {
 			t.Fatalf("marked %v: started fresh: %+v", marked, got)
 		}
-		mustSay(t, err, "ccy-renamed", "ccy-proj", id, recordPath(rec.Dir), "ccy --resume "+id+" in "+rec.Dir)
+		mustSay(t, err, "ccy-renamed", "ccy-proj", id, recordPath(rec.Dir), "ccy --resume "+id+" in "+rec.Dir,
+			"ccy-sessions retire-conversation "+rec.Dir+" ccy-proj")
+		if marked {
+			mustSay(t, err, "then ccy-sessions restore ccy-renamed starts it fresh")
+		} else {
+			mustSay(t, err, "ccy-sessions declare --name ccy-renamed --fresh-if-no-conversation --replace "+rec.Dir+" --",
+				"then ccy-sessions restore ccy-renamed starts it fresh")
+		}
 	}
+}
+
+// The way to start fresh on purpose holds the record's own launch: its arguments and its compose
+// answer go to declare as ccy arguments, so the declared record is the one that was refused.
+func TestStartPlanRefusalDeclaresTheRecordAsItWas(t *testing.T) {
+	rec := renamed(t)
+	rec.Args = []string{"--teams", "1@a b", "--network", "net"}
+	rec.Compose = "declined"
+	_, err := StartPlan(rec, none)
+	mustSay(t, err, "--replace "+rec.Dir+" -- --compose skip --teams '1@a b' --network net, then")
+}
+
+// A cc record is not one declare writes, so its refusal says to start a new conversation by hand.
+func TestStartPlanRefusalOfAnUnmarkedCCRecordSaysToStartItByHand(t *testing.T) {
+	checkout := t.TempDir()
+	write(t, filepath.Join(checkout, ".git", "HEAD"), "ref: refs/heads/main\n")
+	rec := record("cc-renamed", "cc", checkout, "--bus")
+	old := filepath.Join(checkout, ".claude/ccy/pingbus/sessions/cc-old", File)
+	write(t, old, recorded("cc-old", id))
+	home := t.TempDir()
+	where := at(home)
+	tdir, err := transcript.Dir(rec.Prefix, rec.Dir, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(tdir, id+".jsonl"), "{}\n")
+	_, err = StartPlan(rec, where)
+	mustSay(t, err, "cc-old", "ccy-sessions retire-conversation "+checkout+" cc-old", "then start a new conversation by hand: cc in "+checkout)
 }
 
 // The issue's own case: a teamchat (v2) seated session, renamed, whose v2 record and seat record

@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.88 — container 2.84.94
+
+- A restore that refuses a session because its checkout records a conversation under another
+  session name (#431) now names `ccy-sessions retire-conversation CHECKOUT NAME`, which retires
+  that record (renamed `conversation.retired.json`), and then the restore (an unmarked record is
+  declared again with `--fresh-if-no-conversation` first): a session is started fresh on purpose
+  with no terminal. The refused record is no longer called stale.
+- `ccy-sessions forget` retires the forgotten session's own conversation record too, so it holds
+  back no later fresh start in its checkout.
+
 ## 3.124.87 — container 2.84.94
 
 - A bare `ccy --teams` (or `cc --teams`, and with `--resume`) no longer offers a teamchat team

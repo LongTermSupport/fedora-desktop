@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/shellword"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 )
@@ -17,8 +18,8 @@ import (
 // own name on the other system): the session it names, the record's path, and its conversation
 // id, or why the record could not be read.
 type elsewhere struct {
-	name, path, id string
-	err            error
+	name, checkout, path, id string
+	err                      error
 }
 
 // recordedElsewhere is every agent-bus conversation record of rec's checkout that may be rec's
@@ -68,9 +69,9 @@ func recordedElsewhere(rec registry.Record, where Where) ([]elsewhere, error) {
 		case errors.Is(err, errNotRecorded), errors.Is(err, errNoTranscript):
 			continue
 		case err != nil:
-			found = append(found, elsewhere{name: e.Name(), path: loc.Path, err: err})
+			found = append(found, elsewhere{name: e.Name(), checkout: checkout, path: loc.Path, err: err})
 		default:
-			found = append(found, elsewhere{name: e.Name(), path: loc.Path, id: r.id})
+			found = append(found, elsewhere{name: e.Name(), checkout: checkout, path: loc.Path, id: r.id})
 		}
 	}
 	return found, nil
@@ -126,12 +127,52 @@ func elsewhereError(rec registry.Record, err error, found []elsewhere) error {
 	}
 	list := discover.RecordTeams(rec)
 	resume := fmt.Sprintf("  Resume it as %s's: %s --resume %s in %s, and the session records it under its own name", rec.Name, rec.Prefix, id, rec.Dir)
-	fresh := fmt.Sprintf("  If none is %s's: start it once by hand in %s (%s), and its own record answers every later restore", rec.Name, rec.Dir, rec.Prefix)
 	if list != "" {
 		resume = fmt.Sprintf("  Resume it as %s's: ccy-teams seats conversation %s --set %s, then ccy-sessions restore %s", rec.Name, list, id, rec.Name)
-		fresh = fmt.Sprintf("  If none is %s's: start it once by hand in %s: %s --teams %s --fresh", rec.Name, rec.Dir, rec.Prefix, list)
 	}
-	return fmt.Errorf("%s: %w; it is not started fresh: this checkout records a conversation under another session name, "+
+	return &ElsewhereError{Err: fmt.Errorf("%s: %w; it is not started fresh: this checkout records a conversation under another session name, "+
 		"which a rename (or a move of its teams to teamchat) leaves behind, so it may be this session's:\n%s\n%s\n%s",
-		rec.Name, err, strings.Join(lines, "\n"), resume, fresh)
+		rec.Name, err, strings.Join(lines, "\n"), resume, freshOnPurpose(rec, found))}
 }
+
+// ElsewhereError is StartPlan's refusal of a record whose checkout records a conversation under
+// another session name (elsewhereError): the record is not stale, since its message says how to
+// resume that conversation as its own or start it fresh on purpose.
+type ElsewhereError struct{ Err error }
+
+func (e *ElsewhereError) Error() string { return e.Err.Error() }
+
+func (e *ElsewhereError) Unwrap() error { return e.Err }
+
+// freshOnPurpose is how to start rec fresh when none of found is its conversation, with no
+// terminal: each record retired (ccy-sessions retire-conversation), then the restore, which
+// starts a marked record fresh; an unmarked ccy record is declared again marked first, with its
+// own launch arguments. A cc record is not one declare writes, so it is started by hand.
+func freshOnPurpose(rec registry.Record, found []elsewhere) string {
+	retire := make([]string, 0, len(found))
+	for _, f := range found {
+		retire = append(retire, shellword.Join([]string{"ccy-sessions", RetireVerb, f.checkout, f.name}))
+	}
+	steps := strings.Join(retire, ", ")
+	restore := "ccy-sessions restore " + shellword.Quote(rec.Name)
+	switch {
+	case rec.FreshIfNoConversation:
+		steps += ", then " + restore + " starts it fresh"
+	case rec.Prefix == membership.KindCcy:
+		declare := []string{"ccy-sessions", "declare", "--name", rec.Name, "--fresh-if-no-conversation", "--replace", rec.Dir, "--"}
+		if rec.Compose != "" {
+			compose, err := registry.ComposeArgs(rec.Compose)
+			if err != nil {
+				return fmt.Sprintf("  If none is %s's: %s, then declare it again marked --fresh-if-no-conversation (its record's %v)", rec.Name, steps, err)
+			}
+			declare = append(declare, compose...)
+		}
+		steps += ", then " + shellword.Join(append(declare, rec.Args...)) + ", then " + restore + " starts it fresh"
+	default:
+		steps += ", then start a new conversation by hand: " + rec.Prefix + " in " + rec.Dir
+	}
+	return fmt.Sprintf("  If none is %s's: %s", rec.Name, steps)
+}
+
+// RetireVerb is the ccy-sessions subcommand that retires a conversation record no session owns.
+const RetireVerb = "retire-conversation"
