@@ -159,6 +159,22 @@ func WaysOn(list string) string {
 		"  Fresh:  start a new conversation on purpose:    ccy --teams " + list + " --fresh"
 }
 
+// NeverUsed is whether the seats of list were never used in checkout: no named seat has a record
+// and no session held them all (CaseNoSession), so a plain launch naming them is refused and a
+// first launch says --fresh. Any other refusal of ForSeats means they were used, and is the
+// launch's to say; a record or state that cannot be read is an error.
+func NeverUsed(checkout, list string, where Where) (bool, error) {
+	_, err := ForSeats(checkout, list, where)
+	var seatErr *SeatError
+	switch {
+	case errors.As(err, &seatErr):
+		return seatErr.Case == CaseNoSession, nil
+	case err != nil:
+		return false, err
+	}
+	return false, nil
+}
+
 // TranscriptOf is the ccy transcript of the conversation id in checkout, refused when it is not
 // there, naming the path Claude Code reads it from.
 func TranscriptOf(checkout, id string) (string, error) {

@@ -1256,7 +1256,10 @@ are not given the limits.
 the seats recorded (`.claude/ccy/seat-conversations/`, written by the launch and at the session's
 end; `ccy-teams seats conversation <seats>` prints it). `--fresh` starts a new one on purpose.
 With none to name the launch exits 64 saying why, with the repair
-(`ccy-teams seats conversation <seats> --set <id>`) and `--fresh`. `--resume <id>` other than the
+(`ccy-teams seats conversation <seats> --set <id>`) and `--fresh`, so the first launch of a seat
+named in `--teams` says `--fresh`. A seat picked in the chooser (`ccy --teams <team>` or a bare
+`--teams`) that was never used starts fresh by itself, and ccy-teams' Start a ccy session adds
+`--fresh` when the seat it starts was never used in that checkout. `--resume <id>` other than the
 record needs `--rebind`; claude's `-c`/`--continue` is refused (it would resume the checkout's
 newest conversation, maybe another seat's), naming the plain form. A bare
 `ccy --resume --teams <seats>` is Claude Code's picker, as before. See

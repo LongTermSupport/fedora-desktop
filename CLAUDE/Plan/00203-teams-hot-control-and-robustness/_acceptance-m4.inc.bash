@@ -206,7 +206,7 @@ m4_launch() {
     exec {fd}<>"${fifo}" || return 1
     m2_adopt "${name}" "${fd}" "$(m4_ev "${name}")"
     command="$(printf '%q ' env "CCY_TEAMS_HOST_VARS=${M4_HOST_VARS}" "${M2_LAUNCHER}" --headless --no-restore \
-        --no-supervise --teams "${seat}@${M4_TEAM_A}" --prompt "Plan 00203 M4 acceptance" -- --input-format stream-json \
+        --no-supervise --teams "${seat}@${M4_TEAM_A}" --fresh --prompt "Plan 00203 M4 acceptance" -- --input-format stream-json \
         --output-format stream-json --verbose --model haiku)" || return 1
     command+="$(printf '<%q >%q 2>%q' "${fifo}" "${M4_EV}/${name}.out" "${M4_EV}/${name}.err")" || return 1
     command+="; echo \"\$?\" >$(printf '%q' "$(m4_ev "${name}.status")")"

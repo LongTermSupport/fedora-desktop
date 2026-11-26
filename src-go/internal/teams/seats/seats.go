@@ -14,6 +14,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
@@ -43,6 +44,8 @@ type Seats struct {
 	// Exec replaces this process with the launcher, in dir.
 	Exec     func(path string, argv []string, dir string) error
 	Launcher string
+	// NeverUsed is whether the seats refs names were never used in dir (conversation.NeverUsed).
+	NeverUsed func(dir, refs string) (bool, error)
 	// Roles makes a role change once it is agreed: live, and in a declared member's entry.
 	Roles *roles.Setter
 }
@@ -52,18 +55,32 @@ func New(h *host.Host, kit *flow.Kit, o *ops.Ops) *Seats {
 	return &Seats{
 		Kit: kit, Ops: o, Tmux: h.Tmux, Checkouts: h.Checkouts, Bus: h.Bus, Systemd: h.Systemd, Registry: h.Registry,
 		Here: h.Here, Exec: h.Exec, Launcher: h.Launcher,
+		NeverUsed: func(dir, refs string) (bool, error) {
+			return conversation.NeverUsed(dir, refs, conversation.Here(h.Getenv))
+		},
 		Roles: roles.New(h, kit, func(ctx context.Context, teams ...string) error { return o.ApplyTeams(ctx, teams) }, o.Locked),
 	}
 }
 
-// StartCcy replaces this process with the launcher, run in top with the given seat refs.
-// With no refs it is a bare `ccy --teams`, which lists the teams and lets the person choose.
+// StartCcy replaces this process with the launcher, run in top with the given seat refs, and
+// --fresh when they were never used there: a plain launch naming them would be refused (issue
+// 417). With no refs it is a bare `ccy --teams`, which lists the teams and lets the person choose.
+// A seat record that cannot be read starts nothing.
 func (s *Seats) StartCcy(top, refs string) error {
 	argv := []string{s.Launcher, ccyenv.FlagTeams}
 	said := "Starting ccy --teams"
 	if refs != "" {
 		argv = append(argv, refs)
 		said += " " + refs
+		fresh, err := s.NeverUsed(top, refs)
+		if err != nil {
+			s.Kit.Term.PrintError(err.Error())
+			return flow.Leave(term.ExitFailure)
+		}
+		if fresh {
+			argv = append(argv, registry.FlagFresh)
+			said += " " + registry.FlagFresh
+		}
 	}
 	s.Kit.Tell(said + " in " + s.Kit.Abbrev(top) + ".")
 	if err := s.Exec(s.Launcher, argv, top); err != nil {

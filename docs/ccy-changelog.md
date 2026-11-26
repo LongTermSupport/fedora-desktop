@@ -17,6 +17,24 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.70 — container 2.84.88
+
+- **Start a ccy session starts a new seat.** ccy-teams' Start a ccy session (a team's New
+  session) adds `--fresh` when the seat it starts was never used in that checkout (no seat record
+  and no session that held it), so a new seat starts instead of being refused 64; a used seat is
+  started plainly and resumes its conversation, and a seat record that cannot be read starts
+  nothing, naming it. Plan 00203's M3 and M4 acceptance launches, which name a new seat, pass
+  `--fresh`, and the docs say a named seat's first launch does. `ccy-teams` is rebuilt; the image
+  is unchanged (Plan 00265 R36, issue #417).
+
+## 3.124.69 — container 2.84.88
+
+- **A team taken down forgets its seats' conversations.** `ccy-teams remove` now removes the
+  team's seat conversation records (`.claude/ccy/seat-conversations/<team>/`) in every checkout
+  that holds seats or runs a session, so a team made again under the same name resumes nothing
+  of the old one; a record that cannot be removed fails the command, naming it. `ccy-teams` is
+  rebuilt; the image is unchanged (Plan 00265 R36, issue #417).
+
 ## 3.124.68 — container 2.84.88
 
 - **Files written whole never follow a planted link.** The shared atomic writer (`fsx`, used by

@@ -922,10 +922,11 @@ reset
 out="$(run_picker "$CHECKOUT" "|port 6167" "|Start a ccy session" "|new")"
 check "Start a ccy session offers the free seat, and a new one numbered after every numbered seat" "yes" \
     "$(grep -q 'proj\.dev+local\.podman   free' "$TEST_FZF_ROWS" && grep -q 'Seat 3@alpha   new' "$TEST_FZF_ROWS" && echo yes || echo no)"
-check "  and starts ccy --teams in the new one" "yes" "$(logged 'launcher --teams 3@alpha')"
+# A seat never used in the checkout starts --fresh: a plain launch naming it is refused (#417).
+check "  and starts ccy --teams in the new one, --fresh" "yes" "$(logged 'launcher --teams 3@alpha --fresh')"
 reset
 out="$(run_picker "$CHECKOUT" "|owner" "|Start a ccy session" "|free")"
-check "  or in the free one, from any row of the team" "yes" "$(logged 'launcher --teams dev@alpha')"
+check "  or in the free one, from any row of the team" "yes" "$(logged 'launcher --teams dev@alpha --fresh')"
 reset
 out="$(run_picker "$CHECKOUT" "|extra" "|Start a ccy session" "|ABORT")"
 # The refusal uses the words the team menu's unavailable line uses (Plan 00177 Task 10.1).
@@ -934,7 +935,7 @@ reset
 mkdir -p "$CHECKOUT/sub/dir"
 out="$(run_picker "$CHECKOUT/sub/dir" "|port 6167" "|Start a ccy session" "|new")"
 check "Start a ccy session from a subdirectory starts ccy at the checkout's top, where its seats are" "yes" \
-    "$(logged 'launcher --teams 3@alpha (in proj)')"
+    "$(logged 'launcher --teams 3@alpha --fresh (in proj)')"
 # A checkout in an LXC container's files, seen from the host, is the container's: no host or
 # podman session is offered or started there, whatever its origin covers.
 reset

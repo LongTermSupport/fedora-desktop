@@ -78,6 +78,9 @@ type Ops struct {
 	// whether it did.
 	SessionsIn func(ctx context.Context, team string) ([]string, error)
 	TakeOut    func(ctx context.Context, session, team string) bool
+	// ForgetTeam, when set, removes the records of the team's seats' conversations in every
+	// checkout that holds seats (conversation.ForgetTeam) once the team is down (issue 417).
+	ForgetTeam func(team string) error
 
 	// PlayLock takes the host's play lock, the one every play run shares; PlayLockWait bounds
 	// how long a flow waits for another run to let it go (Locked).

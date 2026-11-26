@@ -102,7 +102,7 @@ launch does not start.
    It then goes on as `ccy --teams <team>` (no seat), which shows this
    checkout's seats in the team and launches a session into the one you choose: the lowest
    free seat, or a new one, and then asks whether the seat is the team's coordinator (see below;
-   no sudo unless you change it). ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat instead. ccy remembers the seats: "use the previous
+   no sudo unless you change it). ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat instead; a named seat's first launch says `--fresh` (`ccy --teams <seat>@<team> --fresh`), because a plain launch naming a seat with no recorded conversation is refused ([ccy.md](ccy.md)). ccy remembers the seats: "use the previous
    configuration" at the Quick Launch prompt launches into them again (and records them in that
    session's own record, which is all a reboot restore reads: a restore never gives a session
    a team it was not launched into), and an explicit `--teams` overrides them. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team
@@ -605,6 +605,7 @@ A ccy session is in a team only when it is launched with it, and in no team othe
 ccy --teams                                     # choose teams from a list, with descriptions (Tab marks several)
 ccy --teams <team>                              # choose the seat
 ccy --teams <seat>@<team>[,<seat>@<team>...]    # name it
+ccy --teams <seat>@<team> --fresh               # name a seat never used here: its first launch
 ```
 
 With a team alone, ccy shows this checkout's seats in it, each with its member's full handle

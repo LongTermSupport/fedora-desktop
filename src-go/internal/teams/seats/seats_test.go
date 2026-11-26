@@ -3,14 +3,18 @@ package seats
 import (
 	"context"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -18,6 +22,9 @@ import (
 // wideTerminal keeps a heading on one line when its context holds the test's temporary path,
 // whose length varies with the test and the machine (wrapping is tested in ui and picker).
 const wideTerminal = 400
+
+// seatConversation is a conversation id a seat record names.
+const seatConversation = "0f8fad5b-d9cb-469f-a165-70867728950e"
 
 func (h rig) attachable() {
 	h.On("tmux -L ccy list-clients", "", 0)
@@ -128,10 +135,10 @@ func TestNewSessionOffersFreeSeatsAndANewOneAndExecsTheLauncherInTheTop(t *testi
 		t.Fatalf("rows %q", h.Script.Rows[0])
 	}
 	if len(h.Execs) != 1 || h.Execs[0].Dir != h.Checkout() || h.Execs[0].Path != "/x/launcher" ||
-		!slices.Equal(h.Execs[0].Argv, []string{"/x/launcher", "--teams", "3@alpha"}) {
+		!slices.Equal(h.Execs[0].Argv, []string{"/x/launcher", "--teams", "3@alpha", "--fresh"}) {
 		t.Fatalf("execs %+v", h.Execs)
 	}
-	if !strings.Contains(h.ErrOut.String(), "Starting ccy --teams 3@alpha in "+h.Checkout()+".\n") {
+	if !strings.Contains(h.ErrOut.String(), "Starting ccy --teams 3@alpha --fresh in "+h.Checkout()+".\n") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 	header := h.HeaderOf(0)
@@ -142,15 +149,43 @@ func TestNewSessionOffersFreeSeatsAndANewOneAndExecsTheLauncherInTheTop(t *testi
 	h.Script.HeadingAt(0, "Teams › alpha › New session\nteam alpha · in "+h.Checkout())
 }
 
+// A free seat that recorded a conversation in this checkout is started plainly, so the launch
+// resumes it; one never used here starts --fresh, as a plain launch naming it is refused (#417).
 func TestNewSessionTakesAFreeSeat(t *testing.T) {
-	h := newSessionHarness(t)
-	h.Script.Fzf = []string{"|free"}
-	snap := h.pass(t)
-	if _, err := h.s.NewSession(context.Background(), snap, "alpha"); err != nil && !strings.Contains(err.Error(), "exit") {
+	for _, recorded := range []bool{true, false} {
+		h := newSessionHarness(t)
+		want := []string{"/x/launcher", "--teams", "dev@alpha", "--fresh"}
+		if recorded {
+			if err := conversation.RecordSeats(h.Checkout(), "dev@alpha", seatConversation, conversation.SourceExit, 1); err != nil {
+				t.Fatal(err)
+			}
+			want = want[:3]
+		}
+		h.Script.Fzf = []string{"|free"}
+		snap := h.pass(t)
+		if _, err := h.s.NewSession(context.Background(), snap, "alpha"); err != nil && !strings.Contains(err.Error(), "exit") {
+			t.Fatal(err)
+		}
+		if len(h.Execs) != 1 || !slices.Equal(h.Execs[0].Argv, want) {
+			t.Fatalf("recorded %v: execs %+v", recorded, h.Execs)
+		}
+	}
+}
+
+// A seat record that cannot be read starts nothing: the launch it would make is not known.
+func TestStartCcyWithAnUnreadableSeatRecordFails(t *testing.T) {
+	h := newRig(t)
+	path := conversation.SeatRecordPath(h.Checkout(), membership.Seat{Seat: "1", Team: "alpha"})
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if len(h.Execs) != 1 || !slices.Equal(h.Execs[0].Argv, []string{"/x/launcher", "--teams", "dev@alpha"}) {
-		t.Fatalf("execs %+v", h.Execs)
+	if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := h.s.StartCcy(h.Checkout(), "1@alpha")
+	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitFailure || len(h.Execs) != 0 ||
+		!strings.Contains(h.ErrOut.String(), "ERROR: "+path+" is not a seat record") {
+		t.Fatalf("%v %+v %q", err, h.Execs, h.ErrOut.String())
 	}
 }
 

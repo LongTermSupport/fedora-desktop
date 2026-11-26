@@ -149,6 +149,32 @@ func TestWithNoSeatRecordTheSessionRecordsAnswerInTheFourCases(t *testing.T) {
 	}
 }
 
+// NeverUsed is the first launch: no seat record and no session that held the seats, the case a
+// plain launch of named seats refuses. A seat with a record, or held by a session (with or without
+// a conversation), was used; what cannot be read is an error, never a first launch.
+func TestNeverUsedTellsAFirstLaunch(t *testing.T) {
+	w := newWorld(t)
+	w.transcriptFor(id)
+	w.record("1@alpha", id, SourceLaunch)
+	w.v1Session("ccy-proj", otherID, "1791000000000", "dev1@alpha")
+	w.v1Session("ccy-proj-2", "", "", "qa@alpha")
+	for list, want := range map[string]bool{
+		"ops@alpha": true, "ops@alpha,9@beta": true,
+		"1@alpha": false, "9@beta,1@alpha": false, "dev1@alpha": false, "qa@alpha": false,
+	} {
+		got, err := NeverUsed(w.checkout, list, w.where())
+		if err != nil || got != want {
+			t.Errorf("%s: NeverUsed %v, %v; want %v", list, got, err, want)
+		}
+	}
+	write(t, SeatRecordPath(w.checkout, membership.Seat{Seat: "2", Team: "alpha"}), "{")
+	for _, list := range []string{"2@alpha", "nonsense"} {
+		if got, err := NeverUsed(w.checkout, list, w.where()); err == nil {
+			t.Errorf("%s: NeverUsed %v with no error", list, got)
+		}
+	}
+}
+
 // A record that is not one is an error, never read as no record.
 func TestACorruptSeatRecordIsRefused(t *testing.T) {
 	w := newWorld(t)

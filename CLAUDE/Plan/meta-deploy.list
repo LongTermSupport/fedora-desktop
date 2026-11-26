@@ -109,7 +109,9 @@
 # version prints the image-source digest (the same one the teamchat play below gives the host's
 # teamchat for the same source), and its source-commit label is named ccy-image-source-commit.
 # Plan 00265 R36 (ccy 3.124.68, container 2.84.88): the same run rebuilds the image and the host's
-# Go commands so files written whole (fsx) create their temporary exclusively (#417).
+# Go commands so files written whole (fsx) create their temporary exclusively (#417). R36
+# (ccy 3.124.69): ccy-teams remove also forgets the team's seat conversation records. R36
+# (ccy 3.124.70): ccy-teams' Start a ccy session adds --fresh for a seat never used here.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC
