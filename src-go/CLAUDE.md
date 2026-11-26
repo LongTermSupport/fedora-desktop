@@ -187,6 +187,11 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   the `agent-bus-lightning-watch` user service runs: it reads only `/proc` and the logs'
   modification times, and records a stalled instance's threads once beside its log. Built and
   run by `play-agent-bus-element.yml`.
+- `internal/teamchat/loadgen/` — `teamchat-loadgen` (Plan 00268 Task 2.1, LG1-LG8 in its
+  package doc): a test team on a lab homeserver (named under `.test`, on a loopback IP; anything
+  else is refused) and teamchat's traffic sent into it through `proto.Composer`, by pattern and
+  rate or as a replay of `teamchat-admin team traffic --json`. A test tool, run from the
+  checkout and never deployed.
 - `internal/release/` — `release-plan`, the release workflow's one Go command (Plan 00153 Task
   5.3, R1-R7 in its package doc): what a push to `F<major>` calls for (`decide`: nothing, prepare a
   release, or tag a merged release commit), the changelog entry to commit (`prepare`) and the

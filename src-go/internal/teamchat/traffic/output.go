@@ -1,7 +1,9 @@
 package traffic
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -112,6 +114,48 @@ type jsonDoc struct {
 	Hours      []jsonHour `json:"hours"`
 	Rows       []jsonRow  `json:"rows"`
 	NotCounted []string   `json:"not_counted"`
+}
+
+// FromJSON reads JSON's document back: the team and the counts, refused unless the document
+// is version 1 holding only JSON's fields and the counts keep Validate's rule. The hours are
+// derived from the rows, so they are not read.
+func FromJSON(data []byte) (string, Counts, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	var doc jsonDoc
+	if err := dec.Decode(&doc); err != nil {
+		return "", Counts{}, fmt.Errorf("the traffic document: %w", err)
+	}
+	if dec.More() {
+		return "", Counts{}, errors.New("the traffic document has more after its one object")
+	}
+	if doc.V != 1 {
+		return "", Counts{}, fmt.Errorf("the traffic document's version is %d, want 1", doc.V)
+	}
+	since, err := time.Parse(timeForm, doc.Since)
+	if err != nil {
+		return "", Counts{}, fmt.Errorf("the traffic document's since: %w", err)
+	}
+	until, err := time.Parse(timeForm, doc.Until)
+	if err != nil {
+		return "", Counts{}, fmt.Errorf("the traffic document's until: %w", err)
+	}
+	c := Counts{Window: Window{SinceMS: since.UnixMilli(), UntilMS: until.UnixMilli()}}
+	for _, r := range doc.Rooms {
+		c.Rooms = append(c.Rooms, RoomRead(r))
+	}
+	for _, r := range doc.Rows {
+		hour, err := time.Parse(timeForm, r.Hour)
+		if err != nil {
+			return "", Counts{}, fmt.Errorf("a row's hour: %w", err)
+		}
+		c.Rows = append(c.Rows, Row{Key: Key{Room: r.Room, HourMS: hour.UnixMilli(), Type: r.Type, Typed: r.Typed, Rel: r.Rel, Membership: r.Membership}, Count: r.Count})
+	}
+	if err := c.Validate(); err != nil {
+		return "", Counts{}, fmt.Errorf("the traffic document: %w", err)
+	}
+	c.sortRows()
+	return doc.Team, c, nil
 }
 
 // JSON is the counts for a program: one document, times in RFC 3339 UTC, every hour of the

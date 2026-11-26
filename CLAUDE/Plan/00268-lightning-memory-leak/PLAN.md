@@ -178,11 +178,20 @@ another batch; this plan decides at the end whether it stays.
 
 ### Phase 2: Reproduce
 
-- [ ] ⬜ **Task 2.1**: A load generator (Go, `src-go/`): N agent accounts and a human on a test team
+- [x] ✅ **Task 2.1**: A load generator (Go, `src-go/`): N agent accounts and a human on a test team
   made by the real rooms engine on Tuwunel (`tuwunelhs`), sending through `proto.Composer`; one
   switch and rate per pattern (pings with thread answers, question threads, notices, reports,
   `m.read` receipts, presence flaps, big bodies), and a replay of Task 1.3's counts. Unit tests on
   `fakehs`.
+  - **Built:** `teamchat-loadgen setup|run` (`cmd/teamchat-loadgen`, `internal/teamchat/loadgen`,
+    LG1-LG8 in its package doc), run from the checkout, never deployed: a command of its own, not
+    a verb of `teamchat-admin`, which ships to bus hosts with admin authority. The target is
+    explicit (`--homeserver`, `--server-name`) and refused unless the name is under `.test`
+    (RFC 6761), the URL plain http to a loopback IP, and the server's registration answer is on
+    that name. The replay reads the probe's JSON (`traffic.FromJSON`). Its round-trip test reads
+    the generated rooms back with the probe. The `tuwunel`-tagged test is built, linted and
+    rule-checked but **not run** (no Tuwunel binary in the container). Report:
+    `subagent-reports/261126-task-2-1-loadgen.md`.
 - [ ] ⬜ **Task 2.2**: Lightning from Flathub in the VM lab (or a headless nested compositor with a
   D-Bus session and a Secret Service), signed in to the test team; a sampler writing RSS, PSS,
   `memory.stat`, CPU time and cumulative event counts every 30 s.
