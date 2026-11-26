@@ -181,7 +181,8 @@ What each slice built and its reviews: [BUILT-n3.md](BUILT-n3.md).
 
 - [x] ✅ **Task 3.5**: Delivery debouncing (issue #129). Superseded by Plan 00267 Task 7.1, which
   built it as the coalesce window (`src-go/internal/teamchat/member/engine/coalesce.go`), with
-  Plan 00267 Task 7.5 the human message debounce. The original text:
+  Plan 00267 Task 7.5 the human message debounce. As built: 2 s quiet with a 10 s ceiling, and a
+  human's message settles 3 s (ceiling 10 s), not the 30 s first specified. The original text:
   [in full](TASKS-in-full.md#task-35).
 
 ### Phase 4: N4, ccy members and the board
