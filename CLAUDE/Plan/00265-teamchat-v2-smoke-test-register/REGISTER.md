@@ -548,11 +548,16 @@ filled in as each cause is known.
   a test now holds that `Wire` sets `Ops.ForgetTeam` and that it removes a record. (5) Plan
   00232's and Plan 00161 U20's named-seat acceptance launches pass `--fresh` (a sweep of the
   active plan scripts finds no other). (6) docs/agent-bus.md's take-down step names the removal.
-  **Open:** (1) the class `project_temp_not_exclusive` names is fixed in Go only: Python
-  (`supervisor-plugins/ccy_lifecycle.py`, which ships in the image, and `.claude/ccy/claude-supervise.py`)
-  and the launcher's bash (`lib/*.bash` writes to `.tmp.$$`) still create pid-named temporaries
-  without an exclusive create and rename them; Defence Before Fix owes a semgrep rule for Python
-  and bash, its sweep and the fixes. (3) checked in the code, not yet run: when a seat has no
+  (1) the class `project_temp_not_exclusive` names, outside Go: rule `temp-not-exclusive`
+  (`.semgrep/temp-exclusive.yml`; shell: a pid-named temporary written or moved by mv; Python:
+  a non-exclusive create the same function renames), red on 13 lines in 11 files plus
+  `ccy_lifecycle.py` and `pingbus/notify.py`, each fixed with `mktemp`/`tempfile.mkstemp` (or
+  `O_EXCL`); gate `scripts/qa-temp-exclusive.bash` (ghscopes engine, `TempExclusive` spec); ccy
+  3.124.72, container 2.84.89. **Open:** its wiring into `qa-gates.tsv`/`qa-routing.tsv`/
+  `qa-changed`, so it blocks; the daemon-deployed `.claude/ccy/claude-supervise.py` (7 sites)
+  and `.claude/provision.sh` (2), which every gate excludes, go upstream; widening the shell
+  rule to fixed suffixes (`$f.tmp` then mv: 11 more lines, mostly test and plan scripts) is
+  the owner's call. (3) checked in the code, not yet run: when a seat has no
   seat record, `ForSeats` falls back to the teamchat sessions' desired membership
   (`conversation/seats.go`, `v2Sessions`). `remove` takes only the team's running sessions off
   it (`sessionsOff`, H29) and never touches the desired file of a stopped session that can

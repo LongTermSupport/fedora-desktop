@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.72 — container 2.84.89
+
+- **Temporaries are created exclusively.** The session registry, the restore manifest, the
+  restart budget, the Quick Launch config, the unattended-stop note, the token usage cache and
+  the lifecycle plugin's state wrote a temporary under a guessable name (`<file>.tmp.<pid>`)
+  without an exclusive create, so a link planted at that name was followed. Each now uses
+  `mktemp` (`tempfile.mkstemp` in the plugin) beside its target; rule `temp-not-exclusive`
+  (Plan 00265 R36).
+
 ## 3.124.71 — container 2.84.88
 
 - **Forgetting a team's seats never leaves the checkout.** `ccy-teams remove` removed a team's

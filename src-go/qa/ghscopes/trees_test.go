@@ -100,7 +100,7 @@ func tableExcluded(t *testing.T) (string, []string) {
 // it has not.
 func TestEveryGateLeavesOutWhatTheTreesTableExcludes(t *testing.T) {
 	root, excluded := tableExcluded(t)
-	for _, spec := range []Spec{GHScopes, FindRace, ArchPin, ArgvLeak, PlaceIssuedToken, BootHold, GHPoll, SecretScreen} {
+	for _, spec := range []Spec{GHScopes, FindRace, ArchPin, ArgvLeak, PlaceIssuedToken, BootHold, GHPoll, SecretScreen, TempExclusive} {
 		t.Run(spec.short, func(t *testing.T) {
 			// The gate's own run: the scope it loads and the files it would hand to semgrep, over
 			// the real git; a handed file the rule's excludes drop is one semgrep never opens.
@@ -162,7 +162,7 @@ func inRow(rel string, dirs []string) bool {
 // #217 pending): a daemon-deployed or vendored row added here would reopen what the ruling
 // keeps out, so it fails this test rather than pass the drift test above.
 func TestOnlySemgrepIsStillScanned(t *testing.T) {
-	for _, spec := range []Spec{GHScopes, FindRace, ArchPin, ArgvLeak, PlaceIssuedToken, BootHold, GHPoll, SecretScreen} {
+	for _, spec := range []Spec{GHScopes, FindRace, ArchPin, ArgvLeak, PlaceIssuedToken, BootHold, GHPoll, SecretScreen, TempExclusive} {
 		for _, dir := range spec.stillScans {
 			if dir != ".semgrep" {
 				t.Errorf("%s still scans %q; only .semgrep may be an exception to scripts/qa-trees.tsv", spec.short, dir)
@@ -187,7 +187,7 @@ var wantCCYProjectFiles = []string{".claude/ccy/.gitignore", ".claude/ccy/ccy.en
 // ruled out of every gate, so another file named here fails this test rather than pass the drift
 // test above.
 func TestTheStillScannedFilesAreTheCCYProjectFiles(t *testing.T) {
-	for _, spec := range []Spec{GHScopes, FindRace, ArgvLeak, PlaceIssuedToken, BootHold, GHPoll, SecretScreen} {
+	for _, spec := range []Spec{GHScopes, FindRace, ArgvLeak, PlaceIssuedToken, BootHold, GHPoll, SecretScreen, TempExclusive} {
 		if !slices.Equal(spec.stillScansFiles, wantCCYProjectFiles) {
 			t.Errorf("%s still scans the files %v, want %v", spec.short, spec.stillScansFiles, wantCCYProjectFiles)
 		}

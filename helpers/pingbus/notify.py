@@ -19,6 +19,7 @@ import os
 import pathlib
 import socket
 import stat
+import tempfile
 from collections.abc import Mapping
 
 SOCKET_ENV = "CLAUDE_CODE_MESSAGING_SOCKET"
@@ -55,8 +56,9 @@ SOCKET_RECORD = "socket.json"
 def record_socket(home: pathlib.Path, path: str, token: str) -> None:
     """Write `{v, socket, token}` to the home's socket record, mode 0600, atomically."""
     target = pathlib.Path(home) / SOCKET_RECORD
-    temp = target.with_name(f".{SOCKET_RECORD}.{os.getpid()}.tmp")
-    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    # mkstemp: an exclusive create, mode 0600, under a random name (rule temp-not-exclusive).
+    fd, name = tempfile.mkstemp(dir=target.parent, prefix=f".{SOCKET_RECORD}.", suffix=".tmp")
+    temp = pathlib.Path(name)
     try:
         with os.fdopen(fd, "w", encoding="ascii") as handle:
             handle.write(json.dumps({"v": 1, "socket": path, "token": token}, ensure_ascii=True))

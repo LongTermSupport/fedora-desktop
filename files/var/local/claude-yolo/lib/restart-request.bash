@@ -188,15 +188,11 @@ ccy_restart_budget_take() {
         return 1
     fi
 
-    local tmp="$file.tmp.$$"
-    if ! printf '%s\n' "${kept[@]}" "$now" | grep -v '^$' >"$tmp"; then
+    local tmp
+    if ! tmp=$(mktemp -- "$file.tmp.XXXXXXXXXX") || ! printf '%s\n' "${kept[@]}" "$now" | grep -v '^$' >"$tmp" ||
+        ! mv -f -- "$tmp" "$file"; then
         rm -f -- "$tmp"
-        printf 'restart budget: could not write %s.\n' "$file" >&2
-        return 1
-    fi
-    if ! mv -f -- "$tmp" "$file"; then
-        rm -f -- "$tmp"
-        printf 'restart budget: could not move the history into place at %s.\n' "$file" >&2
+        printf 'restart budget: could not write the history and move it into place at %s.\n' "$file" >&2
         return 1
     fi
 }

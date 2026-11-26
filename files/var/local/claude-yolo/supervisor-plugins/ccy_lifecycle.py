@@ -72,6 +72,7 @@ import math
 import os
 import re
 import stat
+import tempfile
 import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -463,10 +464,17 @@ class LifecycleHalf:
 
     @staticmethod
     def _write_private(path: Path, text: str) -> None:
-        # The temporary name carries the target's own unique name, so two containers (whose
-        # pids can coincide across pid namespaces) never write the same temporary file.
-        tmp = path.with_name(path.name + f".tmp.{os.getpid()}")
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, STATE_FILE_MODE)
+        # mkstemp creates the temporary exclusively under a random name beside the target, so
+        # neither a link planted at a guessable name nor a writer in another pid namespace
+        # shares it (rule temp-not-exclusive).
+        fd, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+        tmp = Path(name)
+        try:
+            os.fchmod(fd, STATE_FILE_MODE)
+        except OSError:
+            os.close(fd)
+            tmp.unlink(missing_ok=True)
+            raise
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(text)

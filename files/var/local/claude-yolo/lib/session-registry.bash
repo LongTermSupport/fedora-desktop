@@ -283,8 +283,8 @@ ccy_registry_write() {
         return 1
     }
     path="$regdir/$name"
-    tmp="$path.tmp.$$"
-    if ! (
+    # mktemp: an exclusive create under a random name; the .tmp. infix keeps it out of listings.
+    if ! tmp=$(mktemp -- "$path.tmp.XXXXXXXXXX") || ! (
         umask 077
         {
             printf '%s\n' "$CCY_REGISTRY_HEADER"
@@ -299,14 +299,9 @@ ccy_registry_write() {
                 printf 'arg=%s\n' "$arg"
             done
         } >"$tmp"
-    ); then
+    ) || ! mv -f -- "$tmp" "$path"; then
         rm -f -- "$tmp"
-        print_error "could not write the session record $path"
-        return 1
-    fi
-    if ! mv -f -- "$tmp" "$path"; then
-        rm -f -- "$tmp"
-        print_error "could not move the session record into place at $path"
+        print_error "could not write the session record and move it into place at $path"
         return 1
     fi
 }
@@ -740,8 +735,8 @@ ccy_restore_manifest_write() {
         print_error "could not create the directory for the restore manifest $path"
         return 1
     }
-    tmp="$path.tmp.$$"
-    if ! (
+    # mktemp: an exclusive create under a random name; the .tmp. infix keeps it out of listings.
+    if ! tmp=$(mktemp -- "$path.tmp.XXXXXXXXXX") || ! (
         umask 077
         {
             printf '%s\n' "$CCY_RESTORE_MANIFEST_HEADER"
@@ -754,14 +749,9 @@ ccy_restore_manifest_write() {
                 done
             done
         } >"$tmp"
-    ); then
+    ) || ! mv -f -- "$tmp" "$path"; then
         rm -f -- "$tmp"
-        print_error "could not write the restore manifest $path"
-        return 1
-    fi
-    if ! mv -f -- "$tmp" "$path"; then
-        rm -f -- "$tmp"
-        print_error "could not move the restore manifest into place at $path"
+        print_error "could not write the restore manifest and move it into place at $path"
         return 1
     fi
 }

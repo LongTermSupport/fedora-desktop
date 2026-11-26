@@ -182,7 +182,11 @@ def main(argv: list[str] | None = None) -> int:
         say(f"usage: {exc}")
         return EXIT_USAGE
     staging = spool_dir / "tmp" / name
-    staging.write_bytes(body)
+    # The name carries a fresh nonce; the create is exclusive all the same, so a link or file
+    # already at it is refused, never followed (rule temp-not-exclusive).
+    fd = os.open(staging, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(body)
     os.rename(staging, spool_dir / "requests" / name)
     say(f"request written: {name}")
 

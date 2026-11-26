@@ -11,7 +11,8 @@
 // gate over .semgrep/place-issued-token.yml, given its BootHold spec the
 // unit-holds-boot-target gate over .semgrep/boot-hold.yml, given its GHPoll spec the
 // github-poll-too-often gate over .semgrep/gh-poll.yml, and given its SecretScreen spec the
-// secret-on-normal-screen gate over .semgrep/secret-screen.yml: one rule file, every published
+// secret-on-normal-screen gate over .semgrep/secret-screen.yml, and given its TempExclusive spec
+// the temp-not-exclusive gate over .semgrep/temp-exclusive.yml: one rule file, every published
 // file, the same proofs (for a rule file written for several languages, one fixture each).
 package ghscopes
 
@@ -186,6 +187,20 @@ var SecretScreen = Spec{
 	stillScansFiles: ccyProjectFiles,
 }
 
+// TempExclusive is the temp-not-exclusive gate (Plan 00265 R36): shell and Python rules in one
+// file, each proven against the fixture in its own language; Go's half is the analyzer
+// project_temp_not_exclusive.
+var TempExclusive = Spec{
+	short:           "temp-exclusive",
+	ruleFile:        ".semgrep/temp-exclusive.yml",
+	fixtureFile:     ".semgrep/temp-exclusive.fixture",
+	moreFixtures:    []string{".semgrep/temp-exclusive.py"},
+	ruleName:        "temp-not-exclusive",
+	finding:         "create a temporary without an exclusive create and rename it into place",
+	usage:           tempExclusiveUsageText,
+	stillScansFiles: ccyProjectFiles,
+}
+
 // Timeouts bound each process.
 const (
 	versionTimeout = time.Minute
@@ -315,6 +330,22 @@ Applies the semgrep rules in .semgrep/secret-screen.yml (a password, token or ot
 written to a terminal's normal screen, where its scrollback and tmux history keep it: shell,
 Python and Ansible) to every file git would publish, after proving the rules against their
 fixtures, one per language.
+
+  --root DIR      the repository root (default: the parent of --scripts, else the current directory)
+  --scripts DIR   the scripts directory; the root is its parent
+  -h, --help      this text
+  -- FILE...      scan only these repository-relative files, not the tree (qa-changed's
+                  local run names the changed files); none in scope is a pass
+
+Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
+`
+
+const tempExclusiveUsageText = `usage: qa-temp-exclusive [--root DIR] [--scripts DIR] [-- FILE...]
+
+Applies the semgrep rules in .semgrep/temp-exclusive.yml (a temporary created without an
+exclusive create, under a name such as <file>.tmp.<pid>, and renamed into place, so a link
+planted at the name is followed: shell and Python) to every file git would publish, after
+proving the rules against their fixtures, one per language.
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent

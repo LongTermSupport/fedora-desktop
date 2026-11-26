@@ -1,0 +1,122 @@
+rules:
+  # Rule: a temporary that is renamed into place is created exclusively (Defence Before Fix;
+  # CLAUDE/QA.md "temp-not-exclusive"; Plan 00265 R36). The Go half of the class is the analyzer
+  # project_temp_not_exclusive (src-go/qa/rules/tempexclusive.go).
+  #
+  # A file written whole is written to a temporary beside it and renamed into place, so no reader
+  # sees half of it. A temporary named by the process id (`$f.tmp.$$`, `path + ".tmp." +
+  # str(os.getpid())`) is a name anyone who can write the directory can guess, and a create that
+  # is not exclusive (a shell redirect, `install`, open(path, "w")) opens whatever is already
+  # there: a symlink planted at the name is followed and the write lands where it points, and two
+  # writers with the same pid (two PID namespaces sharing a bind-mounted directory) write one file.
+  #
+  # WRONG: tmp="$file.tmp.$$"; printf ... >"$tmp"; mv -f -- "$tmp" "$file"
+  #        tmp = path.with_name(path.name + f".tmp.{os.getpid()}")
+  #        tmp.write_text(text); os.replace(tmp, path)
+  # RIGHT: tmp=$(mktemp "$file.XXXXXX"); printf ... >"$tmp"; mv -f -- "$tmp" "$file"
+  #        fd, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+  #        with os.fdopen(fd, "w") as handle: ...; os.replace(name, path)
+  #        (or open(tmp, "x"), or os.open with O_CREAT | O_EXCL)
+  #
+  # Blocking, with no allowlist (scripts/qa-temp-exclusive.bash). Never add an exclude to clear a
+  # finding.
+
+  # Shell (and any text that holds shell: a template, a play's shell block). The name of a file
+  # built from the process id ($$, ${$}, $BASHPID) and then written by a redirect, or moved into
+  # place by mv: the predictable name is the defect, whatever writes it.
+  - id: temp-not-exclusive
+    pattern-either:
+      # A redirect into a pid-named path: `} >"$state.tmp.$$"`.
+      - pattern-regex: '(?m)^(?![ \t]*#)[^\n]*?(?<![<0-9&])>>?[ \t]*"?[^\s;|&<>()]*(?:\$\$|\$\{\$\}|\$\{?BASHPID\b)'
+      # A pid-named path moved by mv: `mv -f "$state.tmp.$$" "$state"`.
+      - pattern-regex: '(?m)^(?![ \t]*#)[^\n]*?\bmv\b[^\n]*?(?:\$\$|\$\{\$\}|\$\{?BASHPID\b)'
+      # A variable holding a pid-named path that a later line moves with mv:
+      # `local tmp="$file.tmp.$$"` ... `mv -f -- "$tmp" "$file"`. The finding is the assignment.
+      - pattern-regex: '(?m)^(?![ \t]*#)[^\n]*?(?<![\w$])(\w+)=["'']?[^\s;]*(?:\$\$|\$\{\$\}|\$\{?BASHPID\b)[^\n]*(?=(?:\n[^\n]*){1,40}?\n[^\n#]*\bmv\b[^\n]*\$\{?\1(?!\w))'
+    paths:
+      exclude:
+        # This rule file and its fixtures.
+        - '.semgrep/temp-exclusive.*'
+        # Prose, not code: a document, a plan, a journal, a review or a changelog writes no
+        # file. Plan SCRIPTS are code and stay in.
+        - '*.md'
+        # Go is judged by its own rule, project_temp_not_exclusive (src-go/qa/rules), which
+        # follows the create and the rename through the type system.
+        - '*.go'
+        # Vendored, daemon-deployed and other trees that are not ours are never handed to
+        # semgrep: the gate reads them from scripts/qa-trees.tsv, the one list
+        # (CLAUDE/QA.md "qa-trees-drift"). Name here only what is particular to this rule.
+    message: >
+      temp-not-exclusive: a temporary named by the process id is a name anyone who can write the
+      directory can guess, and a redirect or mv follows a symlink planted there. Create it with
+      mktemp in the target's directory. See CLAUDE/QA.md "temp-not-exclusive".
+    languages: [generic]
+    severity: ERROR
+    metadata:
+      category: security
+      confidence: HIGH
+      dbf-class: a temporary created without an exclusive create and renamed into place
+
+  # Python: a file created without an exclusive create (open in "w" or "a" mode, write_text,
+  # write_bytes, os.open without O_EXCL) at a path the same function renames or links into place.
+  # Any temporary name counts, not only a pid-named one, as in project_temp_not_exclusive.
+  - id: temp-not-exclusive-python
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              def $FN(...):
+                ...
+                <... os.replace($T, ...) ...>
+                ...
+          - pattern-inside: |
+              def $FN(...):
+                ...
+                <... os.rename($T, ...) ...>
+                ...
+          - pattern-inside: |
+              def $FN(...):
+                ...
+                <... os.link($T, ...) ...>
+                ...
+          - pattern-inside: |
+              def $FN(...):
+                ...
+                <... $T.replace($DST) ...>
+                ...
+          - pattern-inside: |
+              def $FN(...):
+                ...
+                <... $T.rename($DST) ...>
+                ...
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern: open($T, $MODE, ...)
+                  - pattern: open($T, mode=$MODE, ...)
+                  - pattern: io.open($T, $MODE, ...)
+                  - pattern: $T.open($MODE, ...)
+                  - pattern: $T.open(mode=$MODE, ...)
+              - metavariable-regex:
+                  metavariable: $MODE
+                  regex: '^[rbf]*["''](?![^"'']*x)[^"'']*[wa]'
+          - pattern: $T.write_text(...)
+          - pattern: $T.write_bytes(...)
+          - patterns:
+              - pattern: os.open($T, $FLAGS, ...)
+              - metavariable-regex:
+                  metavariable: $FLAGS
+                  regex: '^(?![\s\S]*O_EXCL)[\s\S]*O_CREAT'
+    paths:
+      exclude:
+        - '.semgrep/temp-exclusive.*'
+    message: >
+      temp-not-exclusive-python: this creates a file without an exclusive create at a path the
+      same function renames into place, so a symlink planted at the name is followed. Create the
+      temporary with tempfile.mkstemp(dir=<the target's directory>) and os.fdopen, or open it
+      with mode "x". See CLAUDE/QA.md "temp-not-exclusive".
+    severity: ERROR
+    metadata:
+      category: security
+      confidence: HIGH
+      dbf-class: a temporary created without an exclusive create and renamed into place
