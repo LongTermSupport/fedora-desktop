@@ -181,6 +181,38 @@ func TestTakingStoppedSessionsOffATeamKeepsTheirOtherTeams(t *testing.T) {
 	}
 }
 
+// A keeper's report is removed inside its checkout only (R36 batch review, finding 1): a container
+// can replace a directory above the report with a link, and a removal that followed it would delete
+// a file of the host's outside the checkout.
+func TestTakingAStoppedSessionOffNeverRemovesAReportThroughALink(t *testing.T) {
+	store := registry.New(filepath.Join(t.TempDir(), "ccy", "sessions"))
+	dir, outside := t.TempDir(), t.TempDir()
+	writeRecords(t, store,
+		registry.Record{Name: "ccy-a", Dir: dir, Launcher: "/x/ccy", Prefix: "ccy", Args: []string{"--teams", "1@alpha"}},
+	)
+	victim := filepath.Join(outside, "ccy-a", "applied.json")
+	if err := os.MkdirAll(filepath.Dir(victim), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(victim, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sessions := filepath.Dir(membership.SessionDir(dir, "ccy-a"))
+	if err := os.MkdirAll(filepath.Dir(sessions), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, sessions); err != nil {
+		t.Fatal(err)
+	}
+	err := takeStoppedOff(store, "alpha", []string{"ccy-a"})
+	if err == nil || !strings.Contains(err.Error(), "ccy-a") {
+		t.Errorf("a report reached through a link: err %v, want a refusal naming ccy-a", err)
+	}
+	if _, err := os.Lstat(victim); err != nil {
+		t.Errorf("the file outside the checkout: %v, want it kept", err)
+	}
+}
+
 // The real wiring hands remove the stopped sessions of the team and their taking off, over the
 // host's own registry, a record's system read as a restore reads it.
 func TestWireGivesRemoveTheStoppedSessionsAndTheirTakingOff(t *testing.T) {
