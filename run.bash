@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.38.1"
+RUN_BASH_VERSION="1.39.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -991,6 +991,8 @@ CHANGED_PLAYS=false
 ASSUME_YES=false
 # --rerun (Plan 00141): list the checkout's plays as judged here and run the ones the operator picks.
 RERUN_PLAYS=false
+# --force (R78): --changed and --rerun run from a dirty checkout, or one not level with its upstream.
+FORCE_ARGS=()
 while (( $# > 0 )); do
   _arg="$1"
   shift
@@ -1015,6 +1017,8 @@ Options:
   --yes                With --changed: run the list without asking, and do not
                        offer an issue if a play fails, skip a missing optional
                        secret and fail a required one. For meta-deploy and such.
+  --force              With --changed or --rerun: run from a checkout that is dirty or,
+                       after a fetch, not level with its upstream (else refused).
   --rerun              List the checkout's plays as a numbered menu, the ones that
                        have to run again marked * (as --changed judges them), and
                        those with no record here unmarked. Pick one or more ("3", "1 4"), "a" for
@@ -1257,6 +1261,7 @@ USAGE
     --rerun)
       RERUN_PLAYS=true
       ;;
+    --force) FORCE_ARGS=(--force) ;;
     --yes)
       # Exported: tasks/ask-and-save-secret.yml reads it, as nobody answers a prompt here.
       export ASSUME_YES=true
@@ -2051,7 +2056,7 @@ optional_summary() {
 # are the whole answer, and one it cannot give (exit 2) runs nothing. Each play then runs
 # through the same runner as a single play, under one play lock, in the judge's order.
 #
-# --rerun (Plan 00141) shares the preflight, the judge call, the dirty-checkout warning and
+# --rerun (Plan 00141) shares the preflight, the judge call, the checkout gate and
 # the run loop below; it differs only in who picks the plays (the operator, from a menu).
 
 # play_batch_preflight <flag> — the refusals --changed and --rerun share.
@@ -2073,18 +2078,12 @@ play_batch_preflight(){
   fi
 }
 
-# play_batch_warn_dirty <flag> — a run records the checkout's uncommitted paths, and the
-# helper offers a play again when one of them was its input, because no diff can show what
-# it deployed. Say so now, not on the next run.
-play_batch_warn_dirty(){
-  local _flag="$1" _dirty
-  if ! _dirty="$(git -C "$_play_repo" status --porcelain)"; then
-    fatal "${_flag#--} plays" "git status failed in ${_play_repo}, so it cannot tell whether this run is from a clean checkout" \
-      "fix the checkout, then run ./run.bash ${_flag} again"
-  fi
-  if [[ -n "$_dirty" ]]; then
-    warning "The checkout has uncommitted changes. A play that reads one of them will be recorded as run with it uncommitted, and --changed will offer them again until they run with it committed."
-  fi
+# play_batch_gate <flag> — plays deployed from a checkout that is dirty, or not level with its
+# upstream after a fetch, deploy code the remote does not hold (R78): refused unless --force.
+# The judgement, and the message naming the cause and its fix, is src-go/cmd/checkout-gate;
+# its refusal ends run.bash with its status under set -e (go-tool execs it in this subshell).
+play_batch_gate(){
+  (source "$_play_repo/scripts/lib/go-tool.bash" && run_go_command checkout-gate "${FORCE_ARGS[@]}" "$_play_repo" "$1")
 }
 
 # play_batch_run <what> <adjective> <play>… — under one play lock, each play through the
@@ -2117,6 +2116,8 @@ play_batch_run(){
   exit 0
 }
 
+[[ ${#FORCE_ARGS[@]} -eq 0 || "$CHANGED_PLAYS" == "true" || "$RERUN_PLAYS" == "true" ]] ||
+  fatal "--force" "--force only overrides the checkout gate of --changed and --rerun" "run ./run.bash --changed --force, or ./run.bash --rerun --force"
 if [[ "$ASSUME_YES" == "true" && "$CHANGED_PLAYS" != "true" ]]; then
   fatal "--yes" "--yes only answers the question --changed asks" \
     "run ./run.bash --changed --yes; --rerun's pick is its own answer"
@@ -2157,7 +2158,7 @@ if [[ "$CHANGED_PLAYS" == "true" ]]; then
     exit 0
   fi
   printf '%b\n' "\n${CYAN}${ARROW}${NC} ${#_changed_run[@]} play(s) changed since they last ran here:" "${_changed_run[@]/#/     }"
-  play_batch_warn_dirty --changed
+  play_batch_gate --changed
   if [[ "$ASSUME_YES" != "true" ]] && ! confirm "Run them now, in this order?" n; then
     exit 0
   fi
@@ -2171,6 +2172,7 @@ fi
 # order (playbook-main.yml order, optional plays last), stopping at the first failure.
 if [[ "$RERUN_PLAYS" == "true" ]]; then
   play_batch_preflight --rerun
+  play_batch_gate --rerun
   if ! _rerun_out="$(python3 -m helpers.play_ledger.changed_plays --repo-root "$_play_repo" --all)"; then
     fatal "rerun plays" "could not read which plays have run here, so none is offered (see above)" \
       "fix what the message above names, then run ./run.bash --rerun again"
@@ -2261,7 +2263,6 @@ if [[ "$RERUN_PLAYS" == "true" ]]; then
           [[ -n "${_rerun_seen[$_i]:-}" ]] && _rerun_picked+=("$_i")
         done
       fi
-      unset _rerun_seen
     fi
     if [[ -z "$_rerun_bad" ]]; then
       break
@@ -2279,7 +2280,6 @@ if [[ "$RERUN_PLAYS" == "true" ]]; then
   done
   echo -e "\n${CYAN}${ARROW}${NC} Running ${#_rerun_run[@]} play(s), in this order:"
   printf '     %s\n' "${_rerun_run[@]}"
-  play_batch_warn_dirty --rerun
   play_batch_run "run.bash --rerun" selected "${_rerun_run[@]}"
 fi
 

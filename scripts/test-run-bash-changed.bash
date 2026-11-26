@@ -49,6 +49,16 @@ CHECKOUT="$SCRATCH/checkout"
 mkdir -p "$CHECKOUT/helpers/play_lock" "$CHECKOUT/helpers/play_ledger" "$CHECKOUT/playbooks/imports"
 cp "$REPO_ROOT/run.bash" "$CHECKOUT/run.bash"
 cp "$REPO_ROOT/helpers/play_lock/lock.py" "$CHECKOUT/helpers/play_lock/lock.py"
+# The checkout gate (R78) is src-go/cmd/checkout-gate, proven by its Go tests; here a stand-in
+# for go-tool.bash records how run.bash calls it and refuses when TEST_GATE_RC says so.
+mkdir -p "$CHECKOUT/scripts/lib"
+cat >"$CHECKOUT/scripts/lib/go-tool.bash" <<'EOF'
+run_go_command() {
+    { printf 'gate:'; printf ' %s' "$@"; echo; } >>"$TEST_LOG"  # run.bash narrows IFS, so not "$*"
+    [ -z "${TEST_GATE_RC:-}" ] || { echo "✗ run.bash refused: stand-in gate" >&2; exit "$TEST_GATE_RC"; }
+    exit 0
+}
+EOF
 : >"$CHECKOUT/helpers/__init__.py"
 : >"$CHECKOUT/helpers/play_ledger/__init__.py"
 cat >"$CHECKOUT/helpers/play_ledger/changed_plays.py" <<'EOF'
@@ -105,14 +115,10 @@ echo "fake sudo: unexpected call: $*" >&2
 exit 97
 EOF
 printf '#!/usr/bin/env bash\necho tester\n' >"$BIN/whoami"
-# git answers `status --porcelain` for the checkout from TEST_DIRTY (empty = clean), and
-# refuses anything else, so a new git call in the --changed path shows up here.
+# git refuses every call: the --changed path asks git nothing itself (the gate does), so a
+# new git call in it shows up here.
 cat >"$BIN/git" <<'EOF'
 #!/usr/bin/env bash
-if [ "$*" = "-C $TEST_CHECKOUT status --porcelain" ]; then
-    printf '%s' "${TEST_DIRTY:-}"
-    exit "${TEST_GIT_RC:-0}"
-fi
 echo "fake git: unexpected call: $*" >&2
 exit 97
 EOF
@@ -147,17 +153,22 @@ check "runs both, in the judge's order" "play-a.yml play-b.yml " "$(plays_run)"
 check "each under the play lock" "2" "$(calls | grep -c 'lock=held')"
 check "lists them before asking" "yes" "$(yes_if grep -q "$A" <<<"$out")"
 check "and says it finished" "yes" "$(yes_if grep -q 'All 2 changed play(s) ran' <<<"$out")"
-check "a clean checkout draws no dirty-checkout warning" "no" "$(yes_if grep -q 'uncommitted changes' <<<"$out")"
+check "asks the checkout gate once, about this checkout, before the question" "gate: checkout-gate $CHECKOUT --changed" \
+    "$(calls | grep '^gate: ')"
 
-echo "=== a dirty checkout ==="
-run_changed 'y\n' TEST_DIRTY=" M docs/x.md" -- --changed
-check "exits 0" "0" "$rc"
-check "still runs them" "play-a.yml play-b.yml " "$(plays_run)"
-check "says the checkout has uncommitted changes" "yes" "$(yes_if grep -q 'uncommitted changes' <<<"$out")"
-check "and that these plays will be offered again" "yes" "$(yes_if grep -q 'offer them again' <<<"$out")"
-run_changed 'y\n' TEST_GIT_RC=128 -- --changed
-check "git status failing: refused" "1" "$rc"
+echo "=== the checkout gate (R78) ==="
+run_changed 'y\n' TEST_GATE_RC=1 -- --changed
+check "a refusal is the run's status" "1" "$rc"
 check "and runs nothing" "" "$(plays_run)"
+check "nor asks to" "no" "$(yes_if grep -q 'Run them now' <<<"$out")"
+check "and passes on the gate's words" "yes" "$(yes_if grep -q 'stand-in gate' <<<"$out")"
+run_changed 'y\n' -- --changed --force
+check "--force reaches the gate" "gate: checkout-gate --force $CHECKOUT --changed" "$(calls | grep '^gate: ')"
+check "and the plays run" "play-a.yml play-b.yml " "$(plays_run)"
+run_changed '' -- --force
+check "--force without --changed or --rerun: refused" "1" "$rc"
+check "and says what it is for" "yes" "$(yes_if grep -q -- '--force only overrides the checkout gate' <<<"$out")"
+check "asking no gate" "" "$(calls | grep '^gate: ')"
 
 echo "=== declined ==="
 run_changed 'n\n' -- --changed
@@ -194,6 +205,7 @@ run_changed '' -- --changed
 check "exits 0" "0" "$rc"
 check "runs nothing" "" "$(plays_run)"
 check "says nothing changed" "yes" "$(yes_if grep -q 'No play has changed since it last ran here' <<<"$out")"
+check "with nothing to run, no gate (and no fetch)" "" "$(calls | grep '^gate: ')"
 
 echo "=== plays the judge cannot follow, and plays that are gone ==="
 printf 'UNRESOLVED %s %s:12: {{ root_dir }}/vars/x.yml\nGONE %s\nRUN %s\n' "$B" "$B" "$C" "$A" >"$MARKERS"

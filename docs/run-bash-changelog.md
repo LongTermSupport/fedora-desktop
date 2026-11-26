@@ -15,6 +15,15 @@ the index, not the record.
 
 ---
 
+## 1.39.0 — `--changed` and `--rerun` refuse a checkout the remote does not hold (Plan 00265 R78)
+
+Before running plays, `--changed` and `--rerun` run the Go `checkout-gate`: after a fetch,
+a checkout with uncommitted changes, or a branch with no upstream, behind, ahead of or
+diverged from it, or a failed fetch, is refused, naming each cause and its fix. `--force`
+runs anyway and says what it overrode; given without `--changed` or `--rerun` it is refused.
+This replaces the warning about uncommitted changes. `--rerun` is gated before its menu, so a
+pick is never thrown away; `--changed` only when it has plays to run.
+
 ## 1.38.1 — the plays with no ledger record are told apart, and listed compactly (issue #323)
 
 A file a package owns no longer counts as a sign that a play ran unless `rpm -V` reports its

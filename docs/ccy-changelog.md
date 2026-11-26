@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.114 — container 2.84.108
+
+- `internal/gitx` gains the upstream questions (uncommitted paths, the branch, its upstream, a
+  fetch that never prompts, ahead and behind) for run.bash's checkout gate (Plan 00265 Task
+  4.1, R78). The launcher links gitx but calls none of them, so ccy behaves the same.
+
 ## 3.124.113 — container 2.84.108
 
 - `ccy-sessions restore` and `ccy-teams restart` replay only the words a launch records (Plan

@@ -68,7 +68,7 @@ packages by package with the commands built from them, such as
 its inputs (or the group_vars file) was uncommitted during that run: each run records which
 paths were uncommitted, so a stray file no play reads makes no play run again. A record
 that cannot name them all (one from before they were recorded, or more than 50) counts as
-any input. It warns about this before it asks. Only a full run decides a play: a run
+any input. Only a full run decides a play: a run
 narrowed by `--tags`, `--skip-tags`, `--limit`, `--start-at-task` or `--step` covered part of it, so
 a failed one is named but does not make the play run again. A play whose run failed on a
 machine where it cannot apply is cleared with
@@ -99,6 +99,17 @@ without running anything. The pick runs at once, in menu order, under the same p
 as `--changed`, and stops at the first failure. It uses the ledger and the judgement
 `--changed` uses, and the same refusals (no playbook path, no `--optional-only`, no
 `--headless`). The panel's "Re-run a play…" row opens it.
+
+**Both refuse a checkout the remote does not hold.** Before `--changed` asks (when it has
+plays to run) and before `--rerun` shows its menu, `run.bash` fetches and refuses when the
+checkout has uncommitted changes (tracked, or untracked and not ignored), when its branch has
+no upstream, is behind it, ahead of it or diverged from it, or when the fetch fails. The
+refusal names each cause and its fix (commit or stash, `git pull --ff-only`, `git push`,
+`git push -u`) and ends with the same command plus `--force`, which runs anyway and says on
+stderr what it overrode. A detached checkout (a `RUN_BASH_GIT_REF` pin) is checked for
+uncommitted changes only. The check is `src-go/cmd/checkout-gate`; its package doc,
+`src-go/internal/checkoutgate`, lists every case. A single play (`./run.bash <play>.yml`,
+which meta-deploy's playbook entries and plan deploy scripts use) is not gated.
 
 ```bash
 # Zero-flag default — auto-detects desktop vs. server:

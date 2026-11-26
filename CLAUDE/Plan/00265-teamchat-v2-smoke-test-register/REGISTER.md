@@ -1500,8 +1500,24 @@ before the move to v2. Filled in as causes are found.
   - Tests: dirty, behind, ahead, fetch failed, clean and current, detached pin, and `--force`
     over each refusal. The Go uses a real temporary repository with a bare upstream, and
     `scripts/test-run-bash-*` drives the wiring.
+- **Built (Task 4.1):** `src-go/cmd/checkout-gate` over `internal/checkoutgate` (G1-G15 in its
+  package doc), with the git questions in `internal/gitx/upstream.go`. run.bash's
+  `play_batch_gate` builds and runs it (`run_go_command`) where `play_batch_warn_dirty` was;
+  run.bash shrank (2771 to 2769 code lines). Decisions:
+  - Untracked files outside `.gitignore` count as uncommitted: a play can read a new file.
+  - A failed fetch is refused, and `--force` is the way past it: an offline machine must still
+    be able to run a play. Forced, nothing is compared, and it says so.
+  - A branch with no upstream is refused (fix `git push -u`); a git fault is exit 1 even with
+    `--force`, as the gate cannot say what it would override.
+  - `--changed` is gated only when it has plays to run; `--rerun` before its menu.
+  - Not gated: a single play (`./run.bash <play>.yml`), which meta-deploy's playbook entries,
+    plan deploy scripts and the self-update cycle run; meta-deploy's `changed-plays` entry is
+    gated. Whether single plays are gated too is the owner's call. `--force` with neither
+    `--changed` nor `--rerun` is refused.
+  - Tests: Go unit tests over `execx` fakes, gitx against real repositories with a bare
+    upstream, and the `scripts/test-run-bash-{changed,rerun}.bash` suites driving the wiring.
 - **Severity:** medium (a play deployed from code that is not on the remote). **Issue:** TBF.
-  **State:** open.
+  **State:** fixed in the container; live proof owed (a `--changed` run on the host).
 
 ## R79: the private-name guard learns only this session's own teams
 
