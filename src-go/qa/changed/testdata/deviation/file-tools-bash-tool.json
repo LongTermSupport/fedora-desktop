@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: tools/bash-tool\ncheck shellcheck: tools/bash-tool\ncheck shell-directives: tools/bash-tool\ncheck semgrep: tools/bash-tool\ncheck ready-wait-files: tools/bash-tool\ncheck bash-limits\ncheck argv-leak\ncheck gh-poll\ncheck secret-screen\ncheck hidden-bindings\ncheck lxc-attach-streams\ncheck gitleaks\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: tools/bash-tool\ncheck shellcheck: tools/bash-tool\ncheck shell-directives: tools/bash-tool\ncheck semgrep: tools/bash-tool\ncheck ready-wait-files: tools/bash-tool\ncheck bash-limits\ncheck argv-leak\ncheck gh-poll\ncheck secret-screen\ncheck temp-exclusive\ncheck hidden-bindings\ncheck lxc-attach-streams\ncheck gitleaks\n",
  "stderr": "",
  "status": 0,
  "log": []

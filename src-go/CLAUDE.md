@@ -526,8 +526,10 @@ spec is `qa/cmd/qa-arch-pin` and `scripts/qa-arch-pin.bash`, the gate for `.semg
 (`github-poll-too-often`), and given its `SecretScreen` spec
 is `qa/cmd/qa-secret-screen` and `scripts/qa-secret-screen.bash`, the gate for
 `.semgrep/secret-screen.yml` (`secret-on-normal-screen` and its three sibling rules, issue #261,
-each proven against its own fixture); the real-semgrep tests of each are
-in its command package.
+each proven against its own fixture), and given its `TempExclusive` spec is
+`qa/cmd/qa-temp-exclusive` and `scripts/qa-temp-exclusive.bash`, the gate for
+`.semgrep/temp-exclusive.yml` (`temp-not-exclusive`, shell and Python, Plan 00265 R36); the
+real-semgrep tests of each are in its command package.
 
 `qa/planscriptlogging` + `qa/cmd/qa-plan-script-logging` (same nested module) are
 `scripts/qa-plan-script-logging.bash`, the Plan 00130 gate: the script only builds and runs the

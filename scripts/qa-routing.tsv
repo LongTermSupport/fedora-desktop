@@ -133,6 +133,15 @@ also	playbooks/*,tasks/*,vars/*,files/*,helpers/*,vault.bash	secret-screen	-
 also	.semgrep/secret-screen.*	secret-screen	covered
 also	src-go/qa/ghscopes/*,src-go/qa/cmd/qa-secret-screen/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	secret-screen	-
 also	scripts/qa-secret-screen.bash,scripts/lib/go-tool.bash	secret-screen	-
+# The temp-not-exclusive gate (check temp-exclusive) runs whole (one semgrep pass, seconds) for
+# a change to a file that can write a temporary and rename it into place: a play, task or vars
+# file, a files/ tool or template, a helper; a shell script or Python file anywhere by the post
+# row below. And when its rules, fixtures, wrapper or tool change; the rules and fixtures are its
+# own data and count as covered. Go is project_temp_not_exclusive's.
+also	playbooks/*,tasks/*,vars/*,files/*,helpers/*	temp-exclusive	-
+also	.semgrep/temp-exclusive.*	temp-exclusive	covered
+also	src-go/qa/ghscopes/*,src-go/qa/cmd/qa-temp-exclusive/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	temp-exclusive	-
+also	scripts/qa-temp-exclusive.bash,scripts/lib/go-tool.bash	temp-exclusive	-
 # Every semgrep rule gate still reads this project's own config inside .claude/ccy, a tree
 # scripts/qa-trees.tsv keeps out of every gate (ghscopes' ccyProjectFiles, issue #412), so a
 # change to one of those files runs each gate whole.
@@ -144,6 +153,7 @@ also	.claude/ccy/.gitignore,.claude/ccy/ccy.env,.claude/ccy/ccy.env.local.dist,.
 also	.claude/ccy/.gitignore,.claude/ccy/ccy.env,.claude/ccy/ccy.env.local.dist,.claude/ccy/mounts	boot-hold	-
 also	.claude/ccy/.gitignore,.claude/ccy/ccy.env,.claude/ccy/ccy.env.local.dist,.claude/ccy/mounts	gh-poll	-
 also	.claude/ccy/.gitignore,.claude/ccy/ccy.env,.claude/ccy/ccy.env.local.dist,.claude/ccy/mounts	secret-screen	-
+also	.claude/ccy/.gitignore,.claude/ccy/ccy.env,.claude/ccy/ccy.env.local.dist,.claude/ccy/mounts	temp-exclusive	-
 # The Python gate runs whole when its tool, the ruff config, the pin, its wrapper or the table of excluded trees change.
 also	src-go/qa/python/*,src-go/qa/cmd/qa-python/*,src-go/qa/discovery/*,src-go/qa/internal/cmdmain/*,src-go/qa/internal/rootargs/*	python	-
 also	ruff.toml	python	covered
@@ -341,7 +351,7 @@ also	files/etc/sudoers.d/*,files/usr/local/sbin/*	ansible-patterns	-
 # with no check and no cover: the patterns row above, or the suite that names the file in
 # scripts/qa-gates.tsv (selected by name), covers it.
 first	.semgrep/bash-conventions.yml,.semgrep/bash-conventions.bash	-	-
-first	.semgrep/gh-scopes.*,.semgrep/find-race.*,.semgrep/arch-pin.*,.semgrep/argv-leak.*,.semgrep/place-issued-token.*,.semgrep/boot-hold.*,.semgrep/gh-poll.*,.semgrep/secret-screen.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*,.semgrep/hook-handlers.*,.semgrep/walk-open.*,.semgrep/stdin-wait.*,.semgrep/lxc-attach-streams.bash	-	-
+first	.semgrep/gh-scopes.*,.semgrep/find-race.*,.semgrep/arch-pin.*,.semgrep/argv-leak.*,.semgrep/place-issued-token.*,.semgrep/boot-hold.*,.semgrep/gh-poll.*,.semgrep/secret-screen.*,.semgrep/temp-exclusive.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*,.semgrep/hook-handlers.*,.semgrep/walk-open.*,.semgrep/stdin-wait.*,.semgrep/lxc-attach-streams.bash	-	-
 # Any other .semgrep/ file is read by nothing: it ends here uncovered, never called covered.
 first	.semgrep/*	-	-
 first	*.md	docs	covered
@@ -359,9 +369,10 @@ post	any:@sh,any:@py	hidden-bindings	-
 post	any:@sh	lxc-attach-streams	-
 post	any:@sh	argv-leak	-
 post	any:@sh,any:@py	secret-screen	-
+post	any:@sh,any:@py	temp-exclusive	-
 # The gitleaks gate (issue #329, SPEC-qa-changed B64) runs whole once any changed file still
 # exists: a secret can be in any file, and CI's gitleaks job scans the whole tree. It covers no
 # file, and a change of deletions only carries no new text to scan.
 post	any:@file	gitleaks	-
 post	any:@sh,any:@py	gh-poll	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-teamchat-separate qa-ansible-pause qa-gh-scopes qa-find-race qa-arch-pin qa-argv-leak qa-place-issued-token qa-boot-hold qa-gh-poll qa-secret-screen qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-hook-handler-rules qa-walk-open qa-stdin-wait qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers qa-plan-tests qa-lxc-attach-streams qa-gitleaks
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-teamchat-separate qa-ansible-pause qa-gh-scopes qa-find-race qa-arch-pin qa-argv-leak qa-place-issued-token qa-boot-hold qa-gh-poll qa-secret-screen qa-temp-exclusive qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-hook-handler-rules qa-walk-open qa-stdin-wait qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers qa-plan-tests qa-lxc-attach-streams qa-gitleaks
