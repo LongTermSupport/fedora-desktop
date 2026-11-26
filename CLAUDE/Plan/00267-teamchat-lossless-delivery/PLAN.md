@@ -122,8 +122,10 @@ file and line.
   unproven pings (past it, bounced `rate`). Tests: `TestATransientForgeFailureIsTakenUnproven`,
   `TestAnUnprovenPingStillFailingIsHeldToItsNextCheck`, `TestAnUnprovenPingIsBouncedAtItsDeadline`,
   `TestAnUnprovenPingThatProvesIsHanded`, `TestAPersistedUnprovenPingIsCheckedAgainBeforeItIsHanded`,
-  `TestAnUnprovenPingSurvivesALinkRestart` (a fresh engine over the persisted store delivers it,
-  or bounces it at its deadline), `TestAnUnprovenPingsDeadlineIsKeptAndChecked`,
+  `TestAnUnprovenPingSurvivesALinkRestart` (an engine restart: a fresh engine over the persisted
+  store, with a fake team, delivers it or bounces it at its deadline; teamsync's resume from the
+  stored `next_batch` past the ping is not exercised, as the store, not the re-read, holds it),
+  `TestAnUnprovenPingsDeadlineIsKeptAndChecked`,
   `TestForgeTransient`; SD5-r1/r2/r4/r8/r11/r12 changed to take the ping unproven.
 
 ### Phase 4: receipts at each point (C2)
