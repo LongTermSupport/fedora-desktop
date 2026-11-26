@@ -498,9 +498,16 @@ so the 25 Nov stall would have logged nothing. Two additions to 7.3:
     (mode 0600, 1 MiB, rolled once): per-thread state, CPU ticks and wchan, then gdb's
     `thread apply all bt` with frame arguments off and no debuginfod (else `eu-stack`). It
     never opens the log or any other file of the instance, and never signals Lightning.
+  - **The ptrace restriction (checked in this repository):** `play-self-update.yml` sets
+    `kernel.yama.ptrace_scope=1` where self-update is on, so a process may attach only to its
+    own descendants; it guards the become password in the running controller. The watchdog is
+    a separate user service, not Lightning's parent, so there gdb and eu-stack are refused. The
+    record names the scope (W12) and keeps the per-thread state, CPU and wchan lines, which
+    need no attach. Lowering the scope while tracing is owner decision D3 (recommended: no).
+    The play installs gdb and elfutils while a team is traced.
   - **Unchecked:** that gdb outside the Flatpak sandbox can attach to the sandboxed process and
-    resolve its frames. A failed attach is written into the record (W5), so the first
-    record says.
+    resolve its frames where the scope is 0. A failed attach is written into the record (W5),
+    so the first record says.
 
 ## 8. New evidence (laptop host seat, 2026-11-26 09:17Z) and the re-ranking
 

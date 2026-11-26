@@ -124,6 +124,7 @@
       become: true
       register: pn_served
       changed_when: false
+      check_mode: false # read-only, so --check runs it and the assert below still judges it
       failed_when: false # FAIL-FAST-OK: no_log hides a failure's reason; the next task fails on rc, never printing a name
       no_log: true
       when: pn_ctl_root.stat.exists
@@ -163,3 +164,5 @@
         fail_msg: >-
           qa-private-names pin refused (exit {{ pn_pin.rc }}): {{ pn_pin.stderr | trim }}
         success_msg: "{{ pn_pin.stdout | trim }}"
+      # --check skips the write above, so it records no rc; a dry run writes nothing and judges nothing here
+      when: not ansible_check_mode

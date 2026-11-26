@@ -349,6 +349,23 @@ func TestW5AFailedBacktraceIsRecordedAsSuch(t *testing.T) {
 	}
 }
 
+// TestW12TheRecordNamesThePtraceScope holds that the record says what kernel.yama.ptrace_scope
+// was, so a refused attach under a ptrace restriction explains itself, and says so when the
+// kernel has no Yama.
+func TestW12TheRecordNamesThePtraceScope(t *testing.T) {
+	w := newWorld(t)
+	w.proc["sys/kernel/yama/ptrace_scope"] = &fstest.MapFile{Data: []byte("1\n")}
+	w.stuck()
+	if text := w.recordText(); !strings.Contains(text, "kernel.yama.ptrace_scope 1 (") {
+		t.Fatalf("%s", text)
+	}
+	none := newWorld(t)
+	none.stuck()
+	if text := none.recordText(); !strings.Contains(text, "kernel.yama.ptrace_scope: no Yama") {
+		t.Fatalf("%s", text)
+	}
+}
+
 // TestW6TheBacktraceShowsNoArgumentsAndAsksNoServer holds the tools' argv: gdb prints no frame
 // argument (an argument could be a message's text) and asks no debuginfod server.
 func TestW6TheBacktraceShowsNoArgumentsAndAsksNoServer(t *testing.T) {

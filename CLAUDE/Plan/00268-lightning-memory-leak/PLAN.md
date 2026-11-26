@@ -69,14 +69,14 @@ another batch; this plan decides at the end whether it stays.
   runs [laptop-commands.md](laptop-commands.md) section 10 (systemd's CPU and peak accounting of
   the killed scope, Lightning's stderr in the journal or the ccy-teams log, any rolling log).
   Answer: [Q20-answer.md](Q20-answer.md).
-- [ ] ⬜ **Task 1.6**: Dogfooding fault: `systemd.LaunchClient` appends a client's stderr to
+- [x] ✅ **Task 1.6**: Dogfooding fault: `systemd.LaunchClient` appends a client's stderr to
   `<ccy-teams state dir>/<client>-<team>.log` with no cap or rotation. Log it as a GitHub issue
-  before Task 1.4 turns tracing on.
+  before Task 1.4 turns tracing on. Logged: issue #429 (the fix is that issue's, not this plan's).
 - [x] ✅ **Task 1.7**: Catch the trigger next time (RESEARCH.md 7.5): slow-event sync tracing in
   Task 1.4's key, and a user-level watchdog (IaC) that, when the instance's log is silent for
   60 s while its RSS climbs past a threshold, records per-thread CPU and an all-threads
   backtrace once. Lightning's own stall tracer logs only when a stall ends, so it cannot. Built:
-  `agent-bus-lightning watch` (`internal/lightning/watch`, W1-W11; L17), the user service
+  `agent-bus-lightning watch` (`internal/lightning/watch`, W1-W12; L17), the user service
   `agent-bus-lightning-watch`, run by the play only while a team has the key true.
 
 ### Phase 2: Reproduce
@@ -133,10 +133,11 @@ another batch; this plan decides at the end whether it stays.
 
 ## Owner decisions
 
-| ID  | Question                                                         | Recommendation                 |
-| --- | ---------------------------------------------------------------- | ------------------------------ |
-| D1  | Launch the busy team's Lightning with its traces and a log file? | Yes, Task 1.4's memory tracing |
-| D2  | Keep the memory cap once the fix is verified?                    | Decide after Task 6.2          |
+| ID  | Question                                                                                                                      | Recommendation                                                                         |
+| --- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| D1  | Launch the busy team's Lightning with its traces and a log file?                                                              | Yes, Task 1.4's memory tracing                                                         |
+| D2  | Keep the memory cap once the fix is verified?                                                                                 | Decide after Task 6.2                                                                  |
+| D3  | Where `kernel.yama.ptrace_scope` is 1 (play-self-update.yml), lower it while tracing, so the watchdog's backtrace can attach? | No: it guards the become password; the per-thread lines still record (RESEARCH.md 7.5) |
 
 ## Dependencies
 

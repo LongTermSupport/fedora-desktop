@@ -36,7 +36,10 @@
 //	W9 A process whose /proc files vanish between reads has ended and is skipped.
 //	W10 A process already named in the record (its pid and start time) is not recorded again
 //	   after the watchdog restarts.
-//	W11 Lightning's log is never written, and its cache folder gains only the record.
+//	W11 Lightning's log is never written, and its cache folder gains only the record (and its
+//	   one rolled copy, W7).
+//	W12 The record names kernel.yama.ptrace_scope, or that the kernel has no Yama: above 0, a
+//	   backtrace tool the watchdog starts may not attach to Lightning, and the record says why.
 package watch
 
 import (
@@ -79,8 +82,10 @@ const (
 	// process is slow, and the instance is already lost when it runs.
 	backtraceBound = 120 * time.Second
 	recordMode     = 0o600
-	cutNote        = "\n(cut at the cap)\n"
-	headPrefix     = "=== lightning-watchdog "
+	// ptraceScopeFile is kernel.yama.ptrace_scope under /proc.
+	ptraceScopeFile = "sys/kernel/yama/ptrace_scope"
+	cutNote         = "\n(cut at the cap)\n"
+	headPrefix      = "=== lightning-watchdog "
 )
 
 // Watcher is the watchdog's state across ticks.
@@ -308,6 +313,9 @@ func (w *Watcher) record(ctx context.Context, p process, file string, f finding)
 	if err := w.threads(&b, p.pid); err != nil {
 		return err
 	}
+	if err := w.ptraceScope(&b); err != nil {
+		return err
+	}
 	w.backtrace(ctx, &b, p.pid)
 	b.WriteString("=== end ===\n")
 	if err := appendCapped(file, b.String()); err != nil {
@@ -344,6 +352,22 @@ func (w *Watcher) threads(b *strings.Builder, pid string) error {
 		fmt.Fprintf(b, "%s %s %s %s %s %s\n", fields.id, fields.name, fields.state, fields.utime, fields.stime,
 			strings.TrimSpace(string(wchan)))
 	}
+	return nil
+}
+
+// ptraceScope writes kernel.yama.ptrace_scope (W12): above 0, a tool that did not start the
+// process may not attach to it, so the backtrace below is refused.
+func (w *Watcher) ptraceScope(b *strings.Builder) error {
+	data, err := fs.ReadFile(w.Proc, ptraceScopeFile)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		b.WriteString("kernel.yama.ptrace_scope: no Yama\n")
+		return nil
+	case err != nil:
+		return fmt.Errorf("reading %s: %w", ptraceScopeFile, err)
+	}
+	fmt.Fprintf(b, "kernel.yama.ptrace_scope %s (above 0, a backtrace of a process this watchdog did not start is refused)\n",
+		strings.TrimSpace(string(data)))
 	return nil
 }
 

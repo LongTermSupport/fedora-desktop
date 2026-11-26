@@ -147,7 +147,9 @@ playbooks/imports/play-git-hooks-security.yml
 # launch (close it and open it again). The run also places and, while some team has the key
 # true, enables and starts the user service agent-bus-lightning-watch, which records the
 # instance's threads once, beside that log, if the log falls silent for 60 s while memory rises
-# 256 MiB; with no team on it is stopped and disabled. Before setting the key, check the
+# 256 MiB; with no team on it is stopped and disabled. While a team is traced it installs gdb
+# and elfutils (one sudo) for that record's backtrace, which kernel.yama.ptrace_scope=1 (set
+# by the self-update play) refuses; the record then says so. Before setting the key, check the
 # instance runs Lightning 0.10.7 or later (laptop-commands.md step 1): only 0.10.7 caps the log.
 playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-lightning
 

@@ -64,6 +64,10 @@
       {{ agent_bus_element_profiles | selectattr('client', 'equalto', 'element') | list }}
     agent_bus_element_lightning_teams: >-
       {{ agent_bus_element_profiles | selectattr('client', 'equalto', 'lightning') | list }}
+    # Whether a lightning team is traced (Plan 00268): the watchdog runs only then.
+    agent_bus_lightning_diagnostics_on: >-
+      {{ agent_bus_element_lightning_teams | selectattr('lightning_diagnostics', 'defined')
+         | selectattr('lightning_diagnostics', 'equalto', true) | list | length > 0 }}
     # Matches the helper's CHANGED<TAB><path> marker lines.
     agent_bus_element_changed_re: "^CHANGED\t"
     # Where an https team's CA is put for Element (tasks/element-team-ca.yml): nssdb or system,
@@ -274,6 +278,19 @@
     # that records a stalled instance's threads once, beside its diagnostic log. It runs only
     # while a lightning team has lightning_diagnostics true, and is stopped and disabled
     # otherwise. The unit is always placed, so the disable below has a unit to act on.
+    # The watchdog's backtrace tools: gdb, else eu-stack (elfutils). It never installs anything
+    # itself. With kernel.yama.ptrace_scope above 0 (play-self-update.yml sets 1) they may not
+    # attach to Lightning; the record then says so (watch W12), and the per-thread lines remain.
+    - name: Install the Lightning watchdog's backtrace tools while a team is traced
+      become: true
+      ansible.builtin.dnf:
+        name:
+          - gdb
+          - elfutils
+        state: present
+      when: agent_bus_lightning_diagnostics_on
+      tags: [agent-bus-lightning]
+
     - name: Read the per-team Lightning command's checksum after the build
       ansible.builtin.stat:
         path: "{{ agent_bus_lightning_command }}"
@@ -326,9 +343,6 @@
       environment:
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
       vars:
-        agent_bus_lightning_diagnostics_on: >-
-          {{ agent_bus_element_lightning_teams | selectattr('lightning_diagnostics', 'defined')
-             | selectattr('lightning_diagnostics', 'equalto', true) | list | length > 0 }}
         agent_bus_lightning_watch_renewed: >-
           {{ agent_bus_lightning_watch_unit is changed
              or agent_bus_lightning_command_before.stat.checksum | default('')

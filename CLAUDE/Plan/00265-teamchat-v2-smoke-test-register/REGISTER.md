@@ -1633,3 +1633,32 @@ before the move to v2. Filled in as causes are found.
   - The one notice serves every verb (issue #260's seam), so this is one change in `stdinread`
     with a test for each kind of stdin.
 - **Severity:** low (misleading text, no wrong result). **Issue:** TBF. **State:** open.
+
+## R84: the checkout runs none of the repository's git hooks, and nothing notices
+
+- **Seen:** this seat, 26 Nov, while asking why a team name reached a commit (2fad98c7e) that
+  `qa-private-names staged` would have refused. The third batch 23 review found the name.
+- **What (checked):**
+  - `git config --show-origin --get-all core.hooksPath` finds nothing at any level.
+  - `.git/hooks` holds no hook.
+  - So in this checkout (the host's own, mounted into the container), no git hook runs: not
+    the pre-commit secret scan and private-name guard (`scripts/git-hooks/pre-commit:120`), not
+    the ccy version gate, not commit-msg, and not the pre-push gate on protected branches.
+  - Every commit made here today went in unscanned. CI's diff QA still ran on each batch.
+  - `play-git-hooks-security.yml` is the play that sets `core.hooksPath`. Whether it never ran
+    on this checkout, or its setting was later lost, is unchecked.
+- **Hazard:** every local gate is silently off. A commit or push passes them by not running
+  them, and nothing reports it. This is how the leak reached a commit.
+- **Fix (Defence Before Fix):**
+  - Detector: a check, at session start and in `qa-changed`, that `core.hooksPath` resolves to
+    `scripts/git-hooks` and that each hook there is executable. It fails loudly, naming the
+    play to run. Prove it red on today's checkout.
+  - Sweep: every checkout and worktree the host has (the hooks config is per repository, so
+    one run covers its worktrees).
+  - Then fix this checkout by running `play-git-hooks-security.yml` on the host, which is
+    queued in `meta-deploy.list` (R79). Never by a hand `git config` (IaC).
+  - Meanwhile, this seat runs `./scripts/qa-private-names.bash staged` itself before each
+    commit (a workaround, logged here).
+  - Re-scan every commit made here since the hooks stopped (`qa-private-names range`), to
+    find any other leak that went in.
+- **Severity:** high (all local security gates off, silently). **Issue:** TBF. **State:** open.
