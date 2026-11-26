@@ -649,7 +649,10 @@ check "and the run says CHANGED" "yes" "$(says $'^CHANGED\t' "$OUT")"
 echo "== team: a description changed (Plan 00201 S-A4)"
 cp "$T/tuwunel.toml" "$SCRATCH/toml.before"
 cp "$DROPIN" "$SCRATCH/dropin.before"
-TF_NEXT=$(mktemp -- "$TF.new.XXXXXXXXXX")
+TF_NEXT=$(mktemp -- "$TF.new.XXXXXXXXXX") || {
+    echo "FATAL: cannot create a temporary beside $TF" >&2
+    exit 1
+}
 jq '. + {description: "Builds the example site"}' "$TF" >"$TF_NEXT" && mv "$TF_NEXT" "$TF"
 run team --team-file "$TF"
 check "a team file differing only in description is applied" "0" "$RC"

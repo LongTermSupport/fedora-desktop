@@ -567,7 +567,10 @@ for variant in "space" "cr" "comment"; do
         cr) suffix=$'\r' ;;
         comment) suffix=" # hand-edited" ;;
     esac
-    ql_next=$(mktemp -- "$QL.new.XXXXXXXXXX")
+    ql_next=$(mktemp -- "$QL.new.XXXXXXXXXX") || {
+        echo "FATAL: cannot create a temporary beside $QL" >&2
+        exit 1
+    }
     awk -v s="$suffix" '/^LAST_NETWORK=/ { print $0 s; next } { print }' "$QL" >"$ql_next" && mv "$ql_next" "$QL"
     run_disconnect "" wrong-network
     check "a hand-edited LAST_NETWORK line ($variant) fails the command" "1" "$RC"
