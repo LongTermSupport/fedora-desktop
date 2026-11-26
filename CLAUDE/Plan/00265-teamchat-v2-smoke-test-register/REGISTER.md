@@ -1838,8 +1838,9 @@ before the move to v2. Filled in as causes are found.
 
 - **Seen:** the owner's laptop, 26 Nov 10:44Z, relayed by the coordinator. After `run.bash --changed` to F44, `cc` in another team's checkout, which ran before the shutdown, exits 78:
   the checkout has no host seat of that team, a new one cannot be added because the team is
-  not served on this machine, and it prints a cross-machine issue-and-place pipe that names a
-  seat handle.
+  not served on this machine, and it prints a cross-machine issue-and-place pipe for a person to
+  complete and run (`seatadd.go:148`; the handle is left to them, and only the issued-but-not-
+  placed message at `:175` names one).
 - **What (checked in F44 code):** on teamchat, `cc` needs a host seat in the checkout's own
   pool. With none it runs `ccy-teams seats add <team> --host`, which issues on this machine's
   bus and refuses (78) a team with no status record here (`internal/teams/seatadd`, package
@@ -1848,7 +1849,8 @@ before the move to v2. Filled in as causes are found.
 - **Unchecked:** that the session before the update ran on the v1 bus, and which commit ended
   `cc`'s v1 path for a team on teamchat.
 - **Hazard:** the lossless rule and R90. A running seat becomes unstartable after an update,
-  and the way back is a command line naming a seat, run across two machines.
+  and the way back is a command line a person must complete with a seat, run across two
+  machines.
 - **Fix:**
   - The update carries a v1 seat over itself.
   - Or `cc` offers to fetch the seat from the machine that serves the team, in words, with no
