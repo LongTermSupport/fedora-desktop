@@ -282,6 +282,7 @@ func agentTexts(t *testing.T) map[string]string {
 	for i, d := range []client.Down{
 		{State: client.DownRestarting, NextMS: 5_000},
 		{State: client.DownStarting},
+		{State: client.DownBusy},
 		{State: client.DownFailed, Kind: state.KindCCY, Session: "work-1"},
 		{State: client.DownFailed, Kind: state.KindLXC, Session: "work-1"},
 		{State: client.DownFailed, Kind: state.KindHost},

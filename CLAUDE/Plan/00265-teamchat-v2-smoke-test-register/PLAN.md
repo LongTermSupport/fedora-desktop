@@ -84,6 +84,12 @@ the coordinator's worker restarts.
 - [ ] ⬜ **Task 3.3**: R13, R15, R16.
 - [ ] ⬜ **Task 3.2**: R19 (#424), R20.
 
+### Phase 4: owner requirements met on the way
+
+- [ ] ⬜ **Task 4.1**: R78 (the owner's Q18): run.bash refuses a dirty checkout, or one behind its
+  upstream after a fetch, and `--force` runs anyway. The batch after 24. Built in Go, since
+  run.bash may not grow (bash-limits ratchet).
+
 ## Success Criteria
 
 - [ ] Every register entry is proven fixed or deferred by the owner.

@@ -15,6 +15,7 @@ import (
 const (
 	msgRestarting exits.Template = "teamchat is restarting (next try in {} s); team messages wait on the server"
 	msgStarting   exits.Template = "teamchat is starting or restarting; team messages wait on the server"
+	msgBusy       exits.Template = "teamchat is running but did not answer in time (busy, or the machine is loaded); team messages wait on the server until it does"
 	msgStoppedCCY exits.Template = "teamchat has stopped in this session; team messages are not received; ask the owner to run `ccy-teams restart {}`"
 	msgStopped    exits.Template = "teamchat has stopped in this session; end this session and launch it again"
 )
@@ -23,6 +24,7 @@ const (
 const (
 	DownRestarting = "restarting"
 	DownStarting   = "starting"
+	DownBusy       = "busy"
 	DownFailed     = "failed"
 )
 
@@ -36,10 +38,11 @@ type Down struct {
 	Session string
 }
 
-// ReadDown is LN3's reading: keeper.lock held and the link restarting is restarting, held and
-// anything else but failed is starting; a failed link, or keeper.lock free (the keeper has
-// gone), is failed. It reads one file, probes one lock, waits on nothing and never fails: a
-// run directory it cannot open is the keeper gone.
+// ReadDown is LN3's reading: keeper.lock held and the link restarting is restarting; held,
+// running and link.lock held is busy (the link is up but did not answer this call in time,
+// register R76); held and anything else but failed is starting; a failed link, or keeper.lock
+// free (the keeper has gone), is failed. It reads one file, probes two locks, waits on nothing
+// and never fails: a run directory it cannot open is the keeper gone.
 func ReadDown(run paths.Run) Down {
 	root, err := homefs.Open(run.Dir(), homefs.Private)
 	if err != nil {
@@ -51,6 +54,7 @@ func ReadDown(run paths.Run) Down {
 		}
 	}()
 	held, heldErr := lock.Probe(root, run.KeeperLock())
+	linkUp, linkErr := lock.Probe(root, run.LinkLock())
 	k, kErr := state.Read(root, run.KeeperJSON(), state.MaxKeeper, state.DecodeKeeper)
 	d := Down{State: DownStarting}
 	known := kErr == nil
@@ -65,6 +69,8 @@ func ReadDown(run paths.Run) Down {
 		d.State = DownFailed
 	case known && k.Link == state.LinkRestarting && k.NextMS != nil:
 		d.State, d.NextMS = DownRestarting, *k.NextMS
+	case known && k.Link == state.LinkRunning && linkUp && linkErr == nil:
+		d.State = DownBusy
 	}
 	return d
 }
@@ -75,7 +81,7 @@ func ReadDown(run paths.Run) Down {
 const maxNextMS = (math.MaxInt64 - int64(time.Second)) / int64(time.Millisecond)
 
 // Error is the verbs' exit 69 for d at boot (CLOCK_BOOTTIME): no-link while restarting (with
-// the whole seconds left, or as starting when its time is past maxNextMS) or starting,
+// the whole seconds left, or as starting when its time is past maxNextMS), starting or busy,
 // link-failed with the kind's recovery otherwise.
 func (d Down) Error(team *paths.TeamID, boot time.Duration) *exits.Error {
 	switch d.State {
@@ -88,6 +94,8 @@ func (d Down) Error(team *paths.TeamID, boot time.Duration) *exits.Error {
 		return exits.New(exits.CodeNoLink, team, msgRestarting, exits.Count(int64(secs)))
 	case DownStarting:
 		return exits.New(exits.CodeNoLink, team, msgStarting)
+	case DownBusy:
+		return exits.New(exits.CodeNoLink, team, msgBusy)
 	}
 	if d.Kind == state.KindCCY || d.Kind == state.KindLXC {
 		return exits.New(exits.CodeLinkFailed, team, msgStoppedCCY, exits.Name(d.Session))

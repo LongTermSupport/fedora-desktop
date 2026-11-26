@@ -1395,10 +1395,18 @@ before the move to v2. Filled in as causes are found.
     answer this one call in time (busy, or the host loaded), is reported as starting or
     restarting.
   - The words are wrong, and the state it implies (messages waiting) may be wrong too.
-- **Fix (batch 24):** a held keeper lock with the link `running` is its own state. The words say
-  the link is up but did not answer this call in time, and name the bound. A test runs over a
-  `keeper.json` that says running.
-- **Severity:** low (misleading, not lossy). **Issue:** TBF. **State:** open.
+- **Fix (batch 24, built test-first):**
+  - `ReadDown` also probes `link.lock`. A held keeper.lock, with keeper.json saying `running`
+    and link.lock held, is the new state `busy`. Its text: "teamchat is running but did not
+    answer in time (busy, or the machine is loaded); team messages wait on the server until it
+    does".
+  - With link.lock free, it stays "starting": the link has gone, and the keeper has not yet said
+    so (the e2e row that kills the link holds that).
+  - The status line draws `teamchat busy` if it ever meets this state.
+  - SPEC-n3 LN3 says the same.
+  - The bound was not put in the words: it differs per verb (hooks 300 ms to `wait`'s timeout).
+- **Severity:** low (misleading, not lossy). **Issue:** TBF. **State:** fixed on v2-smoke, waits
+  on batch 24.
 
 ## R77: an LXC seat unit cannot find a claude installed under nvm
 
@@ -1415,3 +1423,28 @@ before the move to v2. Filled in as causes are found.
   - Refuse loudly only when the lookup finds nothing.
   - The decision is in Plan 00266 under "Finding the claude command". Test first.
 - **Severity:** high where it applies (no seat starts). **Issue:** TBF. **State:** open.
+
+## R78: run.bash runs from a dirty checkout, or one behind its upstream
+
+- **Seen:** the owner, lts-ops Q18, 26 Nov 08:58Z (verbatim): "run.bash should block with force
+  escape hatch if the repo is behind remote or uncommited".
+- **Today (checked in run.bash):**
+  - A clean tree is required only before an update or a pin (`assert_clean_worktree`, line
+    1331, called from `fd_checkout` at 823).
+  - The play runs (`--changed`, `--rerun`) only warn on uncommitted changes
+    (`play_batch_warn_dirty`, 2079-2090).
+  - Nothing checks whether the checkout is behind its upstream.
+- **Fix (Plan 00265 Task 4.1, the batch after 24):**
+  - Before any play, run.bash refuses when the checkout has uncommitted changes, or is behind
+    its upstream after a `git fetch`. The message says which it is, names the paths or the
+    commit count, and gives the fix (commit or stash; `git pull`).
+  - A fetch that fails is a refusal too, never a pass.
+  - A detached pin (`RUN_BASH_GIT_REF`) has no upstream, so only the dirty check applies.
+  - `--force` runs anyway, and says on stderr which check it overrode.
+  - The check is a small Go command that run.bash calls in place of
+    `play_batch_warn_dirty`, because run.bash is on the bash-limits ratchet and may not grow.
+  - Tests: dirty, behind, fetch failed, clean and current, detached pin, and `--force`
+    over each refusal. The Go uses a real temporary repository with a bare upstream, and
+    `scripts/test-run-bash-*` drives the wiring.
+- **Severity:** medium (a play deployed from code that is not on the remote). **Issue:** TBF.
+  **State:** open.

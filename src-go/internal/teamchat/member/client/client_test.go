@@ -143,6 +143,20 @@ func (w *world) keeper() {
 	})
 }
 
+// linkLock holds link.lock as a live link does, released at the test's end.
+func (w *world) linkLock() {
+	w.t.Helper()
+	l, err := lock.TakeLink(w.t.Context(), lock.SystemClock(), w.root, w.run)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	w.t.Cleanup(func() {
+		if err := l.Release(); err != nil && !errors.Is(err, lock.ErrReleased) {
+			w.t.Error(err)
+		}
+	})
+}
+
 // keeperJSON writes keeper.json with the link's state.
 func (w *world) keeperJSON(link string, kind string, nextMS *int64) {
 	w.t.Helper()

@@ -27,27 +27,37 @@ func TestRuntime(t *testing.T) {
 	}
 }
 
-// ReadDown is one keeper.json read and one keeper.lock probe, and never fails.
+// ReadDown is one keeper.json read and two lock probes (keeper.lock, link.lock), and never fails.
 func TestReadDown(t *testing.T) {
 	next := (boot0 + 2*time.Second).Milliseconds()
 	for _, tc := range []struct {
 		name   string
 		keeper bool
+		linkUp bool
 		link   string
 		kind   string
 		next   *int64
 		want   Down
 	}{
-		{"restarting", true, state.LinkRestarting, state.KindHost, &next, Down{State: DownRestarting, NextMS: next, Kind: state.KindHost}},
-		{"running", true, state.LinkRunning, state.KindCCY, nil, Down{State: DownStarting, Kind: state.KindCCY, Session: "work-1"}},
-		{"no keeper.json", true, "", "", nil, Down{State: DownStarting}},
-		{"failed", true, state.LinkFailed, state.KindLXC, nil, Down{State: DownFailed, Kind: state.KindLXC, Session: "work-1"}},
-		{"keeper gone", false, state.LinkRunning, state.KindHost, nil, Down{State: DownFailed, Kind: state.KindHost}},
-		{"keeper gone, no keeper.json", false, "", "", nil, Down{State: DownFailed}},
+		{"restarting", true, false, state.LinkRestarting, state.KindHost, &next, Down{State: DownRestarting, NextMS: next, Kind: state.KindHost}},
+		// keeper.json running with link.lock free: the link has gone and the keeper has not yet
+		// said so, so it is starting again.
+		{"running, link gone", true, false, state.LinkRunning, state.KindCCY, nil, Down{State: DownStarting, Kind: state.KindCCY, Session: "work-1"}},
+		// running with link.lock held: the link is up and did not answer this call in time, never
+		// starting (register R76).
+		{"running, link up", true, true, state.LinkRunning, state.KindCCY, nil, Down{State: DownBusy, Kind: state.KindCCY, Session: "work-1"}},
+		{"no keeper.json", true, false, "", "", nil, Down{State: DownStarting}},
+		{"no keeper.json, link up", true, true, "", "", nil, Down{State: DownStarting}},
+		{"failed", true, false, state.LinkFailed, state.KindLXC, nil, Down{State: DownFailed, Kind: state.KindLXC, Session: "work-1"}},
+		{"keeper gone", false, false, state.LinkRunning, state.KindHost, nil, Down{State: DownFailed, Kind: state.KindHost}},
+		{"keeper gone, no keeper.json", false, false, "", "", nil, Down{State: DownFailed}},
 	} {
 		w := newWorld(t)
 		if tc.keeper {
 			w.keeper()
+		}
+		if tc.linkUp {
+			w.linkLock()
 		}
 		if tc.link != "" {
 			w.keeperJSON(tc.link, tc.kind, tc.next)
@@ -83,6 +93,7 @@ func TestDownError(t *testing.T) {
 		{Down{State: DownRestarting, NextMS: maxNextMS}, exits.CodeNoLink, "next try in 9223368436 s", ""},
 		{Down{State: DownRestarting, NextMS: maxNextMS + 1}, exits.CodeNoLink, "is starting or restarting", "next try"},
 		{Down{State: DownStarting}, exits.CodeNoLink, "is starting or restarting", "next try"},
+		{Down{State: DownBusy}, exits.CodeNoLink, "is running but did not answer in time", "starting"},
 		{Down{State: DownFailed, Kind: state.KindCCY, Session: "work-1"}, exits.CodeLinkFailed, "`ccy-teams restart work-1`", ""},
 		{Down{State: DownFailed, Kind: state.KindLXC, Session: "work-1"}, exits.CodeLinkFailed, "`ccy-teams restart work-1`", ""},
 		{Down{State: DownFailed, Kind: state.KindHost}, exits.CodeLinkFailed, "launch it again", "ccy-teams"},
