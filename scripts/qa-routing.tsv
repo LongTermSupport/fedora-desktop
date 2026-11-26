@@ -61,7 +61,7 @@ also	helpers/pingbus/*.py,helpers/agent_bus/*.py,helpers/agent_bus_lxc/*.py,help
 also	tests/helpers/pingbus/fixtures/tuwunel/*	go	covered	internal/teamchat/matrix/fakehs
 # The Matrix client rules (internal/matrixclients, CLAUDE/QA.md matrix-client-*) read the list,
 # the Matrix clients play and what it imports, and the guards that cannot read the list.
-also	helpers/pingbus/matrix_clients.json,playbooks/imports/optional/common/play-matrix-clients.yml,tasks/element-desktop.yml,tasks/flatpak-install.yml,files/var/local/claude-code/cc-teams-settings.json,files/opt/claude-yolo/optional/agent-bus/agent-bus-claude	go	-	internal/matrixclients
+also	helpers/pingbus/matrix_clients.json,playbooks/imports/optional/common/play-matrix-clients.yml,tasks/element-desktop.yml,tasks/flatpak-install.yml,files/var/local/claude-code/cc-teams-settings.json,files/opt/claude-yolo/optional/agent-bus/agent-bus-claude	go	-	internal/matrixclients,internal/chatclientinfo
 # rclonecache's caller test reads how this script calls rclone-cache-status.
 also	files/home/.local/bin/rclone-cache-warm	go	-	internal/rclonecache
 # tmpfs-file-bind's sweep (internal/unitsandbox) reads every shipped unit and the files they bind;
