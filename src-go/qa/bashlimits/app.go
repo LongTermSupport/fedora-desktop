@@ -2,6 +2,7 @@ package bashlimits
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"flag"
 	"fmt"
@@ -248,14 +249,23 @@ func (s *session) write(old, next File, refused []Finding, mode string) (File, [
 	return next, nil, nil
 }
 
-// writeAllowlist writes the file and sets its mode: WriteFile keeps the mode of a file that exists.
-func (s *session) writeAllowlist(list Allowlist) error {
+// writeAllowlist writes the file whole as a temporary beside it, created exclusively under a
+// random name, and renames it over the name: the checkout's os.Root follows a link at the last
+// name, so a write in place would land on whatever a link there names, and the rename replaces
+// the link instead. The mode is set on the temporary, so the umask never narrows it.
+func (s *session) writeAllowlist(list Allowlist) (err error) {
 	rel := s.opts.allowlist
-	if err := s.repo.WriteFile(rel, []byte(list.Format()), allowlistMode); err != nil {
+	tmp := rel + ".tmp." + rand.Text()
+	f, err := s.repo.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, allowlistMode)
+	if err != nil {
 		return fmt.Errorf("write %s: %w", rel, err)
 	}
-	if err := s.repo.Chmod(rel, allowlistMode); err != nil {
-		return fmt.Errorf("chmod %s: %w", rel, err)
+	_, werr := f.WriteString(list.Format())
+	if err := errors.Join(werr, f.Chmod(allowlistMode), f.Close()); err != nil {
+		return errors.Join(fmt.Errorf("write %s: %w", rel, err), s.repo.Remove(tmp))
+	}
+	if err := s.repo.Rename(tmp, rel); err != nil {
+		return errors.Join(fmt.Errorf("write %s: %w", rel, err), s.repo.Remove(tmp))
 	}
 	return nil
 }

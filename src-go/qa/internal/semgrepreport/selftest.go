@@ -119,14 +119,21 @@ func rulesWithoutPaths(data []byte) ([]byte, error) {
 	return out, nil
 }
 
-// writeIn writes data as name inside dir, and nowhere else.
+// writeIn writes data as name inside dir, and nowhere else. dir is one this process just made,
+// so the create is exclusive: an os.Root follows a link at the last name, and there is nothing
+// there to open.
 func writeIn(dir, name string, data []byte) (err error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, root.Close()) }()
-	return root.WriteFile(name, data, 0o600)
+	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	_, werr := f.Write(data)
+	return errors.Join(werr, f.Close())
 }
 
 // argv is the scan of the copy with the rules at rules.
