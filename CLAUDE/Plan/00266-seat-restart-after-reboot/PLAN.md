@@ -203,12 +203,12 @@ Decision for C.2 (and the fix for today's start):
     `run.leave`, first step, whether the container runs or not).
   - **Built (26 Nov), the boot unit:** `teamchat-lxc-record.service` (`ExecStop=` `lxc record-running`, after `lxc.service`) records the running containers at shutdown in
     `/var/lib/teamchat-admin/_lxc-running.json`. `teamchat-lxc-boot.service` (after
-    `multi-user.target`) runs `lxc boot`: `lxc start-recorded`'s start, then `lxc reconcile`'s,
+    `multi-user.target`) runs `lxc boot`: the recorded containers' start, then `lxc reconcile`'s,
     in one command, so a refused container start does not keep systemd from the reconcile (a
     second `ExecStart=` never runs after a failed first one); every line of both is printed and
     any refusal still fails the unit. Both units carry the six v1
     `InaccessiblePaths=`, so each runs in a private mount namespace. That is why
-    start-recorded never runs `lxc-start` itself: it asks the host systemd to start
+    `lxc boot` never runs `lxc-start` itself: it asks the host systemd to start
     `lxc@<container>.service`, through `units.Manager.Containers`, which starts only an `lxc@`
     instance whose name fits the container grammar. It then waits up to 60 s on the clock for
     lxc-info's `RUNNING`; a container still not running is `REFUSED`, named. The drop-in
@@ -220,7 +220,12 @@ Decision for C.2 (and the fix for today's start):
   - **Built (26 Nov, review fixes):** seats already running before the record existed are
     seeded into it: the play runs `lxc record-started` after the present phase, which adds
     each placed seat whose container runs and whose session holds its seat lock (`ADDED`, or
-    `KEPT` when recorded already), starts nothing and takes nothing out.
+    `KEPT` when recorded already), starts nothing and takes nothing out. A live seat with no
+    session unit (`service: false`, run by hand) is never recorded, since no boot could start
+    it: it is a `SKIPPED` line with its reason on stderr. A seat recorded earlier that has lost
+    its unit stays recorded and reconcile reports it `REFUSED`, naming the cause: a missing unit
+    can be an apply not yet run, so it is not dropped silently; `lxc stop --member` forgets it.
+    The separate `lxc start-recorded` verb is removed: `lxc boot` is its only caller.
   - [x] ✅ Whether the host's `lxc` package ships `lxc@.service` is checked, not assumed: the play
     stats `/usr/lib/systemd/system/lxc@.service` and fails before writing any unit when it is
     missing, while an LXC member is present and the container start is on.

@@ -49,3 +49,32 @@ Each is fixed conventionally. A regression test now holds each one.
 The edit hook's `ansible-playbook --syntax-check` of `play-teamchat.yml` fails in the container
 because the vault password file is absent. That failure says nothing about the edit. Reported to
 the lead to log.
+
+## Second review
+
+The review: `untracked/agent-reports/261126-qa-review-b24b-review-fixes.md`.
+
+1. **`lxc record-started` no longer records a seat no boot can start.** `sessionLive` now also
+   reads the seat's session unit file through the pinned root (the same file `runSeatJob`
+   refuses without). A live seat with no unit (`service: false`, run by hand) is returned as
+   `SKIPPED\t<container>/<key>\t<why>` and is not added. The admin verb prints those lines on
+   stderr, so the play's `changed_when` on `^ADDED\t` in stdout is unchanged.
+   Test: `TestRecordStartedSkipsALiveSeatWithNoUnit`, red before the fix (`ADDED` and recorded).
+2. **Reconcile keeps reporting, not dropping, a recorded seat with no unit.** A missing unit can
+   also be an apply that has not run yet, so dropping it would lose a seat silently. It stays a
+   `REFUSED` line, naming the cause, and fails the boot unit. `lxc stop --member` forgets it (the
+   record is cleared before the refused unit stop). With fix 1, only a seat recorded before it,
+   or one whose unit was later removed, can reach this.
+3. **`sessionLive` takes the verb.** record-started's errors are `lxc record-started`'s.
+   Test: `TestSessionLiveErrorsNameTheirVerb` (pin fault), red before the fix (`lxc reconcile`).
+4. **`lxc start-recorded` is deleted** (verb, table entries, its admin tests; the remaining test
+   now drives `lxc boot`). `StartRecorded` stays as `lxc boot`'s container start, and its
+   errors now say `lxc boot` (the same wrong-verb class as 3). Comments that named the verb
+   (`boot.go`, `lxc.go`, `units.go`, `wire/lxc.go`) and PLAN.md now say `lxc boot`.
+   No doc or play called the verb. Left stale: the comment on `LXCRunningFile` in
+   `paths/paths.go` still names `lxc start-recorded`. That file is a ccy image source, so
+   editing even a comment needs a CCY_VERSION bump in the launcher, and other agents have
+   uncommitted hunks in the launcher. Fix it with the next commit that bumps the version.
+5. **Docs:** `docs/agent-bus-lxc-members.md` says a `service: false` seat is not added.
+
+Not done: the `lxc@.service` path literal nit (play and `play_test.go`), not in this brief.

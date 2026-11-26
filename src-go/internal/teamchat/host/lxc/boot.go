@@ -16,11 +16,13 @@ import (
 // The boot unit's two container operations (Plan 00266 C.2): paths.LXCRecordService runs
 // `lxc record-running` as it stops at shutdown, while LXC's own service still runs, and
 // paths.LXCBootService runs `lxc boot` at boot: StartRecorded, then Reconcile, which starts the
-// recorded seats in them even when a container start was refused. A host whose own IaC starts its containers runs neither start: the play
-// leaves the start out of the boot unit (teamchat_lxc_seat_restore_starts_containers).
+// recorded seats in them even when a container start was refused. A host whose own IaC starts
+// its containers runs no container start: the play leaves it out of the boot unit
+// (teamchat_lxc_seat_restore_starts_containers). StartRecorded's errors are `lxc boot`'s, the one
+// verb that runs it.
 const (
 	recordRunningVerb = "lxc record-running"
-	startRecordedVerb = "lxc start-recorded"
+	bootVerb          = "lxc boot"
 	stepRunningFile   = "running"
 )
 
@@ -56,10 +58,10 @@ func RecordRunning(ctx context.Context, d Deps) ([]paths.ContainerName, error) {
 	return lxcstate.ReadRunning(d.Root)
 }
 
-// BootKind is a start-recorded line's first field.
+// BootKind is a container line's first field.
 type BootKind string
 
-// What `lxc start-recorded` found of each recorded container.
+// What StartRecorded found of each recorded container.
 const (
 	BootStarted BootKind = "STARTED"
 	BootRunning BootKind = "RUNNING"
@@ -81,7 +83,7 @@ func BootRefusals(lines []BootLine) int {
 	return len(slices.DeleteFunc(slices.Clone(lines), func(l BootLine) bool { return l.Kind != BootRefused }))
 }
 
-// StartRecorded is `lxc start-recorded`: each container the record of the last shutdown holds is
+// StartRecorded is `lxc boot`'s container start: each container the record of the last shutdown holds is
 // started, unless it runs already or is gone; no other container is ever started. One line a
 // recorded container, in the record's order. A refused start is its container's line, and the
 // others still start. An error is the host's own fault: the record unreadable, or no container
@@ -89,14 +91,14 @@ func BootRefusals(lines []BootLine) int {
 func StartRecorded(ctx context.Context, d Deps) ([]BootLine, error) {
 	recorded, err := lxcstate.ReadRunning(d.Root)
 	if err != nil {
-		return nil, &host.Error{Verb: startRecordedVerb, Step: stepRunningFile, Err: err}
+		return nil, &host.Error{Verb: bootVerb, Step: stepRunningFile, Err: err}
 	}
 	if len(recorded) == 0 {
 		return nil, nil
 	}
 	names, err := d.LXC.Containers(ctx)
 	if err != nil {
-		return nil, &host.Error{Verb: startRecordedVerb, Step: stepState, Err: err}
+		return nil, &host.Error{Verb: bootVerb, Step: stepState, Err: err}
 	}
 	lines := make([]BootLine, 0, len(recorded))
 	for _, c := range recorded {

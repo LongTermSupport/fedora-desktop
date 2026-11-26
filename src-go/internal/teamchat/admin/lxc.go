@@ -221,31 +221,6 @@ func lxcRecordRunning(ctx context.Context, e Env, args []string) term.ExitCode {
 	return answer(e, b.String())
 }
 
-// lxcStartRecorded is `lxc start-recorded` (Plan 00266 C.2), the boot unit's start of the
-// containers that ran at the last shutdown: lxc.StartRecorded, one line a recorded container on
-// stdout, printed before any error; non-zero only when a start was refused.
-func lxcStartRecorded(ctx context.Context, e Env, args []string) term.ExitCode {
-	d, code := lxcBootDeps(e, args, "lxc start-recorded")
-	if code != term.ExitOK {
-		return code
-	}
-	lines, err := lxc.StartRecorded(ctx, d)
-	if err != nil {
-		return failWith(e, err)
-	}
-	var b strings.Builder
-	for _, l := range lines {
-		b.WriteString(l.String() + "\n")
-	}
-	if code = answer(e, b.String()); code != term.ExitOK {
-		return code
-	}
-	if n := lxc.BootRefusals(lines); n > 0 {
-		return fail(e.Stderr, term.ExitFailure, fmt.Sprintf("lxc start-recorded: %d container start refused; each REFUSED line names its cause", n))
-	}
-	return term.ExitOK
-}
-
 // lxcBoot is `lxc boot` (Plan 00266 C.2), the boot unit's one start: lxc.StartRecorded, then
 // lxc.Reconcile whatever the start found, so one container that will not start keeps no other
 // container's seats down. Every line of both on stdout, printed before any error; non-zero when
@@ -277,7 +252,8 @@ func lxcBoot(ctx context.Context, e Env, args []string) term.ExitCode {
 }
 
 // lxcRecordStarted is `lxc record-started` (Plan 00266 C.2), which the play runs after the
-// present phase: lxc.RecordStarted, one `ADDED` or `KEPT` line a live seat.
+// present phase: lxc.RecordStarted, one `ADDED` or `KEPT` line a live seat recorded on stdout,
+// and one `SKIPPED` line, with why, on stderr for a live seat no boot could start.
 func lxcRecordStarted(ctx context.Context, e Env, args []string) term.ExitCode {
 	d, code := lxcBootDeps(e, args, "lxc record-started")
 	if code != term.ExitOK {
@@ -287,11 +263,15 @@ func lxcRecordStarted(ctx context.Context, e Env, args []string) term.ExitCode {
 	if err != nil {
 		return failWith(e, err)
 	}
-	var b strings.Builder
+	var out strings.Builder
 	for _, s := range seats {
-		b.WriteString(s.String() + "\n")
+		if s.Skipped == "" {
+			out.WriteString(s.String() + "\n")
+		} else if _, err := fmt.Fprintf(e.Stderr, "%s: lxc record-started: %s\n", paths.AdminBinary, s); err != nil {
+			return term.ExitFailure
+		}
 	}
-	return answer(e, b.String())
+	return answer(e, out.String())
 }
 
 // lxcBootDeps is the Deps of a boot verb, which takes no argument.

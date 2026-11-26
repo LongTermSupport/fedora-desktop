@@ -32,7 +32,7 @@ const hostPasswd = "/etc/passwd"
 
 // lxcDeps is System.LXC: the lxc programs as root, the guest pin, the guest's systemd, and the
 // host's facts, read when an lxc verb first needs them, and the host systemd's start of a
-// container's lxc@ instance (start-recorded). The verbs add the Roster and Refresh.
+// container's lxc@ instance (lxc boot). The verbs add the Roster and Refresh.
 func (m machine) lxcDeps(clock systemClock, ownerGroup func() (int, error), boxUnits lxc.HostUnits) (*lxc.Deps, error) {
 	gid, err := ownerGroup()
 	if err != nil {

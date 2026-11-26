@@ -114,7 +114,7 @@ func reconcileSeat(ctx context.Context, d Deps, names []string, seat lxcstate.St
 	if why != "" {
 		return ReconcileStopped, why
 	}
-	live, err := sessionLive(ctx, d, seat)
+	live, _, err := sessionLive(ctx, d, reconcileVerb, seat)
 	if off, ok := errors.AsType[*OfflineError](err); ok {
 		return ReconcileStopped, off.Why
 	}
@@ -134,17 +134,26 @@ func reconcileSeat(ctx context.Context, d Deps, names []string, seat lxcstate.St
 	return ReconcileStarted, ""
 }
 
-// recordStartedVerb is every `lxc record-started` error's verb.
-const recordStartedVerb = "lxc record-started"
+// recordStartedVerb is every `lxc record-started` error's verb; whyNoUnit is why it skips a live
+// seat with no session unit, which no boot could start.
+const (
+	recordStartedVerb = "lxc record-started"
+	whyNoUnit         = "no session unit: the seat has service: false, or no apply has placed its unit yet; a boot could not start it"
+)
 
 // SeatRecorded is one live seat `lxc record-started` found: `ADDED\t<container>/<key>` when the
-// record did not hold it, `KEPT\t...` when it did.
+// record did not hold it, `KEPT\t...` when it did, and `SKIPPED\t...\t<why>` when it was not
+// recorded because no boot could start it.
 type SeatRecorded struct {
-	Seat  lxcstate.StartedSeat
-	Added bool
+	Seat    lxcstate.StartedSeat
+	Added   bool
+	Skipped string
 }
 
 func (s SeatRecorded) String() string {
+	if s.Skipped != "" {
+		return "SKIPPED\t" + s.Seat.String() + "\t" + s.Skipped
+	}
 	if s.Added {
 		return "ADDED\t" + s.Seat.String()
 	}
@@ -153,10 +162,11 @@ func (s SeatRecorded) String() string {
 
 // RecordStarted is `lxc record-started` (Plan 00266 C.2): every seat of a team's LXC record, not
 // left, whose container runs and whose session is live is added to the record of started seats,
-// so a seat that ran before `lxc start` kept that record is started again after a boot. The play
-// runs it after the present phase, so it is idempotent: a seat already recorded is kept, and
-// nothing is taken out or started. A seat whose liveness cannot be read fails it with the record
-// left as it was.
+// so a seat that ran before `lxc start` kept that record is started again after a boot. A live
+// seat with no session unit (service: false, run by hand) is skipped, with why, and never
+// recorded: no boot could start it. The play runs it after the present phase, so it is
+// idempotent: a seat already recorded is kept, and nothing is taken out or started. A seat whose
+// liveness cannot be read fails it with the record left as it was.
 func RecordStarted(ctx context.Context, d Deps) ([]SeatRecorded, error) {
 	s, err := lxcstate.ReadStarted(d.Root)
 	if err != nil {
@@ -182,11 +192,13 @@ func RecordStarted(ctx context.Context, d Deps) ([]SeatRecorded, error) {
 				continue
 			}
 			seat := lxcstate.StartedSeat{Container: e.Container, Key: rec.SeatOf(e).Key()}
-			live, err := seatLiveNow(ctx, d, names, seat)
-			if err != nil {
+			live, unit, err := seatLiveNow(ctx, d, names, seat)
+			switch {
+			case err != nil:
 				return nil, err
-			}
-			if live {
+			case live && !unit:
+				out = append(out, SeatRecorded{Seat: seat, Skipped: whyNoUnit})
+			case live:
 				out = append(out, SeatRecorded{Seat: seat, Added: !s.Has(seat)})
 				next = next.Add(seat)
 			}
@@ -200,37 +212,38 @@ func RecordStarted(ctx context.Context, d Deps) ([]SeatRecorded, error) {
 	return out, nil
 }
 
-// seatLiveNow is whether the seat's container runs and its session is live; a container stopped,
-// missing or stopping on the way is not live.
-func seatLiveNow(ctx context.Context, d Deps, names []string, seat lxcstate.StartedSeat) (bool, error) {
+// seatLiveNow is whether the seat's container runs and its session is live, and whether its
+// session unit is placed; a container stopped, missing or stopping on the way is not live.
+func seatLiveNow(ctx context.Context, d Deps, names []string, seat lxcstate.StartedSeat) (live, unit bool, err error) {
 	why, err := boxState(ctx, d.LXC, names, seat.Container)
 	if err != nil {
-		return false, &host.Error{Verb: recordStartedVerb, Step: stepState, Err: err}
+		return false, false, &host.Error{Verb: recordStartedVerb, Step: stepState, Err: err}
 	}
 	if why != "" {
-		return false, nil
+		return false, false, nil
 	}
-	live, err := sessionLive(ctx, d, seat)
+	live, unit, err = sessionLive(ctx, d, recordStartedVerb, seat)
 	var off *OfflineError
 	if errors.As(err, &off) {
-		return false, nil
+		return false, false, nil
 	}
-	return live, err
+	return live, unit, err
 }
 
 // sessionLive is whether the seat's session holds its seat lock, read through the pinned root as
-// the L3 probe reads it.
-func sessionLive(ctx context.Context, d Deps, seat lxcstate.StartedSeat) (live bool, err error) {
-	id, user, err := restartSeat(d, reconcileVerb, seat.Container, seat.Key)
+// the L3 probe reads it, and whether its session unit file is there, as runSeatJob reads it. Its
+// errors are verb's.
+func sessionLive(ctx context.Context, d Deps, verb string, seat lxcstate.StartedSeat) (live, unit bool, err error) {
+	id, user, err := restartSeat(d, verb, seat.Container, seat.Key)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	root, err := d.Pin(ctx, seat.Container.String())
 	if gone(err) {
-		return false, &OfflineError{Container: seat.Container, Why: whyStoppedStart}
+		return false, false, &OfflineError{Container: seat.Container, Why: whyStoppedStart}
 	}
 	if err != nil {
-		return false, &host.Error{Verb: reconcileVerb, Step: "pin", Err: err}
+		return false, false, &host.Error{Verb: verb, Step: "pin", Err: err}
 	}
 	defer func() {
 		if closeErr := root.Close(); closeErr != nil {
@@ -239,7 +252,11 @@ func sessionLive(ctx context.Context, d Deps, seat lxcstate.StartedSeat) (live b
 	}()
 	probe, err := seatLockOf(root, id, user)
 	if err != nil {
-		return false, &host.Error{Verb: reconcileVerb, Step: "lock", Err: fmt.Errorf("%s: %w", seat, err)}
+		return false, false, &host.Error{Verb: verb, Step: "lock", Err: fmt.Errorf("%s: %w", seat, err)}
 	}
-	return probe.Held, nil
+	_, _, found, err := root.ReadFile(paths.GuestUnitFile(id.Team, id.Checkout, id.Seat), maxUnit)
+	if err != nil {
+		return false, false, &host.Error{Verb: verb, Step: "unit", Drift: refused(err), Err: fmt.Errorf("%s: %w", seat, err)}
+	}
+	return probe.Held, found, nil
 }

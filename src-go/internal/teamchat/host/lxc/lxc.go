@@ -136,7 +136,7 @@ type Containers interface {
 	Guest(ctx context.Context, a lxccmd.Attach, op guest.Op, args []string, stdin []byte) (lxccmd.GuestResult, error)
 }
 
-// HostUnits is the host's systemd as `lxc start-recorded` uses it: a container is started as
+// HostUnits is the host's systemd as `lxc boot`'s container start uses it: a container is started as
 // LXC's own lxc@<container>.service, so it runs in the host's mount namespace, never in the
 // private one of the teamchat unit that asked (Plan 00266 C.2).
 type HostUnits interface {

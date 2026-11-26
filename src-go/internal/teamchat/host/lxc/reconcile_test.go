@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
@@ -272,6 +274,46 @@ func TestRecordStartedFaults(t *testing.T) {
 	w.lxc.boxes["c1"].stateErr = errFault
 	if _, err := RecordStarted(context.Background(), w.deps()); !errors.Is(err, errFault) || w.started().Has(theSeat(t)) {
 		t.Fatalf("state: %v", err)
+	}
+}
+
+// A live seat with no session unit (service: false, run by hand) is never recorded: no boot could
+// start it, so recording it would fail the boot unit at every boot. It is reported as skipped,
+// with the reason, and the record is left as it was.
+func TestRecordStartedSkipsALiveSeatWithNoUnit(t *testing.T) {
+	w := placed(t)
+	m := w.member("t1", "c1")
+	m.Service = false
+	w.declare([]string{"t1"}, m)
+	if _, err := w.apply(PhasePresent); err != nil {
+		t.Fatal(err)
+	}
+	holdSeat(t, w.lxc.boxes["c1"], lockRecord)
+	w.lxc.calls, w.bus.calls = nil, nil
+	got := w.recordStarted()
+	want := "SKIPPED\tc1/" + keyOf(t, "t1").String() + "\t" + whyNoUnit
+	if !slices.Equal(got, []string{want}) || w.started().Has(theSeat(t)) {
+		t.Fatalf("lines %q, record %+v", got, w.started())
+	}
+	if len(w.bus.calls) != 0 {
+		t.Fatalf("a record started a unit: %v", w.bus.calls)
+	}
+}
+
+// The liveness probe's errors name the verb that asked: record-started's are its own, not
+// reconcile's.
+func TestSessionLiveErrorsNameTheirVerb(t *testing.T) {
+	w := placed(t)
+	w.pinErr = errFault
+	_, err := RecordStarted(context.Background(), w.deps())
+	if herr, ok := errors.AsType[*host.Error](err); !ok || herr.Verb != recordStartedVerb || !errors.Is(err, errFault) {
+		t.Fatalf("record-started: %v", err)
+	}
+	w = startedPlaced(t)
+	w.pinErr = errFault
+	got, err := Reconcile(context.Background(), w.deps(), nil)
+	if err != nil || len(got) != 1 || got[0].Kind != ReconcileRefused || !strings.HasPrefix(got[0].Why, reconcileVerb+", ") {
+		t.Fatalf("reconcile: %+v %v", got, err)
 	}
 }
 
