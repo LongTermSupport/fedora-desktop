@@ -17,6 +17,20 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.106 — container 2.84.105
+
+- `ccy-sessions verify-restore` reads the LXC set without sudo (Plan 00266 Task C.3). The LXC
+  boot unit's verb (`teamchat-admin lxc boot`, or `lxc reconcile`) now ends by writing
+  `/var/lib/teamchat-status/lxc-set.json`, readable by the teamchat owner group, with this
+  boot's id. verify-restore reads that file and prints the same `lxc:` lines as before. With no
+  file it prints `lxc NO-STATUS`, and with a file from another boot `lxc STALE`. Both fail,
+  and `--wait` looks again while either is the case. A container down when the boot unit looked
+  stays `NOT-RUNNING`, because `--wait` no longer re-asks. The read-only
+  `teamchat-admin lxc check-running` is gone. play-teamchat removes
+  `/etc/sudoers.d/teamchat-lxc-check-running` and installs no sudoers rule.
+- The image is rebuilt because it is built from `internal/teamchat/paths`, which gains
+  `LXCSetStatusFile`. Nothing in the image reads it.
+
 ## 3.124.105 — container 2.84.104
 
 - The image's teamchat no longer drops an old message it reads when its session starts

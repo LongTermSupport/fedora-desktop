@@ -572,20 +572,25 @@ boot's own `ccy-sessions-set-going` unit has ended.
 
 On a host where play-teamchat enabled `teamchat-lxc-boot.service` (an LXC member is declared
 present), the report goes on with the LXC containers that boot unit brings back (Plan 00266
-C.3), one line each after the sessions'. They come from `teamchat-admin lxc check-running`,
-which compares the containers recorded at the last shutdown with the containers now. The
-record and the container list are root's, so it runs through sudo with no password, under
-the rule play-teamchat installs at `/etc/sudoers.d/teamchat-lxc-check-running` for the
-teamchat owner group, which allows that one command and no argument.
+C.3), one line each after the sessions'. The record of the last shutdown and the container
+list are root's, so the boot unit's own verb (`lxc boot`, or `lxc reconcile` where the host's
+IaC starts the containers) writes what it found, once its starts are done, to
+`/var/lib/teamchat-status/lxc-set.json`: root's, readable by the teamchat owner group, with
+this boot's id and the time. verify-restore reads that file as you, with no sudo, and says on
+stderr when the boot unit looked.
 
 - `lxc:<c> RUNNING`: recorded and running.
 - `lxc:<c> NOT-RUNNING <state>`: recorded and not running. `<state>` is lxc-info's word, or
-  `ABSENT` when the host has no such container. It fails the check, and `--wait` looks again
-  until it runs or the time is up.
+  `ABSENT` when the host has no such container. It fails the check. The boot unit writes the
+  file once, so `--wait` does not change this line.
 - `lxc:<c> NOT-RECORDED`: running, but the shutdown did not record it, so something else
   started it (`lxc.start.auto`, or the host's own IaC). It is said on stderr and passes.
 - `lxc NO-RECORD`: no record of the last shutdown exists, so the set to bring back is unknown.
   It fails.
+- `lxc NO-STATUS`: the boot unit is enabled but has written no status, and `lxc STALE`: the
+  status is from another boot. The boot unit has not finished this boot, or failed before it
+  wrote. Both fail, and `--wait` looks again until a status of this boot appears or the time
+  is up. A status file the user cannot read (not in the owner group) also fails.
 
 The LXC lines are printed even when a session failed, and the exit is 0 only when both halves
 pass. With the boot unit disabled or not installed, it says so on stderr and asks nothing.
@@ -2112,6 +2117,18 @@ they `include` or `extend`. A launch nobody attends refuses content not recorded
 `ccy-teams approve compose <checkout>`, which shows the files and asks as above. A file
 included from outside the checkout, a link in a compose file's place and a `.env` setting
 `COMPOSE_FILE` are refused: no approval could cover what they read.
+
+**Saved Quick Launch choices.** `.claude/ccy/.last-launch.conf` names the token, the SSH
+keys forwarded and the network joined, and a launch nobody attends (a restore, a restart's
+relaunch, `--headless`, no terminal) takes them unasked. A session can write that file too,
+so ccy records the SHA-256 of each one it saves, beside the approvals above, and a launch
+nobody attends refuses a file ccy did not write, naming it and
+`ccy-teams approve last-launch <checkout>`, which shows every saved choice and asks as
+above. A launch at a terminal shows the choices and asks as before, warning when ccy did
+not write them, and its own save records them again. A file saved by a ccy older than
+3.124.106 has no record: launch the checkout once at a terminal, or approve it, before
+the next unattended launch. `ccy --disconnect` blanks a saved network only in a file ccy
+wrote; a file it did not write that names the network is removed instead.
 
 ### Per launch: `CCY_EXTRA_MOUNTS`
 

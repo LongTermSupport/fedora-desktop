@@ -115,7 +115,11 @@ const (
 	StatusInstalledFile = StatusRoot + "/installed.json"
 	// LXCRecordDir holds every team's LXC record, which `lxc restart` searches by seat key.
 	LXCRecordDir = StatusRoot + "/lxc"
-	AdminRunDir  = "/run/" + AdminBinary
+	// LXCSetStatusFile is the LXC set as the boot unit last found it (Plan 00266 C.3): the
+	// containers the last shutdown recorded beside those running, for verify-restore to read
+	// without root.
+	LXCSetStatusFile = StatusRoot + "/lxc-set.json"
+	AdminRunDir      = "/run/" + AdminBinary
 )
 
 // Units and the names inside them (D 3.5). The health, backup and seats units are one each per

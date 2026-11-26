@@ -160,8 +160,8 @@
 # LXC containers the boot unit brings back (lxc:<container> RUNNING / NOT-RUNNING <state> /
 # NOT-RECORDED, lxc NO-RECORD), wherever teamchat-lxc-boot.service is enabled, and fails on a
 # recorded container not running. With the unit disabled it only says so. The same single
-# image rebuild covers it (built from internal/systemd; nothing in it changes). It needs
-# play-teamchat below for its sudoers rule.
+# image rebuild covers it (built from internal/systemd; nothing in it changes). It reads the
+# LXC set status that play-teamchat's teamchat-admin, below, has the boot unit write.
 # Issue #443 (ccy 3.124.101, container 2.84.101): the same single image rebuild gives the image's
 # teamchat a proof that keeps what a round found when its store write fails, so the next round
 # proves it (it no longer goes missing); a failed recv ack keeps its messages' content; a failed
@@ -174,6 +174,10 @@
 # Plan 00267 Task 3.2 (container 2.84.104, ccy 3.124.105): the same rebuild delivers an old
 # message read when a session starts with a late: line, instead of dropping it; an expired halt
 # or sync ping is bounced `expired` to its sender.
+# Plan 00266 C.3 rework (ccy 3.124.106, container 2.84.105): ccy-sessions is rebuilt so
+# verify-restore reads the LXC set from /var/lib/teamchat-status/lxc-set.json with no sudo
+# (lxc NO-STATUS / lxc STALE until the boot unit writes it this boot). The same single image
+# rebuild covers it (built from internal/teamchat/paths; nothing in it reads the new path).
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC
@@ -216,13 +220,13 @@ playbooks/imports/play-claude-yolo.yml
 # `team traffic --team T --since <time> --until <time> [--json]`, a team's event counts per hour
 # by room, type, typed key, relation and membership, with no content. Nothing runs it during
 # the play; the bus host's admin seat runs it afterwards (00268's bus-host-commands.md).
-# Plan 00266 C.3: teamchat-admin gains the read-only `lxc check-running`. While an LXC member
-# is declared present, the play installs /etc/sudoers.d/teamchat-lxc-check-running (checked
-# with visudo), which lets the teamchat owner group run that one command with no password;
-# with no LXC member the file is removed. Afterwards, on such a host:
-# `sudo -n /usr/local/sbin/teamchat-admin lxc check-running` prints one UP/DOWN/UNRECORDED line
-# per container (NO-RECORD until the first shutdown after C.2), and
-# `ccy-sessions verify-restore` ends with the lxc: lines.
+# Plan 00266 C.3: the teamchat-admin it installs ends `lxc boot` and `lxc reconcile` (the
+# LXC boot unit's verbs) by writing /var/lib/teamchat-status/lxc-set.json, the LXC set the
+# boot unit found, readable by the teamchat owner group; the play removes
+# /etc/sudoers.d/teamchat-lxc-check-running wherever an earlier run installed it, and no
+# sudoers rule is installed. Nothing writes the file until the boot unit next runs: on a host
+# with an LXC member, `ccy-sessions verify-restore` ends with `lxc NO-STATUS` (or `lxc STALE`)
+# until the next reboot, and with the lxc: lines after it.
 # Issue #443: the host kit and the LXC members' copies carry the same teamchat as the image
 # above (a refused proof, ack or Stop write loses nothing). Member sessions started after the
 # run get it.

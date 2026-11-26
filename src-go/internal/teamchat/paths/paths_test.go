@@ -124,6 +124,7 @@ func TestFixedNames(t *testing.T) {
 		{RestoreProofFile, "/var/lib/teamchat-admin/restore-proof.json"},
 		{OwnerGroupFile, "/etc/teamchat/owner-group"},
 		{StatusInstalledFile, "/var/lib/teamchat-status/installed.json"},
+		{LXCSetStatusFile, "/var/lib/teamchat-status/lxc-set.json"},
 		{AdminRunDir, "/run/teamchat-admin"},
 		{HostKitCurrent().String(), "/usr/local/lib/teamchat/kit/current"},
 		{SessionSeatMount, "/run/teamchat/seats"},

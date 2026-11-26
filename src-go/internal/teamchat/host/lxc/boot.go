@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcset"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
@@ -23,8 +27,8 @@ import (
 const (
 	recordRunningVerb = "lxc record-running"
 	bootVerb          = "lxc boot"
-	checkRunningVerb  = "lxc check-running"
 	stepRunningFile   = "running"
+	stepSetStatus     = "set status"
 )
 
 // RecordRunning is `lxc record-running`: the containers running now, written as the record
@@ -59,53 +63,51 @@ func RecordRunning(ctx context.Context, d Deps) ([]paths.ContainerName, error) {
 	return lxcstate.ReadRunning(d.Root)
 }
 
-// RunningKind is a line's first field in `lxc check-running` (Plan 00266 C.3).
-type RunningKind string
+// bootIDFile is the kernel's id of this boot, which the set status carries.
+const bootIDFile = "/proc/sys/kernel/random/boot_id"
 
-// What CheckRunning found of each container the record names, and of each running one it does
-// not; NoRecord is the record itself never written.
-const (
-	RunningUp         RunningKind = "UP"
-	RunningDown       RunningKind = "DOWN"
-	RunningUnrecorded RunningKind = "UNRECORDED"
-	RunningNoRecord   RunningKind = "NO-RECORD"
-)
-
-// runningAbsent is a DOWN container's Why when this host has no container of its name.
-const runningAbsent = "ABSENT"
-
-// RunningLine is `<kind>\t<container>\t<why>`: a DOWN line's why is the container's state word
-// (or ABSENT), one word, and a NO-RECORD line names the record's path in place of a container.
-type RunningLine struct {
-	Kind      RunningKind
-	Container string
-	Why       string
+// WriteSetStatus is the end of the boot unit's verb (Plan 00266 C.3): the set checkRunning finds
+// written to paths.LXCSetStatusFile, 0640 to the owner group, with this boot's id and the time,
+// so ccy-sessions verify-restore reads it as the user. Could not look, or no boot id, is an
+// error with the last status left as it was; its reader tells that apart by the boot id.
+func WriteSetStatus(ctx context.Context, d Deps, verb string) error {
+	lines, err := checkRunning(ctx, d, verb)
+	if err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(filepath.Clean(d.Root + bootIDFile))
+	if err != nil {
+		return &host.Error{Verb: verb, Step: stepSetStatus, Err: err}
+	}
+	s := lxcset.Status{BootID: strings.TrimSpace(string(raw)), WrittenMS: d.Clock.Now().UnixMilli(), Lines: lines}
+	if err := lxcset.Write(d.Root, s, d.OwnerGID); err != nil {
+		return &host.Error{Verb: verb, Step: stepSetStatus, Err: err}
+	}
+	return nil
 }
 
-func (l RunningLine) String() string { return string(l.Kind) + "\t" + l.Container + "\t" + l.Why }
-
-// CheckRunning is `lxc check-running`: the containers the record of the last shutdown names,
-// each UP or DOWN by its state now, in the record's order, then each running container the
-// record does not name, UNRECORDED; a record never written is a NO-RECORD line first. It only
-// reads. Could not look (the record, the list or a state) is an error, never a line.
-func CheckRunning(ctx context.Context, d Deps) ([]RunningLine, error) {
+// checkRunning is the containers the record of the last shutdown names, each Up or Down by its
+// state now, in the record's order, then each running container the record does not name,
+// Unrecorded; a record never written is a NoRecord line first. It only reads. Could not look (the
+// record, the list or a state) is an error, never a line.
+func checkRunning(ctx context.Context, d Deps, verb string) ([]lxcset.Line, error) {
 	recorded, found, err := lxcstate.ReadRunningRecord(d.Root)
 	if err != nil {
-		return nil, &host.Error{Verb: checkRunningVerb, Step: stepRunningFile, Err: err}
+		return nil, &host.Error{Verb: verb, Step: stepRunningFile, Err: err}
 	}
 	names, err := d.LXC.Containers(ctx)
 	if err != nil {
-		return nil, &host.Error{Verb: checkRunningVerb, Step: stepState, Err: err}
+		return nil, &host.Error{Verb: verb, Step: stepState, Err: err}
 	}
 	states := make(map[string]lxccmd.State, len(names))
 	for _, n := range names {
 		if states[n], err = d.LXC.State(ctx, n); err != nil {
-			return nil, &host.Error{Verb: checkRunningVerb, Step: stepState, Err: err}
+			return nil, &host.Error{Verb: verb, Step: stepState, Err: err}
 		}
 	}
-	var lines []RunningLine
+	var lines []lxcset.Line
 	if !found {
-		lines = append(lines, RunningLine{Kind: RunningNoRecord, Why: paths.LXCRunningFile})
+		lines = append(lines, lxcset.Line{Kind: lxcset.NoRecord, Why: paths.LXCRunningFile})
 	}
 	inRecord := map[string]bool{}
 	for _, c := range recorded {
@@ -113,16 +115,16 @@ func CheckRunning(ctx context.Context, d Deps) ([]RunningLine, error) {
 		st, listed := states[c.String()]
 		switch {
 		case !listed:
-			lines = append(lines, RunningLine{Kind: RunningDown, Container: c.String(), Why: runningAbsent})
+			lines = append(lines, lxcset.Line{Kind: lxcset.Down, Container: c.String(), Why: lxcset.Absent})
 		case st == lxccmd.Running:
-			lines = append(lines, RunningLine{Kind: RunningUp, Container: c.String()})
+			lines = append(lines, lxcset.Line{Kind: lxcset.Up, Container: c.String()})
 		default:
-			lines = append(lines, RunningLine{Kind: RunningDown, Container: c.String(), Why: string(st)})
+			lines = append(lines, lxcset.Line{Kind: lxcset.Down, Container: c.String(), Why: string(st)})
 		}
 	}
 	for _, n := range names {
 		if states[n] == lxccmd.Running && !inRecord[n] {
-			lines = append(lines, RunningLine{Kind: RunningUnrecorded, Container: n})
+			lines = append(lines, lxcset.Line{Kind: lxcset.Unrecorded, Container: n})
 		}
 	}
 	return lines, nil

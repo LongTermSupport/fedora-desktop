@@ -164,7 +164,9 @@ func lxcStop(ctx context.Context, e Env, args []string) term.ExitCode {
 }
 
 // lxcReconcile is `lxc reconcile [--container C]` (Plan 00266 C.2): lxc.Reconcile, one line a
-// recorded seat on stdout, printed before any error; non-zero only when a start was refused.
+// recorded seat on stdout, printed before any error, then the LXC set status written (C.3,
+// lxc.WriteSetStatus: it is the boot unit's verb where the host's own IaC starts the containers);
+// non-zero when a start was refused or the status could not be written.
 func lxcReconcile(ctx context.Context, e Env, args []string) term.ExitCode {
 	sys, code := e.system()
 	if code != term.ExitOK {
@@ -197,6 +199,9 @@ func lxcReconcile(ctx context.Context, e Env, args []string) term.ExitCode {
 	if code = answer(e, b.String()); code != term.ExitOK {
 		return code
 	}
+	if err := lxc.WriteSetStatus(ctx, d, "lxc reconcile"); err != nil {
+		return failWith(e, err)
+	}
 	if n := lxc.Refused(lines); n > 0 {
 		return fail(e.Stderr, term.ExitFailure, fmt.Sprintf("lxc reconcile: %d start refused; each REFUSED line names its cause", n))
 	}
@@ -221,29 +226,11 @@ func lxcRecordRunning(ctx context.Context, e Env, args []string) term.ExitCode {
 	return answer(e, b.String())
 }
 
-// lxcCheckRunning is `lxc check-running` (Plan 00266 C.3): lxc.CheckRunning, one line a
-// container. It only reads and judges nothing: exit 0 whatever it finds, so the caller that
-// judges (ccy-sessions verify-restore, through its sudoers rule) tells a finding from a fault.
-func lxcCheckRunning(ctx context.Context, e Env, args []string) term.ExitCode {
-	d, code := lxcBootDeps(e, args, "lxc check-running")
-	if code != term.ExitOK {
-		return code
-	}
-	lines, err := lxc.CheckRunning(ctx, d)
-	if err != nil {
-		return failWith(e, err)
-	}
-	var b strings.Builder
-	for _, l := range lines {
-		b.WriteString(l.String() + "\n")
-	}
-	return answer(e, b.String())
-}
-
 // lxcBoot is `lxc boot` (Plan 00266 C.2), the boot unit's one start: lxc.StartRecorded, then
 // lxc.Reconcile whatever the start found, so one container that will not start keeps no other
-// container's seats down. Every line of both on stdout, printed before any error; non-zero when
-// either failed or refused a start, naming each count.
+// container's seats down. Every line of both on stdout, printed before any error, then the LXC
+// set status written whatever they found (C.3, lxc.WriteSetStatus); non-zero when any of the
+// three failed or a start was refused, naming each count.
 func lxcBoot(ctx context.Context, e Env, args []string) term.ExitCode {
 	d, code := lxcBootDeps(e, args, "lxc boot")
 	if code != term.ExitOK {
@@ -261,11 +248,19 @@ func lxcBoot(ctx context.Context, e Env, args []string) term.ExitCode {
 	if code = answer(e, b.String()); code != term.ExitOK {
 		return code
 	}
+	statusErr := lxc.WriteSetStatus(ctx, d, "lxc boot")
 	if err := errors.Join(startErr, reconcileErr); err != nil {
-		return failWith(e, err)
+		return failWith(e, errors.Join(err, statusErr))
 	}
 	if nb, ns := lxc.BootRefusals(boxes), lxc.Refused(seats); nb+ns > 0 {
-		return fail(e.Stderr, term.ExitFailure, fmt.Sprintf("lxc boot: %d container start refused, %d seat start refused; each REFUSED line names its cause", nb, ns))
+		msg := fmt.Sprintf("lxc boot: %d container start refused, %d seat start refused; each REFUSED line names its cause", nb, ns)
+		if statusErr != nil {
+			msg += "; and " + statusErr.Error()
+		}
+		return fail(e.Stderr, term.ExitFailure, msg)
+	}
+	if statusErr != nil {
+		return failWith(e, statusErr)
 	}
 	return term.ExitOK
 }

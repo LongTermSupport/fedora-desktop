@@ -52,7 +52,12 @@ The full findings, each with file and line, are in [DESIGN.md](DESIGN.md).
   The sweep found three more instances, put to the coordinator: `.claude/ccy/.last-launch.conf`
   applied by a headless launch (its SSH key and network), a host `cc` in a checkout a container
   also mounts (`.claude/settings.json` hooks), and host git in a mounted checkout
-  (`.git/config`). They are not fixed here.
+  (`.git/config`). **The saved launch choices are fixed** (ccy 3.124.106): the rules hold
+  `.last-launch.conf` (semgrep red on `claude-yolo:542,3370,3386` and
+  `lib/network-management.bash:124`; the Go rule's fixture red on both new names), the
+  claude-yolo front alone reads and writes the file through `checkoutpin` (K5), a launch nobody
+  attends takes only content ccy wrote or a person approved (`ccy-teams approve last-launch`),
+  and an attended one shows a changed file with a warning. The other two are not fixed yet.
 - [x] ✅ **Task A.2**: Make `.claude/ccy/mounts` an allowlist. Require approval of a changed
   file at an attended launch, with the approved file's hash kept outside the checkout. An
   unattended restore refuses a changed file. **Built:** `src-go/internal/checkoutpin` (K1-K4,
@@ -263,28 +268,30 @@ Decision for C.2 (and the fix for today's start):
 
 - [x] ✅ **Task C.3**: verify-restore reports the LXC set. **Built (26 Nov):**
 
-  - `teamchat-admin lxc check-running` (root, read-only, always exit 0) compares
-    `_lxc-running.json` with the containers now. It prints `UP`, `DOWN <state|ABSENT>`,
-    `UNRECORDED`, and `NO-RECORD` when the record was never written
-    (`lxcstate.ReadRunningRecord` tells that apart from an empty record).
-  - `ccy-sessions verify-restore` asks it only where `teamchat-lxc-boot.service` is enabled
-    (`systemctl is-enabled`, read as the user). It then prints `lxc:<c> RUNNING|NOT-RUNNING <state>|NOT-RECORDED` and `lxc NO-RECORD`
-    after the session lines, whatever the sessions' half found.
-  - `NOT-RUNNING` and `NO-RECORD` fail, and `--wait` looks again while a container is down.
-    `NOT-RECORDED` is told on stderr and passes.
+  - The boot unit's verb (`lxc boot`, or `lxc reconcile`) ends by writing
+    `/var/lib/teamchat-status/lxc-set.json` (`lxcset`, root 0640 to the owner group, with the
+    boot id): `_lxc-running.json` against the containers then, as `UP`, `DOWN <state|ABSENT>`,
+    `UNRECORDED`, and `NO-RECORD` when the record was never written.
+  - `ccy-sessions verify-restore` reads it, with no sudo, only where `teamchat-lxc-boot.service`
+    is enabled (`systemctl is-enabled`, read as the user). It then prints `lxc:<c> RUNNING|NOT-RUNNING <state>|NOT-RECORDED`, `lxc NO-RECORD`,
+    `lxc NO-STATUS` or `lxc STALE` after the session lines, whatever the sessions' half found.
+  - `NOT-RUNNING`, `NO-RECORD`, `NO-STATUS` and `STALE` (another boot's status) fail. `--wait`
+    looks again while the status is missing or stale. `NOT-RECORDED` is told on stderr and passes.
   - **Departures:**
     - The record and lxc-ls are root's, and verify-restore runs as the user (the self-update
-      cycle runs it through runuser). So play-teamchat installs
-      `/etc/sudoers.d/teamchat-lxc-check-running` for `teamchat_owner_group` while an LXC member is
-      present, allowing that one command with no argument. This follows the agent-bus
-      read-only rule; it has no host variable to turn it off.
+      cycle runs it through runuser). So root writes the status file, which the owner group
+      reads. A first build used a NOPASSWD sudoers rule for the owner group, which failed
+      `installplay` and `qa-ansible`'s sudoers-rule. That rule is gone, and the play removes
+      `/etc/sudoers.d/teamchat-lxc-check-running` where it was installed
+      (subagent-reports/261126-task-c3.md).
+    - The report is the set as the boot unit found it, not as it is when verify-restore runs.
     - A running container the record does not name passes. The boot unit promises at least
       the recorded set, and `lxc.start.auto` or a host's own IaC may start more.
     - verify-restore does not judge seats. `lxc boot`'s reconcile lines in the boot unit's
       journal do that, so the open item above (a guest not ready when reconcile reaches it)
       still waits for the live reboot.
-    - A stale record (a shutdown whose record unit failed, leaving the one before) cannot be
-      told from a fresh one. The record carries no boot stamp.
+    - A stale shutdown record (a shutdown whose record unit failed, leaving the one before)
+      cannot be told from a fresh one. The status carries a boot id; the record does not.
 
 - [ ] ⬜ **Task C.4**: a restarted LXC seat signs in from its team's own token pool, on the token
   it was on before. Asked for by another team's owner (26 Nov) for their containers, and agreed

@@ -21,6 +21,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcset"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/guest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -119,6 +120,7 @@ func (w *world) lxcSys(t *testing.T, decl string, boxes fakeBoxes) *System {
 	if err != nil {
 		t.Fatal(err)
 	}
+	writeBootID(t, w.root, "boot-0")
 	sys := w.sys()
 	sys.LXC = func() (*lxc.Deps, error) {
 		return &lxc.Deps{
@@ -808,25 +810,32 @@ func TestLXCBootReconcilesAfterARefusedContainer(t *testing.T) {
 	if !strings.Contains(out.stderr, "1 container start refused") || !strings.Contains(out.stderr, "1 seat start refused") {
 		t.Fatalf("the counts: %s", out.stderr)
 	}
+	// box-1's state word is the fake's empty one, which no status line may hold: the status
+	// write fails too, and is named beside the counts rather than hiding them.
+	if !strings.Contains(out.stderr, "step set status") {
+		t.Fatalf("the status error: %s", out.stderr)
+	}
 }
 
-// lxc check-running (Plan 00266 C.3, which ccy-sessions verify-restore asks through sudo): no
-// argument; one line a container, the record compared with the containers now, exit 0 whatever
-// it finds (verify-restore judges), and the record left as it was.
-func TestLXCCheckRunning(t *testing.T) {
+// lxc boot and lxc reconcile (Plan 00266 C.3, the boot unit's two verbs) end by writing the LXC
+// set status the owner group reads, with this boot's id: the record compared with the containers
+// once the start and the reconcile are done, the record itself left as it was. No boot id fails
+// the verb, naming the step.
+func TestLXCBootVerbsWriteTheSetStatus(t *testing.T) {
+	bootUp := []lxcset.Line{{Kind: lxcset.Up, Container: "box-1"}, {Kind: lxcset.Unrecorded, Container: "box-2"}}
+	reconcileDown := []lxcset.Line{{Kind: lxcset.Down, Container: "box-1", Why: "STOPPED"}, {Kind: lxcset.Unrecorded, Container: "box-2"}}
+	setStatusAfter(t, "boot", bootUp)
+	setStatusAfter(t, "reconcile", reconcileDown)
+}
+
+// setStatusAfter runs lxc verb with box-1 recorded and stopped, box-2 running unrecorded, first
+// with no boot id, and holds the status to want.
+func setStatusAfter(t *testing.T, verb string, want []lxcset.Line) {
+	t.Helper()
 	w := newWorld(t)
 	boxes := stopped("box-1", "box-3")
 	boxes.states["box-2"] = lxccmd.Running
 	sys := w.lxcSys(t, lxcDecl(t), boxes)
-	if out := w.lxcVerb(sys, "", "lxc", "check-running", "extra"); out.code != term.ExitUsage {
-		t.Fatalf("an argument: %d %s", out.code, out.stderr)
-	}
-	if out := w.lxcVerb(sys, "", "lxc", "check-running"); out.code != term.ExitOK || out.stdout != "NO-RECORD\t\t"+paths.LXCRunningFile+"\nUNRECORDED\tbox-2\t\n" {
-		t.Fatalf("no record: %d %q %s", out.code, out.stdout, out.stderr)
-	}
-	if err := os.MkdirAll(w.root+paths.AdminStateRoot, 0o700); err != nil {
-		t.Fatal(err)
-	}
 	box1, err := paths.ParseContainerName("box-1")
 	if err != nil {
 		t.Fatal(err)
@@ -834,11 +843,37 @@ func TestLXCCheckRunning(t *testing.T) {
 	if err := lxcstate.WriteRunning(w.root, []paths.ContainerName{box1}); err != nil {
 		t.Fatal(err)
 	}
-	if out := w.lxcVerb(sys, "", "lxc", "check-running"); out.code != term.ExitOK || out.stdout != "DOWN\tbox-1\tSTOPPED\nUNRECORDED\tbox-2\t\n" {
-		t.Fatalf("a recorded container down: %d %q %s", out.code, out.stdout, out.stderr)
+	if err := os.Remove(w.root + "/proc/sys/kernel/random/boot_id"); err != nil {
+		t.Fatal(err)
 	}
-	if got, err := lxcstate.ReadRunning(w.root); err != nil || len(got) != 1 || got[0] != box1 {
-		t.Fatalf("the record changed: %v %v", got, err)
+	if out := w.lxcVerb(sys, "", "lxc", verb); out.code != term.ExitFailure || !strings.Contains(out.stderr, "step set status") {
+		t.Fatalf("%s with no boot id: %d %s", verb, out.code, out.stderr)
+	}
+	writeBootID(t, w.root, "boot-3")
+	if out := w.lxcVerb(sys, "", "lxc", verb); out.code != term.ExitOK {
+		t.Fatalf("%s: %d %q %s", verb, out.code, out.stdout, out.stderr)
+	}
+	got, found, err := lxcset.Read(w.root)
+	if err != nil || !found || got.BootID != "boot-3" {
+		t.Fatalf("%s: %+v %v %v", verb, got, found, err)
+	}
+	if !slices.Equal(got.Lines, want) {
+		t.Fatalf("%s: lines %+v, want %+v", verb, got.Lines, want)
+	}
+	if rec, err := lxcstate.ReadRunning(w.root); err != nil || len(rec) != 1 || rec[0] != box1 {
+		t.Fatalf("%s: the record changed: %v %v", verb, rec, err)
+	}
+}
+
+// writeBootID gives the host root a boot id, as the kernel does.
+func writeBootID(t *testing.T, root, id string) {
+	t.Helper()
+	path := root + "/proc/sys/kernel/random/boot_id"
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(id+"\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

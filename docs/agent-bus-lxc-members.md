@@ -427,13 +427,15 @@ teamchat_lxc_members:
   host whose own IaC starts its containers, set `teamchat_lxc_seat_restore_starts_containers: false` in
   its host_vars: the boot unit then runs only `lxc reconcile`, and that IaC calls
   `teamchat-admin lxc reconcile` itself once its containers run.
-- **`ccy-sessions verify-restore` reports the containers.** `teamchat-admin lxc check-running`
-  only reads: one line per container, `UP` or `DOWN <state>` for each container recorded at the
-  last shutdown, `UNRECORDED` for one running that was not recorded, and `NO-RECORD` when there
-  is no record. It always exits 0. While an LXC member is present the play installs
-  `/etc/sudoers.d/teamchat-lxc-check-running`, so the teamchat owner group can run that one
-  command with no password. verify-restore asks it and judges the lines
-  ([ccy.md](ccy.md), Plan 00266 Task C.3).
+- **`ccy-sessions verify-restore` reports the containers.** The boot unit's verb, `lxc boot`
+  or `lxc reconcile`, ends by writing `/var/lib/teamchat-status/lxc-set.json` (root, mode 0640,
+  group the teamchat owner group) with this boot's id: `UP` or `DOWN <state>` for each container
+  recorded at the last shutdown, `UNRECORDED` for one running that was not recorded, and
+  `NO-RECORD` when there is no record. A verb that cannot look, or has no boot id, fails and
+  leaves the last file. verify-restore reads the file with no sudo, and a file from another
+  boot, or none, is a finding ([ccy.md](ccy.md), Plan 00266 Task C.3). No sudoers rule is
+  involved; the play removes the `/etc/sudoers.d/teamchat-lxc-check-running` an earlier version
+  installed.
 - **One entry is one seat.** A container may hold any number of entries, for any users and
   checkouts; a coordinator and a worker on one checkout are two entries with two seats. There is
   no `role`: the team's `coordinator` names the coordinator's handle.

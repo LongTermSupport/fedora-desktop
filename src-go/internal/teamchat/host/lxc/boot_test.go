@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcset"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
@@ -139,10 +140,10 @@ func TestStartRecordedStartsExactlyTheRecordedContainers(t *testing.T) {
 	}
 }
 
-func runningTexts(lines []RunningLine) []string {
+func runningTexts(lines []lxcset.Line) []string {
 	out := make([]string, 0, len(lines))
 	for _, l := range lines {
-		out = append(out, l.String())
+		out = append(out, string(l.Kind)+"\t"+l.Container+"\t"+l.Why)
 	}
 	return out
 }
@@ -153,7 +154,7 @@ func runningTexts(lines []RunningLine) []string {
 func TestCheckRunningComparesTheRecordWithTheContainersNow(t *testing.T) {
 	w := boxes(t, map[string]lxccmd.State{"c1": lxccmd.Running, "c2": lxccmd.Stopped, "c4": lxccmd.Running, "c5": lxccmd.Frozen})
 	w.recordRunning("c1", "c2", "c3")
-	got, err := CheckRunning(context.Background(), w.deps())
+	got, err := checkRunning(context.Background(), w.deps(), bootVerb)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +171,7 @@ func TestCheckRunningComparesTheRecordWithTheContainersNow(t *testing.T) {
 // named; an empty record names only those.
 func TestCheckRunningWithNoRecord(t *testing.T) {
 	w := boxes(t, map[string]lxccmd.State{"c1": lxccmd.Running})
-	got, err := CheckRunning(context.Background(), w.deps())
+	got, err := checkRunning(context.Background(), w.deps(), bootVerb)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +179,7 @@ func TestCheckRunningWithNoRecord(t *testing.T) {
 		t.Fatalf("lines %q, want %q", runningTexts(got), want)
 	}
 	w.recordRunning()
-	got, err = CheckRunning(context.Background(), w.deps())
+	got, err = checkRunning(context.Background(), w.deps(), bootVerb)
 	if err != nil || !slices.Equal(runningTexts(got), []string{"UNRECORDED\tc1\t"}) {
 		t.Fatalf("empty record: %q %v", runningTexts(got), err)
 	}
@@ -190,20 +191,73 @@ func TestCheckRunningFaults(t *testing.T) {
 	w := boxes(t, map[string]lxccmd.State{"c1": lxccmd.Running})
 	w.recordRunning("c1")
 	w.lxc.listErr = errFault
-	if _, err := CheckRunning(context.Background(), w.deps()); !errors.Is(err, errFault) {
+	if _, err := checkRunning(context.Background(), w.deps(), bootVerb); !errors.Is(err, errFault) {
 		t.Fatalf("list: %v", err)
 	}
 	w.lxc.listErr = nil
 	w.lxc.boxes["c1"].stateErr = errFault
-	if _, err := CheckRunning(context.Background(), w.deps()); !errors.Is(err, errFault) {
+	if _, err := checkRunning(context.Background(), w.deps(), bootVerb); !errors.Is(err, errFault) {
 		t.Fatalf("state: %v", err)
 	}
 	w.lxc.boxes["c1"].stateErr = nil
 	if err := os.WriteFile(filepath.Join(w.host, paths.LXCRunningFile), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := CheckRunning(context.Background(), w.deps()); !errors.Is(err, lxcstate.ErrInvalid) {
+	if _, err := checkRunning(context.Background(), w.deps(), bootVerb); !errors.Is(err, lxcstate.ErrInvalid) {
 		t.Fatalf("a record that does not decode: %v", err)
+	}
+}
+
+// writeBootID gives the world's host a boot id, as the kernel does.
+func (w *world) writeBootID(id string) {
+	w.t.Helper()
+	path := filepath.Join(w.host, bootIDFile)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		w.t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(id+"\n"), 0o644); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// C.3: the boot unit's verbs leave the set they found in the status tree, the owner group's to
+// read, with this boot's id and the time, so verify-restore reads it without root.
+func TestWriteSetStatusRecordsTheSetForTheOwnerGroup(t *testing.T) {
+	w := boxes(t, map[string]lxccmd.State{"c1": lxccmd.Running, "c2": lxccmd.Stopped})
+	w.recordRunning("c1", "c2")
+	w.writeBootID("boot-7")
+	if err := WriteSetStatus(context.Background(), w.deps(), bootVerb); err != nil {
+		t.Fatal(err)
+	}
+	got, found, err := lxcset.Read(w.host)
+	if err != nil || !found {
+		t.Fatalf("%v %v", found, err)
+	}
+	if got.BootID != "boot-7" || got.WrittenMS != w.clock.Now().UnixMilli() ||
+		!slices.Equal(runningTexts(got.Lines), []string{"UP\tc1\t", "DOWN\tc2\tSTOPPED"}) {
+		t.Fatalf("%+v", got)
+	}
+	info, err := os.Stat(filepath.Join(w.host, paths.LXCSetStatusFile))
+	if err != nil || info.Mode().Perm() != lxcset.Mode {
+		t.Fatalf("%v %v", info, err)
+	}
+}
+
+// Could not look leaves the last status as it was, and fails: no boot id, or a state that
+// cannot be read. The reader then finds a status of another boot, which is a finding.
+func TestWriteSetStatusFaultsLeaveTheLastStatus(t *testing.T) {
+	w := boxes(t, map[string]lxccmd.State{"c1": lxccmd.Running})
+	w.recordRunning("c1")
+	if err := WriteSetStatus(context.Background(), w.deps(), bootVerb); err == nil || !strings.Contains(err.Error(), "lxc boot, step set status") {
+		t.Fatalf("no boot id: %v", err)
+	}
+	w.writeBootID("boot-1")
+	w.lxc.boxes["c1"].stateErr = errFault
+	if err := WriteSetStatus(context.Background(), w.deps(), bootVerb); !errors.Is(err, errFault) {
+		t.Fatalf("state: %v", err)
+	}
+	if _, found, err := lxcset.Read(w.host); found || err != nil {
+		t.Fatalf("a status was written: %v %v", found, err)
 	}
 }
 
