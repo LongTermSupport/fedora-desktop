@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.79 — container 2.84.89
+
+- A launch or `ccy-teams remove` that meets a dangling link at the checkout's seat-record lock
+  refuses it without creating the file the link names. Before, the lock's create followed the
+  link and made that file inside the checkout before refusing.
+
 ## 3.124.78 — container 2.84.89
 
 - A launch or `ccy-teams remove` that cannot take the checkout's seat-record lock within 30

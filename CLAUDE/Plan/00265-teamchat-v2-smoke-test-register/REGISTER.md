@@ -615,6 +615,14 @@ filled in as each cause is known.
   The reviewer's spot-check of that row passed
   ([report](subagent-reports/261126-qa-reviewer-batch22c-spotcheck.md)), and CI run 45773214021 is green. It
   fast-forwards from F44 and stays off it until the coordinator says.
+- **The dangling-link nit, fixed as a class (on v2-smoke, for batch 23):** rule
+  `project_root_create_follows_link` (an `os.Root` create without `O_EXCL` follows a link at the
+  last name, `O_NOFOLLOW` or not; both forms checked on Go 1.26 first). Red: the fixture (6
+  findings, all missed with the analyzer reporting nothing) and the tree, 3 findings. Swept:
+  `bashlimits`' allowlist rewrite (it wrote through a linked allowlist: red, now an exclusive
+  temporary renamed over the name) and `semgrepreport`'s self-test copy (an `os.MkdirTemp`
+  directory, now `O_EXCL`). Fixed: the lock is created exclusively and an existing one opened
+  without create (red: the planted target was made; ccy 3.124.79).
 - **(3) fixed (on v2-smoke, after batch 13):** `remove` asks, while the team is still up and
   once its running sessions are off it, which stopped sessions name it on the agent bus (each
   record's system read as a restore reads it, `conversation.SystemOfRecord`). Once the team is

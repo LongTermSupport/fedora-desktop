@@ -201,7 +201,13 @@ func withSeatRecordLock(lock *os.File, fn func() error) error {
 // is not honoured there), so the file opened is compared with what the name itself is.
 func openSeatRecordLock(root *os.Root, checkout string) (*os.File, error) {
 	rel := filepath.Join(seatRecordDir, seatRecordLock)
-	f, err := root.OpenFile(rel, os.O_RDWR|os.O_CREATE, 0o600)
+	// An os.Root follows a link at the last name, so the lock is created exclusively (which
+	// refuses any link there) and one already there is opened without O_CREATE (a dangling link
+	// is then an error, never a file made where it points).
+	f, err := root.OpenFile(rel, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		f, err = root.OpenFile(rel, os.O_RDWR, 0)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("could not open the seat-record lock of %s: %w", checkout, err)
 	}
