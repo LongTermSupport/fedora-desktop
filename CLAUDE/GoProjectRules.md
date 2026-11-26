@@ -2592,6 +2592,15 @@ fresh.
 exported error of `internal/conversation` outside that package. Uses are matched through
 `types.Info`, so a call, a function value and a variable holding an error are all seen.
 
+**It also flags**, in `conversation.StartPlan` itself, a use of `FreshArgs` when `StartPlan`
+never calls `recordedElsewhere`. fedora-desktop#431: a renamed teamchat session, marked
+`fresh-if-no-conversation`, had no record under its new name and no seat record, so it was
+started fresh while its checkout's agent-bus record under its old name held its conversation. A
+restore finds a conversation by keys (the session name, the system its teams are on) that a
+rename or a move to teamchat changes; a miss by those keys is not "nothing recorded". So fresh
+is for a session that never recorded a conversation under any name, and otherwise the record is
+refused, naming each record found and the repair.
+
 **Not caught**: a start decided from the text of `conversation.For`'s error or from an error
 type the package exports (its `ArgsError` marks arguments that could not be worked out, which
 is not a lookup error), and start arguments built by hand without the registry's builders.
@@ -2621,6 +2630,12 @@ do not decide a start, and the rule would flag reads that carry no hazard.
   `conversation.TestStartPlanStartsAMarkedRecordWhoseConversationHasNoTranscriptFresh`,
   `sessions.TestAMarkedRecordWhoseSessionNeverTookATurnStartsFresh` and
   `restart.TestAStoppedMarkedSessionThatNeverTookATurnIsStartedFresh` reproduce the defect.
+- fedora-desktop#431, red: fixture `fix/unguarded/internal/conversation` (a `StartPlan` that
+  starts fresh asking nothing; `fix/internal/conversation`'s guarded one is clean); real tree,
+  one finding, `conversation/start.go:59` at `84fcc3375` (the tree the fix was made on), the one
+  fresh start the rule's first half already holds to `StartPlan`. Green: `StartPlan` asks
+  `recordedElsewhere`; `conversation.TestStartPlanRefusesARenamedTeamchatSessionAndResumesItOnceItsSeatsAreSet`
+  and the four other tests of `elsewhere_test.go` reproduce the defect and its bounds.
 
 ### project_screen_state_compared
 

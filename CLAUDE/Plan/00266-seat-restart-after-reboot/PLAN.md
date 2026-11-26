@@ -59,6 +59,11 @@ The full findings, each with file and line, are in [DESIGN.md](DESIGN.md).
 ### Phase B: host cc seats and field validation
 
 - [ ] ⬜ **Task B.1**: Resume by seat record for cc seats (`bySeats` is ccy-only today).
+- [x] ✅ **Task B.3** (issue #431): a restore never starts a record fresh while its checkout
+  records a conversation under another session name that no registry record owns (a rename,
+  or a move to teamchat, leaves it there). `conversation.StartPlan` asks `recordedElsewhere`
+  and otherwise refuses, naming each record and the repair (`ccy-teams seats conversation <seats> --set <id>`, or `--resume <id>` by hand); `project_start_decision` holds the guard.
+  Report: [subagent-reports/261126-issue-431.md](subagent-reports/261126-issue-431.md).
 - [ ] ⬜ **Task B.2**: In `judgeRestore`, validate the checkout (a real git work tree, not a
   link, not at or above `$HOME`), the token (a pool name, never a path) and the seats
   (declared for this machine, of the record's kind).

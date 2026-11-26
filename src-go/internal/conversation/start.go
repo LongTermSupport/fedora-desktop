@@ -38,6 +38,13 @@ func (e *ArgsError) Unwrap() error { return e.Err }
 // wrote one) is resumed by its seats' record instead (issue 417, register R4: a clean /exit of a
 // teamchat session removes its own state), so it is never started fresh while its seats name a
 // conversation; when they name none either, the seat lookup's reason joins the session's.
+//
+// Fresh is for a session that has never recorded a conversation, under any name
+// (fedora-desktop#431): when nothing answers by the record's own name or seats while its
+// checkout records a conversation under another session name no registry record owns (a rename
+// leaves it there, as does a move of its teams to teamchat), the record is refused, marked or
+// not, naming each such record, how to resume it as this session's and how to start it fresh on
+// purpose (recordedElsewhere, elsewhereError).
 func StartPlan(rec registry.Record, where Where) (Start, error) {
 	id, err := read(rec, where)
 	why := ""
@@ -46,6 +53,15 @@ func StartPlan(rec registry.Record, where Where) (Start, error) {
 			id, err, why = seated, nil, "its own record has none; resumed by its seats' record"
 		} else if !errors.Is(seatErr, errNotSeated) {
 			err = fmt.Errorf("%w; by its seats: %w", err, seatErr)
+		}
+	}
+	if err != nil && (errors.Is(err, errNotRecorded) || errors.Is(err, errNoTranscript)) {
+		found, scanErr := recordedElsewhere(rec, where)
+		if scanErr != nil {
+			return Start{}, byHand(rec, fmt.Errorf("%w; and whether this checkout records it under another session name could not be told: %w", err, scanErr))
+		}
+		if len(found) > 0 {
+			return Start{}, elsewhereError(rec, err, found)
 		}
 	}
 	switch {

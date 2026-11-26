@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.86 — container 2.84.94
+
+- A restore (`ccy-sessions restore`, its `--check`, `declare` and a team restart) no longer
+  starts a record fresh while its checkout records a conversation under another session name
+  that no session record owns, as a rename, or a move of its teams to teamchat, leaves it. A
+  record marked fresh-if-no-conversation is refused like any other then, naming each such
+  record, how to resume it as this session's (`ccy-teams seats conversation <seats> --set <id>`
+  for a seated record, `--resume <id>` by hand otherwise) and how to start fresh on purpose
+  (issue #431). The image is unchanged.
+
 ## 3.124.85 — container 2.84.94
 
 - teamchat in the image is built from sources that name the LXC boot unit's files (the record
