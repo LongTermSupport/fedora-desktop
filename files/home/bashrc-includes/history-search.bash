@@ -63,6 +63,13 @@ if command -v fzf >/dev/null; then
     # set is left alone. Kept only when this
     # search is bound: without it, stock Ctrl+R searches the loaded list, and must see all.
     if [[ "${HISTFILE-}" == "${HOME}/.local/state/bash/history" ]]; then
+        # __history_shared_file <name> sets <name> to the history file every terminal
+        # shares. Defined only here, where HISTFILE is pointed away from it, so a HISTFILE
+        # of the user's own is never pointed back. A function, not a global: Claude Code's
+        # shell snapshot keeps functions but drops unexported variables.
+        __history_shared_file() {
+            printf -v "$1" '%s' "${HOME}/.local/state/bash/history"
+        }
         HISTFILE=/dev/null
         if [[ -z "$(trap -p EXIT)" ]]; then
             trap '__history_shared_file HISTFILE' EXIT

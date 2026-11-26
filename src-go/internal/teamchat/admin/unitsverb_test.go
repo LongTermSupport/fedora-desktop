@@ -63,10 +63,10 @@ func TestUnitsPrintWithoutTheContainerStart(t *testing.T) {
 		}
 	}
 	boot := run(t, rootProc(), "", "units", "print", "--no-container-start", "teamchat-lxc-boot.service")
-	if strings.Contains(boot.stdout, "start-recorded") || !strings.Contains(boot.stdout, "lxc reconcile") {
+	if strings.Contains(boot.stdout, "lxc boot") || !strings.Contains(boot.stdout, "lxc reconcile") {
 		t.Errorf("the boot unit without the start:\n%s", boot.stdout)
 	}
-	if with := run(t, rootProc(), "", "units", "print", "teamchat-lxc-boot.service"); !strings.Contains(with.stdout, "lxc start-recorded") {
+	if with := run(t, rootProc(), "", "units", "print", "teamchat-lxc-boot.service"); !strings.Contains(with.stdout, "lxc boot") {
 		t.Errorf("the boot unit with the start:\n%s", with.stdout)
 	}
 	for _, args := range [][]string{

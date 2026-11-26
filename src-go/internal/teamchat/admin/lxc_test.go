@@ -764,6 +764,65 @@ func TestLXCRecordRunningThenStartRecorded(t *testing.T) {
 	}
 }
 
+// lxc boot (Plan 00266 C.2, the boot unit's one start): start-recorded, then reconcile even when
+// a container start was refused, so the seats of the containers that did start come back; every
+// line of both on stdout, and exit 1 naming both counts.
+func TestLXCBootReconcilesAfterARefusedContainer(t *testing.T) {
+	w := newWorld(t)
+	decl := lxcDecl(t, lxcEntry("box-1", 1))
+	boxes := stopped("box-1")
+	boxes.states["box-1"] = ""
+	boxes.states["box-2"] = lxccmd.Running
+	sys := w.lxcSys(t, decl, boxes)
+	if out := w.lxcVerb(sys, "", "lxc", "boot", "extra"); out.code != term.ExitUsage {
+		t.Fatalf("an argument: %d %s", out.code, out.stderr)
+	}
+	if out := w.lxcVerb(sys, "", "lxc", "boot"); out.code != term.ExitOK || out.stdout != "" {
+		t.Fatalf("no records: %d %q %s", out.code, out.stdout, out.stderr)
+	}
+	if err := os.MkdirAll(w.root+paths.AdminStateRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	box1, err := paths.ParseContainerName("box-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	box2, err := paths.ParseContainerName("box-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := paths.ParseSeatKey(seatKey(t, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lxcstate.WriteRunning(w.root, []paths.ContainerName{box1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := lxcstate.WriteStarted(w.root, lxcstate.Started{}.Add(lxcstate.StartedSeat{Container: box2, Key: key})); err != nil {
+		t.Fatal(err)
+	}
+	out := w.lxcVerb(sys, "", "lxc", "boot")
+	if out.code != term.ExitFailure || !strings.HasPrefix(out.stdout, "REFUSED\tbox-1\t") || !strings.Contains(out.stdout, "\nREFUSED\tbox-2/") {
+		t.Fatalf("boot: %d %q %s", out.code, out.stdout, out.stderr)
+	}
+	if !strings.Contains(out.stderr, "1 container start refused") || !strings.Contains(out.stderr, "1 seat start refused") {
+		t.Fatalf("the counts: %s", out.stderr)
+	}
+}
+
+// lxc record-started (Plan 00266 C.2, the play's seed of the started record): no argument; with
+// no team's record there is no seat to record.
+func TestLXCRecordStarted(t *testing.T) {
+	w := newWorld(t)
+	sys := w.lxcSys(t, lxcDecl(t), stopped("box-1"))
+	if out := w.lxcVerb(sys, "", "lxc", "record-started", "extra"); out.code != term.ExitUsage {
+		t.Fatalf("an argument: %d %s", out.code, out.stderr)
+	}
+	if out := w.lxcVerb(sys, "", "lxc", "record-started"); out.code != term.ExitOK || out.stdout != "" {
+		t.Fatalf("no record: %d %q %s", out.code, out.stdout, out.stderr)
+	}
+}
+
 // A refused start is its line and exit 1, naming the count.
 func TestLXCStartRecordedRefusal(t *testing.T) {
 	w := newWorld(t)

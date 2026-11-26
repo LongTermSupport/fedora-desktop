@@ -15,8 +15,8 @@ import (
 
 // The boot unit's two container operations (Plan 00266 C.2): paths.LXCRecordService runs
 // `lxc record-running` as it stops at shutdown, while LXC's own service still runs, and
-// paths.LXCBootService runs `lxc start-recorded` at boot, before `lxc reconcile` starts the
-// recorded seats in them. A host whose own IaC starts its containers runs neither start: the play
+// paths.LXCBootService runs `lxc boot` at boot: StartRecorded, then Reconcile, which starts the
+// recorded seats in them even when a container start was refused. A host whose own IaC starts its containers runs neither start: the play
 // leaves the start out of the boot unit (teamchat_lxc_seat_restore_starts_containers).
 const (
 	recordRunningVerb = "lxc record-running"

@@ -53,7 +53,8 @@ var (
 // not left whose key in container is key, in any team's record; none is refused by name (70).
 // It is an explicit target, so a container that is missing, not running, or that stops on the
 // way, and a systemd that cannot be dialled, is an *OfflineError (69). A seat with no unit
-// file, or one TB1 refuses, is refused by name (70).
+// file, or one TB1 refuses, is refused by name (70). A restart leaves the record of started seats
+// as it is: only Start adds a seat, Stop takes one out, and RecordStarted adds the live ones.
 func Restart(ctx context.Context, d Deps, container paths.ContainerName, key paths.SeatKey) error {
 	return runSeatJob(ctx, d, container, key, restartJob)
 }

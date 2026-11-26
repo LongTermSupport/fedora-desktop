@@ -28,13 +28,6 @@ if [[ ! -e "${__history_search_new}" ]]; then
 fi
 unset __history_search_new
 
-# __history_shared_file <name> sets <name> to the history file every terminal shares.
-# history-search.bash points HISTFILE away from it for the session; __history_append
-# (zz_lts-fedora-desktop.bash) and the EXIT trap point it back.
-__history_shared_file() {
-    printf -v "$1" '%s' "${HOME}/.local/state/bash/history"
-}
-
 # Kept if already set: a re-source (`source ~/.bashrc`) must not make the next prompt
 # start over and drop the command that did the sourcing.
 __history_search_number="${__history_search_number-}"

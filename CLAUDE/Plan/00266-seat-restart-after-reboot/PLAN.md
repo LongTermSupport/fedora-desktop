@@ -1,6 +1,6 @@
 # Plan 00266: seat restart after reboot
 
-**Status**: In Progress (design for the owner; nothing is built until the owner has seen it)
+**Status**: In Progress (Task C.2 is built and awaits the host deploy and a live reboot; Phases A, B and Task C.4 are design for the owner, unbuilt until the owner has seen them)
 **Created**: 2026-11-26
 **Owner**: dev
 **Priority**: High (Phase A is a security gap)
@@ -88,8 +88,8 @@ Phase A and B is owed for LXC too, and is recorded as owed, not blocking.
   C.2), never through a unit of its own inside the container.
 - (DESIGN.md's `agent-bus-claude-<user>.service` is the v1 bus's unit, not this one.)
 
-**Sign-in (checked, `unit.go:84-95`):** the unit sets only HOME, XDG_RUNTIME_DIR and PATH and
-passes no token, so claude uses the container user's own stored Claude login. A seat inside a
+**Sign-in (checked, `unit.go:84-95`):** the unit sets only HOME and XDG_RUNTIME_DIR itself,
+takes its PATH from the runtime env file each start writes (below), and passes no token, so claude uses the container user's own stored Claude login. A seat inside a
 container therefore needs that user logged in to Claude once, interactively, inside the
 container. The host's per-session token pool does not reach it.
 
@@ -135,11 +135,12 @@ Decision for C.2 (and the fix for today's start):
     environment is not used: it would reach every unit in the container.
   - **Who writes it, and where** (the fact-check, `subagent-reports/261126-plan-fact-checker-r89.md`
     claim 10, found the unit's own `RuntimeDirectory` cannot hold it: it is made at unit start,
-    after the lookup, and removed at stop): the in-container operation runs as root, as the
-    host's attach does. Only the shell lookup drops to the seat's user. The operation then
-    writes the file as root into a directory of its own under `/run` (root-owned, 0755, the
-    file 0644: it holds only a PATH). systemd reads `EnvironmentFile=` as the manager, so the
-    seat's user needs no write access. The line has no `-` prefix: a start without a lookup
+    after the lookup, and removed at stop): the in-container operation (`guest find-claude`)
+    runs as the seat's user, like every guest op (`checkGuest` refuses uid 0), and only prints
+    the paths it found. Host root then writes the file itself, through the pinned guest root,
+    straight into `/run/teamchat-session-<key>.env` (`restart.go` `sessionPath`,
+    `paths.GuestSessionEnvFile`; 0644: it holds only a PATH). systemd reads `EnvironmentFile=`
+    as the manager, so the seat's user needs no write access. The line has no `-` prefix: a start without a lookup
     fails loudly instead of running with the fixed PATH.
 
 - [x] ✅ **Task C.0**: How an LXC seat starts and signs in: answered above.
@@ -149,7 +150,8 @@ Decision for C.2 (and the fix for today's start):
   shutdown. Recorded; nothing more to decide.
 
 - [ ] 🔄 **Task C.2**: `teamchat-admin lxc reconcile`, plus a root unit from
-  `play-lxc-install-config.yml` that calls it. The interface was agreed 26 Nov with a seat whose
+  `play-teamchat.yml` that calls it (decided below; the first draft named
+  `play-lxc-install-config.yml`). The interface was agreed 26 Nov with a seat whose
   host's own IaC already starts the right containers at boot and after its maintenance runs.
 
   - **The record:** every seat started through `lxc start --member` and not since stopped on
@@ -196,7 +198,10 @@ Decision for C.2 (and the fix for today's start):
     `run.leave`, first step, whether the container runs or not).
   - **Built (26 Nov), the boot unit:** `teamchat-lxc-record.service` (`ExecStop=` `lxc record-running`, after `lxc.service`) records the running containers at shutdown in
     `/var/lib/teamchat-admin/_lxc-running.json`. `teamchat-lxc-boot.service` (after
-    `multi-user.target`) runs `lxc start-recorded`, then `lxc reconcile`. Both carry the six v1
+    `multi-user.target`) runs `lxc boot`: `lxc start-recorded`'s start, then `lxc reconcile`'s,
+    in one command, so a refused container start does not keep systemd from the reconcile (a
+    second `ExecStart=` never runs after a failed first one); every line of both is printed and
+    any refusal still fails the unit. Both units carry the six v1
     `InaccessiblePaths=`, so each runs in a private mount namespace. That is why
     start-recorded never runs `lxc-start` itself: it asks the host systemd to start
     `lxc@<container>.service`, through `units.Manager.Containers`, which starts only an `lxc@`
@@ -206,9 +211,14 @@ Decision for C.2 (and the fix for today's start):
     unit stop first at shutdown, while every instance still runs. The play makes the drop-in's
     directory and writes it with the units, starts the record unit and enables the boot unit
     while an LXC member is present, and with `teamchat_lxc_seat_restore_starts_containers` false prints
-    the boot unit without start-recorded.
-  - [ ] ⬜ Open, unchecked: whether the host's `lxc` package ships `lxc@.service`. Fedora's is
-    believed to; without it start-recorded refuses every container.
+    the boot unit with `lxc reconcile` alone.
+  - **Built (26 Nov, review fixes):** seats already running before the record existed are
+    seeded into it: the play runs `lxc record-started` after the present phase, which adds
+    each placed seat whose container runs and whose session holds its seat lock (`ADDED`, or
+    `KEPT` when recorded already), starts nothing and takes nothing out.
+  - [x] ✅ Whether the host's `lxc` package ships `lxc@.service` is checked, not assumed: the play
+    stats `/usr/lib/systemd/system/lxc@.service` and fails before writing any unit when it is
+    missing, while an LXC member is present and the container start is on.
   - [ ] ⬜ Open, for C.3: after a boot start, the guest's systemd may not be ready when reconcile
     reaches it, so a seat may be `REFUSED`; the live reboot will show it.
   - [x] ✅ **Decided (26 Nov, the lead):** the variable agreed as

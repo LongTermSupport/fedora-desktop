@@ -383,3 +383,48 @@ func TestThePlayMakesTheLXCDropInDirectoryFirst(t *testing.T) {
 		t.Errorf("the drop-in directory is made at task %d, the units written at %d", i, j)
 	}
 }
+
+// taskOrder is the play's task names, in order.
+func taskOrder(p play) []string {
+	order := make([]string, 0, len(p.Tasks))
+	for _, task := range p.Tasks {
+		if name, ok := task["name"].(string); ok {
+			order = append(order, name)
+		}
+	}
+	return order
+}
+
+// Plan 00266 C.2: the boot unit starts each container as an instance of LXC's own lxc@.service,
+// so a play that will enable it checks that unit is there before any unit is written, and fails
+// the run when it is not, rather than leaving every boot start refused.
+func TestThePlayChecksLXCsTemplateUnitBeforeTheUnits(t *testing.T) {
+	p := loadPlay(t)
+	const stat, check, write = "Look For LXC's Own Template Unit", "Fail When LXC's Own Template Unit Is Missing", "Write Each Unit"
+	if got := taskModule(t, p, stat, "ansible.builtin.stat")["path"]; got != "/usr/lib/systemd/system/lxc@.service" {
+		t.Errorf("the stat's path = %v", got)
+	}
+	assertArgs := taskModule(t, p, check, "ansible.builtin.assert")
+	if that, ok := assertArgs["that"].([]any); !ok || !slices.Contains(that, "tc_lxc_template_unit.stat.exists") {
+		t.Errorf("the assert's that = %v", assertArgs["that"])
+	}
+	order := taskOrder(p)
+	if i, j, k := slices.Index(order, stat), slices.Index(order, check), slices.Index(order, write); i < 0 || i > j || j > k {
+		t.Errorf("stat at %d, assert at %d, units written at %d", i, j, k)
+	}
+}
+
+// Plan 00266 C.2: seats that ran before the record of started seats existed are added to it by
+// the play, after the present phase, so the first boot after a deploy brings them back too.
+func TestThePlayRecordsTheSeatsAlreadyRunning(t *testing.T) {
+	p := loadPlay(t)
+	const place, record = "Place and Join the Declared LXC Members", "Record the LXC Seats Whose Session Runs"
+	argv, ok := taskModule(t, p, record, "ansible.builtin.command")["argv"].([]any)
+	if !ok || !slices.Equal(argv, []any{"{{ tc_admin_link }}", "lxc", "record-started"}) {
+		t.Errorf("the record's argv = %v", argv)
+	}
+	order := taskOrder(p)
+	if i, j := slices.Index(order, place), slices.Index(order, record); i < 0 || j < i {
+		t.Errorf("present phase at %d, record at %d", i, j)
+	}
+}
