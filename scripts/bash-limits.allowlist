@@ -49,7 +49,7 @@ files/var/local/claude-yolo/agent-browser-session-guard	123	2	113	data
 files/var/local/claude-yolo/claude-yolo	2699	12	2632	-
 files/var/local/claude-yolo/entrypoint.sh	321	3	315	data
 files/var/local/claude-yolo/lib/common-pure.bash	242	14	225	-
-files/var/local/claude-yolo/lib/common.bash	642	21	676	-
+files/var/local/claude-yolo/lib/common.bash	641	21	675	-
 files/var/local/claude-yolo/lib/docker-health.bash	384	8	445	-
 files/var/local/claude-yolo/lib/dockerfile-custom.bash	595	4	231	-
 files/var/local/claude-yolo/lib/network-management.bash	913	30	1067	assoc

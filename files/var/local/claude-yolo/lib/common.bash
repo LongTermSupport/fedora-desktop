@@ -415,15 +415,14 @@ check_git_repo() {
 # (src-go/internal/checkoutpin): every line valid, every source there, and the file's content
 # the content a person approved with `ccy-teams approve mounts`, since the container can write
 # it. Any problem stops the launch (a restore's unattended stop) with every finding listed.
-# CCY_NO_PROJECT_MOUNTS=1 launches without them. Fills PROJECT_MOUNTS with `-v src:dst:opt`.
+# CCY_NO_PROJECT_MOUNTS=1 launches without them. Appends `-v src:dst:opt` to DOCKER_MOUNTS.
 load_project_mounts() {
     local out
-    PROJECT_MOUNTS=()
     out=$(ccy-teams internal project-mounts) || {
         if ccy_launch_unattended; then ccy_unattended_stop project-mounts "the project mounts were refused (see above): approve them with ccy-teams approve mounts $PWD"; fi
         return 1
     }
-    [ -z "$out" ] || mapfile -t PROJECT_MOUNTS <<<"$out"
+    [ -z "$out" ] || mapfile -t -O "${#DOCKER_MOUNTS[@]}" DOCKER_MOUNTS <<<"$out"
 }
 
 # The .claude/ccy/ directory contains sensitive session data that should NEVER

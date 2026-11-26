@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.109 — container 2.84.106
+
+- The approved project mounts are appended to the run's mounts by `load_project_mounts`
+  itself, so shellcheck sees where they are used (Plan 00266 Phase A). The launch's argv is
+  unchanged.
+
 ## 3.124.108 — container 2.84.106
 
 - The image's teamchat no longer drops a referenced ping at once when its forge check fails

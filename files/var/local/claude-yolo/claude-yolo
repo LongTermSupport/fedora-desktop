@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.124.108"  # Container 2.84.106: teamchat holds a ping whose forge check failed transiently and checks it again; the history is in docs/ccy-changelog.md.
+CCY_VERSION="3.124.109"  # Container 2.84.106: the approved project mounts are appended to the run's mounts by their loader; the history is in docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -2476,11 +2476,11 @@ DOCKER_MOUNTS=(
 # read, so the promised mounts silently never appeared. Split on whitespace into
 # the mount array (mount paths therefore must not contain spaces). Unset, it adds nothing.
 read -ra _extra_mounts <<< "${CCY_EXTRA_MOUNTS:-}"
+DOCKER_MOUNTS+=("${_extra_mounts[@]}")
 
-# Tracked per-project binds from .claude/ccy/mounts. Validated line by line;
+# Tracked per-project binds from .claude/ccy/mounts, appended to DOCKER_MOUNTS once approved;
 # any problem aborts here, before a container exists (see load_project_mounts).
 load_project_mounts || exit 1
-DOCKER_MOUNTS+=("${_extra_mounts[@]}" "${PROJECT_MOUNTS[@]}")
 
 # This checkout's ccy.env.local is the install's own (placed by its IaC): read-only inside.
 ccy_env_local_mount_args || exit 1

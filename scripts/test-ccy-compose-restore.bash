@@ -58,6 +58,13 @@ PROJECT="$WORK/project-a"
 mkdir -p "$PROJECT"
 UP_LOG="$WORK/up.log"
 RUNNING="$WORK/running"
+# A compose up asks ccy-teams first whether the files are the ones a person approved (Plan 00266
+# Task A.3), so the suite runs the real command, from this checkout.
+BIN="$WORK/bin"
+if ! build_out="$(cd "$REPO_ROOT/src-go" && go build -trimpath -buildvcs=false -ldflags "-X main.RootDir=$REPO_ROOT" -o "$BIN/ccy-teams" ./cmd/ccy-teams 2>&1)"; then
+    echo "FAIL: ccy-teams did not build: $build_out" >&2
+    exit 1
+fi
 
 # run_case <terminal|none> <answer> <settings> <call> — run <call> in a fresh shell with the
 # libraries sourced, the engine and podman-compose stubbed, and <settings> (assignments) in
@@ -78,7 +85,7 @@ run_case() {
     cat >"$driver" <<DRIVER
 set -uo pipefail
 cd "$PROJECT" || exit 99
-export CONTAINER_ENGINE=podman CCY_STATE_DIR="$WORK/state"
+export CONTAINER_ENGINE=podman CCY_STATE_DIR="$WORK/state" CCY_LIB="$LIB_DIR" PATH="$BIN:$PATH"
 STUB_UP_RC=0 STUB_UP_FAILS=0 STUB_PS_IDS="" STUB_PS_RUNNING=false STUB_SESSION=""
 source "$LIB_DIR/common-pure.bash"
 source "$LIB_DIR/network-management.bash"
@@ -119,11 +126,22 @@ DRIVER
 }
 field() { printf '%s\n' "$2" | awk -v k="$1=" 'index($0, k) == 1 { v = substr($0, length(k) + 1) } END { print v }'; }
 ups() { if [ -f "$UP_LOG" ]; then grep -c . "$UP_LOG"; else echo 0; fi; }
-# fresh <containers-running> [compose-file] — reset the stubs' state for a case.
+# approve_compose — approve the project's compose files as a person does: the real
+# `ccy-teams approve compose`, on a pseudo-terminal, answered y. Not approved ends the suite.
+approve_compose() {
+    local said
+    said="$(CCY_STATE_DIR="$WORK/state" CCY_LIB="$LIB_DIR" script -qec "$(printf '%q ' "$BIN/ccy-teams" approve compose "$PROJECT")" /dev/null <<<"y" 2>&1 | tr -d '\r')"
+    if [[ "$said" != *"✓ Approved"* ]]; then
+        echo "FAIL: ccy-teams approve compose did not approve $PROJECT: $said" >&2
+        exit 1
+    fi
+}
+# fresh <containers-running> [compose-file] — reset the stubs' state for a case; a compose file
+# made is approved, so a launch nobody attends may start it.
 fresh() {
     rm -f "$UP_LOG" "$PROJECT"/*.yml
     printf '%s\n' "$1" >"$RUNNING"
-    if [ -n "${2:-}" ]; then : >"$PROJECT/$2"; fi
+    if [ -n "${2:-}" ]; then : >"$PROJECT/$2" && approve_compose; fi
 }
 
 echo ""
@@ -219,6 +237,19 @@ out="$(run_case none "" "COMPOSE_MODE=start STUB_SESSION=ccy-project-a" '_do_com
 check "a start noted by the compose code lands in the record" "1" \
     "$(grep -cx 'compose=started' "$WORK/state/sessions/ccy-project-a")"
 rm -rf "$WORK/state"
+
+echo ""
+echo "=== --compose start: a compose file changed since its approval is refused (Plan 00266 A.3) ==="
+fresh 0 compose.yml
+printf 'services: {}\n' >"$PROJECT/compose.yml"
+out="$(run_case none "" "COMPOSE_MODE=start SESSION_RESTORE=true" '_do_compose_start project-a_default project-a')"
+check "the restore stops, 88, and up -d never ran" "88|0" "$(field rc "$out")|$(ups)"
+check "  naming the file" "yes" "$(has "$out" "compose.yml")"
+check "  saying it changed" "yes" "$(has "$out" "changed since it was approved")"
+check "  and printing the verb that approves it" "yes" "$(has "$out" "ccy-teams approve compose $PROJECT")"
+approve_compose
+out="$(run_case none "" "COMPOSE_MODE=start SESSION_RESTORE=true" '_do_compose_start project-a_default project-a')"
+check "approved again, the same restore starts it" "0|1|started" "$(field ret "$out")|$(ups)|$(field outcome "$out")"
 
 echo ""
 echo "=== --compose skip: a restore whose stack was declined ==="
