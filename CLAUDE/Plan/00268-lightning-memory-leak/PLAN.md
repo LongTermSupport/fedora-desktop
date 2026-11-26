@@ -78,6 +78,31 @@ another batch; this plan decides at the end whether it stays.
   backtrace once. Lightning's own stall tracer logs only when a stall ends, so it cannot. Built:
   `agent-bus-lightning watch` (`internal/lightning/watch`, W1-W13; L17), the user service
   `agent-bus-lightning-watch`, run by the play only while a team has the key true.
+- [ ] ⬜ **Task 1.8**: The owner's Q20 follow-up, 26 Nov 11:08Z (verbatim): "if we set a memory
+  limit, can we have something that kills and dumps loads of useful info when it hits the
+  limit? so we by definition catch it and get all the details when we need it?". A memory
+  tripwire that captures everything before it kills. It extends Task 1.7's watch, which
+  already finds the instance's process and writes a dated record beside its log.
+  - **The limit:** a hard `MemoryMax` on the instance's own cgroup, with a trip line well below
+    it and well above normal. The laptop's baseline is about 650 MB, growing about 12 MiB/h
+    (journal 101655Z), so a trip line of a few GB. Both values come from the team's key in
+    host_vars, never hard-coded.
+  - **Evidence first:** `flatpak run` moves the app into its own `app-flatpak-<id>-<pid>.scope`,
+    so a limit on a wrapping scope may not follow it. Find where the process really lands, then
+    set the limit on that scope (`systemctl --user set-property`) from the watch, or from the
+    launcher if a launch-time property holds.
+  - **On trip** (`memory.events` high, or `memory.current` past the line), before any kill, the
+    watch captures into one dated folder: `smaps_rollup`, the map count with the memfd and
+    QtQml mapping counts, the fd list, `/proc/<pid>/status`, each thread's state and CPU,
+    Lightning's own log tail, and the last minutes of the sync and read-receipt trace lines.
+  - **Then the kill:** SIGABRT, so systemd-coredump keeps a core and a backtrace. No ptrace is
+    needed, so ptrace_scope stays 1 (D3). Whether the core is symbolised depends on Lightning's
+    Flatpak debug extension being installed; check that and record the answer.
+  - **Tell the team:** a teamchat notice to the team that the instance was caught, naming the
+    folder.
+  - **Acceptance:** a test trips it on a stand-in process and shows the folder and the
+    coredump entry. Go, test first, in `internal/lightning/watch`.
+  - **Order:** after batch 23 lands, in the batch with 00266's C.2 (batch 24).
 
 ### Phase 2: Reproduce
 
