@@ -883,8 +883,11 @@ check "headless with no saved choices: refused, no prompt" "yes" \
 check "  it says how to launch instead" "yes" "$(has "--token" "$work/quick.err")"
 : >"$PROMPT_LOG"
 # The hazard: a container rewrote the saved choices (another key, its own network). A launch
-# nobody attends refuses them, naming the file and the verb that approves it; an attended one
-# shows them, warned, and asks.
+# nobody attends refuses them, naming the file and the verb that approves it. An attended one
+# shows them at a terminal and asks, default no, before the Quick Launch offer (Plan 00266
+# review finding 8; the front's own tests drive that question); with no terminal on its stdin
+# and stderr, as here, the front refuses them as for a launch nobody attends, and the launcher
+# asks each choice instead of offering them.
 save personal /keys/id_a proj_net
 save_text personal /home/u/.ssh/id_other evil_net >"$proj/.claude/ccy/.last-launch.conf"
 check "headless, choices ccy did not write: refused, no prompt" "yes" \
@@ -892,8 +895,10 @@ check "headless, choices ccy did not write: refused, no prompt" "yes" \
 check "  it names the file and the approve verb" "yes yes" \
     "$(has "$proj/.claude/ccy/.last-launch.conf" "$work/quick.err") $(has "ccy-teams approve last-launch $proj" "$work/quick.err")"
 : >"$PROMPT_LOG"
-check "  interactive: the prompt is asked" "yes" "$(grep -q 'prompt=yes' <<<"$(quick false)" && echo yes || echo no)"
-check "  and the person is warned ccy did not write them" "yes" "$(has "ccy did not write these choices" "$work/quick.err")"
+check "  interactive with no terminal to ask at: the choices are not taken" "no" \
+    "$(grep -q 'id_other\|evil_net' <<<"$(quick false)" && echo yes || echo no)"
+check "  it names the approve verb, and asks each choice instead" "yes yes" \
+    "$(has "ccy-teams approve last-launch $proj" "$work/quick.err") $(has "Reconfiguring" "$work/quick.err")"
 : >"$PROMPT_LOG"
 check "headless with a launch-choice flag: the block is not entered" \
     "token= keys= no_ssh=true net= no_net=false rc=0 prompt=no" "$(quick true --no-ssh)"

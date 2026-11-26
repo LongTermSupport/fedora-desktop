@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.125 — container 2.84.110
+
+- Saved Quick Launch choices ccy did not write (`.claude/ccy/.last-launch.conf` changed by
+  anyone else, a container session included) are no longer handed to an attended launch with
+  only a warning. At a terminal ccy shows each choice and asks, default no: a typed `y` uses them
+  and records them as approved; Enter or `n` uses nothing and records nothing, and the launch
+  asks each choice. With no terminal on stdin and stderr they are refused, as for a launch
+  nobody attends (Plan 00266 review finding 8).
+
 ## 3.124.124 — container 2.84.110
 
 - The compose approval also covers `container-compose.yml`/`.yaml` and their `.override` files,

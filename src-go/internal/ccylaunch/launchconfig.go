@@ -1,6 +1,7 @@
 package ccylaunch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/checkoutpin"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
 // F16, the bash launcher's saved launch configuration (checkoutpin.LastLaunch), which only the
@@ -23,8 +25,12 @@ import (
 //     content whose digest is the one recorded: the launcher's own last write, or a person's
 //     approval (ccy-teams approve last-launch); anything else is exit 1 naming the file and that
 //     verb, since a container session can write it and its keys choose the SSH keys forwarded
-//     and the network joined. attended hands any content back, with a warning naming the file
-//     when it is not the recorded content: the launcher shows the choices and asks.
+//     and the network joined. attended hands the recorded content back unasked. Other content
+//     is shown at a terminal (stdin and stderr), every value through checkoutpin.Shown, and
+//     asked about with a default of no (Plan 00266 review finding 8): a typed yes hands it back
+//     and records its digest as a person's approval; Enter or no hands nothing back (exit 0, so
+//     the launcher asks each choice) and records nothing; with no terminal it is refused as an
+//     unattended read is.
 //   - `--write-launch-config CHECKOUT` writes the text on stdin as the file, refusing text the
 //     reader would refuse, and records its digest.
 //   - `--launch-network CHECKOUT` prints the network the file joins (nothing for none or no
@@ -47,7 +53,7 @@ const (
 )
 
 // launchConfig is F16's read.
-func (f Front) launchConfig() term.ExitCode {
+func (f Front) launchConfig(ctx context.Context) term.ExitCode {
 	if len(f.Args) != 3 || !filepath.IsAbs(f.Args[1]) || (f.Args[2] != "attended" && f.Args[2] != "unattended") {
 		return f.usage(launchConfigUsage)
 	}
@@ -55,18 +61,17 @@ func (f Front) launchConfig() term.ExitCode {
 	if err != nil {
 		return f.fail("ccy: cannot read the saved launch configuration " + err.Error())
 	}
-	checkout, settings, verified := saved.checkout, saved.settings, saved.refused
+	settings, verified := saved.settings, saved.refused
 	if saved.content == nil {
 		return term.ExitOK
 	}
 	if verified != nil {
-		if f.Args[2] == "unattended" {
+		if f.Args[2] == "unattended" || !f.atTerminal() {
 			return f.fail("ccy: " + verified.Error())
 		}
-		var p term.Printer
-		p.Print(f.Stderr, "⚠  "+checkoutpin.LastLaunchPath(checkout)+": "+verified.Why+"; ccy did not write these choices. Read them before you accept.\n")
-		if p.Err() != nil {
-			return term.ExitFailure
+		approved, code := f.approveChoices(ctx, saved)
+		if !approved {
+			return code
 		}
 	}
 	var out strings.Builder
@@ -81,12 +86,64 @@ func (f Front) launchConfig() term.ExitCode {
 	return term.ExitOK
 }
 
+// atTerminal is whether a person is there to ask: stdin and stderr are terminals (stdout is the
+// launcher's capture of the answer).
+func (f Front) atTerminal() bool {
+	isTerminal := f.IsTerminal
+	if isTerminal == nil {
+		isTerminal = term.FileIsTerminal
+	}
+	return f.Stdin != nil && isTerminal(f.Stdin) && isTerminal(f.Stderr)
+}
+
+// approveChoices shows saved choices ccy did not write, every value through checkoutpin.Shown,
+// and asks whether to use them, defaulting to no (Plan 00266 review finding 8). A yes records
+// their digest as a person's approval; a no records nothing and hands nothing back, so the
+// launcher asks each choice. approved is false with the code to exit with.
+func (f Front) approveChoices(ctx context.Context, s saved) (approved bool, code term.ExitCode) {
+	path := checkoutpin.LastLaunchPath(s.checkout)
+	var shown strings.Builder
+	shown.WriteString("\n" + checkoutpin.Shown(path) + ": " + checkoutpin.Shown(s.refused.Why) + ".\n")
+	shown.WriteString("ccy did not write these Quick Launch choices; a container session can. They choose the SSH keys forwarded and the network joined:\n\n")
+	for _, setting := range s.settings {
+		shown.WriteString("  " + checkoutpin.Shown(setting.Key) + "=" + checkoutpin.Shown(setting.Value) + "\n")
+	}
+	var p term.Printer
+	p.Print(f.Stderr, shown.String()+"\n")
+	if err := p.Err(); err != nil {
+		return false, term.ExitFailure
+	}
+	h := ui.Here("ccy", "Quick Launch").About(checkoutpin.Shown(path))
+	yes, err := f.lines(launchConfigFlag).YesNo(ctx, h, "Use these choices, and approve them for launches nobody attends?", false)
+	switch {
+	case errors.Is(err, ui.ErrCancelled):
+		return false, term.ExitCancelled
+	case err != nil:
+		return false, f.fail("ccy: " + err.Error())
+	case !yes:
+		p.Print(f.Stderr, "Not used, and not approved: the launch asks each choice.\n")
+		if p.Err() != nil {
+			return false, term.ExitFailure
+		}
+		return false, term.ExitOK
+	}
+	store, err := checkoutpin.Locate(f.getenv)
+	if err == nil {
+		err = store.Record(s.checkout, checkoutpin.KindLastLaunch, s.digest, f.clock().Now())
+	}
+	if err != nil {
+		return false, f.fail("ccy: could not record the approval of " + path + ": " + err.Error())
+	}
+	return true, term.ExitOK
+}
+
 // saved is a checkout's saved choices as read: its real path, the file's bytes (nil for no
 // file), its settings, and the refusal a launch nobody attends would meet (nil when the content
 // is the recorded one).
 type saved struct {
 	checkout string
 	content  []byte
+	digest   string
 	settings []checkoutpin.Setting
 	refused  *checkoutpin.RefusalError
 }
@@ -111,7 +168,7 @@ func (f Front) savedChoices(dir string) (saved, error) {
 	if err != nil {
 		return s, wrapPath(path, err)
 	}
-	s.content = content
+	s.content, s.digest = content, digest
 	err = store.Verify(checkout, checkoutpin.KindLastLaunch, digest)
 	if refused, ok := errors.AsType[*checkoutpin.RefusalError](err); ok {
 		s.refused = refused

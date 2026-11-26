@@ -361,7 +361,7 @@ func (f Front) Run(ctx context.Context) term.ExitCode {
 // other run.
 func (f Front) ownFlag(ctx context.Context) (term.ExitCode, bool) {
 	if len(f.Args) > 0 && f.Args[0] == launchConfigFlag {
-		return f.launchConfig(), true
+		return f.launchConfig(ctx), true
 	}
 	if len(f.Args) > 0 {
 		if answer, ok := bashQuestions[f.Args[0]]; ok {

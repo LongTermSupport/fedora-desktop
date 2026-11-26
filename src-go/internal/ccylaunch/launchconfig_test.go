@@ -96,7 +96,9 @@ func TestAGoodSavedConfigIsHandedBackOneKeyALine(t *testing.T) {
 // The roles the launch summary remembers per team are a key of the file; a file written before
 // it existed has none, and is still read.
 func TestTheRememberedTeamRolesAreAKeyOfTheFile(t *testing.T) {
-	r := configRun(t, configPath(t, new(strings.Replace(savedConfig, "LAST_LAUNCH_DATE", "LAST_TEAM_ROLES=\"team-a=coordinator,team-b=worker\"\nLAST_LAUNCH_DATE", 1))))
+	path := configPath(t, new(strings.Replace(savedConfig, "LAST_LAUNCH_DATE", "LAST_TEAM_ROLES=\"team-a=coordinator,team-b=worker\"\nLAST_LAUNCH_DATE", 1)))
+	pinned(t, path)
+	r := configRun(t, path)
 	if code := r.start(t); code != term.ExitOK {
 		t.Fatalf("exit %d, stderr %q", code, r.stderr)
 	}
@@ -107,11 +109,15 @@ func TestTheRememberedTeamRolesAreAKeyOfTheFile(t *testing.T) {
 
 func TestAFileOfFewerKeysIsReadAsItIs(t *testing.T) {
 	// Which keys a format needs is the launcher's decision; the reader hands back what is there.
-	r := configRun(t, configPath(t, new("SAVED_CONFIG_VERSION=3\n")))
+	path := configPath(t, new("SAVED_CONFIG_VERSION=3\n"))
+	pinned(t, path)
+	r := configRun(t, path)
 	if code := r.start(t); code != term.ExitOK || r.stdout.String() != "SAVED_CONFIG_VERSION\t3\n" {
 		t.Fatalf("exit %d, stdout %q, stderr %q", code, r.stdout, r.stderr)
 	}
-	r = configRun(t, configPath(t, new("")))
+	path = configPath(t, new(""))
+	pinned(t, path)
+	r = configRun(t, path)
 	if code := r.start(t); code != term.ExitOK || r.stdout.Len() != 0 {
 		t.Fatalf("empty file: exit %d, stdout %q", code, r.stdout)
 	}
@@ -203,7 +209,9 @@ func TestTheFlagTakesACheckoutAndWhetherAnyoneIsThere(t *testing.T) {
 
 func TestTheFlagIsAnsweredUnderLegacyToo(t *testing.T) {
 	// The bash launcher asks it; handing it back to the bash would ask the bash itself.
-	r := configRun(t, configPath(t, new(savedConfig)))
+	path := configPath(t, new(savedConfig))
+	pinned(t, path)
+	r := configRun(t, path)
 	r.env(LegacyEnv + "=1")
 	if code := r.start(t); code != term.ExitOK || len(r.execer.Execs()) != 0 {
 		t.Fatalf("exit %d, execs %v", code, r.execer.Execs())
@@ -228,16 +236,64 @@ func TestAnUnattendedLaunchTakesOnlyPinnedChoices(t *testing.T) {
 	refused(t, configRunAs(t, path, "unattended"), path, "changed since", new(changed))
 }
 
-// An attended launch shows the choices and asks, as it always has; a changed file is handed
-// back with a warning that names it, for the person to read before they accept.
-func TestAnAttendedLaunchIsWarnedOfAChangedFile(t *testing.T) {
+// attendedRun is an attended read at a terminal (stdin and stderr; stdout is the bash's
+// capture), the person answering answer.
+func attendedRun(t *testing.T, path, answer string) *run {
+	t.Helper()
+	r := configRun(t, path)
+	r.front.Stdin = strings.NewReader(answer)
+	stdout := r.stdout
+	r.front.IsTerminal = func(v any) bool { return v != stdout }
+	return r
+}
+
+// Plan 00266 review finding 8: saved choices ccy did not write are shown, every value through
+// checkoutpin.Shown under a heading naming the file, and asked about with a default of no. Only
+// a typed yes hands them back and records them as approved; Enter or no hands nothing back
+// (exit 0, so the launcher asks each choice), records nothing, and leaves the file as it is.
+func TestAnAttendedLaunchAsksBeforeItTakesChoicesCcyDidNotWrite(t *testing.T) {
+	for _, answer := range []string{"\n", "n\n"} {
+		path := configPath(t, new(savedConfig))
+		r := attendedRun(t, path, answer)
+		if code := r.start(t); code != term.ExitOK || r.stdout.Len() != 0 {
+			t.Fatalf("answer %q: exit %d, stdout %q, want exit 0 and nothing handed back", answer, code, r.stdout)
+		}
+		msg := r.stderr.String()
+		for _, want := range []string{path, "LAST_SSH_KEYS", "/keys/id_a /keys/id b", "[y/N]", "asks each choice"} {
+			if !strings.Contains(msg, want) {
+				t.Fatalf("answer %q: stderr %q lacks %q", answer, msg, want)
+			}
+		}
+		refused(t, configRunAs(t, path, "unattended"), path, "ccy-teams approve last-launch", new(savedConfig))
+	}
+	path := configPath(t, new(savedConfig))
+	r := attendedRun(t, path, "y\n")
+	if code := r.start(t); code != term.ExitOK || !strings.Contains(r.stdout.String(), "LAST_SSH_KEYS\t/keys/id_a /keys/id b\n") {
+		t.Fatalf("a yes: exit %d, stdout %q, stderr %q", code, r.stdout, r.stderr)
+	}
+	unattended := configRunAs(t, path, "unattended")
+	if code := unattended.start(t); code != term.ExitOK || !strings.Contains(unattended.stdout.String(), "LAST_TOKEN\tpersonal\n") {
+		t.Fatalf("after a yes, a launch nobody attends: exit %d, stderr %q", code, unattended.stderr)
+	}
+}
+
+// With no terminal to ask at, an attended read of choices ccy did not write is refused as an
+// unattended one is: nothing is accepted on nobody's word.
+func TestAnAttendedLaunchWithNoTerminalRefusesChoicesCcyDidNotWrite(t *testing.T) {
 	path := configPath(t, new(savedConfig))
 	r := configRun(t, path)
-	if code := r.start(t); code != term.ExitOK || !strings.Contains(r.stdout.String(), "LAST_TOKEN\tpersonal\n") {
-		t.Fatalf("exit %d, stdout %q", code, r.stdout)
-	}
-	if msg := r.stderr.String(); !strings.Contains(msg, path) || !strings.Contains(msg, "no approval") {
-		t.Fatalf("stderr %q does not warn of the file", msg)
+	r.front.Stdin = strings.NewReader("y\n")
+	r.front.IsTerminal = func(any) bool { return false }
+	refused(t, r, path, "ccy-teams approve last-launch", new(savedConfig))
+}
+
+// Choices ccy wrote are handed back unasked, attended or not.
+func TestAnAttendedLaunchTakesItsOwnChoicesUnasked(t *testing.T) {
+	path := configPath(t, new(savedConfig))
+	pinned(t, path)
+	r := attendedRun(t, path, "")
+	if code := r.start(t); code != term.ExitOK || !strings.Contains(r.stdout.String(), "LAST_TOKEN\tpersonal\n") || strings.Contains(r.stderr.String(), "[y/N]") {
+		t.Fatalf("exit %d, stdout %q, stderr %q", code, r.stdout, r.stderr)
 	}
 }
 
