@@ -1719,6 +1719,10 @@ before the move to v2. Filled in as causes are found.
   session (no <session>.json context sidecar ...)". A live seat in it was not warned.
 - **Hazard:** the lossless rule. A seat with work in flight goes down unwarned, so it cannot
   finish or hand off.
+- **Lead (checked, fact-check report r85-r88):** the message is the hooks daemon's
+  (`utils/operator_signal.py:306-311`), which finds a session by its context sidecar, while the
+  Go side counts a session live from tmux and its process tree, and its preflight never asks
+  for a sidecar (`src-go/internal/sessions/routes.go:198`). The two disagree on "live".
 - **Fix:** to find out (unchecked): why the live session had no sidecar, or why the signal
   looked for one where it was not. Then the signal reaches every live session, and a session it
   cannot reach is named as not warned, never a bare exit 1.
@@ -1748,5 +1752,8 @@ before the move to v2. Filled in as causes are found.
 ## R88: the shutdown warning prints the same blocks twice
 
 - **Seen:** the same shutdown. The same blocks printed twice.
-- **Fix:** to find out (unchecked) whether the warning runs twice or prints twice, then once.
+- **Cause (checked, fact-check report r85-r88):** `src-go/internal/sessions/reboot.go:105` and
+  `:187` each run `checkProjects`, so a countdown over one minute prints the "Left out" and
+  "Not shown" blocks (`routes.go:167`, `:171`) twice.
+- **Fix:** print them once per countdown, with a test for a countdown over one minute.
 - **Severity:** low (noise). **Issue:** TBF. **State:** open.
