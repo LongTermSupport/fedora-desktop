@@ -261,7 +261,7 @@ func (c *Chooser) handles(ctx context.Context, memberType string, refs []string)
 	for _, ref := range refs {
 		seat, team, ok := strings.Cut(ref, "@")
 		if !ok {
-			c.say("ccy-teams: '" + ref + "' is not SEAT@TEAM.")
+			c.say("ccy-teams: '" + ref + "' names no seat of a team (a seat, then @, then its team).")
 			return nil, term.ExitUsage
 		}
 		handle, onTeamchat, code := c.poolHandle(memberType, ref, seat, team)

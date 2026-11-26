@@ -17,6 +17,67 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.91 — container 2.84.95
+
+- `ccy --help`, the launcher's `--teams` errors and the `ccy.env.local.dist` comment name
+  teams, never a seat number to type: `--teams [TEAM[,TEAM...]]`, and a bare `--teams` with no
+  terminal says to run it at a terminal or name the team (Plan 00265 R90). A seat list after
+  `--teams` is still accepted, for scripts and records.
+- The new QA gate `seat-number-text` holds the docs, the embedded help and the launchers'
+  messages to that, by the same shapes as the Go rule `project_seat_number_text`.
+
+## 3.124.90 — container 2.84.95
+
+- teamchat in the image delivers by volume only: a delivery holds as many entries as fit its
+  12 KiB, no longer at most 8, and what does not fit is counted on its `more pending` line and
+  follows in the next delivery (Plan 00267 Task 7.6, the owner's Q19).
+- One delivery is in sections, one per kind pending (HUMAN, PEER and PING, TIMEOUT, NOTICE),
+  each headed by an `==` line with the delivery's nonce, then teamchat's facts in a section of
+  their own (Plan 00267 Task 7.7). The SessionStart frame text and the teamchat skill say so.
+
+## 3.124.89 — container 2.84.94
+
+- `ccy --teams <team>` and `cc --teams <team>` take the seat this checkout last worked in: the
+  one free seat whose recorded conversation is still here is taken and resumed without a
+  question, and a free seat is taken when none has run here. Only two seats with a conversation,
+  or a seat a running session holds, are asked, in words ("A seat of <team>: last ran 2 hours
+  ago", "Running now in session <name>: re-attach it"), the newest the default (Plan 00265 R90).
+- No message, row or help line tells a person to type a seat number: the ways on, the repair
+  lines and `ccy-teams seats conversation` name teams (`seats conversation <team> --set <id>`
+  finds the team's one recorded seat), and the new-session picker's rows are words. A new rule,
+  `project_seat_number_text`, holds this in the Go code.
+- The team list names a team with no pool seat in the checkout as having none, no longer as a
+  team whose bus does not answer (#430 review).
+
+## 3.124.88 — container 2.84.94
+
+- A restore that refuses a session because its checkout records a conversation under another
+  session name (#431) now names `ccy-sessions retire-conversation CHECKOUT NAME`, which retires
+  that record (renamed `conversation.retired.json`), and then the restore (an unmarked record is
+  declared again with `--fresh-if-no-conversation` first): a session is started fresh on purpose
+  with no terminal. The refused record is no longer called stale.
+- `ccy-sessions forget` retires the forgotten session's own conversation record too, so it holds
+  back no later fresh start in its checkout.
+
+## 3.124.87 — container 2.84.94
+
+- A bare `ccy --teams` (or `cc --teams`, and with `--resume`) no longer offers a teamchat team
+  whose bus does not answer: each team with a pool seat in the checkout has its homeserver asked
+  for its versions, as that seat would reach it, all at once and at most 5 s each. A team that
+  does not answer (retired with its server gone, or its bus stopped) is no row of the list, so it
+  cannot be chosen, and is named above the list with why (issue #430). A team whose seat record
+  cannot be read stops the list with the reason instead. The image is unchanged.
+
+## 3.124.86 — container 2.84.94
+
+- A restore (`ccy-sessions restore`, its `--check`, `declare` and a team restart) no longer
+  starts a record fresh while its checkout records a conversation under another session name
+  that no session record owns, as a rename, or a move of its teams to teamchat, leaves it. A
+  record marked fresh-if-no-conversation is refused like any other then, naming each such
+  record, how to resume it as this session's (`ccy-teams seats conversation <seats> --set <id>`
+  for a seated record, `--resume <id>` by hand otherwise) and how to start fresh on purpose
+  (issue #431). The image is unchanged.
+
 ## 3.124.85 — container 2.84.94
 
 - teamchat in the image is built from sources that name the LXC boot unit's files (the record

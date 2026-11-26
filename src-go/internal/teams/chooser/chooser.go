@@ -102,7 +102,7 @@ func (c *Chooser) Run(ctx context.Context, args []string) term.ExitCode {
 		return c.busOnly(ctx, memberType, list)
 	}
 	if !c.attended() && !allSeats(list) {
-		c.say("ccy-teams: 'choose-teams' asks its questions on a terminal; with none, name the seats: --teams SEAT@TEAM.")
+		c.say("ccy-teams: 'choose-teams' asks its questions on a terminal, and there is none: run the launch at a terminal.")
 		return c.unattendedWays(ctx, memberType, list)
 	}
 	if list != "" {
@@ -264,10 +264,14 @@ func (c *Chooser) bare(ctx context.Context, memberType string) term.ExitCode {
 	}
 	entries, err := c.entries(ctx, repo)
 	if err == nil {
-		entries, err = c.withTeamchat(memberType, entries)
+		entries, err = c.withTeamchat(ctx, memberType, entries)
 	}
 	if err != nil {
 		return c.failed(err)
+	}
+	if team, one := seatedTeam(entries); one {
+		c.say("This checkout has seats in " + team + " alone: taking it.")
+		return c.resolve(ctx, memberType, team)
 	}
 	if repo != "" && !slices.ContainsFunc(entries, func(e entry) bool { return e.Standing == declare.StandingCovers }) {
 		c.say("No team on this machine works on " + repo + " (this checkout). Choose a team to add it to, or create one.")
@@ -294,6 +298,21 @@ func (c *Chooser) bare(ctx context.Context, memberType string) term.ExitCode {
 	}
 	c.say("ccy-teams: no team could be taken in " + strconv.Itoa(maxRounds) + " tries; nothing started.")
 	return term.ExitFailure
+}
+
+// seatedTeam is the one team of entries this checkout's pool holds seats of, and whether there
+// is exactly one (Plan 00265 R90): a bare --teams then needs no list.
+func seatedTeam(entries []entry) (string, bool) {
+	var seated []string
+	for _, e := range entries {
+		if e.teamchatSeats > 0 {
+			seated = append(seated, e.Team)
+		}
+	}
+	if len(seated) != 1 {
+		return "", false
+	}
+	return seated[0], true
 }
 
 // failed says why something could not be read and exits with declare's own code when it gave one.

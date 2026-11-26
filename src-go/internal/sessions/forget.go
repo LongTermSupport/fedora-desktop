@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -63,10 +64,33 @@ func (a *App) forget(ctx context.Context, args []string) term.ExitCode {
 			return term.ExitFailure
 		}
 	}
+	if err = a.retireOwn(reading, files[0]); err != nil {
+		a.failErr(err)
+		a.fail(name + "'s record is kept, so forget can be run again once that is put right.")
+		return term.ExitFailure
+	}
 	if err = store.RemoveFile(files[0]); err != nil {
 		a.failErr(err)
 		return term.ExitFailure
 	}
 	a.out(name + " FORGOTTEN\n")
 	return term.ExitOK
+}
+
+// retireOwn retires the agent-bus conversation record of the readable record read from file
+// (conversation.RetireOwn), first, so a refused retire keeps the record: once the record is gone
+// nothing owns that conversation, and it would stop every later fresh start in the checkout
+// (fedora-desktop#431). An unreadable record names no checkout, so it has nothing to retire.
+func (a *App) retireOwn(reading registry.Reading, file string) error {
+	for i, f := range reading.Files {
+		if f != file {
+			continue
+		}
+		retired, err := conversation.RetireOwn(reading.Records[i])
+		if err == nil && retired != "" {
+			a.sayf("retired its conversation record %s (now %s beside it).\n", retired, conversation.RetiredFile)
+		}
+		return err
+	}
+	return nil
 }

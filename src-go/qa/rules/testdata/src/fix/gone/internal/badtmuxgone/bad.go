@@ -21,7 +21,7 @@ const (
 )
 
 type answer struct {
-	text string `json:"can't find"`
+	Text string `json:"can't find"`
 }
 
 // gone asks the owner, which is clean; a comment may name "can't find session".

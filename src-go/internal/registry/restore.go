@@ -130,7 +130,7 @@ func startArgs(compose, prefix string, args []string, fresh bool) ([]string, err
 	}
 	var ccyFlags []string
 	if prefix == prefixCCY && compose != "" {
-		composeFlags, err := composeArgs(compose)
+		composeFlags, err := ComposeArgs(compose)
 		if err != nil {
 			return nil, err
 		}
@@ -321,8 +321,8 @@ func selectorValue(next string) bool {
 	return !strings.HasPrefix(next, "-")
 }
 
-// composeArgs is the --compose flag a compose outcome maps to.
-func composeArgs(outcome string) ([]string, error) {
+// ComposeArgs is the --compose flag a compose outcome maps to (a record's compose=, never empty).
+func ComposeArgs(outcome string) ([]string, error) {
 	switch outcome {
 	case "started", "running":
 		return []string{flagCompose, "start"}, nil

@@ -220,7 +220,7 @@ func (p Pick) Note() string {
 const Verb = "model"
 
 const (
-	usageLine = "ccy-teams seats model [<team> <model>|--clear] [[--host] <seat>@<team> <model>|--clear]"
+	usageLine = "ccy-teams seats model [<team> <model>|<team> --clear]"
 	prefix    = "ccy-teams seats model: "
 	flagClear = "--clear"
 	flagHost  = "--host"
@@ -309,7 +309,7 @@ func parse(args []string) (request, error) {
 		return request{}, fmt.Errorf("%w: %q names no seat before the @", errUsage, words[0])
 	}
 	if host && !isSeat {
-		return request{}, fmt.Errorf("%w: --host names a cc seat, <seat>@<team>; a team's model is every kind's", errUsage)
+		return request{}, fmt.Errorf("%w: --host is for one cc seat's own model; a team's model, given with the team alone, is every kind's", errUsage)
 	}
 	team, err := paths.ParseTeamID(teamPart)
 	if err != nil {

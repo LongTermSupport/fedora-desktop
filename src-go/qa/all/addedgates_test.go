@@ -21,6 +21,7 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"go-deps", "Plan 00204 D2: src-go may have dependencies, vendored, pinned and allowlisted, and this gate holds them to that"},
 	{"go-vuln", "Plan 00204 D2: govulncheck over src-go's vendored dependencies"},
 	{"teamchat-keeps-off-v1", "Plan 00209 D 4.1: v2 of the agent-team bus touches nothing v1 uses, and no v2 file names v1"},
+	{"seat-number-text", "Plan 00265 R90, Defence Before Fix: project_seat_number_text outside Go (docs, embedded help, launcher messages)"},
 	{"hook-handlers", "Plan 00191 Task 4.6: the project hooks-daemon handlers' tests, under the daemon's interpreter"},
 	{"hook-handler-rules", "Plan 00191 Task 5.1: the semgrep rules for code the hooks daemon loads, moved out of the speech-to-text rules into a gate of their own"},
 	{"run-bash-pipx-inject", "Plan 00188: run.bash injects only the missing Ansible dependencies, and its own suite proves it"},

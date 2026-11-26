@@ -218,9 +218,12 @@ func TestSeatMemberType(t *testing.T) {
 // A recorded session's start decided outside conversation.StartPlan (fedora-desktop#270): the
 // restore's planner as it was, a team restart's resume-only start, a builder held as a value and
 // a lookup error held in a variable; the planner itself, the registry's own use, a plain lookup
-// and test files are not judged, and a second function in the conversation package is.
+// and test files are not judged, and a second function in the conversation package is. A
+// StartPlan that starts fresh without asking recordedElsewhere, or dropping its answer, is
+// flagged (fedora-desktop#431).
 func TestStartDecision(t *testing.T) {
-	analysistest.Run(t, analysistest.TestData(), StartDecision, "fix/internal/registry", "fix/internal/conversation", "fix/internal/badstart")
+	analysistest.Run(t, analysistest.TestData(), StartDecision, "fix/internal/registry", "fix/internal/conversation", "fix/internal/badstart",
+		"fix/unguarded/internal/conversation", "fix/ignored/internal/conversation", "fix/discarded/internal/conversation")
 }
 
 // A recorded launch's conversation selectors read outside registry's selectorOf
@@ -236,8 +239,8 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 67 {
-		t.Fatalf("want 67 rules, got %d", got)
+	if got := len(All()); got != 68 {
+		t.Fatalf("want 68 rules, got %d", got)
 	}
 }
 

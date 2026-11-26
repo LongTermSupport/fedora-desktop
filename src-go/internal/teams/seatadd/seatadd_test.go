@@ -197,7 +197,7 @@ func TestAddDerivesIssuesAndPlaces(t *testing.T) {
 	if w.out.String() != "1@alpha\n" {
 		t.Errorf("stdout %q, want the seat to launch", w.out.String())
 	}
-	for _, s := range []string{"fedora-desktop.1+local.podman", "Launch it here: ccy --teams 1@alpha"} {
+	for _, s := range []string{"fedora-desktop.1+local.podman", "Launch it here: ccy --teams alpha"} {
 		if !strings.Contains(w.err.String(), s) {
 			t.Errorf("stderr does not say %q:\n%s", s, w.err.String())
 		}
@@ -247,7 +247,7 @@ func TestAddHostSeat(t *testing.T) {
 			t.Errorf("argv %q lacks %q", argv, s)
 		}
 	}
-	if !strings.Contains(w.err.String(), "cc --teams 1@alpha") {
+	if !strings.Contains(w.err.String(), "Launch it here: cc --teams alpha") {
 		t.Errorf("stderr does not name the cc launch:\n%s", w.err.String())
 	}
 }

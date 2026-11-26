@@ -187,7 +187,7 @@ podman seat's ([agent-bus.md](agent-bus.md)), reading the checkout in the contai
 - `<host>` is the `HOOKS_DAEMON_HOSTNAME` that the checkout's `.claude/ccy/ccy.env.local`
   assigns, else the literal `local`; never the machine's hostname, because handles appear in
   public forge text;
-- `<seat>` is the lowest number that no active member of the same `<repo>+<host>.lxc` holds in
+- the seat, between `.` and `+`, is the lowest number that no active member of the same `<repo>+<host>.lxc` holds in
   the team; a parked member's number is offered again, so it returns. An active numbered
   member that no entry holds is not skipped: see **A lost bundle**, below.
 

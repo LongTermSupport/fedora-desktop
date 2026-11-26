@@ -153,7 +153,8 @@ func nextSeat(top string, own []agentbus.Seat, team string, roster agentbus.Rost
 }
 
 // seatChoices are the rows of the new-session picker, each tagged with its seat: every free seat
-// of the team in this checkout, then a new one.
+// of the team in this checkout, then a new one. A row says the seat in words, never its name or
+// handle (Plan 00265 R90): the tag carries the seat.
 func seatChoices(top, team string, seats []agentbus.Seat, roster agentbus.Roster) ([]string, []string, error) {
 	next, err := nextSeat(top, seats, team, roster)
 	if err != nil {
@@ -162,10 +163,10 @@ func seatChoices(top, team string, seats []agentbus.Seat, roster agentbus.Roster
 	var rows, tags []string
 	for _, seat := range seats {
 		if seat.Team == team && !seat.Held {
-			rows, tags = append(rows, agentbus.Label(seat.Handle, "")+"   free"), append(tags, seat.Seat+"@"+team)
+			rows, tags = append(rows, "A free seat of "+team), append(tags, seat.Seat+"@"+team)
 		}
 	}
-	return append(rows, "Seat "+strconv.Itoa(next)+"@"+team+"   new"), append(tags, strconv.Itoa(next)+"@"+team), nil
+	return append(rows, "A new seat of "+team), append(tags, strconv.Itoa(next)+"@"+team), nil
 }
 
 // NewSession starts ccy in this checkout, in a free seat of the team or a new one.
@@ -203,8 +204,8 @@ func (s *Seats) NewSession(ctx context.Context, snap *board.Snapshot, team strin
 	}
 	picked, err := s.Kit.Choose(ctx, flow.Here(team, "New session").About("team "+team+" · in "+s.Kit.Abbrev(top)), ui.PickSpec{
 		Title: "New ccy session in " + team,
-		Header: ui.Header("Enter start   Esc or q back", "Runs ccy --teams <seat>@"+team+" in "+s.Kit.Abbrev(top)+
-			"; a new seat is created by that launch (sudo)."),
+		Header: ui.Header("Enter start   Esc or q back", "Starts ccy in "+s.Kit.Abbrev(top)+" on the seat of "+team+
+			" chosen; a new seat is created by that launch (sudo)."),
 		Rows: rows, Tags: tags,
 	})
 	if errors.Is(err, ui.ErrLeave) {

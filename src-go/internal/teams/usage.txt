@@ -4,7 +4,7 @@ to teams what ccy-sessions is to sessions (Plan 00161, Plan 00177; docs/agent-bu
 "Getting started").
 
 A team is declared in the untracked host_vars localhost.yml (agent_bus_teams) and made by
-play-agent-bus.yml. A ccy session joins one with `ccy --teams <seat>@<team>`, an LXC
+play-agent-bus.yml. A ccy session joins one with `ccy --teams <team>`, an LXC
 container's agent through agent_bus_lxc_members (ccy-teams lxc-add writes the entry). ccy-teams holds no team logic of its own:
 it acts through agent-bus, agent-bus-install, ccy and the session registry. It edits the
 host_vars only to add a team (create) or to declare one absent (remove), and every such
@@ -215,7 +215,7 @@ Usage:
                                    ccy chooses with choose-teams
   ccy-teams choose-teams --type=podman|host [<list>]
                                    the launcher's team chooser, on a terminal only. With a
-                                   <list> (SEAT@TEAM or a team alone, comma-separated) it
+                                   <list> (teams, or a recorded seat list, comma-separated) it
                                    chooses the seat of each team named alone and prints the
                                    canonical list; a team this machine does not have is
                                    offered: create it, choose one of this machine's teams
@@ -227,7 +227,7 @@ Usage:
                                    offered the repository in its scope (edits the host_vars,
                                    runs play-agent-bus.yml for it, no homeserver restart), or
                                    joined as it is, or left out. Then the seat. Prints
-                                   SEAT@TEAM[,...] on stdout, the rest on stderr. Leaving any
+                                   the canonical seat list on stdout, the rest on stderr. Leaving any
                                    screen prints nothing and succeeds. With --type=host (cc)
                                    it also asks, once per user, whether a host seat may run
                                    beside your Matrix session (Element, Nheko or Lightning),
@@ -290,7 +290,7 @@ Usage:
                                    cannot be read, unless --allow-known-team repeats the team
                                    (exit 78); a seat whose link of that team is running, or
                                    whose seat lock cannot be looked at (75)
-  ccy-teams seats conversation <seat>@<team>[,<seat>@<team>...] [--set <id>]
+  ccy-teams seats conversation <team>[,<team>...] [--set <id>]
                                    print the conversation the seats of the working directory's
                                    checkout resume, the one a plain `ccy --teams <list>` resumes:
                                    their seat records (.claude/ccy/seat-conversations/), which
@@ -324,11 +324,10 @@ Usage:
   ccy-teams seats model            print the models teamchat seats start on, one a line:
                                    "<team> team <model>", then "<team> <handle> <model>"
   ccy-teams seats model <team> <model>|--clear
-  ccy-teams seats model [--host] <seat>@<team> <model>|--clear
-                                   set (or clear) the model a team's seats start on, or one
-                                   seat's own, which wins over its team's: the seat of the
-                                   working directory's checkout, a ccy seat (a cc seat with
-                                   --host). Kept in your seat store on this machine and read
+                                   set (or clear) the model a team's seats start on. A script
+                                   may set one seat's own, which wins over its team's, by
+                                   naming the seat of the working directory's checkout (a cc
+                                   seat with --host). Kept in your seat store on this machine and read
                                    by every launch, a restore too; claude gets it as
                                    ANTHROPIC_MODEL, so a --model given to claude wins, and so
                                    does an ANTHROPIC_MODEL in cc's environment or a project's
@@ -430,16 +429,16 @@ Usage:
                                    SIGTERM keeps the seats. Exits 0, or the session's 64, 75,
                                    77, 78 or 130, else 1; 78 when a kit file is missing
   ccy-teams session list
-  ccy-teams session add <session> <team>[/<seat>] [--role=worker|coordinator] [--demote-current] [--yes]
-  ccy-teams session remove <session> <team> [--coordinator=demote|hand-to=<seat>] [--park] [--yes]
-  ccy-teams session move <session> <from-team> <to-team>[/<seat>] [--coordinator=...] [--yes]
+  ccy-teams session add <session> <team> [--role=worker|coordinator] [--demote-current] [--yes]
+  ccy-teams session remove <session> <team> [--coordinator=demote] [--park] [--yes]
+  ccy-teams session move <session> <from-team> <to-team> [--coordinator=...] [--yes]
   ccy-teams session role <session>|<handle> <team> worker|coordinator [--demote-current] [--yes]
   ccy-teams session repair <session> [--yes]
                                    Only sessions started through ccy's tmux (listed by ccy-sessions), and cc sessions started with
                                    --teams or --bus, can be changed while they run. list shows
                                    the running sessions, their teams, roles and state. add puts
-                                   the running session into the team, in the seat given or the
-                                   lowest free one, and waits for it to hold the seat; a session
+                                   the running session into the team, in the lowest free seat
+                                   (a script may name one), and waits for it to hold the seat; a session
                                    started on no team relaunches once, at its next idle moment,
                                    to accept team messages. remove releases the seat, clears its
                                    sync position, expires its listening status and posts its
@@ -458,7 +457,7 @@ Usage:
                                    whether the seat is the team's coordinator (offered plainly
                                    when the team has none; when it has one, a takeover that
                                    names it, defaulting to no), a worker, or stops being the
-                                   coordinator; prints SEAT@TEAM on stdout, the
+                                   coordinator; prints the chosen seat list on stdout, the
                                    rest on stderr. Leaving the chooser prints nothing and
                                    succeeds. The role is asked only for a seat that exists, and
                                    sudo only when you change it. choose-teams uses the same

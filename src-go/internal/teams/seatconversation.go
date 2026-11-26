@@ -5,19 +5,22 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 // verbSeatConversation is `ccy-teams seats conversation <list>`.
 const verbSeatConversation = "conversation"
 
-const seatConversationUsage = "ccy-teams seats conversation <seat>@<team>[,<seat>@<team>...] [--set <id>]"
+const seatConversationUsage = "ccy-teams seats conversation <team>[,<team>...] [--set <id>]"
 
-// SeatConversation is `ccy-teams seats conversation <seat>@<team>[,...]` (issues 409 and 417): the
+// SeatConversation is `ccy-teams seats conversation <team>[,...]` (issues 409 and 417): the
 // conversation the seats of the working directory's checkout resume (conversation.ForSeats), alone
-// on stdout. Every refusal is on stderr, exit 1, with the two ways on. With `--set <id>` it is the
-// repair: the seats' records point at id, whose transcript must be in this checkout, and the next
-// plain `ccy --teams <list>` resumes it.
+// on stdout. A team is the one seat of it this checkout records (conversation.SeatsOfTeams, Plan
+// 00265 R90: a person names the team, never the seat); a seat list is still taken, for scripts.
+// Every refusal is on stderr, exit 1, with the two ways on. With `--set <id>` it is the repair:
+// the seats' records point at id, whose transcript must be in this checkout, and the next plain
+// `ccy --teams <team>` resumes it.
 type SeatConversation struct {
 	Stdout, Stderr io.Writer
 	Getenv         func(string) string
@@ -39,12 +42,16 @@ func (c *SeatConversation) Run(args []string) term.ExitCode {
 	if err != nil {
 		return c.say(term.ExitFailure, prefix+"the working directory: "+err.Error())
 	}
-	if set != "" {
-		return c.set(wd, args[0], set)
-	}
-	got, err := conversation.ForSeats(wd, args[0], conversation.Here(c.Getenv))
+	list, err := conversation.SeatsOfTeams(wd, args[0])
 	if err != nil {
-		return c.say(term.ExitFailure, prefix+err.Error()+"\n"+conversation.WaysOn(args[0]))
+		return c.say(term.ExitFailure, prefix+err.Error())
+	}
+	if set != "" {
+		return c.set(wd, list, set)
+	}
+	got, err := conversation.ForSeats(wd, list, conversation.Here(c.Getenv))
+	if err != nil {
+		return c.say(term.ExitFailure, prefix+err.Error()+"\n"+conversation.WaysOn(list))
 	}
 	if _, err := io.WriteString(c.Stdout, got.ID+"\n"); err != nil {
 		return c.say(term.ExitFailure, prefix+"could not print the id: "+err.Error())
@@ -73,7 +80,7 @@ func (c *SeatConversation) set(wd, list, id string) term.ExitCode {
 	if _, err := io.WriteString(c.Stdout, id+"\n"); err != nil {
 		return c.say(term.ExitFailure, prefix+"could not print the id: "+err.Error())
 	}
-	return c.say(term.ExitOK, prefix+"the seats "+list+" now resume "+id+" ("+path+"): ccy --teams "+list)
+	return c.say(term.ExitOK, prefix+"the seats "+list+" now resume "+id+" ("+path+"): "+membership.Launch("ccy", list))
 }
 
 // say prints msg on stderr and gives code; a stderr that cannot be written is a plain failure.

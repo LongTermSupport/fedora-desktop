@@ -208,6 +208,19 @@ finding, outside this design: the seat pass does not need those records.
 
 ## 5. Open questions for the owner
 
+**Decided, 26 Nov 12:17Z, by the coordinator, all seven as recommended below.** Each follows
+from the owner's words, or has a best-practice answer, and each is reversible on the owner's
+word.
+
+- 1: yes, with `cc --no-teams` to opt out. The owner expected a plain `cc` in a team's checkout
+  to start its seat.
+- 2: yes. This is not a narrowing: the recorded rule is about what a human must know or is
+  shown, and logs and agent docs are neither.
+- 3, 4, 5, 7: yes.
+- 6: extend `ccy-sessions restore`.
+
+The build follows batch 24.
+
 1. **Should a plain `cc` in a checkout holding a host seat join it?** Today it joins nothing
    (`cc-teams.bash:54`). *Recommend yes:* the rule names `cc`, and a checkout with a seat means
    the person wants it. `cc --no-teams` would opt out.

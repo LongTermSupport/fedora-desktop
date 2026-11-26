@@ -1514,9 +1514,10 @@ Area A 13 is the one grammar of a delivery: every line, its order, its exact tex
 lines and the frame text. B renders it byte for byte and restates none of it here, so the corpus
 golden files of A 14 are B's renderer tests. What B owns is what A 13 leaves to it:
 
-- **Which items, and when.** A delivery holds one team's items (A 13.1, 2.7.3), at most 8 entries
-  and 12 KiB on the wire (E9), the rest following in the next delivery. Both caps are provisional
-  until host check H4 measures the socket's real limit.
+- **Which items, and when.** A delivery holds one team's items (A 13.1, 2.7.3), as many entries
+  as fit 12 KiB on the wire (E9; no count of entries, Plan 00267 Task 7.6), the rest counted on
+  its pending line and following in the next delivery. The byte cap is provisional until host
+  check H4 measures the socket's real limit.
 - **Folding notices** (Plan 00267 Task 7.3). The NOTICE items of one delivery from one sender
   about one subject are one entry: the latest, with an A 13.2 `earlier:` line for each before it,
   at most 8 to an entry. A member that left and came back costs one entry, which says both with
@@ -1708,7 +1709,7 @@ member reads one, and a seat's resume point is its `teamchat.floor` marker (2.3.
 | E6  | changed: `reply:` is `teamchat reply '<id>'` (B4)                                                                                                                                         |
 | E7  | kept: a short first line with counts and up to three senders                                                                                                                              |
 | E8  | kept: 2048-byte body cap; the pointer is `verify` instead of `history`                                                                                                                    |
-| E9  | kept: 8 entries and 12 KiB, provisional until H4                                                                                                                                          |
+| E9  | changed: 12 KiB only, no count of entries (Plan 00267 Task 7.6); provisional until H4                                                                                                     |
 | E10 | replaced: one owner of the queue; re-fetch only for items restored after a restart                                                                                                        |
 | E11 | kept: a full write is sent                                                                                                                                                                |
 | E12 | replaced: `recv` and delivery are transitions of one goroutine; no lock                                                                                                                   |

@@ -1831,8 +1831,18 @@ before the move to v2. Filled in as causes are found.
   - Seat numbers leave every human-facing message, doc and error, restore output included.
   - R89's one restore command follows the same rule.
 - **Fix:** PLAN Task 4.2, detector first.
+  - Built, part one: the Go rule `project_seat_number_text` (blocking; red 35 on the tree, then
+    green), every Go instance rewritten. `ccy --teams <team>` and `cc --teams <team>` take the
+    seat this checkout last worked in (`seatchoice.Pick` over the seat records), say it in
+    words, and ask only between two seats with a conversation, rows in words. Ways on, repairs
+    and `seats conversation` name teams.
+  - Built, part two: the gate `seat-number-text` over docs, embedded help and the launchers'
+    messages (same shapes as the Go rule; red 47, then green), with the docs, help and launcher
+    rewrite; a bare `ccy --teams` takes the one team this checkout has seats in.
+  - Still to build: plain `cc` joining its seat; the unattended pick; R89's restore seat pass
+    and its dry run; session names by role.
 - **Severity:** high (an owner rule; today's restore asks for exactly what it forbids).
-  **Issue:** TBF. **State:** open.
+  **Issue:** TBF. **State:** in progress (parts one and two built).
 
 ## R91: an update leaves a host cc seat unstartable, with no migration
 
@@ -1857,3 +1867,28 @@ before the move to v2. Filled in as causes are found.
     number, asking for the owner's password once.
   - To design with R90 (PLAN Task 4.2).
 - **Severity:** high. **Issue:** TBF. **State:** open.
+
+## R92: the team chooser offers teamchat teams whose bus does not answer
+
+- **Seen:** the owner, the questions room, 26 Nov 15:13Z (verbatim): "whenm selectin team im
+  presented with listd of dead teams - this MUST be fixed". `ccy --teams --resume` listed four
+  teams, each "on teamchat, 1 podman seat here", and only one was live. A relaunch landed on a
+  dead team and cut a coordinator off.
+- **Cause (read in code):** the list's teamchat rows are every team with a pool seat in the
+  checkout (`teams/chooser/teamchat.go` `withTeamchat`, `teams/system/cmd.go` `PoolTeams`).
+  R59 (`Life`) drops only a team this machine's host_vars declare removed, or declared present
+  but not installed; neither asks whether the team answers. The agent-bus rows were judged
+  live (`entries`, the homeserver unit's state); the teamchat rows were never judged.
+- **Class:** a team offered to choose whose liveness nobody judged. No analyzer can tell a
+  judged list from an unjudged one in general, so the defence is the seam: the list refuses to
+  draw teamchat rows with no probe wired (`Teamchat.Answers` nil is an error, tested).
+- **Fix (ccy 3.124.87):** `system.Cmd.Answers` asks the homeserver that a pool seat's own
+  `seat.json` names, with its pinned CA, as the seat's take would (`seat.VersionsReach`, no
+  token), bounded at 5 s on the injected timers. The chooser asks every team at once and leaves
+  out each that does not answer, naming it above the list with why. An unreadable `seat.json`
+  stops the list with the reason. Tests: `teams/system/answers_test.go` and the three issue-430
+  tests in `teams/chooser/teamchat_test.go`.
+- **Not in this fix:** retiring the old buses (owner Q17); R75's (a) and (b), deleting or
+  refusing a retired team's pool seats, which a team whose bus still answers keeps offered.
+- **Severity:** high (an owner rule). **Issue:** #430. **State:** fixed in code; the host
+  deploy is queued (play-claude-yolo in `meta-deploy.list`).

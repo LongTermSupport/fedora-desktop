@@ -4,7 +4,6 @@ package conversation
 
 import (
 	"errors"
-
 	"fix/internal/registry"
 )
 
@@ -29,14 +28,23 @@ type Start struct {
 	Args  []string
 }
 
-// StartPlan decides it, and is the one place that may.
+// recordedElsewhere is the conversations the checkout records under other session names.
+func recordedElsewhere(rec registry.Record) []string {
+	if rec.Name == "renamed" {
+		return []string{"old"}
+	}
+	return nil
+}
+
+// StartPlan decides it, and is the one place that may; it asks recordedElsewhere before a
+// fresh start.
 func StartPlan(rec registry.Record) (Start, error) {
 	id, err := For(rec)
 	switch {
 	case err == nil:
 		args, argsErr := registry.ResumeArgs(rec.Compose, rec.Prefix, rec.Args, id)
 		return Start{ID: id, Args: args}, argsErr
-	case rec.FreshIfNoConversation && (errors.Is(err, ErrNotRecorded) || errors.Is(err, errNoTranscript)):
+	case rec.FreshIfNoConversation && (errors.Is(err, ErrNotRecorded) || errors.Is(err, errNoTranscript)) && len(recordedElsewhere(rec)) == 0:
 		args, argsErr := registry.FreshArgs(rec.Compose, rec.Prefix, rec.Args)
 		return Start{Fresh: true, Args: args}, argsErr
 	}

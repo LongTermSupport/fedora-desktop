@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -78,10 +79,27 @@ func TestSeatConversationRefusesASeatWithNoRecord(t *testing.T) {
 	}
 }
 
+// Plan 00265 R90: the repair names the team; its one recorded seat is the one set.
+func TestSeatConversationSetTakesATeam(t *testing.T) {
+	checkout := t.TempDir()
+	plantV1Seat(t, checkout, "ccy-proj", "dev1", "team-a", seatConvID)
+	if err := conversation.RecordSeats(checkout, "dev1@team-a", seatConvID, conversation.SourceLaunch, 1791000000000); err != nil {
+		t.Fatal(err)
+	}
+	c, out, errOut := seatConversation(checkout)
+	if code := c.Run([]string{"team-a", "--set", seatConvID}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	if out.String() != seatConvID+"\n" || !strings.Contains(errOut.String(), "the seats dev1@team-a now resume") ||
+		!strings.HasSuffix(errOut.String(), ": ccy --teams team-a\n") {
+		t.Fatalf("stdout %q stderr %q", out.String(), errOut.String())
+	}
+}
+
 func TestSeatConversationUsage(t *testing.T) {
 	for _, args := range [][]string{nil, {"a@b", "c@d"}} {
 		c, out, errOut := seatConversation(t.TempDir())
-		if code := c.Run(args); code != term.ExitUsage || out.Len() != 0 || !strings.Contains(errOut.String(), "seats conversation <seat>@<team>") {
+		if code := c.Run(args); code != term.ExitUsage || out.Len() != 0 || !strings.Contains(errOut.String(), "seats conversation <team>[,<team>...]") {
 			t.Fatalf("%q: exit %d, stdout %q stderr %q", args, code, out.String(), errOut.String())
 		}
 	}

@@ -272,7 +272,7 @@ func TestLeavingTheSeatChooserStartsNothing(t *testing.T) {
 	}
 }
 
-func TestWithoutGumItNamesTheSeatToTypeInstead(t *testing.T) {
+func TestWithoutGumItNamesTheInstallNotASeat(t *testing.T) {
 	h := newRig(t)
 	h.c.Kit.LookPath = func(name string) (string, error) {
 		if name == "gum" {
@@ -283,10 +283,8 @@ func TestWithoutGumItNamesTheSeatToTypeInstead(t *testing.T) {
 	if code := h.c.Seat(t.Context(), []string{"alpha"}); code != 78 {
 		t.Fatalf("exit %d", code)
 	}
-	for _, want := range []string{"gum is not installed", "--teams 1@alpha"} {
-		if !strings.Contains(h.ErrOut.String(), want) {
-			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
-		}
+	if !strings.Contains(h.ErrOut.String(), "gum is not installed") || strings.Contains(h.ErrOut.String(), "1@alpha") {
+		t.Fatalf("stderr %q: it names no seat to type (Plan 00265 R90), only the install", h.ErrOut.String())
 	}
 }
 

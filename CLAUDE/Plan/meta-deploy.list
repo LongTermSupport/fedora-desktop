@@ -115,6 +115,9 @@
 # Plan 00265 R82: the same run builds and installs /var/local/claude-code/chat-client-info, the
 # one command a cc --teams seat may use to read the chat clients' flatpak info, permissions and
 # running instances (no arguments, no other flatpak verb). The deny rules are unchanged.
+# Issue #430 (ccy 3.124.87): ccy-teams and the claude-yolo front are rebuilt so a bare ccy --teams
+# or cc --teams list leaves out a teamchat team whose bus does not answer (each asked at most
+# 5 s, all at once), naming each above the list with why. The image is unchanged.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC
@@ -184,4 +187,8 @@ playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-li
 # ssh-agent-start, ssh-keys-rekey and ssh-with-agent.bash, fedora-desktop-self-update,
 # docker-in-lxc and the host-health kernel-change script. changed-plays is expected to pick up
 # the plays that deploy those.
+# Plan 00265 R72 and Plan 00266 C.2's review: it is also expected to pick up
+# play-basic-configs.yml for the Ctrl+R history includes. A HISTFILE you set yourself (e.g.
+# /dev/null) is no longer pointed back at the shared file at each prompt, and the shared-history
+# redirect now lives in history-record.bash. It takes effect in terminals opened after the run.
 changed-plays

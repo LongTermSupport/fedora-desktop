@@ -104,7 +104,7 @@ func TestChooseSeatTakesOnlyTheLaunchKindsSeat(t *testing.T) {
 		t.Fatalf("podman seat 1: got %v %v", got, err)
 	}
 	_, err := ChooseSeat(pool, "alpha", "2", seatchoice.KindPodman)
-	if !errors.Is(err, ErrSeat) || !strings.Contains(err.Error(), "is a host seat (repo.2+site.host)") || !strings.Contains(err.Error(), "cc --teams 2@") {
+	if !errors.Is(err, ErrSeat) || !strings.Contains(err.Error(), "is a host seat (repo.2+site.host)") || !strings.Contains(err.Error(), "launch it with cc --teams alpha") {
 		t.Fatalf("a host seat for ccy: got %v", err)
 	}
 	pool = append(pool, mustSeat(t, "repo.5+site.lxc"))

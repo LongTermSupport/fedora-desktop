@@ -83,7 +83,7 @@ func parseList(list string) ([]membership.Seat, error) {
 		return nil, fmt.Errorf("the seats %q: %w", list, err)
 	}
 	if len(seats) == 0 {
-		return nil, errors.New("no seat is named: give <seat>@<team>[,<seat>@<team>...]")
+		return nil, errors.New("no seat is named: give the teams (ccy --teams <team>)")
 	}
 	return seats, nil
 }
@@ -291,9 +291,52 @@ func (e *SeatError) Error() string { return e.Err.Error() }
 func (e *SeatError) Unwrap() error { return e.Err }
 
 // WaysOn is the two ways on from a refusal for list: repair the record, or start fresh on purpose.
+// Both name the list's teams, never its seats (Plan 00265 R90): the launch finds the seat.
 func WaysOn(list string) string {
-	return "  Repair: point the seats at their conversation: ccy-teams seats conversation " + list + " --set <id>\n" +
-		"  Fresh:  start a new conversation on purpose:    ccy --teams " + list + " --fresh"
+	launch := membership.Launch("ccy", list)
+	return "  Repair: resume the conversation and point the seats at it: " + launch + " --resume <id> --rebind\n" +
+		"  Fresh:  start a new conversation on purpose:              " + launch + " --fresh"
+}
+
+// SeatsOfTeams is list with each item that is a team alone replaced by the one seat of it whose
+// conversation checkout records (Plan 00265 R90: a person names the team, never the seat). A team
+// with no record here, or with several, is refused in words.
+func SeatsOfTeams(checkout, list string) (string, error) {
+	var items []string
+	for item := range strings.SplitSeq(list, ",") {
+		item = strings.Join(strings.Fields(item), "")
+		if item == "" || strings.Contains(item, "@") {
+			items = append(items, item)
+			continue
+		}
+		seat, err := recordedSeatOf(checkout, item)
+		if err != nil {
+			return "", err
+		}
+		items = append(items, seat+"@"+item)
+	}
+	return strings.Join(items, ","), nil
+}
+
+// recordedSeatOf is the one seat of team with a seat record in checkout.
+func recordedSeatOf(checkout, team string) (string, error) {
+	entries, err := os.ReadDir(filepath.Join(checkout, seatRecordDir, team))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("the seat records of team %s: %w", team, err)
+	}
+	var seats []string
+	for _, e := range entries {
+		if name, ok := strings.CutSuffix(e.Name(), ".json"); ok && e.Type().IsRegular() {
+			seats = append(seats, name)
+		}
+	}
+	switch len(seats) {
+	case 0:
+		return "", fmt.Errorf("no seat of team %s has a conversation recorded in this checkout; start it with ccy --teams %s", team, team)
+	case 1:
+		return seats[0], nil
+	}
+	return "", fmt.Errorf("team %s has %d seats with a conversation recorded in this checkout; resume the one you mean with ccy --teams %s --resume <id> --rebind, which asks which seat", team, len(seats), team)
 }
 
 // NeverUsed is whether the seats of list were never used in checkout: no named seat has a record
@@ -310,6 +353,30 @@ func NeverUsed(checkout, list string, where Where) (bool, error) {
 		return false, err
 	}
 	return false, nil
+}
+
+// SeatLastRan is when s last ran in checkout, in Unix milliseconds: its seat record's time, while
+// that conversation's transcript is here. 0 is a seat with no conversation to resume: no record,
+// or one whose transcript is gone. A record that cannot be read is an error.
+func SeatLastRan(checkout string, s membership.Seat) (int64, error) {
+	r, found, err := readSeatRecord(checkout, s)
+	if err != nil || !found {
+		return 0, err
+	}
+	dir, err := transcript.Dir(membership.KindCcy, checkout, "")
+	if err != nil {
+		return 0, err
+	}
+	fi, err := os.Stat(filepath.Join(dir, r.SessionID+".jsonl"))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return 0, nil
+	case err != nil:
+		return 0, fmt.Errorf("the transcript of seat %s@%s's conversation: %w", s.Seat, s.Team, err)
+	case !fi.Mode().IsRegular():
+		return 0, nil
+	}
+	return r.WrittenMS, nil
 }
 
 // TranscriptOf is the ccy transcript of the conversation id in checkout, refused when it is not

@@ -29,11 +29,23 @@ func TestOrderIsNumberedSeatsByNumberThenNamedOnes(t *testing.T) {
 	}
 }
 
-// S2: the default is the lowest free seat (v1's seat_choices); a held seat never is.
-func TestDefaultIsTheLowestFreeSeat(t *testing.T) {
+// nowMS is the tests' clock: a seat that last ran two hours before it.
+const nowMS = int64(1_800_000_000_000)
+
+const twoHours = int64(2 * 60 * 60 * 1000)
+
+// S2 (Plan 00265 R90): the default is the free seat that last ran here, the newest; with none,
+// the lowest free seat; a held seat never is.
+func TestDefaultIsTheFreeSeatThatLastRan(t *testing.T) {
 	got, ok := Default(seats())
 	if !ok || got.Name != "3" {
 		t.Fatalf("default %+v, %v; want seat 3", got, ok)
+	}
+	used := seats()
+	used[0].LastRanMS = nowMS - twoHours
+	used[3].LastRanMS = nowMS - 2*twoHours
+	if got, ok := Default(used); !ok || got.Name != "10" {
+		t.Fatalf("default %+v, %v; want seat 10, the newest that ran", got, ok)
 	}
 	allHeld := []Seat{{Name: "1", HeldBy: "ccy-a"}, {Name: "2", HeldBy: "ccy-b"}}
 	if got, ok := Default(allHeld); ok {
@@ -44,47 +56,103 @@ func TestDefaultIsTheLowestFreeSeat(t *testing.T) {
 	}
 }
 
-// S3: a row names the seat, its handle and whether a running session holds it; a held row
-// offers the re-attach, never a launch.
-func TestRowsSayFreeOrHeldAndOfferTheReattach(t *testing.T) {
-	free := Row(Seat{Name: "3", Handle: "proj.3+site.podman"})
-	if !strings.Contains(free, "seat 3") || !strings.Contains(free, "proj.3+site.podman") || !strings.HasSuffix(free, "free") {
-		t.Errorf("free row %q", free)
+// S9 (Plan 00265 R90): Pick takes, without asking, the one free seat with a conversation, or a
+// free seat when none was ever used and none is held (they are the same); two free seats with a
+// conversation, or a held one beside the free ones, are a genuine choice.
+func TestPickTakesTheSeatThisCheckoutWorkedInAndAsksOnlyAGenuineChoice(t *testing.T) {
+	free := []Seat{{Name: "1", Handle: "p.1+s.podman"}, {Name: "2", Handle: "p.2+s.podman"}}
+	if got, ok := Pick(free); !ok || got.Name != "1" {
+		t.Errorf("never used: %+v %v", got, ok)
 	}
-	held := Row(Seat{Name: "2", Handle: "proj.2+site.podman", HeldBy: "ccy-proj"})
-	if !strings.Contains(held, "held by session ccy-proj") || !strings.Contains(held, "re-attach") {
-		t.Errorf("held row %q", held)
+	oneUsed := slices.Clone(free)
+	oneUsed[1].LastRanMS = nowMS
+	if got, ok := Pick(oneUsed); !ok || got.Name != "2" {
+		t.Errorf("one with a conversation: %+v %v", got, ok)
+	}
+	twoUsed := slices.Clone(oneUsed)
+	twoUsed[0].LastRanMS = nowMS - twoHours
+	if _, ok := Pick(twoUsed); ok {
+		t.Error("two seats with a conversation were decided without asking")
+	}
+	withHeld := append(slices.Clone(free), Seat{Name: "3", HeldBy: "ccy-proj"})
+	if _, ok := Pick(withHeld); ok {
+		t.Error("a held seat beside free ones was decided without asking")
+	}
+	if _, ok := Pick(nil); ok {
+		t.Error("no seat was decided")
 	}
 }
 
-// S4: the ways on name every seat, which are held, and the command for each: a free seat's
-// launch, a held seat's re-attach, and another seat issued to this checkout.
+// S3 (Plan 00265 R90): a row says a seat in words, never its name or handle: when it last ran
+// here, or that it never did, or the session holding it with the re-attach.
+func TestRowsSayASeatInWords(t *testing.T) {
+	used := Row(Seat{Name: "3", Handle: "proj.3+site.podman", LastRanMS: nowMS - twoHours}, team, nowMS)
+	never := Row(Seat{Name: "4", Handle: "proj.4+site.podman"}, team, nowMS)
+	held := Row(Seat{Name: "2", Handle: "proj.2+site.podman", HeldBy: "ccy-proj"}, team, nowMS)
+	if used != "A seat of "+team+": last ran 2 hours ago" {
+		t.Errorf("used row %q", used)
+	}
+	if never != "A free seat of "+team {
+		t.Errorf("never-used row %q", never)
+	}
+	if !strings.Contains(held, "Running now in session ccy-proj") || !strings.Contains(held, "re-attach") {
+		t.Errorf("held row %q", held)
+	}
+	for _, row := range []string{used, never, held} {
+		if strings.Contains(row, "proj.") || strings.Contains(row, "seat 3") || strings.Contains(row, "seat 2") {
+			t.Errorf("a row names its seat: %q", row)
+		}
+	}
+}
+
+// S3: how long ago a seat ran, in words.
+func TestAgoSaysHowLongAgoInWords(t *testing.T) {
+	for _, c := range []struct {
+		ago  int64
+		want string
+	}{
+		{0, "just now"},
+		{90_000, "1 minute ago"},
+		{5 * 60_000, "5 minutes ago"},
+		{twoHours / 2, "1 hour ago"},
+		{twoHours, "2 hours ago"},
+		{13 * twoHours, "yesterday"},
+		{36 * twoHours, "3 days ago"},
+	} {
+		if got := Ago(nowMS, nowMS-c.ago); got != c.want {
+			t.Errorf("Ago(%d ms) = %q, want %q", c.ago, got, c.want)
+		}
+	}
+}
+
+// S4: the ways on name every seat in words, which are held, and the command for each: the plain
+// launch by team, which asks, a held seat's re-attach, and a new seat; never a seat to type.
 func TestWaysOnNameEverySeatAndTheCommandForEach(t *testing.T) {
-	text := strings.Join(WaysOn(KindPodman, team, "~/proj", seats()), "\n")
+	text := strings.Join(WaysOn(KindPodman, team, "~/proj", seats(), nowMS), "\n")
 	for _, want := range []string{
 		"Seats of " + team + " in this checkout (~/proj):",
-		"seat 2", "held by session ccy-proj",
-		"ccy --teams 3@" + team, "ccy --teams 10@" + team, "ccy --teams lead@" + team,
-		"re-attach session ccy-proj (seat 2): ccy-sessions",
+		"Running now in session ccy-proj",
+		"take a free seat: run ccy --teams " + team + " at a terminal",
+		"re-attach session ccy-proj: ccy-sessions",
 		"ccy-sessions restore ccy-proj",
-		"a new seat: ccy-teams seats add " + team + ", then ccy --teams <seat>@" + team,
+		"a new seat: ccy-teams seats add " + team + ", then ccy --teams " + team,
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the ways on lack %q:\n%s", want, text)
 		}
 	}
-	if strings.Contains(text, "ccy --teams 2@"+team) {
-		t.Errorf("a held seat is offered as a launch:\n%s", text)
+	if strings.Contains(text, "@"+team) || strings.Contains(text, "<seat>") {
+		t.Errorf("the ways on name a seat to type:\n%s", text)
 	}
-	host := strings.Join(WaysOn(KindHost, team, "~/proj", seats()), "\n")
-	if !strings.Contains(host, "cc --teams 3@"+team) || !strings.Contains(host, "a new seat: ccy-teams seats add "+team+" --host, then cc --teams") {
+	host := strings.Join(WaysOn(KindHost, team, "~/proj", seats(), nowMS), "\n")
+	if !strings.Contains(host, "run cc --teams "+team) || !strings.Contains(host, "a new seat: ccy-teams seats add "+team+" --host, then cc --teams "+team) {
 		t.Errorf("a host launch's ways on do not name cc and a host seat's add:\n%s", host)
 	}
 }
 
 // S5: with no seat at all, the ways on still name the way to have one, of the launch's kind.
 func TestWaysOnWithNoSeatNameTheWayToHaveOne(t *testing.T) {
-	text := strings.Join(WaysOn(KindPodman, team, "~/proj", nil), "\n")
+	text := strings.Join(WaysOn(KindPodman, team, "~/proj", nil, nowMS), "\n")
 	if !strings.Contains(text, "has no podman seat of "+team) || !strings.Contains(text, AddCommand(team, KindPodman)) {
 		t.Errorf("no seat:\n%s", text)
 	}
@@ -131,13 +199,13 @@ func TestASeatOfTheOtherKindIsRefusedNamingIt(t *testing.T) {
 	got := WrongKind("2", team, "proj.2+site.podman", KindHost)
 	for _, want := range []string{
 		"2@" + team + " is a podman seat (proj.2+site.podman)", "this is a cc (host) launch",
-		"ccy --teams 2@" + team, "ccy-teams seats add " + team + " --host",
+		"launch it with ccy --teams " + team, "ccy-teams seats add " + team + " --host, then cc --teams " + team,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the refusal lacks %q: %s", want, got)
 		}
 	}
-	if got := WrongKind("4", team, "proj.4+site.host", KindPodman); !strings.Contains(got, "cc --teams 4@"+team) || !strings.Contains(got, "a ccy (podman) launch") {
+	if got := WrongKind("4", team, "proj.4+site.host", KindPodman); !strings.Contains(got, "launch it with cc --teams "+team) || !strings.Contains(got, "a ccy (podman) launch") {
 		t.Errorf("podman launch refusal %s", got)
 	}
 }
@@ -148,7 +216,7 @@ func TestASeatOfAKindNoLauncherTakesIsRefusedNamingIt(t *testing.T) {
 	got := WrongKind("5", team, "proj.5+site.lxc", KindPodman)
 	for _, want := range []string{
 		"5@" + team + " is a lxc seat (proj.5+site.lxc)", "neither ccy nor cc launches it", "this is a ccy (podman) launch",
-		"ccy-teams seats add " + team + ", then ccy --teams <seat>@" + team,
+		"ccy-teams seats add " + team + ", then ccy --teams " + team,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the refusal lacks %q: %s", want, got)

@@ -236,8 +236,8 @@ server, `cc` in a project directory offers a detached one back, and `ccy-session
 both kinds. From the keyboard the two feel identical; only the container differs.
 
 A launch with `--teams` names its session for its seats instead:
-`<launcher>-<team>-<project>-<seat>`, so `ccy --teams 4@team-a` in the fedora-desktop checkout
-starts `ccy-team-a-fedora-desktop-4`, and the tab, whose title is the session name, shows the
+the launcher, the team, the project and the seat's number, so `ccy --teams team-a` in the
+fedora-desktop checkout, taking its fourth seat, starts `ccy-team-a-fedora-desktop-4`, and the tab, whose title is the session name, shows the
 team, the project, the seat and the launcher. tmux keeps no `.` or `:` in a session name, so the
 parts are joined with `-`, and the launcher stays first because the `ccy-`/`cc-` prefix is how
 the re-attach offer and `ccy-sessions` tell the two kinds apart. A `cc --teams <team>` whose seat
@@ -247,7 +247,7 @@ is chosen inside the session keeps `cc-<project>`. The form has one home,
 A launch that would start a new session takes over a stopped record of its own instead: when
 the session registry holds exactly one record of the same folder and launcher, for the same
 seats (in any order; none for a launch in none), whose session is not running, the session gets
-that record's name. So `ccy --teams 4@team-a` beside a session declared as `ccy-fixed` with
+that record's name. So `ccy --teams team-a` taking that fourth seat, beside a session declared as `ccy-fixed` with
 `ccy-sessions declare` starts `ccy-fixed`, and its record replaces the declared one rather than
 standing beside it for the next restore to start too. The declared record's
 `fresh-if-no-conversation` mark is kept; its arguments become this launch's. Two such records
@@ -347,8 +347,9 @@ launched without `--continue` comes back on the conversation it recorded, not fr
 
 **Provisioning can mark a never-run session to start fresh.** A record written by
 provisioning for a session the machine should keep running, before it has ever run, can
-carry the line `fresh-if-no-conversation=yes`. If no conversation is recorded for it (no
-`conversation.json`), the restore starts it fresh instead of refusing it: the same
+carry the line `fresh-if-no-conversation=yes`. If it has no conversation to resume (no
+`conversation.json` of its own, one whose conversation never took a turn, and none its seats
+name), the restore starts it fresh instead of refusing it: the same
 arguments, `--compose` and `--supervise` as a resume, no `--resume` and never `--continue`,
 and on a headless server the same SSH key unlock. A marked record whose conversation is
 recorded is resumed by its id as usual. The mark does not cover a launch without the bus or a
@@ -357,6 +358,17 @@ record keeps the mark. The restore says `started <name> fresh`, its manifest ent
 detail `fresh` and no resume id, `set-going` types nothing into it, and `restore --check`
 reports it `RESTORABLE`. Unmarked records are unchanged. Plan 00135 Phase 13 has the
 owner's decision.
+
+**Not while the checkout holds a conversation under another name.** A rename, or a move of a
+session's teams to teamchat, leaves its conversation in the checkout's `conversation.json`
+under the old name. So while the checkout records a conversation with a transcript (or an
+unreadable record) under a session name no record owns, the restore refuses the record,
+marked or not, and names each one, how to resume it as this session's, and how to start fresh
+on purpose with no terminal: `ccy-sessions retire-conversation CHECKOUT OLD-NAME` (it renames
+that file `conversation.retired.json`), then `ccy-sessions restore NAME` (an unmarked record
+is declared again with the mark first; the message gives the line). `ccy-sessions forget`
+retires the forgotten session's own record, so it holds back nothing; a session ended by
+`/exit` leaves its record, and the refusal names it (fedora-desktop#431).
 
 **`ccy-sessions declare` writes that record.** Run as the user whose session it is (never
 root), it writes the record a `ccy` launch with the same arguments in that folder would write
@@ -1133,21 +1145,21 @@ are forwarded unchanged.
 
 ### Session
 
-| Flag                                        | Effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ccy`                                       | Start a session in the current directory                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `ccy "task"`                                | Start an interactive session with an opening instruction                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `--prompt "text"`                           | Start with a preseeded prompt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `--headless`                                | Run non-interactively — requires `--prompt` (not the positional form). With no launch-choice flag it takes the saved Quick Launch choices (never the saved team) without asking, or is refused when there are none (no saved network is the default `podman` network, never `--no-network`); a key that needs a passphrase is refused unless your ssh-agent holds it (`ssh-add` it; that one key is then forwarded)                                                                                                      |
-| `--teams`, `--teams T` or `--teams S@T[,…]` | Put this session in agent team bus teams, one seat per team: bare, choose the teams from a list with their descriptions; a team alone asks which seat (`--teams dev-team`), except on teamchat when the checkout's only seat is free (it is taken) or there is none (one is added); otherwise Enter takes the lowest free seat, or a new one when every seat is held, or name them (`--teams dev1@dev-team,qa2@other-team`) (see [the agent team bus](#--teams--the-agent-team-bus)); without it a session is in no team |
-| `--supervise`                               | Wrap `claude` in the in-container supervisor                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `--opencode`, `-oc`                         | Run opencode instead of Claude Code (see [opencode](#opencode))                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `--no-restore`                              | Do not bring this session back after a reboot (see [restore](#sessions-survive-a-reboot))                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `--top`                                     | Container manager: list and stop running CCY containers                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `--build-lock`                              | Show the image build in progress (a launch waits for another's build of the same image) and stop a hung one after asking                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `ccy-sessions`                              | Separate command: every CCY tmux session with its CPU, network, token and SSH key, attach or end one; `--list` prints the table; `reboot --in N` warns them and reboots; `restore` brings them back                                                                                                                                                                                                                                                                                                                      |
-| `--debug`                                   | Interactive debug-layer selection (CCY, entrypoint, Claude Code)                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `--`                                        | End of CCY options; everything after is forwarded raw to `claude`                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Flag                         | Effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ccy`                        | Start a session in the current directory                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `ccy "task"`                 | Start an interactive session with an opening instruction                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `--prompt "text"`            | Start with a preseeded prompt                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `--headless`                 | Run non-interactively — requires `--prompt` (not the positional form). With no launch-choice flag it takes the saved Quick Launch choices (never the saved team) without asking, or is refused when there are none (no saved network is the default `podman` network, never `--no-network`); a key that needs a passphrase is refused unless your ssh-agent holds it (`ssh-add` it; that one key is then forwarded)                                                                       |
+| `--teams` or `--teams T[,…]` | Put this session in agent team bus teams, one seat per team: bare, the one team this checkout has seats in, else choose the teams from a list with their descriptions; a team alone (`--teams dev-team`) on teamchat takes this checkout's seat in it and resumes its conversation, adds one when there is none, and asks in words only when two seats have a conversation or a seat is held (see [the agent team bus](#--teams--the-agent-team-bus)); without it a session is in no team |
+| `--supervise`                | Wrap `claude` in the in-container supervisor                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `--opencode`, `-oc`          | Run opencode instead of Claude Code (see [opencode](#opencode))                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `--no-restore`               | Do not bring this session back after a reboot (see [restore](#sessions-survive-a-reboot))                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `--top`                      | Container manager: list and stop running CCY containers                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `--build-lock`               | Show the image build in progress (a launch waits for another's build of the same image) and stop a hung one after asking                                                                                                                                                                                                                                                                                                                                                                  |
+| `ccy-sessions`               | Separate command: every CCY tmux session with its CPU, network, token and SSH key, attach or end one; `--list` prints the table; `reboot --in N` warns them and reboots; `restore` brings them back                                                                                                                                                                                                                                                                                       |
+| `--debug`                    | Interactive debug-layer selection (CCY, entrypoint, Claude Code)                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `--`                         | End of CCY options; everything after is forwarded raw to `claude`                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 ### Image and updates
 
@@ -1252,17 +1264,16 @@ are not given the limits.
 
 **Running sessions** keep the cgroup and limits they started with until relaunched; `podman update` cannot move a running container into the slice.
 
-**Team seats resume their conversation.** A plain `ccy --teams <seats>` resumes the conversation
-the seats recorded (`.claude/ccy/seat-conversations/`, written by the launch and at the session's
-end; `ccy-teams seats conversation <seats>` prints it). `--fresh` starts a new one on purpose.
-With none to name the launch exits 64 saying why, with the repair
-(`ccy-teams seats conversation <seats> --set <id>`) and `--fresh`, so the first launch of a seat
-named in `--teams` says `--fresh`. A seat picked in the chooser (`ccy --teams <team>` or a bare
-`--teams`) that was never used starts fresh by itself, and ccy-teams' Start a ccy session adds
+**Team seats resume their conversation.** A plain `ccy --teams <team>` finds this checkout's
+seat by itself and resumes the conversation it recorded (`.claude/ccy/seat-conversations/`,
+written by the launch and at the session's end; `ccy-teams seats conversation <team>` prints
+it). `--fresh` starts a new one on purpose. With none to name the launch exits 64 saying why,
+with the repair (`ccy-teams seats conversation <team> --set <id>`) and `--fresh`. A seat taken
+by `ccy --teams <team>` or a bare `--teams` that was never used starts fresh by itself, and ccy-teams' Start a ccy session adds
 `--fresh` when the seat it starts was never used in that checkout. `--resume <id>` other than the
 record needs `--rebind`; claude's `-c`/`--continue` is refused (it would resume the checkout's
 newest conversation, maybe another seat's), naming the plain form. A bare
-`ccy --resume --teams <seats>` is Claude Code's picker, as before. See
+`ccy --resume --teams <team>` is Claude Code's picker, as before. See
 [ccy-changelog.md](ccy-changelog.md) 3.124.45.
 
 The setting lives in `lib/container-limits.bash` (the Go copy, `src-go/internal/ccylimits`, is
@@ -1463,11 +1474,12 @@ login, which the container sets up at start; it reads no credential variable.
 
 ```bash
 ccy --teams                                  # choose teams from a list, with descriptions (Tab marks several)
-ccy --teams dev-team                         # choose the seat
-ccy --teams dev1@dev-team,qa2@other-team    # name the seats; quote a list written with spaces
+ccy --teams dev-team                         # this checkout's seat in the team
+ccy --teams dev-team,other-team              # several teams; quote a list written with spaces
 ```
 
-Bare `--teams` opens the shared chooser (`ccy-teams choose-teams`), which `cc --teams` uses
+Bare `--teams` takes the one team this checkout has seats in, when there is exactly one;
+otherwise it opens the shared chooser (`ccy-teams choose-teams`), which `cc --teams` uses
 too, on agent-bus and on teamchat teams alike ([A cc session](agent-bus.md#a-cc-session)). It lists every team on the machine with a description of what it is for, covering teams
 first, and a row to create a team; Tab marks several, and each marked team gets its own seat
 question, so one session can be on several teams. Choosing a team that does not cover this
@@ -1484,11 +1496,9 @@ machine's teams instead, start the rest of the list without it, or start nothing
 launcher then checks the resolved list on the host (`agent-bus seat check`, exit 64 for a
 malformed list, 78 for a team whose homeserver is not running on this machine) before
 anything else runs; with no terminal that check refuses the list at once. For a team named
-alone it then asks, in a chooser, which of this checkout's seats in the team to take. Each
-row shows the member's full handle, `ccy (podman)`, and whether the
-seat is free or held by a running session. The default is the lowest free seat, else a new
-number. ccy says the handle before it takes the seat, and the chosen `<seat>@<team>` goes
-into the launch's arguments. With several teams, every question is headed by its team and
+alone it then takes this checkout's seat in the team, and asks only for a genuine choice
+([seats in agent-bus.md](agent-bus.md#a-ccy-session-seats)). ccy says the handle before it
+takes the seat, and the chosen seats go into the launch's arguments. With several teams, every question is headed by its team and
 its place in the sequence (`New session › Team 2 of 3: <team> · step 1/2 Seat`). For a seat that exists it then asks the seat's role: keep it
 (the default), make it the coordinator of a team that has none, or, for the coordinator, stop
 it being one. A team has one coordinator, so on a team that has one the choice is a takeover,

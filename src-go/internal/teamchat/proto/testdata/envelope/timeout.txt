@@ -1,4 +1,5 @@
 teamchat delivery 3f9c2a71: 1 message on myteam (0 from humans, 0 from agents, 0 pings, 0 notices, 1 timeouts): myrepo.2+desk.podman (TIMEOUT)
+== 3f9c2a71 TIMEOUT, 1 entry: your own pings and questions not answered in time ==
 <<teamchat 3f9c2a71 1/1>>
 kind: TIMEOUT (a ping you sent was not answered in time)
 team: myteam

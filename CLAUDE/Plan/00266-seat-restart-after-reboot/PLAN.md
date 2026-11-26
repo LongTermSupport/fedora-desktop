@@ -62,6 +62,18 @@ The full findings, each with file and line, are in [DESIGN.md](DESIGN.md).
 - [ ] ⬜ **Task B.2**: In `judgeRestore`, validate the checkout (a real git work tree, not a
   link, not at or above `$HOME`), the token (a pool name, never a path) and the seats
   (declared for this machine, of the record's kind).
+- [x] ✅ **Task B.3** (issue #431): a restore never starts a record fresh while its checkout
+  records a conversation, with a transcript, under another session name that no registry
+  record owns, or an agent-bus record there that cannot be read. A rename leaves one, and so
+  does a move of the session's teams to teamchat under the same name or another.
+  `conversation.StartPlan` asks `recordedElsewhere` and otherwise refuses, marked or not,
+  naming each record and the repair (`ccy-teams seats conversation <seats> --set <id>`, or
+  `--resume <id>` by hand). To start fresh on purpose with no terminal, run
+  `ccy-sessions retire-conversation CHECKOUT NAME` and then `ccy-sessions restore`. An
+  unmarked ccy record is declared again with the mark first. `ccy-sessions forget` retires
+  the forgotten session's own record. `project_start_decision` holds the guard, and counts
+  only a call whose result is kept.
+  Report: [subagent-reports/261126-issue-431.md](subagent-reports/261126-issue-431.md).
 
 ### Phase C: LXC containers and member sessions
 

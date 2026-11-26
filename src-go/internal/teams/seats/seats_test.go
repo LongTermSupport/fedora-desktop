@@ -131,7 +131,7 @@ func TestNewSessionOffersFreeSeatsAndANewOneAndExecsTheLauncherInTheTop(t *testi
 	if code, ok := flow.ExitCodeOf(err); !ok || code != 0 || res != flow.Done {
 		t.Fatalf("%v %v: %s", res, err, h.ErrOut.String())
 	}
-	if want := []string{"proj.dev+local.podman   free\tdev@alpha", "Seat 3@alpha   new\t3@alpha", "Exit"}; !slices.Equal(h.Script.Rows[0], want) {
+	if want := []string{"A free seat of alpha\tdev@alpha", "A new seat of alpha\t3@alpha", "Exit"}; !slices.Equal(h.Script.Rows[0], want) {
 		t.Fatalf("rows %q", h.Script.Rows[0])
 	}
 	if len(h.Execs) != 1 || h.Execs[0].Dir != h.Checkout() || h.Execs[0].Path != "/x/launcher" ||
@@ -143,7 +143,7 @@ func TestNewSessionOffersFreeSeatsAndANewOneAndExecsTheLauncherInTheTop(t *testi
 	}
 	header := h.HeaderOf(0)
 	if !strings.Contains(header, "Enter start   Esc or q back") ||
-		!strings.Contains(header, "Runs ccy --teams <seat>@alpha in "+h.Checkout()+"; a new seat is created by that launch (sudo).") {
+		!strings.Contains(header, "Starts ccy in "+h.Checkout()+" on the seat of alpha chosen; a new seat is created by that launch (sudo).") {
 		t.Fatalf("header %q", header)
 	}
 	h.Script.HeadingAt(0, "Teams › alpha › New session\nteam alpha · in "+h.Checkout())
@@ -197,7 +197,7 @@ func TestNewSessionNumbersAfterThisRepositoryOnly(t *testing.T) {
 	if _, err := h.s.NewSession(context.Background(), snap, "alpha"); err != nil && !strings.Contains(err.Error(), "exit") {
 		t.Fatal(err)
 	}
-	if !slices.Contains(h.Script.Rows[0], "Seat 3@alpha   new\t3@alpha") {
+	if !slices.Contains(h.Script.Rows[0], "A new seat of alpha\t3@alpha") {
 		t.Fatalf("rows %q: another repository's seat 7 must not count", h.Script.Rows[0])
 	}
 }
