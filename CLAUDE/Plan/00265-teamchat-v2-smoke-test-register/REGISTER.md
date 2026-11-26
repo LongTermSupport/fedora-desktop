@@ -96,7 +96,7 @@ filled in as each cause is known.
   human has sudo (the laptop). Two later ideas, not now: a route that adds a seat over ssh to the
   bus host, and seats an agent requests.
 - **Owner, 26 Nov (via the coordinator):** typing a seat number is "a dead UX" (they had been
-  given `cc --teams 4@ballicom`). Checked in the code at ccy 3.124.57 and 3.124.72: no number is
+  given `cc --teams 4@<team>`). Checked in the code at ccy 3.124.57 and 3.124.72: no number is
   needed. A teamchat team named alone takes the checkout's one free seat of the launcher's kind,
   adds one when there is none, and lists several with the lowest free as the default
   (`chooser/teamchat.go` `teamchatSeat`). The help said only "a team alone asks the seat", so it
@@ -302,7 +302,7 @@ filled in as each cause is known.
 
 ## R41: a seat cannot be added to a running v2 session (regression against v1)
 
-- **Seen:** this seat, reading the code for F18 and F19 (the owner: Ballicom's coordinator also
+- **Seen:** this seat, reading the code for F18 and F19 (the owner: another team's coordinator also
   becomes worker seat 7 on lts-ops), 2026-11-25.
 - **What:** v1's `ccy-teams session add <session> <team>[/<seat>]` adds a seat to a running
   session. In v2 the keeper already re-reads the session's `desired.json` and the engine can add
@@ -313,8 +313,8 @@ filled in as each cause is known.
 - **Multi-team itself works** (from the code, not yet run end to end): one link holds every team,
   each delivery names its team, role and `human_text` are per seat, and the questions verbs check
   coordinatorship per team.
-- **Interim:** relaunch keeping the conversation: `ccy-teams seats conversation 1@ballicom` while
-  the session runs, `/exit`, then `ccy --resume <id> --teams 1@ballicom,7@lts-ops`.
+- **Interim:** relaunch keeping the conversation: `ccy-teams seats conversation 1@<team-B>` while
+  the session runs, `/exit`, then `ccy --resume <id> --teams 1@<team-B>,7@lts-ops`.
 - **Fix:** `ccy-teams session add` writes the next generation of a teamchat session's
   `desired.json` (after the seat is in the pool).
 - **Cause, checked (U10):** worse than the row said: a v2 launch makes no v1 membership
@@ -420,7 +420,7 @@ filled in as each cause is known.
 ## R44: the standard coordinator procedure ships with the team tooling
 
 - **Seen:** the owner, lts-ops questions room 13:55Z (F20): "this needs to be standardised and
-  the ballicom team coordinator needs the same instructions".
+  the <team-B> team coordinator needs the same instructions" (team name replaced).
 - **What:** a team's coordinator learns its procedure from a hand-over note in its own
   repository; another team's coordinator has none. The infrastructure repository has written one
   standard procedure with no project facts in it, plus a project-layer template.
