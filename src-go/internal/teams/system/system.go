@@ -200,7 +200,15 @@ func PoolTeams(store paths.Store, checkout paths.CheckoutKey) ([]string, error) 
 	return teams, nil
 }
 
-// StatusRecord is the production Status: the team's record under the status root.
-func StatusRecord(team paths.TeamID) (status.Record, bool, error) {
-	return status.Read(paths.StatusFile(team), team)
+// StatusRecord is the production Status of a command given no teamchat root: the team's record
+// under the machine's status root.
+func StatusRecord(team paths.TeamID) (status.Record, bool, error) { return StatusUnder("")(team) }
+
+// StatusUnder is the Status that reads the team's record under teamchatRoot (config's
+// TeamchatRoot: "" on a host, a test world's scratch root), so a test never reads the machine's
+// own teams (project_teamchat_root_read).
+func StatusUnder(teamchatRoot string) func(paths.TeamID) (status.Record, bool, error) {
+	return func(team paths.TeamID) (status.Record, bool, error) {
+		return status.Read(teamchatRoot+paths.StatusFile(team), team)
+	}
 }

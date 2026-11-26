@@ -99,6 +99,13 @@ func TestRestoreDrillUsage(t *testing.T) {
 			t.Errorf("%s: %+v, %d seams", name, got, w.seams)
 		}
 	}
+	// The port is the operator's, given on the command line: nothing here reads the play's
+	// teamchat_restore_drill_port, so the refusal does not call it declared (batch 26 review).
+	w := newDrillWorld(t)
+	got := w.verb(rootProc(), "--port", "80")
+	if !strings.Contains(got.stderr, "--port is the port the drill's scratch team listens on") || strings.Contains(got.stderr, "declared") {
+		t.Errorf("a port too low: %q", got.stderr)
+	}
 }
 
 // A drill that passes prints its team, each clause's verdict and that the proof was written.

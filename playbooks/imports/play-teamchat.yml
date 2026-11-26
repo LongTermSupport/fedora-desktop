@@ -77,12 +77,16 @@
 #   teamchat_memory_high, teamchat_cache_capacity_modifier
 #                            the server pin's values (defaults 512M and 0.5, NOT yet measured on
 #                            a real host: DESIGN-v2-C-host.md H-C1).
-#   teamchat_restore_drill   optional boolean, default false: this host may run
-#                            `teamchat-admin restore-drill` (issue #324). Only where it is true is
-#                            teamchat_restore_drill_port, then required, labelled for the team
-#                            units under SELinux. The port is never opened in the firewall: the
-#                            drill's scratch team listens on loopback only. Leave it false on a
-#                            host that serves a real team, since the drill refuses beside one.
+#   teamchat_restore_drill   optional boolean, default false: whether teamchat_restore_drill_port,
+#                            then required, is labelled for the team units under SELinux, so
+#                            `teamchat-admin restore-drill --port <it>` (issue #324) can serve its
+#                            scratch team there. teamchat-admin reads neither setting: the drill is
+#                            neither allowed nor refused by them, and runs on the port its --port
+#                            names. false removes the label from teamchat_restore_drill_port when
+#                            that is still set and no declared team uses it. The port is never
+#                            opened in the firewall: the drill's scratch team listens on loopback
+#                            only. Leave it false on a host that serves a real team, since the
+#                            drill refuses beside one.
 # Not built, refused by name when set: teamchat_address (the teamchat0 bus address; the LXC
 # path does not need it). The Element team list is its own play's.
 #
@@ -827,15 +831,19 @@
           loop_control:
             label: "{{ item.team }}:{{ item.port }}"
 
-        # Labelled only where the drill is enabled: on any other host it would be unused surface.
+        # Labelled only where the drill is enabled: on any other host it would be unused surface,
+        # so turning the drill off removes the label again (never from a port a team uses).
         # No firewall task: the drill's scratch team serves on loopback only.
-        - name: Label the Restore Drill's Port for the Team Units
+        - name: Label the Restore Drill's Port for the Team Units, or Remove the Label When Off
           community.general.seport:
             ports: "{{ teamchat_restore_drill_port | string }}"
             proto: tcp
             setype: teamchat_port_t
-            state: present
-          when: teamchat_restore_drill | default(false)
+            state: "{{ 'present' if teamchat_restore_drill | default(false) else 'absent' }}"
+          when: >-
+            teamchat_restore_drill | default(false)
+            or (teamchat_restore_drill_port is defined
+                and teamchat_restore_drill_port not in (tc_teams | selectattr('port', 'defined') | map(attribute='port') | list))
 
     # A team's LXC members are among its security fields (DC18), so each team is handed its own
     # entries. The approval comes before both LXC phases, which hold every team they act on

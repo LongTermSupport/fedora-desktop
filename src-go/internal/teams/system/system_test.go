@@ -216,3 +216,33 @@ func TestPoolHoldsReadsOnlyTheGivenCheckoutsPool(t *testing.T) {
 		t.Fatalf("this checkout's seat: got %v %v, want true", got, err)
 	}
 }
+
+// StatusUnder reads a team's status record under the root it is given, never the machine's
+// own (project_teamchat_root_read): a record there is found, a root with none has none.
+func TestStatusUnderReadsUnderItsRoot(t *testing.T) {
+	team, err := paths.ParseTeamID("brisk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if _, found, err := StatusUnder(root)(team); err != nil || found {
+		t.Fatalf("an empty root: found %v, %v", found, err)
+	}
+	rec := status.Record{
+		V: 1, Team: team, Name: "brisk", Origin: status.OriginV2, Seq: 1, WrittenMS: 1_000,
+		ExpiresMS:  1_000 + status.Lifetime.Milliseconds(),
+		Homeserver: status.Homeserver{Unit: "active", Probe: status.ProbeOK},
+		Backup:     status.Backup{LastRun: status.RunNone},
+	}
+	path := root + paths.StatusFile(team)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := status.Write(path, rec, -1); err != nil {
+		t.Fatal(err)
+	}
+	got, found, err := StatusUnder(root)(team)
+	if err != nil || !found || got.Name != "brisk" {
+		t.Fatalf("the record under the root: %+v %v %v", got, found, err)
+	}
+}

@@ -183,8 +183,7 @@ the handoff, since retired (built in the parts below).
   skips Claude's notes, slash commands, tool results and sub-agents, takes the first line and
   cuts it to 60 runes. `conversation.SeatRan` returns a seat's record, when it last ran and that
   prompt (`SeatLastRan` now wraps it). `seatchoice.Seat` gains `Role` and `Prompt`, and
-  `Describe`/`InWords` name a seat by its role. A row reads `The coordinator of <team>: last
-  ran 2 hours ago, "<prompt>"` or `A worker of <team>: ...`. A held row says the role beside
+  `Describe`/`InWords` name a seat by its role. A row reads `The coordinator of <team>: last ran 2 hours ago, "<prompt>"` or `A worker of <team>: ...`. A held row says the role beside
   the session. The line a launch prints for a seat taken without a question says the same. The
   role comes from the team's status record: `system.Cmd.PoolState` fills it, matched by handle.
   An unreadable record is an error.
@@ -206,9 +205,8 @@ the handoff, since retired (built in the parts below).
   - a seat whose transcript is gone (`run ccy --teams <team> there to choose`);
   - a host seat (`run cc --teams <team> there`);
   - a pool no listed checkout leads to.
-  A seat that never ran is passed over. `--dry-run` prints `would start the coordinator of
-  <team> in <checkout>, resuming "<prompt>" (last ran 2 hours ago)` and the `would not start`
-  lines on stdout, and starts nothing.
+    A seat that never ran is passed over. `--dry-run` prints `would start the coordinator of <team> in <checkout>, resuming "<prompt>" (last ran 2 hours ago)` and the `would not start`
+    lines on stdout, and starts nothing.
 - CCY 3.124.97 (container unchanged): the `tmux-session.bash` comment on session names, with
   its changelog entry.
 
@@ -242,8 +240,7 @@ Each test was written first and run red: `TestFirstPrompt*` (4), `TestSeatRan...
 `TestCmdPoolStateAndSeatRolesNameEachSeatsRole`, `TestASeatWithAUniqueRoleIsNamedByIt`,
 `TestRestoreStartsEverySeatNoRecordCovers` and `TestRestoreOfNamedSessionsStartsNoSeat`. Red
 meant undefined symbols, then failed expectations (the host seat's words, the start count), then
-green. One wording change by design: the picked-seat line `resuming this checkout's seat of it
-that last ran` is now `resuming a seat of <team>, which last ran here`.
+green. One wording change by design: the picked-seat line `resuming this checkout's seat of it that last ran` is now `resuming a seat of <team>, which last ran here`.
 
 ## Tests run
 
@@ -254,3 +251,10 @@ rules (`go vet -vettool`) over `internal/{sessions,teams/...,conversation,transc
 finding, after one fix (the record's file taken from `Store.Find`). `scripts/qa-seat-text.bash`
 is green. The `scripts/test-cc*-teams*.bash` and `test-ccy-sessions-*.bash` suites are in the
 commit message. No full QA was run.
+
+**Correction (the batch 26 review):** `internal/teams/...` did not pass at this commit.
+`go test ./internal/teams` failed `TestDispatchInternalSessionNameIsTheNameCommand` and
+`TestDispatchInternalSessionNameReadsTheRegistry` (exit 1, "the roles of team alpha's seats
+here: ... lstat /w"): the session-name wiring's role lookup resolved the tests' made-up checkout
+`/w/proj` and read the team's status record at the machine's fixed path, past the test world's
+teamchat root. Fixed in the batch 26 fixes (`261126-batch26-fixes.md`).

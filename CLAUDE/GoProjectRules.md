@@ -103,6 +103,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_seat_number_text`         | text a person is told to type or pick from that spells out a seat (a launch with the seat, a seat placeholder, a hand-over or a repair naming the seat, a row labelled by its seat or handle), when only the machine knows it  | `ccy --teams <team>`'s chooser rows (`seat 2  <handle>  free`) and its ways on (`ccy --teams 3@<team>`), the owner having to know a seat number (Plan 00265 R90)                                                        |
 | `project_root_create_follows_link` | a create through an `os.Root` without O_EXCL, which follows a link inside the root at the last name, O_NOFOLLOW or not, so a dangling link there gets its target created                                                       | the seat-record lock, opened `O_RDWR\|O_CREATE` through the checkout's `os.Root` (Plan 00265 R36, the batch 22b review)                                                                                                 |
 | `project_store_refusal_lost`       | a teamchat seat-store add's refusal (its list full) that reaches no return, so the write goes ahead without the entry and what it stood for is lost                                                                            | teamchat `engine`: the proof logged a full read-receipt queue and went on, so the human never saw the message read (Plan 00267 C2)                                                                                      |
+| `project_teamchat_root_read` | a teamchat machine record (paths' status-root names) handed to a call in ccy-teams with no `TeamchatRoot` in front, so a test world reads the machine's own teams | `teams` wiring: the session-name role lookup and four more read the status record through `system.StatusRecord`, past `teamtest`'s root (Plan 00265 batch 26 review) |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
 `go vet -vettool=<driver> help ...` does not reach it) says what it does and
@@ -4314,3 +4315,39 @@ room's latest).
   refusal, was a finding of the first draft and is not one now.
 - Green: `AddReceipt` cannot refuse (`TestAFullReceiptQueueKeepsEachRoomsLatest`), so the proof
   calls it with nothing to lose: 0 findings.
+
+### project_teamchat_root_read
+
+**What it is about.** ccy-teams' configuration carries `TeamchatRoot`, the root the v2 records
+are read under: "" on a host, a scratch directory in a test world (`teamtest`), so a test never
+reads the machine's own teams. A record read at its fixed path ignores it.
+
+**Why it exists.** Plan 00265, the batch 26 review: the session-name wiring's role lookup (and
+the seat adder, the system and launch verbs, the team lifecycle and the seat sweep) read the
+status record through `system.StatusRecord`, at `/var/lib/teamchat-status`, so the teams unit
+tests read whatever teams the machine running them had installed.
+
+**What it flags**, in the non-test files of `internal/teams` and the packages under it: a call
+argument naming one of `internal/teamchat/paths`' machine records (`StatusRoot`,
+`StatusInstalledFile`, `LXCRecordDir`, `StatusTeamDir`, `StatusFile`, `StampFile`,
+`ApprovedFile`, `LXCOnlineFile`, `SetRecord`) that is not a `+` chain whose leftmost operand is a
+name or field called `TeamchatRoot` (any case). Calls of `fmt` and `errors` are not judged: they
+word a message and read nothing.
+
+**Not caught**: a fixed path built from a literal; a record path held in a variable and passed
+later; a read outside `internal/teams` (`internal/sessions` and `internal/conversation` still
+read through `system.StatusRecord`, having no root to honour); a unit test that resolves a
+made-up checkout on the real filesystem (that half of the defect is a runtime property no
+analyzer here can see: the tests now give a real checkout).
+
+**How to fix a violation.** Read under the run's root: `h.TeamchatRoot + paths.StatusFile(id)`,
+or `system.StatusUnder(h.TeamchatRoot)` for a `Status` func.
+
+- Red, fixture: `testdata/src/teamchatroot/internal/teams/system` (the status reader given the
+  fixed path, os reads of a record, a directory and a constant, a root after the path, a constant
+  in front: 6 findings; the rooted forms, a name that is not a record, messages and a held path:
+  clean; the test file and `internal/elsewhere`: not judged).
+- Red, real tree (the driver as `go vet -vettool` over `./internal/teams/...`): one finding,
+  `system/system.go` (`StatusRecord`).
+- Green: `system.StatusUnder(root)`, wired with `h.TeamchatRoot` at all five ccy-teams callers;
+  `StatusRecord` is `StatusUnder("")`: 0 findings.
