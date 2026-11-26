@@ -125,10 +125,13 @@ another batch; this plan decides at the end whether it stays.
     cap is pulled forward as Task 1.9.
 
 - [x] ✅ **Task 1.9**: A plain memory cap now (5 GB), ahead of 1.8's capture. **Accepted on the
-  laptop, 26 Nov** (the coordinating team's host seat, its report section 11): all five checks
-  passed. A live stand-in was OOM-killed at 5G and raised the notification, which the owner
-  confirmed. An instance started before the deploy picked up the cap, a normal close raised
-  nothing, and the live repro (a long thread) ran under the cap. Owner (Q20, 26 Nov 11:40Z,
+  laptop, 26 Nov** (reported by the coordinating team's host seat, from its own report; not
+  re-checked here): checks 3, 4 and 5 of report section 4 passed. A live stand-in was
+  OOM-killed at 5G and raised the notification, which the owner confirmed. An instance started
+  before the deploy picked up the cap, a normal close raised nothing, and the live repro (a long
+  thread) ran under the cap. Checks 1 and 2 (the systemd version, `systemctl show` on the
+  scope) were not reported separately. The teamchat notice is **deferred** by the owner's
+  decision (via the coordinator, 26 Nov): not now, revisited with Task 1.8. Owner (Q20, 26 Nov 11:40Z,
   verbatim): "but for now lets also mitigate this with flatpak limits etc. I thin there's no
   reason for it to need more than 1GB so a 2GB cap is probably OK. If it could crash and
   restart automtically that would be handy, with some kind of reporting somehow so we know its
@@ -158,8 +161,8 @@ another batch; this plan decides at the end whether it stays.
     removes it) is checked before anything is installed. On for every host that runs the play,
     not gated like `lightning_diagnostics`. The notice is the oneshot user unit
     `agent-bus-lightning-capped@.service`: a critical desktop notification naming the scope.
-    Open: the teamchat notice (the desktop user holds no bus identity, so it cannot post), and
-    the host seat's checks on the laptop (report section 4). Queued in `meta-deploy.list`.
+    The teamchat notice is not built (the desktop user holds no bus identity, so it cannot
+    post); deferred to Task 1.8, as above.
 
 ### Phase 2: Reproduce
 
