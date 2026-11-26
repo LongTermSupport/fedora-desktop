@@ -156,6 +156,12 @@
 # configured teamchat root (on this host the same path as before, so nothing changes here).
 # Check afterwards: `ccy-sessions restore --dry-run` names the seats it would start in words,
 # and a new seat session's tmux name ends in its role.
+# Plan 00266 C.3 (ccy 3.124.100, container 2.84.100): ccy-sessions is rebuilt so verify-restore also reports the
+# LXC containers the boot unit brings back (lxc:<container> RUNNING / NOT-RUNNING <state> /
+# NOT-RECORDED, lxc NO-RECORD), wherever teamchat-lxc-boot.service is enabled, and fails on a
+# recorded container not running. With the unit disabled it only says so. The same single
+# image rebuild covers it (built from internal/systemd; nothing in it changes). It needs
+# play-teamchat below for its sudoers rule.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC
@@ -198,6 +204,13 @@ playbooks/imports/play-claude-yolo.yml
 # `team traffic --team T --since <time> --until <time> [--json]`, a team's event counts per hour
 # by room, type, typed key, relation and membership, with no content. Nothing runs it during
 # the play; the bus host's admin seat runs it afterwards (00268's bus-host-commands.md).
+# Plan 00266 C.3: teamchat-admin gains the read-only `lxc check-running`. While an LXC member
+# is declared present, the play installs /etc/sudoers.d/teamchat-lxc-check-running (checked
+# with visudo), which lets the teamchat owner group run that one command with no password;
+# with no LXC member the file is removed. Afterwards, on such a host:
+# `sudo -n /usr/local/sbin/teamchat-admin lxc check-running` prints one UP/DOWN/UNRECORDED line
+# per container (NO-RECORD until the first shutdown after C.2), and
+# `ccy-sessions verify-restore` ends with the lxc: lines.
 playbooks/imports/play-teamchat.yml
 
 # Plan 00265 R79: finishes the private-name guard's setup. It ASKS at the terminal for each

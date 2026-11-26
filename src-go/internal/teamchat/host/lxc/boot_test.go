@@ -139,6 +139,74 @@ func TestStartRecordedStartsExactlyTheRecordedContainers(t *testing.T) {
 	}
 }
 
+func runningTexts(lines []RunningLine) []string {
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		out = append(out, l.String())
+	}
+	return out
+}
+
+// C.3: the set the record of the last shutdown names, beside the set running now. A recorded
+// container is UP when it runs, else DOWN with its state (ABSENT when it is gone); one running
+// that the record does not name is UNRECORDED. Nothing is started or recorded.
+func TestCheckRunningComparesTheRecordWithTheContainersNow(t *testing.T) {
+	w := boxes(t, map[string]lxccmd.State{"c1": lxccmd.Running, "c2": lxccmd.Stopped, "c4": lxccmd.Running, "c5": lxccmd.Frozen})
+	w.recordRunning("c1", "c2", "c3")
+	got, err := CheckRunning(context.Background(), w.deps())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"UP\tc1\t", "DOWN\tc2\tSTOPPED", "DOWN\tc3\tABSENT", "UNRECORDED\tc4\t"}
+	if !slices.Equal(runningTexts(got), want) {
+		t.Fatalf("lines %q, want %q", runningTexts(got), want)
+	}
+	if len(w.units.started) != 0 || !slices.Equal(w.running(), []string{"c1", "c2", "c3"}) {
+		t.Fatalf("a check started %v or rewrote the record: %v", w.units.started, w.running())
+	}
+}
+
+// No record at all is a NO-RECORD line, not an empty set, and the running containers are still
+// named; an empty record names only those.
+func TestCheckRunningWithNoRecord(t *testing.T) {
+	w := boxes(t, map[string]lxccmd.State{"c1": lxccmd.Running})
+	got, err := CheckRunning(context.Background(), w.deps())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"NO-RECORD\t\t" + paths.LXCRunningFile, "UNRECORDED\tc1\t"}; !slices.Equal(runningTexts(got), want) {
+		t.Fatalf("lines %q, want %q", runningTexts(got), want)
+	}
+	w.recordRunning()
+	got, err = CheckRunning(context.Background(), w.deps())
+	if err != nil || !slices.Equal(runningTexts(got), []string{"UNRECORDED\tc1\t"}) {
+		t.Fatalf("empty record: %q %v", runningTexts(got), err)
+	}
+}
+
+// A list, a state or a record that cannot be read fails the check: could not look is never a
+// container's state.
+func TestCheckRunningFaults(t *testing.T) {
+	w := boxes(t, map[string]lxccmd.State{"c1": lxccmd.Running})
+	w.recordRunning("c1")
+	w.lxc.listErr = errFault
+	if _, err := CheckRunning(context.Background(), w.deps()); !errors.Is(err, errFault) {
+		t.Fatalf("list: %v", err)
+	}
+	w.lxc.listErr = nil
+	w.lxc.boxes["c1"].stateErr = errFault
+	if _, err := CheckRunning(context.Background(), w.deps()); !errors.Is(err, errFault) {
+		t.Fatalf("state: %v", err)
+	}
+	w.lxc.boxes["c1"].stateErr = nil
+	if err := os.WriteFile(filepath.Join(w.host, paths.LXCRunningFile), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CheckRunning(context.Background(), w.deps()); !errors.Is(err, lxcstate.ErrInvalid) {
+		t.Fatalf("a record that does not decode: %v", err)
+	}
+}
+
 // No record (a host never shut down by the unit) starts nothing.
 func TestStartRecordedWithNoRecordStartsNothing(t *testing.T) {
 	w := boxes(t, map[string]lxccmd.State{"c1": lxccmd.Stopped})

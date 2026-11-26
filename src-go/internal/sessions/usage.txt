@@ -159,7 +159,16 @@ Usage:
                                                   are OK. --wait polls until the restore
                                                   has settled (nothing STARTING or
                                                   SETTING-GOING, and the same answer twice
-                                                  running), or the time is up
+                                                  running), or the time is up. Where
+                                                  teamchat-lxc-boot.service is enabled it
+                                                  then reports the LXC containers running
+                                                  at the last shutdown: "lxc:<c> RUNNING",
+                                                  "lxc:<c> NOT-RUNNING <state>" (fails;
+                                                  --wait looks again), "lxc:<c>
+                                                  NOT-RECORDED" (running, not recorded:
+                                                  passes) or "lxc NO-RECORD" (fails), asked
+                                                  of teamchat-admin lxc check-running
+                                                  through its sudoers rule
   ccy-sessions declare [--name ccy-NAME] [--fresh-if-no-conversation] [--replace] DIR
                [-- CCY-ARGS...]                   for provisioning: write the record a ccy
                                                   launch of CCY-ARGS in DIR would write, for

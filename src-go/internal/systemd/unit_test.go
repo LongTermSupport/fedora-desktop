@@ -35,6 +35,34 @@ func TestUnitActiveSystemctlThatCannotRunIsAnError(t *testing.T) {
 	}
 }
 
+// is-enabled prints its word whatever its exit (disabled and not-found exit 1); only a run with
+// no word, or a systemctl that could not run, is an error.
+func TestUnitEnabledIsSystemctlsWord(t *testing.T) {
+	f := &execx.Fake{}
+	s := &Systemd{Runner: f}
+	for _, tc := range []struct {
+		res  execx.Result
+		want string
+	}{
+		{execx.Result{Stdout: []byte("enabled\n")}, "enabled"},
+		{execx.Result{Stdout: []byte("disabled\n"), ExitCode: 1}, "disabled"},
+		{execx.Result{Stdout: []byte("not-found\n"), ExitCode: 1}, "not-found"},
+	} {
+		f.On([]string{"systemctl", "is-enabled", "boot.service"}, tc.res)
+		if got, err := s.UnitEnabled(context.Background(), "boot.service"); err != nil || got != tc.want {
+			t.Fatalf("%q: %q %v", tc.res.Stdout, got, err)
+		}
+	}
+	f.On([]string{"systemctl", "is-enabled", "boot.service"}, execx.Result{Stderr: []byte("Failed to connect to bus"), ExitCode: 1})
+	if _, err := s.UnitEnabled(context.Background(), "boot.service"); err == nil || !strings.Contains(err.Error(), "systemctl is-enabled boot.service") {
+		t.Fatalf("no word: %v", err)
+	}
+	f.OnError([]string{"systemctl"}, &execx.NotInstalledError{Name: "systemctl"})
+	if _, err := s.UnitEnabled(context.Background(), "boot.service"); !execx.IsNotInstalled(err) {
+		t.Fatalf("not installed: %v", err)
+	}
+}
+
 func TestDefaultTargetIsSystemctlsAnswer(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"systemctl", "get-default"}, execx.Result{Stdout: []byte("multi-user.target\n")})

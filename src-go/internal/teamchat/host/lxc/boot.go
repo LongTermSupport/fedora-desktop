@@ -23,6 +23,7 @@ import (
 const (
 	recordRunningVerb = "lxc record-running"
 	bootVerb          = "lxc boot"
+	checkRunningVerb  = "lxc check-running"
 	stepRunningFile   = "running"
 )
 
@@ -56,6 +57,75 @@ func RecordRunning(ctx context.Context, d Deps) ([]paths.ContainerName, error) {
 		return nil, &host.Error{Verb: recordRunningVerb, Step: stepRunningFile, Err: err}
 	}
 	return lxcstate.ReadRunning(d.Root)
+}
+
+// RunningKind is a line's first field in `lxc check-running` (Plan 00266 C.3).
+type RunningKind string
+
+// What CheckRunning found of each container the record names, and of each running one it does
+// not; NoRecord is the record itself never written.
+const (
+	RunningUp         RunningKind = "UP"
+	RunningDown       RunningKind = "DOWN"
+	RunningUnrecorded RunningKind = "UNRECORDED"
+	RunningNoRecord   RunningKind = "NO-RECORD"
+)
+
+// runningAbsent is a DOWN container's Why when this host has no container of its name.
+const runningAbsent = "ABSENT"
+
+// RunningLine is `<kind>\t<container>\t<why>`: a DOWN line's why is the container's state word
+// (or ABSENT), one word, and a NO-RECORD line names the record's path in place of a container.
+type RunningLine struct {
+	Kind      RunningKind
+	Container string
+	Why       string
+}
+
+func (l RunningLine) String() string { return string(l.Kind) + "\t" + l.Container + "\t" + l.Why }
+
+// CheckRunning is `lxc check-running`: the containers the record of the last shutdown names,
+// each UP or DOWN by its state now, in the record's order, then each running container the
+// record does not name, UNRECORDED; a record never written is a NO-RECORD line first. It only
+// reads. Could not look (the record, the list or a state) is an error, never a line.
+func CheckRunning(ctx context.Context, d Deps) ([]RunningLine, error) {
+	recorded, found, err := lxcstate.ReadRunningRecord(d.Root)
+	if err != nil {
+		return nil, &host.Error{Verb: checkRunningVerb, Step: stepRunningFile, Err: err}
+	}
+	names, err := d.LXC.Containers(ctx)
+	if err != nil {
+		return nil, &host.Error{Verb: checkRunningVerb, Step: stepState, Err: err}
+	}
+	states := make(map[string]lxccmd.State, len(names))
+	for _, n := range names {
+		if states[n], err = d.LXC.State(ctx, n); err != nil {
+			return nil, &host.Error{Verb: checkRunningVerb, Step: stepState, Err: err}
+		}
+	}
+	var lines []RunningLine
+	if !found {
+		lines = append(lines, RunningLine{Kind: RunningNoRecord, Why: paths.LXCRunningFile})
+	}
+	inRecord := map[string]bool{}
+	for _, c := range recorded {
+		inRecord[c.String()] = true
+		st, listed := states[c.String()]
+		switch {
+		case !listed:
+			lines = append(lines, RunningLine{Kind: RunningDown, Container: c.String(), Why: runningAbsent})
+		case st == lxccmd.Running:
+			lines = append(lines, RunningLine{Kind: RunningUp, Container: c.String()})
+		default:
+			lines = append(lines, RunningLine{Kind: RunningDown, Container: c.String(), Why: string(st)})
+		}
+	}
+	for _, n := range names {
+		if states[n] == lxccmd.Running && !inRecord[n] {
+			lines = append(lines, RunningLine{Kind: RunningUnrecorded, Container: n})
+		}
+	}
+	return lines, nil
 }
 
 // BootKind is a container line's first field.

@@ -17,6 +17,20 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.100 — container 2.84.100
+
+- `ccy-sessions verify-restore` now also reports the LXC containers that
+  `teamchat-lxc-boot.service` brings back (Plan 00266 Task C.3). It does this only where that
+  unit is enabled. After the session lines it prints `lxc:<c> RUNNING`,
+  `lxc:<c> NOT-RUNNING <state>`, `lxc:<c> NOT-RECORDED` and `lxc NO-RECORD`. A recorded
+  container that is not running fails the check, and so does a missing record. `--wait` looks
+  again while a container is down.
+- The set comes from the new read-only `teamchat-admin lxc check-running`. verify-restore runs
+  it through sudo with no password, under the rule play-teamchat installs while an LXC member
+  is present (`/etc/sudoers.d/teamchat-lxc-check-running`).
+- `ccy-sessions` is rebuilt on the host. The image is rebuilt only because it is built from
+  `internal/systemd`, which gains `UnitEnabled`. Nothing in the image calls it.
+
 ## 3.124.99 — container 2.84.99
 
 - ccy-teams reads a team's status record under its configured teamchat root

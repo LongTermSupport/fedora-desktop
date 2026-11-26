@@ -167,6 +167,11 @@ cat >"$BIN/systemctl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'systemctl %s\n' "$*" >>"$TEST_LOG"
+# verify-restore asks whether the LXC boot unit is enabled; this host has no LXC seat restore.
+if [ "$1" = is-enabled ]; then
+    echo disabled
+    exit 1
+fi
 if [ -n "${TEST_SYSTEMCTL_TERM_CALLER:-}" ] && [[ "$*" == reboot* || "$*" == poweroff* ]]; then
     kill -TERM "$PPID"
     sleep 0.2

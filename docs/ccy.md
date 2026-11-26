@@ -570,6 +570,30 @@ that set-going has not typed into, it says on stderr whether a `ccy-sessions set
 running to do it, or that none is and `ccy-sessions set-going` is the command to run once the
 boot's own `ccy-sessions-set-going` unit has ended.
 
+On a host where play-teamchat enabled `teamchat-lxc-boot.service` (an LXC member is declared
+present), the report goes on with the LXC containers that boot unit brings back (Plan 00266
+C.3), one line each after the sessions'. They come from `teamchat-admin lxc check-running`,
+which compares the containers recorded at the last shutdown with the containers now. The
+record and the container list are root's, so it runs through sudo with no password, under
+the rule play-teamchat installs at `/etc/sudoers.d/teamchat-lxc-check-running` for the
+teamchat owner group, which allows that one command and no argument.
+
+- `lxc:<c> RUNNING`: recorded and running.
+- `lxc:<c> NOT-RUNNING <state>`: recorded and not running. `<state>` is lxc-info's word, or
+  `ABSENT` when the host has no such container. It fails the check, and `--wait` looks again
+  until it runs or the time is up.
+- `lxc:<c> NOT-RECORDED`: running, but the shutdown did not record it, so something else
+  started it (`lxc.start.auto`, or the host's own IaC). It is said on stderr and passes.
+- `lxc NO-RECORD`: no record of the last shutdown exists, so the set to bring back is unknown.
+  It fails.
+
+The LXC lines are printed even when a session failed, and the exit is 0 only when both halves
+pass. With the boot unit disabled or not installed, it says so on stderr and asks nothing.
+A sudo that wants a password, a check that fails, or a line it cannot read fails the run;
+could not look is never a state. Whether each container's seats came back is reported by
+`journalctl -u teamchat-lxc-boot -b --no-pager | cat` (the boot unit's `lxc reconcile` lines),
+not by verify-restore.
+
 | Situation at boot                         | What restore does                                                                                                                 |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | Record present, directory exists          | Starts the session detached                                                                                                       |

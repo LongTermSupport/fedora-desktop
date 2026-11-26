@@ -164,7 +164,7 @@ func buildTable() []verb {
 	group(ClassRoot, "restore")
 	group(ClassRoot, "restore-drill")
 	group(ClassRoot, "health")
-	group(ClassRoot, "lxc", "apply", "restart", "start", "stop", "reconcile", "record-running", "boot", "record-started")
+	group(ClassRoot, "lxc", "apply", "restart", "start", "stop", "reconcile", "record-running", "boot", "record-started", "check-running")
 	group(ClassRoot, "check")
 	group(ClassRoot, "migrate", "preflight", "stage", "fence", "fence-status", "capture", "carry", "commit",
 		"accept", "archive", "archive-check", "unfence", "rollback", "export", "export-verify")

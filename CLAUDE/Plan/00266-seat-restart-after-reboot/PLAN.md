@@ -1,6 +1,6 @@
 # Plan 00266: seat restart after reboot
 
-**Status**: In Progress (Task C.2 is built and awaits the host deploy and a live reboot; Phases A, B and Task C.4 are design for the owner, unbuilt until the owner has seen them)
+**Status**: In Progress (Tasks C.2 and C.3 are built and await the host deploy and a live reboot; Phases A, B and Task C.4 are design for the owner, unbuilt until the owner has seen them)
 **Created**: 2026-11-26
 **Owner**: dev
 **Priority**: High (Phase A is a security gap)
@@ -248,7 +248,30 @@ Decision for C.2 (and the fix for today's start):
     SD10), so it would have refused every container on a host. `units.Manager.Containers` is a
     separate, start-only adapter for `lxc@` instances, and `host.Systemd` still refuses `lxc@`.
 
-- [ ] ⬜ **Task C.3**: verify-restore reports the LXC set.
+- [x] ✅ **Task C.3**: verify-restore reports the LXC set. **Built (26 Nov):**
+
+  - `teamchat-admin lxc check-running` (root, read-only, always exit 0) compares
+    `_lxc-running.json` with the containers now. It prints `UP`, `DOWN <state|ABSENT>`,
+    `UNRECORDED`, and `NO-RECORD` when the record was never written
+    (`lxcstate.ReadRunningRecord` tells that apart from an empty record).
+  - `ccy-sessions verify-restore` asks it only where `teamchat-lxc-boot.service` is enabled
+    (`systemctl is-enabled`, read as the user). It then prints `lxc:<c> RUNNING|NOT-RUNNING <state>|NOT-RECORDED` and `lxc NO-RECORD`
+    after the session lines, whatever the sessions' half found.
+  - `NOT-RUNNING` and `NO-RECORD` fail, and `--wait` looks again while a container is down.
+    `NOT-RECORDED` is told on stderr and passes.
+  - **Departures:**
+    - The record and lxc-ls are root's, and verify-restore runs as the user (the self-update
+      cycle runs it through runuser). So play-teamchat installs
+      `/etc/sudoers.d/teamchat-lxc-check-running` for `teamchat_owner_group` while an LXC member is
+      present, allowing that one command with no argument. This follows the agent-bus
+      read-only rule; it has no host variable to turn it off.
+    - A running container the record does not name passes. The boot unit promises at least
+      the recorded set, and `lxc.start.auto` or a host's own IaC may start more.
+    - verify-restore does not judge seats. `lxc boot`'s reconcile lines in the boot unit's
+      journal do that, so the open item above (a guest not ready when reconcile reaches it)
+      still waits for the live reboot.
+    - A stale record (a shutdown whose record unit failed, leaving the one before) cannot be
+      told from a fresh one. The record carries no boot stamp.
 
 - [ ] ⬜ **Task C.4**: a restarted LXC seat signs in from its team's own token pool, on the token
   it was on before. Asked for by another team's owner (26 Nov) for their containers, and agreed
