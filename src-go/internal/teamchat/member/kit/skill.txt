@@ -30,6 +30,10 @@ Answer an entry with the command on its reply: line, the text on stdin: most oft
 A PING is answered with a closed verb, `teamchat reply '<id>' --verb <VERB>`, where <VERB> is
 ack, nack, done or blocked (with --ref when the verb takes one; the error says so).
 
+When a delivery holds several messages, or more arrive while you work, answer them together:
+one reply per sender covering each of their messages, not one reply per message. A closed verb
+(ack, done) still goes to its own ping.
+
 Start a conversation with `teamchat say --to <name>` or `teamchat say --to-coordinator`, the text
 on stdin; send a closed verb with `teamchat ping <verb> <ref> --to <name>`.
 
