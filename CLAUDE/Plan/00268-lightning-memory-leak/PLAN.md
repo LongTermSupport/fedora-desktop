@@ -1,6 +1,6 @@
 # Plan 00268: Lightning memory leak
 
-**Status**: In Progress (research done; Phase 1 evidence waits on the laptop's host seat)
+**Status**: In Progress, blocked until the laptop is back (Tuesday 1 Dec): Tasks 1.3 and 2.1 are built; Phase 1 evidence (1.2, 1.3a, 1.5, the runs of 1.3, 1.8's evidence step) needs the laptop's seat, the only one that reaches the bus host, and Phase 2's reproduction (2.2, 2.3) needs a host for the VM lab and 1.3a's data
 **Created**: 2026-11-26
 **Owner**: dev
 **Priority**: High
