@@ -246,7 +246,8 @@ passwordless_sudo_for_unattended_deploys: false
 #
 # Diagnostics for a lightning team's instance (Plan 00268): true launches it with a memory line
 # every 5 s and a line for each event slower than 100 ms, mirrored to
-# <team>/cache/lightning-diagnostic.log in its instance (capped at 64 MiB from Lightning 0.10.7),
+# <team>/cache/lightning-diagnostic.log in its instance (from Lightning 0.10.7, rolled once at
+# 32 MiB to a .1 file, so 64 MiB at most; 0.10.6 has no cap),
 # and runs the user service agent-bus-lightning-watch, which records the instance's threads once
 # if that log falls silent while its memory climbs. Off by default; true only with client: lightning.
 #   - team: <team>
