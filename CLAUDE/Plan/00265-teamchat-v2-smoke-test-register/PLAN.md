@@ -109,7 +109,8 @@ the coordinator's worker restarts.
   sweep, and step 2 for `ccy --teams <team>` and `cc --teams <team>` at a terminal
   (`seatchoice.Pick`). Left: step 1's text check (docs, help, launchers), step 2's bare
   `--teams`, plain `cc` and unattended pick, steps 3 and 4. Report:
-  [subagent-reports/261126-task-4-2-build.md](subagent-reports/261126-task-4-2-build.md).
+  [subagent-reports/261126-task-4-2-build.md](subagent-reports/261126-task-4-2-build.md);
+  what is left: [HANDOFF-4.2.md](HANDOFF-4.2.md).
 
 ## Success Criteria
 
