@@ -52,8 +52,14 @@ each.
 
 ## Versions
 
-CCY 3.124.88 and container 2.84.95: the Dockerfile LABEL, `REQUIRED_CONTAINER_VERSION` and the
-changelog. I took these numbers after #430's and #431's commits.
+CCY 3.124.90 and container 2.84.95: the Dockerfile LABEL, `REQUIRED_CONTAINER_VERSION` and the
+changelog. I wrote 3.124.88. Another agent renumbered my uncommitted line to .90 when it
+committed .89.
+
+**Defect (mine):** f1f3aa3af staged the launcher whole from the shared tree. That took in
+another agent's uncommitted R90 help-text edits: the `--teams` usage lines and two refusals.
+Their matching `help.txt` and difftest goldens were not in it. I held the push and asked the
+lead to choose: the R90 owner commits on top, or a revert commit at 3.124.91.
 
 ## Checks
 
