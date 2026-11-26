@@ -14,10 +14,11 @@ import (
 )
 
 // MaxStore is the seat store's file cap (B 2.3.2): the list caps' sum, rounded up to the next
-// 256 KiB (n3d-D1), so a list cap always fires first. The sum is n3d's lists, about 3.0 MB, and
-// the questions room's, about 1.1 MB (SPEC-n3f 12.6, QX6): 4 185 860 bytes counted as written, so
-// 4 MiB.
-const MaxStore = 16 * 256 << 10
+// 256 KiB (n3d-D1), so a list cap always fires first. The sum is n3d's lists, about 3.0 MB, the
+// questions room's, about 1.1 MB (SPEC-n3f 12.6, QX6), and Plan 00267's receiver bookkeeping
+// (DESIGN C2, C6): 4 210 436 bytes counted as written with the read receipt's sent_ms, so
+// 17 x 256 KiB.
+const MaxStore = 17 * 256 << 10
 
 // B 2.3.2's caps: entries per list, and bytes per entry as the store writes it (writtenSize).
 const (
@@ -31,11 +32,17 @@ const (
 	sizeLedger     = 448
 	sizePing       = 3 << 10
 	capReceipts    = 1024
-	sizeReceipt    = 80
+	sizeReceipt    = 104 // the event id, the longest room purpose and a 13-digit sent_ms
 	capAwaiting    = 32
 	sizeAwaiting   = 2252 // 2.2 KiB
 	capMissed      = 16
 	sizeMissed     = 640
+	// The drop ledger and the receipts owed (Plan 00267 C6, C2): an entry is an event id, a
+	// user id of A4's 128 bytes, the longest room and reason, and two times.
+	capDropped  = 512
+	sizeDropped = 304
+	capOwed     = 256
+	sizeOwed    = 272
 	// n3d-D1: a send in flight carries its content, so B's 64 of 128 bytes are 32 of 20 KiB.
 	sizeSending = 20 << 10
 	// maxSendContent is A 11.2's cap on a composed content.
@@ -88,6 +95,8 @@ var listCaps = []listCap{
 	{"missed", []string{"missed"}, capMissed, sizeMissed, func(s *Store) []any { return anys(s.Missed) }},
 	{"ledger", []string{"ledger"}, capLedger, sizeLedger, func(s *Store) []any { return anys(s.Ledger) }},
 	{"receipts", []string{"receipts"}, capReceipts, sizeReceipt, func(s *Store) []any { return anys(s.Receipts) }},
+	{"dropped", []string{"dropped"}, capDropped, sizeDropped, func(s *Store) []any { return anys(s.Dropped) }},
+	{"owed", []string{"owed"}, capOwed, sizeOwed, func(s *Store) []any { return anys(s.Owed) }},
 	{"pings", []string{keyOutbox, "pings"}, MaxPings, sizePing, func(s *Store) []any { return anys(s.Outbox.Pings) }},
 	{"sending", []string{keyOutbox, "sending"}, MaxSending, sizeSending, func(s *Store) []any { return anys(s.Outbox.Sending) }},
 	{"gate keys", []string{keyOutbox, "gate", "recent"}, capGateKeys, sizeGateKey, func(s *Store) []any { return anys(s.Outbox.Gate.Recent) }},
@@ -144,7 +153,11 @@ type Store struct {
 	Missed   []Missed     `json:"missed"`
 	Ledger   []Ledger     `json:"ledger"`
 	Receipts []Receipt    `json:"receipts"`
-	Outbox   Outbox       `json:"outbox"`
+	// Dropped is the drop ledger and Owed the receipts owed to senders (Plan 00267 C6, C2);
+	// absent from a store written before them, and when empty.
+	Dropped []Dropped `json:"dropped,omitempty"`
+	Owed    []Owed    `json:"owed,omitempty"`
+	Outbox  Outbox    `json:"outbox"`
 	// Questions is the room's question index, null for a seat with none (SPEC-n3f QX5).
 	Questions *proto.QuestionsState `json:"questions"`
 	// RemindedMS is the latest due time this seat has reminded; RemindLate the open questions a
@@ -249,10 +262,42 @@ type Ledger struct {
 	Verb *string `json:"verb"`
 }
 
-// Receipt is a read receipt still to send.
+// Receipt is a read receipt still to send, with its event's origin time (0 for one queued
+// before the time was kept), which orders it among its room's.
 type Receipt struct {
-	ID   string `json:"id"`
-	Room string `json:"room"`
+	ID     string `json:"id"`
+	Room   string `json:"room"`
+	SentMS int64  `json:"sent_ms,omitempty"`
+}
+
+// DroppedKeepMS is how long the drop ledger keeps an entry: a week, which `teamchat dropped
+// --since` reads within. Its bounce is owed apart (Owed), so pruning an entry loses no receipt.
+const DroppedKeepMS = 7 * 24 * 3600 * 1000
+
+// Dropped is an event addressed to this member, or one it is the bouncer of, that it dropped
+// (Plan 00267 C6): the event, its room and sender, its origin time, when it was dropped and why.
+type Dropped struct {
+	ID     string `json:"id"`
+	Room   string `json:"room"`
+	From   string `json:"from"`
+	SentMS int64  `json:"sent_ms"`
+	AtMS   int64  `json:"at_ms"`
+	Reason string `json:"reason"`
+}
+
+// Owed is a `teamchat.receipt` this member owes the sender To of item Of (A 7.8): its state,
+// the reason a held or bounced state takes ("" for the others), and when it was reached.
+type Owed struct {
+	Of     string `json:"of"`
+	To     string `json:"to"`
+	State  string `json:"state"`
+	Reason string `json:"reason"`
+	AtMS   int64  `json:"at_ms"`
+}
+
+// same is whether o and x are one receipt: the item, the addressee's sender, state and reason.
+func (o Owed) same(x Owed) bool {
+	return o.Of == x.Of && o.To == x.To && o.State == x.State && o.Reason == x.Reason
 }
 
 // Outbox is the sends: pings awaiting answers, sends in flight, the send gate, and the event
@@ -626,8 +671,62 @@ func (s *Store) AddAwaiting(a Awaiting) error {
 	return grow(&s.Awaiting, a, capAwaiting, "awaiting")
 }
 
-// AddReceipt queues a read receipt.
-func (s *Store) AddReceipt(r Receipt) error { return grow(&s.Receipts, r, capReceipts, "receipts") }
+// AddReceipt queues a read receipt, and never loses one (Plan 00267 C2). An m.read on an event
+// says its room is read up to it, so a full queue keeps only each room's latest receipt (by
+// origin time, the later in the queue on a tie), in queue order, then takes r unless one of
+// its room's is as late: every receipt it held is then sent or covered by a later one.
+func (s *Store) AddReceipt(r Receipt) {
+	if len(s.Receipts) < capReceipts {
+		s.Receipts = append(s.Receipts, r)
+		return
+	}
+	latest := map[string]int{}
+	for i, q := range s.Receipts {
+		if j, ok := latest[q.Room]; !ok || q.SentMS >= s.Receipts[j].SentMS {
+			latest[q.Room] = i
+		}
+	}
+	kept := make([]Receipt, 0, len(latest)+1)
+	for i, q := range s.Receipts {
+		if latest[q.Room] == i {
+			kept = append(kept, q)
+		}
+	}
+	if j, ok := latest[r.Room]; !ok || s.Receipts[j].SentMS < r.SentMS {
+		kept = append(kept, r)
+	}
+	s.Receipts = kept
+}
+
+// AddDropped lists d in the drop ledger: false for an event listed already, and a refusal when
+// the ledger is full, never an entry dropped to make room (B 2.3.2). PruneDropped makes room.
+func (s *Store) AddDropped(d Dropped) (bool, error) {
+	if slices.ContainsFunc(s.Dropped, func(x Dropped) bool { return x.ID == d.ID }) {
+		return false, nil
+	}
+	return true, grow(&s.Dropped, d, capDropped, "dropped")
+}
+
+// PruneDropped removes the drop ledger's entries dropped before beforeMS.
+func (s *Store) PruneDropped(beforeMS int64) {
+	s.Dropped = slices.DeleteFunc(s.Dropped, func(d Dropped) bool { return d.AtMS < beforeMS })
+}
+
+// AddOwed queues a receipt owed to a sender: once per item, addressee, state and reason, and a
+// refusal when the queue is full.
+func (s *Store) AddOwed(o Owed) error {
+	if slices.ContainsFunc(s.Owed, o.same) {
+		return nil
+	}
+	return grow(&s.Owed, o, capOwed, "owed")
+}
+
+// OwedSent removes the receipt o once the homeserver has it; whether it was queued.
+func (s *Store) OwedSent(o Owed) bool {
+	n := len(s.Owed)
+	s.Owed = slices.DeleteFunc(s.Owed, o.same)
+	return len(s.Owed) != n
+}
 
 // AddPing records a sent ping.
 func (s *Store) AddPing(p Ping) error { return grow(&s.Outbox.Pings, p, MaxPings, "pings") }
@@ -739,8 +838,39 @@ func (s *Store) checkDelivered(c *rules, server string) {
 		l.check(c, server)
 	}
 	for _, r := range s.Receipts {
-		c.need(proto.ValidEventID(r.ID) && slices.Contains(storeRooms, r.Room), "a receipt is not well formed")
+		c.need(proto.ValidEventID(r.ID) && slices.Contains(storeRooms, r.Room) && validMS(r.SentMS), "a receipt is not well formed")
 	}
+	s.checkBookkeeping(c, server)
+}
+
+// checkBookkeeping holds the drop ledger and the receipts owed well formed (Plan 00267): each
+// dropped event once, with a bounce reason; each receipt owed once, its reason as its state
+// takes (A 7.8: held and bounced name one of theirs, delivered and recorded none).
+func (s *Store) checkBookkeeping(c *rules, server string) {
+	ids := make([]string, 0, len(s.Dropped))
+	for _, d := range s.Dropped {
+		c.need(proto.ValidEventID(d.ID) && slices.Contains(storeRooms, d.Room) && validUser(d.From, server) &&
+			validMS(d.SentMS) && validMS(d.AtMS) && slices.Contains(proto.BounceReasons, d.Reason), "a dropped entry is not well formed")
+		ids = append(ids, d.ID)
+	}
+	c.need(distinct(ids), "the drop ledger holds an event twice")
+	for i, o := range s.Owed {
+		c.need(proto.ValidEventID(o.Of) && validUser(o.To, server) && validMS(o.AtMS) && owedReason(o.State, o.Reason), "a receipt owed is not well formed")
+		c.need(!slices.ContainsFunc(s.Owed[:i], o.same), "a receipt is owed twice")
+	}
+}
+
+// owedReason is a receipt's state with the reason it takes.
+func owedReason(state, reason string) bool {
+	switch state {
+	case proto.ReceiptHeld:
+		return slices.Contains(proto.HeldReasons, reason)
+	case proto.ReceiptBounced:
+		return slices.Contains(proto.BounceReasons, reason)
+	case proto.ReceiptDelivered, proto.ReceiptRecorded:
+		return reason == ""
+	}
+	return false
 }
 
 func (l *Ledger) check(c *rules, server string) {

@@ -44,7 +44,7 @@ files/usr/local/bin/uncompress	106	2	80	-
 files/usr/local/sbin/agent-bus-install	983	62	1152	assoc,data
 files/usr/local/sbin/fedora-desktop-self-update	92	2	99	-
 files/var/local/claude-code/cc	177	2	191	-
-files/var/local/claude-code/cc-teams.bash	61	5	123	-
+files/var/local/claude-code/cc-teams.bash	52	4	110	-
 files/var/local/claude-yolo/agent-browser-session-guard	123	2	113	data
 files/var/local/claude-yolo/claude-yolo	2702	12	2633	-
 files/var/local/claude-yolo/entrypoint.sh	321	3	315	data

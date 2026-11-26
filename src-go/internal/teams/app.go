@@ -199,8 +199,9 @@ func Wire(h *host.Host) *App {
 	chosen.Teamchat = &chooser.Teamchat{
 		Live: sys.Live, SeatCount: sys.SeatCount, Handles: sys.Handles, Teams: sys.PoolTeams, Answers: sys.Answers,
 		Pool: sys.PoolState, Reattach: chooser.TmuxReattach(h.Tmux, h.Getenv),
-		LastRan: func(checkout, team, seat string) (int64, error) {
-			return conversation.SeatLastRan(checkout, membership.Seat{Team: team, Seat: seat})
+		LastRan: func(checkout, team, seat string) (int64, string, error) {
+			ran, err := conversation.SeatRan(checkout, membership.Seat{Team: team, Seat: seat})
+			return ran.MS, ran.Prompt, err
 		},
 		NewSeat: adder.NewSeat(sys.Getwd, func(msg string) { h.Print(h.Stderr, msg+"\n") }),
 	}
@@ -438,7 +439,9 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 		case "go-cache":
 			return a.GoCache.Run(ctx, rest[1:])
 		case "session-name":
-			return sessionname.Command{Server: a.Host.Tmux, Records: a.readRegistry, Stdout: a.Payload, Stderr: a.Stderr}.Run(ctx, rest[1:])
+			return sessionname.Command{
+				Server: a.Host.Tmux, Records: a.readRegistry, Roles: newSystem(a.Host).SeatRoles, Stdout: a.Payload, Stderr: a.Stderr,
+			}.Run(ctx, rest[1:])
 		case verbSeatResume:
 			return a.SeatResume.Run(rest[1:])
 		case verbLaunchArgs, verbSeatCheck, "seat-take", "bus-disconnected", "cc-run":

@@ -478,7 +478,7 @@ func (e *Engine) prove(s *state.Store, a state.Awaiting, wall int64) []state.Pen
 		if a.Written != state.WrittenYes {
 			s.AddLedger(ledgerOf(p, wall))
 		}
-		e.receipt(s, p)
+		receipt(s, p)
 	}
 	return left
 }
@@ -487,15 +487,13 @@ func ledgerOf(p state.Pending, wall int64) state.Ledger {
 	return state.LedgerOf(p, wall)
 }
 
-// receipt queues p's read receipt when it is HUMAN (DV5); a full queue loses the receipt, never
-// the proof.
-func (e *Engine) receipt(s *state.Store, p state.Pending) {
+// receipt queues p's read receipt when it is HUMAN (DV5); a full queue keeps each room's latest
+// receipt, which covers the earlier ones, so none is lost.
+func receipt(s *state.Store, p state.Pending) {
 	if p.Item != records.KindHuman {
 		return
 	}
-	if err := s.AddReceipt(state.Receipt{ID: p.ID, Room: p.Room}); err != nil {
-		e.logf("team %s: no read receipt for %s: %v", s.Team, p.ID, err)
-	}
+	s.AddReceipt(state.Receipt{ID: p.ID, Room: p.Room, SentMS: p.SentMS})
 }
 
 // declareMissing moves a due entry to missed in s: its items pending again, repeat and held from
@@ -534,7 +532,7 @@ func (e *Engine) findLate(s *state.Store, m state.Missed, wall int64) ([]state.P
 	left := takePending(s, ids)
 	for _, p := range left {
 		s.AddLedger(ledgerOf(p, wall))
-		e.receipt(s, p)
+		receipt(s, p)
 	}
 	return left, twice
 }

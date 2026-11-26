@@ -920,8 +920,10 @@ check_has "Start a ccy session outside a project says so" "not a project folder"
 check "  and starts nothing" "no" "$(logged 'launcher')"
 reset
 out="$(run_picker "$CHECKOUT" "|port 6167" "|Start a ccy session" "|new")"
-check "Start a ccy session offers the free seat, and a new one numbered after every numbered seat" "yes" \
-    "$(grep -q 'proj\.dev+local\.podman   free' "$TEST_FZF_ROWS" && grep -q 'Seat 3@alpha   new' "$TEST_FZF_ROWS" && echo yes || echo no)"
+# The rows say each seat in words, never its name or handle (Plan 00265 R90): the launches below
+# show which seat each row's tag is, the new one numbered after every numbered seat.
+check "Start a ccy session offers the free seat and a new one, in words" "yes" \
+    "$(grep -q 'A free seat of alpha' "$TEST_FZF_ROWS" && grep -q 'A new seat of alpha' "$TEST_FZF_ROWS" && echo yes || echo no)"
 # A seat never used in the checkout starts --fresh: a plain launch naming it is refused (#417).
 check "  and starts ccy --teams in the new one, --fresh" "yes" "$(logged 'launcher --teams 3@alpha --fresh')"
 reset

@@ -105,6 +105,30 @@ func TestRowsSayASeatInWords(t *testing.T) {
 	}
 }
 
+// S3 (Plan 00265 R90, Q5): a row names the seat by its role in the team, and a seat that ran by
+// its conversation's first prompt too.
+func TestRowsNameTheRoleAndTheFirstPrompt(t *testing.T) {
+	coordinator := Row(Seat{Name: "1", Handle: "proj.1+site.podman", Role: "coordinator", LastRanMS: nowMS - twoHours, Prompt: "Fix the restore"}, team, nowMS)
+	if want := "The coordinator of " + team + `: last ran 2 hours ago, "Fix the restore"`; coordinator != want {
+		t.Errorf("coordinator row %q, want %q", coordinator, want)
+	}
+	worker := Row(Seat{Name: "3", Handle: "proj.3+site.podman", Role: "worker", LastRanMS: nowMS - twoHours}, team, nowMS)
+	if want := "A worker of " + team + ": last ran 2 hours ago"; worker != want {
+		t.Errorf("worker row %q, want %q", worker, want)
+	}
+	free := Row(Seat{Name: "4", Handle: "proj.4+site.podman", Role: "worker"}, team, nowMS)
+	if want := "A free worker seat of " + team; free != want {
+		t.Errorf("free worker row %q, want %q", free, want)
+	}
+	held := Row(Seat{Name: "2", Handle: "proj.2+site.podman", Role: "coordinator", HeldBy: "ccy-proj"}, team, nowMS)
+	if want := "Running now in session ccy-proj (the coordinator of " + team + "): re-attach it"; held != want {
+		t.Errorf("held row %q, want %q", held, want)
+	}
+	if got := Describe(Seat{Role: "probe"}, team); got != "A probe of "+team {
+		t.Errorf("Describe of another role = %q", got)
+	}
+}
+
 // S3: how long ago a seat ran, in words.
 func TestAgoSaysHowLongAgoInWords(t *testing.T) {
 	for _, c := range []struct {

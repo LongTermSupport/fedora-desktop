@@ -106,7 +106,7 @@ cat "$(ccy_registry_dir)/$name"`, declaredLaunch...)
 	}
 	h.errOut.Reset()
 	exitCodeIs(t, h.run("restore", "--dry-run"), 0, h)
-	contains(t, "dry run", h.stderr(), "would start ccy-proj fresh in "+dir+" (no conversation to resume): /var/local/claude-yolo/claude-yolo --token work --ssh-key keys/id_github --compose start --supervise -- --model opus")
+	contains(t, "dry run", h.stderr(), "would start ccy-proj fresh in "+dir+" (no conversation to resume).")
 }
 
 func TestDeclaringTheSameRecordAgainChangesNothingEvenWhileItRuns(t *testing.T) {

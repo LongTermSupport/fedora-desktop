@@ -1816,7 +1816,9 @@ before the move to v2. Filled in as causes are found.
     and `ccy-sessions restore` says that teamchat seats are restored by it.
   - Find and fix why the session records were missing.
 - **Severity:** high (a reboot loses every seat's session, and the documented route restores
-  none). **Issue:** TBF. **State:** open; planned with R90 as PLAN Task 4.2.
+  none). **Issue:** TBF. **State:** the one command is built (PLAN Task 4.2):
+  `ccy-sessions restore` starts every seat no record covers, and its dry run speaks in words.
+  Why the session records were missing is still open, outside Task 4.2.
 
 ## R90: owner standing rule — a human never needs a seat number
 
@@ -1833,16 +1835,21 @@ before the move to v2. Filled in as causes are found.
 - **Fix:** PLAN Task 4.2, detector first.
   - Built, part one: the Go rule `project_seat_number_text` (blocking; red 35 on the tree, then
     green), every Go instance rewritten. `ccy --teams <team>` and `cc --teams <team>` take the
-    seat this checkout last worked in (`seatchoice.Pick` over the seat records), say it in
-    words, and ask only between two seats with a conversation, rows in words. Ways on, repairs
+    one free seat with a conversation here (`seatchoice.Pick` over the seat records; the
+    lowest free seat when none ever ran), say it in words, and ask between two seats with a
+    conversation, or when a seat is held, rows in words. Ways on, repairs
     and `seats conversation` name teams.
   - Built, part two: the gate `seat-number-text` over docs, embedded help and the launchers'
     messages (same shapes as the Go rule; red 47, then green), with the docs, help and launcher
     rewrite; a bare `ccy --teams` takes the one team this checkout has seats in.
-  - Still to build: plain `cc` joining its seat; the unattended pick; R89's restore seat pass
-    and its dry run; session names by role.
+  - Built, parts three and four: plain `cc` joins its seat; the unattended pick; R89's restore
+    seat pass and its dry run in words; session names by role; rows naming each seat's role
+    and its conversation's first prompt.
 - **Severity:** high (an owner rule; today's restore asks for exactly what it forbids).
-  **Issue:** TBF. **State:** in progress (parts one and two built).
+  **Issue:** TBF. **State:** fixed (PLAN Task 4.2 ✅). Asking for a seat's own model in words
+  is not built (`seats model` takes a seat, for scripts). A host seat's conversation always
+  reads as never run, because `conversation.SeatRan` looks only in ccy's transcript directory:
+  #444, not fixed here.
 
 ## R91: an update leaves a host cc seat unstartable, with no migration
 

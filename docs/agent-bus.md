@@ -626,7 +626,10 @@ the same `<repo>+<host>.podman` uses. ccy says the handle before taking the seat
 chosen seats into the launch's arguments, so a restart or a restore comes back in the same
 seat; scripts and those records may name seats too (a `seat@team` list after `--teams`), and
 nothing asks a person to type one. A launch with nobody to answer (headless, no terminal, a
-restore, a restart) that names a team alone is refused, with the way on: run it at a terminal. On a teamchat (v2) team a
+restore, a restart) that names a teamchat team alone takes the seat a launch at a terminal would
+take without asking (the one this checkout last worked in) and says which in words; only a genuine
+choice between seats, a team with no seat here, or an agent-bus team alone is refused, with the
+seats in words and the way on: run it at a terminal. On a teamchat (v2) team a
 launch also needs a session record, which only a launch at a terminal outside ccy's tmux writes;
 a headless or terminal-less launch is refused (78) unless the session was declared with
 `ccy-sessions declare` and started with `ccy-sessions restore`. Team names are
@@ -776,7 +779,13 @@ with the same list and the same chooser as `ccy --teams`:
 cc --teams                      # choose the teams from a list (Tab marks several)
 cc --teams <team>               # a team alone: this checkout's seat in it
 cc --bus                        # on no team: add it to teams later, while it runs
+cc                              # the team this checkout holds a host seat of, if one
+cc --no-teams                   # on no team, whatever the checkout holds
 ```
+
+A plain `cc` in a checkout that holds a host seat of exactly one teamchat team joins it, as
+`cc --teams <team>` would, and says so; with none it starts as it always did, and with seats of
+several teams it joins none and says how to choose.
 
 Started either way inside ccy's tmux (as `cc` always is from a terminal), a cc session on
 agent-bus teams can be put in a team, taken out, moved and re-roled while it runs, from
@@ -791,14 +800,15 @@ again from `ccy-sessions`, which starts it in that seat. A cc session whose seat
 it and start it again.
 
 On a terminal `ccy-teams choose-teams --type=host` asks, and prints the launch block once
-the seats are taken. With no terminal a team alone or a bare `--teams` is refused.
+the seats are taken. With no terminal a bare `--teams`, or a team alone whose seat is a genuine
+choice, is refused; a teamchat team whose seat is clear is taken.
 It joins as its own member, `<repo>.<N>+<host>.host`, in a seat of the checkout you start
 it in, as a ccy session does: the seat you choose, made the first time with sudo. Naming a
 brand-new seat number yourself (`9@<team>`) works once the consent is recorded; until then the
 consent question cannot name its handle and `cc --teams` stops (78), so choose the seat from the
 list the first time.
-`agent-bus seat list` shows it beside the ccy seats. cc makes the
-checkout's `.claude/ccy/` if it is not there, so a repo never used with ccy works, and
+`agent-bus seat list` shows it beside the ccy seats. Once the consent is given the chooser makes
+the checkout's `.claude/ccy/` if it is not there, so a repo never used with ccy works, and
 your `gh` must be logged in.
 
 **On a teamchat (v2) team** a cc session joins as a ccy session does: its seat is a pool seat of

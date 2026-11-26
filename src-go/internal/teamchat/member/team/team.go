@@ -62,6 +62,10 @@ type Batch struct {
 	// Handover sets `outbox.questions_handover`, the ready line owed (QX1): the first page write of
 	// a build begun with no `questions` key.
 	Handover bool
+	// Bounces are the events this batch dropped that this member bounces (Plan 00267 C2,
+	// proto.Judge.Bounce): the write lists each in the drop ledger and owes its sender a
+	// bounced receipt, or refuses the whole batch when either list is full.
+	Bounces []Bounce
 	// Relays are the coordinator's relays this batch owes (A 10.6): one per human post the sync
 	// folded onto a question with `asked_by` and per asking seat. The write queues each in
 	// `sending`, under its derived transaction ID, unless that ID is there already.
@@ -80,6 +84,13 @@ type Relay struct {
 type Answer struct {
 	Ping, From, Verb, ID string
 	OriginMS             int64
+}
+
+// Bounce is a dropped event this member bounces: the event, the room purpose it was judged in,
+// its sender and origin time, and the reason.
+type Bounce struct {
+	ID, Room, From, Reason string
+	SentMS                 int64
 }
 
 // Echo is an own ping come back in sync, with the origin_server_ts its deadline is counted from
@@ -278,6 +289,11 @@ type Receipts interface {
 	PendingReceipts(t paths.TeamID) (rs []state.Receipt, changed <-chan struct{})
 	// ReceiptSent drops the receipt for id once the homeserver has it.
 	ReceiptSent(ctx context.Context, t paths.TeamID, id string) error
+	// PendingOwed is the team's owed `teamchat.receipt`s not yet posted (Plan 00267 C2), and a
+	// channel closed when they or the read receipts next change.
+	PendingOwed(t paths.TeamID) (owed []state.Owed, changed <-chan struct{})
+	// OwedSent removes the owed receipt o once the homeserver has its post.
+	OwedSent(ctx context.Context, t paths.TeamID, o state.Owed) error
 }
 
 // Team is one team goroutine, as the engine and the link see it.

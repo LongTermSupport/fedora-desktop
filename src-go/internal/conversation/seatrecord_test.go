@@ -373,6 +373,26 @@ func TestSeatLastRanIsTheRecordWhileItsTranscriptIsHere(t *testing.T) {
 	}
 }
 
+// Plan 00265 R89, R90 (Q5): SeatRan says whether the seat has a record, when its conversation last
+// ran here while the transcript is here, and that conversation's first prompt.
+func TestSeatRanIsTheRecordItsTimeAndItsFirstPrompt(t *testing.T) {
+	w := newWorld(t)
+	seat := membership.Seat{Team: "alpha", Seat: "1"}
+	if ran, err := SeatRan(w.checkout, seat); err != nil || ran != (Ran{}) {
+		t.Fatalf("no record: %+v %v", ran, err)
+	}
+	w.record("1@alpha", id, SourceLaunch)
+	if ran, err := SeatRan(w.checkout, seat); err != nil || ran != (Ran{Recorded: true}) {
+		t.Fatalf("a record whose transcript is gone: %+v %v", ran, err)
+	}
+	write(t, filepath.Join(w.checkout, ".claude/ccy/projects/-workspace", id+".jsonl"),
+		`{"type":"user","message":{"role":"user","content":"Fix the restore"}}`+"\n")
+	want := Ran{Recorded: true, MS: recordMS, Prompt: "Fix the restore"}
+	if ran, err := SeatRan(w.checkout, seat); err != nil || ran != want {
+		t.Fatalf("a record with its transcript: %+v %v, want %+v", ran, err, want)
+	}
+}
+
 // Plan 00265 R90: a team named alone in a seat list is the seat of it this checkout recorded; one
 // with none, or with several, is refused in words, the several by when each last ran.
 func TestATeamAloneIsItsOneRecordedSeat(t *testing.T) {

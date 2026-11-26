@@ -40,6 +40,9 @@ func (c *Chooser) finish(ctx context.Context, memberType string, refs []string) 
 		if code := c.consent(ctx, memberType, refs); code != term.ExitOK {
 			return code
 		}
+		if code := c.hostReady(ctx); code != term.ExitOK {
+			return code
+		}
 	}
 	return c.printList(refs)
 }

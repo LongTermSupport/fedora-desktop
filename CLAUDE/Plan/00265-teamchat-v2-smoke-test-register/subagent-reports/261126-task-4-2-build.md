@@ -117,4 +117,140 @@ trees after the widening: no finding. No full QA.
 ## Left
 
 Plain `cc`, the unattended pick, R89's restore seat pass, session names by role, and the rows'
-first prompt and role: [HANDOFF-4.2.md](../HANDOFF-4.2.md).
+first prompt and role: the handoff, since retired (built in the parts below).
+
+# Part three: the broken picker case, plain cc, the unattended pick, restore's words
+
+## The failing `test-ccy-teams-command.bash` case
+
+Part one (`2af1ca078`) broke it: `seats.seatChoices` now labels the new-session rows
+`A free seat of <team>` and `A new seat of <team>`, and the case still grepped for the old
+`proj.dev+local.podman   free` and `Seat 3@alpha   new`. The case now checks the rows in words;
+the launches after it still prove which seat each row's tag is (the new one numbered after
+every numbered seat). Part two did not touch it.
+
+## Built
+
+- **Plain `cc` (item 3, Q1).** `cc-teams.bash`'s split asks `ccy-teams choose-teams --type=host --seated` when cc was given no `--teams`/`--bus`/`--no-teams` and runs in ccy's tmux (a
+  teamchat seat needs the session name). Go (`chooser/seated.go`) prints the one teamchat team
+  whose bus answers and that this checkout holds a host seat of, said in words; nothing, quietly,
+  with none or outside a host checkout; with several it joins none and says `cc --teams <team>`.
+  cc then runs exactly as `cc --teams <team>`. `cc --no-teams` opts out.
+- **Room for it in bash.** The file was at its ratchet record; `cc_teams_ccy_dir` moved to Go
+  (`chooser/ccydir.go`, `hostReady`): once a host launch's consent is given (a list or `--bus`)
+  the chooser makes the checkout's `.claude/ccy/`, refusing a symlink (78). The record went
+  down: 52 lines, 4 functions, 110 statements (was 61, 5, 123).
+- **Unattended pick (item 4).** `chooser.unattended` replaces `unattendedWays`: with nobody to
+  ask, a teamchat team alone takes `seatchoice.Pick`'s seat, said in words, and the list goes on
+  to the consent; a genuine choice, no seat of the kind, or an agent-bus team alone is refused
+  (64) with the seats in words and the ways on; no seat is added. The launcher now calls the
+  chooser for a team alone with nobody to ask, passing `--attended=false` (a restore or a
+  restart has a terminal nobody watches); a bare `--teams` unattended still goes to the seat
+  check's refusal. `docs/agent-bus.md` (both "seats" paragraphs and "A cc session") and
+  `usage.txt` say so.
+- **Restore's dry run (item 5, part).** `restore --dry-run` prints `would start <name> in <dir>, resuming its conversation, on teams <a> and <b>.` (or `fresh ... (no conversation to resume)`): the replayed argv, whose `--teams` named each seat, is gone (`wouldStart`).
+
+## Red and green
+
+`TestSeated*` (6), `TestAHostLaunchMakesTheCheckoutsCcyDirectory` and its four siblings,
+`TestNoTerminalTakesTheSeatThisCheckoutWorkedIn`, `...RefusesAGenuineChoiceInWords`,
+`...AddsNoSeat`, `TestTheLauncherSaysNobodyIsThereToAsk` and `TestADryRunNamesTheTeamsAndNoSeat`
+were written first; the unattended, attended-flag and dry-run ones were run red (exit 64 for
+`--attended`, the old refusal, the argv line), then green. The `--seated` and `.claude/ccy`
+tests were not run red before their code (they were written first; the flag was an unknown
+option, so they would have failed). Two expectations changed by design:
+`TestNoTerminalNamesOnlyTheLaunchKindsSeats` is now a genuine choice, and the bash headless
+case in `test-ccy-teams.bash` now sees the chooser told `--attended=false`.
+
+## Tests run
+
+`go test` on `internal/teams/chooser`, `internal/teams`, `internal/sessions`, and in the `qa`
+module `rules`, `seattext`, `cmd/qa-seat-text`; `golangci-lint` on the chooser and sessions
+packages: 0 issues; the project rules (`go vet -vettool`) over both: no finding;
+`scripts/qa-seat-text.bash` and `scripts/qa-bash-limits.bash` green;
+`scripts/test-cc-teams.bash`, `test-ccy-teams.bash` and `test-ccy-teams-command.bash`. No full QA.
+
+## Left
+
+R89's seat pass proper, session names by role, and the rows' first prompt and role:
+the handoff, since retired (built in the parts below).
+
+# Part four: the rows in words, session names by role, R89's seat pass
+
+## Built
+
+- **Rows (item 7, Q5).** `transcript.FirstPrompt` reads a conversation's first typed prompt. It
+  skips Claude's notes, slash commands, tool results and sub-agents, takes the first line and
+  cuts it to 60 runes. `conversation.SeatRan` returns a seat's record, when it last ran and that
+  prompt (`SeatLastRan` now wraps it). `seatchoice.Seat` gains `Role` and `Prompt`, and
+  `Describe`/`InWords` name a seat by its role. A row reads `The coordinator of <team>: last
+  ran 2 hours ago, "<prompt>"` or `A worker of <team>: ...`. A held row says the role beside
+  the session. The line a launch prints for a seat taken without a question says the same. The
+  role comes from the team's status record: `system.Cmd.PoolState` fills it, matched by handle.
+  An unreadable record is an error.
+- **Session names (item 6, Q7).** `sessionname.RoleLabels` and `NameBy`:
+  `ccy-<team>-<project>-<role>` when no other pool seat of the team in the checkout has that
+  role, else the seat's number. An agent-bus team (a name outside teamchat's grammar) is not
+  asked. A lookup that fails is exit 1. `system.Cmd.SeatRoles` answers by checkout path.
+  `usage.txt`, N1 and `docs/ccy.md` say so. The two allowlist rows for `internal session-name`
+  still match their lines unchanged, so `allowed.tsv` is not edited.
+- **R89's seat pass (item 5, design §3)**, in `internal/sessions/seatpass.go`. A restore with no
+  names, after its records, walks `seat-checkouts`. It also runs when the registry directory
+  is absent, which is R89's case. Every teamchat pool seat with a seat record that no running
+  session holds (`system.PoolState`, with the registry as the kept-record test) and that no
+  record of the same checkout names in its `--teams` gets a record of its own. That record is
+  `ccy`, restore on, `--teams <seat>@<team>`. The seat is then started through the same
+  `restoreRun.record` every record goes through, so the manifest, `--resume` from the seats'
+  record, `--supervise` and the failure handling are shared. Named and not started, and not
+  counted as failures:
+  - a seat whose transcript is gone (`run ccy --teams <team> there to choose`);
+  - a host seat (`run cc --teams <team> there`);
+  - a pool no listed checkout leads to.
+  A seat that never ran is passed over. `--dry-run` prints `would start the coordinator of
+  <team> in <checkout>, resuming "<prompt>" (last ran 2 hours ago)` and the `would not start`
+  lines on stdout, and starts nothing.
+- CCY 3.124.97 (container unchanged): the `tmux-session.bash` comment on session names, with
+  its changelog entry.
+
+## Departure from the design: decided by the coordinator, 26 Nov
+
+The coordinator settled this as an engineering call, not one for the owner. A record naming
+its seat is deterministic, a bare team could take the wrong seat in the middle of a restore,
+and the owner never sees the difference. Design section 3 now says what the code does.
+
+The design started each seat as the plain `ccy --teams <team>`. The pass names the seat in the
+new record's `--teams` instead. The records this same restore has just started do not hold
+their seats yet, so a launch by team could take one of theirs. The seat stays out of everything
+a person reads: the restore's lines are in words, and the record is machine data, as every
+record's canonical list already was.
+
+## Not done, and faults found
+
+- `seats model` still takes a seat for a seat's own model. Asking for it in words was not in
+  this part's scope.
+- R89's third fix, why the session records were missing, stays open. The design puts it
+  outside this task.
+- Fault, filed as #444 (not fixed here): `conversation.SeatLastRan`/`SeatRan` look for a seat's transcript in ccy's
+  directory only. A host (cc) seat's conversation, under `~/.claude/projects/<mangled>`, always
+  reads as never run, so `Pick` and the rows never see a host seat's history. The seat pass
+  names host seats rather than judging them.
+
+## Red and green
+
+Each test was written first and run red: `TestFirstPrompt*` (4), `TestSeatRan...`,
+`TestRowsNameTheRoleAndTheFirstPrompt`, `TestTheSeatQuestionNamesRolesAndFirstPrompts`,
+`TestCmdPoolStateAndSeatRolesNameEachSeatsRole`, `TestASeatWithAUniqueRoleIsNamedByIt`,
+`TestRestoreStartsEverySeatNoRecordCovers` and `TestRestoreOfNamedSessionsStartsNoSeat`. Red
+meant undefined symbols, then failed expectations (the host seat's words, the start count), then
+green. One wording change by design: the picked-seat line `resuming this checkout's seat of it
+that last ran` is now `resuming a seat of <team>, which last ran here`.
+
+## Tests run
+
+`go test` on `internal/transcript`, `internal/conversation`, `internal/teams/...`,
+`internal/sessions` and `cmd/ccy-sessions`, and in `qa`, `rules`, `seattext` and
+`cmd/qa-seat-text`. `golangci-lint` and `gofmt` on the touched packages: 0 issues. The project
+rules (`go vet -vettool`) over `internal/{sessions,teams/...,conversation,transcript}`: no
+finding, after one fix (the record's file taken from `Store.Find`). `scripts/qa-seat-text.bash`
+is green. The `scripts/test-cc*-teams*.bash` and `test-ccy-sessions-*.bash` suites are in the
+commit message. No full QA was run.

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -137,6 +138,46 @@ func TestRunPrintsTheFirstFreeName(t *testing.T) {
 		if code != term.ExitOK || out != tc.want {
 			t.Fatalf("%v taken %v: exit %d out %q err %q, want %q", tc.args, tc.taken, code, out, errOut, tc.want)
 		}
+	}
+}
+
+// N1 (Plan 00265 R90, Q7): a seat whose role is the only one of its kind among the checkout's
+// pool seats of the team is named by the role; two workers keep their seats, to tell them apart.
+// A team outside teamchat's grammar is not asked; a lookup that fails is exit 1.
+func TestASeatWithAUniqueRoleIsNamedByIt(t *testing.T) {
+	roles := map[string]map[string]string{
+		"alpha": {"1": "coordinator", "2": "worker", "3": "worker"},
+		"beta":  {"4": "worker"},
+	}
+	var asked []string
+	lookup := func(checkout, team string) (map[string]string, error) {
+		asked = append(asked, checkout+" "+team)
+		return roles[team], nil
+	}
+	for seats, want := range map[string]string{
+		"1@alpha":        "ccy-alpha-proj-coordinator",
+		"2@alpha":        "ccy-alpha-proj-2",
+		"4@beta":         "ccy-beta-proj-worker",
+		"1@alpha,4@beta": "ccy-alpha-proj-coordinator_beta-proj-worker",
+		"9@alpha":        "ccy-alpha-proj-9",
+		"1@status":       "ccy-status-proj-1",
+	} {
+		var out, errOut bytes.Buffer
+		code := Command{Server: fakeServer{}, Records: fakeRecords{}.read, Roles: lookup, Stdout: &out, Stderr: &errOut}.
+			Run(t.Context(), []string{"ccy", "proj", seats, here})
+		if code != term.ExitOK || out.String() != want+"\n" {
+			t.Errorf("%s: exit %d out %q err %q, want %q", seats, code, out.String(), errOut.String(), want)
+		}
+	}
+	if !slices.Contains(asked, here+" alpha") || slices.Contains(asked, here+" status") {
+		t.Errorf("the roles were not asked of this checkout's teamchat teams alone: %v", asked)
+	}
+	var out, errOut bytes.Buffer
+	failing := func(string, string) (map[string]string, error) { return nil, errors.New("status unreadable") }
+	code := Command{Server: fakeServer{}, Records: fakeRecords{}.read, Roles: failing, Stdout: &out, Stderr: &errOut}.
+		Run(t.Context(), []string{"ccy", "proj", "1@alpha", here})
+	if code != term.ExitFailure || out.String() != "" || !strings.Contains(errOut.String(), "status unreadable") {
+		t.Fatalf("a failed lookup: exit %d out %q err %q", code, out.String(), errOut.String())
 	}
 }
 

@@ -17,6 +17,73 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.98 — container 2.84.99
+
+- A teamchat link now posts each receipt it owes a sender (an item it bounced) as a
+  `teamchat.receipt` in the team's reports room (Plan 00267 Task 2.3, decision D1). The receipt
+  stays in the seat's store until the homeserver has the post. A refused post, a reports room
+  not joined yet or none in the roster keeps it, with one log line, and it is posted again after
+  the team's backoff; nothing is dropped. Each receipt's post has a transaction ID derived from
+  the receipt, so a post made again after a restart lands once.
+
+## 3.124.97 — container 2.84.98
+
+- `ccy-sessions restore` (no names) also brings back team seats (Plan 00265 R89). After the
+  records, it starts each teamchat seat in a seat checkout that has a conversation recorded
+  there, that no running session holds and that no record covers. Each seat gets a record of its
+  own and is said in words, such as `would start the coordinator of <team> in <checkout>,
+  resuming "<first prompt>"`. A seat whose transcript is gone, or a host seat, is named with the
+  launch that brings it back.
+- The seat question and the line a launch prints name a seat by its role and its
+  conversation's first prompt (`The coordinator of <team>: last ran 2 hours ago, "..."`), never
+  by its number (R90, Q5).
+- A team session is named by its seat's role when no other seat of the team in the checkout has
+  that role (`ccy-<team>-<project>-coordinator`); the number stays only to tell two workers
+  apart (R90, Q7).
+
+## 3.124.96 — container 2.84.98
+
+- teamchat: a member lists each event it drops that was addressed to it (its drop ledger, kept
+  a week) and owes the sender a `bounced` receipt with the reason, once per event. Only the
+  addressees bounce; the coordinator bounces what has no readable addressee and a human's post
+  that reached no agent. Outsiders, the admin and receipts are never bounced (Plan 00267 Tasks
+  2.1 and 2.2). The receipts are queued in the seat store; their sender follows.
+
+## 3.124.95 — container 2.84.97
+
+- **`teamchat`'s path names gain the restore drill's two files** (issue #324):
+  `/var/lib/teamchat-admin/restore-proof.json`, which `teamchat-admin` reads before it allows a
+  restore, and a scratch team's `restore-drill.json` marker, the only teams the drill's
+  clean-up removes (not the carry's `drill.json`). The image's `teamchat` is built from the
+  same names package, so it is rebuilt once; nothing in it reads the new names. The launcher
+  itself is unchanged apart from the versions.
+
+## 3.124.94 — container 2.84.96
+
+- `ccy --teams <team>` and `cc --teams <team>` with nobody to ask (a restore, a restart,
+  headless) take the seat a launch at a terminal would take without asking, the one this
+  checkout last worked in, and say so; only a genuine choice is refused, in words (Plan 00265
+  R90). The launcher tells the chooser `--attended=false`.
+- A plain `cc` in ccy's tmux, in a checkout holding a host seat of one teamchat team, joins it;
+  `cc --no-teams` starts on no team. The chooser now makes a host launch's `.claude/ccy/` once
+  the consent is given.
+- `ccy-sessions restore --dry-run` says what it would start in words, its teams by name, and no
+  longer prints the replayed command line, whose `--teams` named each seat.
+
+## 3.124.93 — container 2.84.96
+
+- teamchat: a member's queue of read receipts (`m.read` for a human's message the session was
+  shown) no longer loses one when it is full. A full queue keeps each room's latest receipt,
+  which marks the room read up to that message, so the human still sees every message read
+  (Plan 00267 Task 2.3). A new Go project rule, `project_store_refusal_lost`, holds every other
+  seat-store add to returning its refusal. The seat store's file cap is now 17 x 256 KiB.
+
+## 3.124.92 — container 2.84.95
+
+- The `CCY_VERSION` comment, which the rebuild banner prints, is one short line for the current
+  release again; it had grown back to about 12,000 characters of history that this file already
+  holds. Nothing else changes.
+
 ## 3.124.91 — container 2.84.95
 
 - `ccy --help`, the launcher's `--teams` errors and the `ccy.env.local.dist` comment name

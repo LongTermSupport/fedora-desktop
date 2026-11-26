@@ -31,6 +31,7 @@ import (
 	v1 "github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/migrate/v1"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore/drill"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
@@ -63,9 +64,6 @@ type machine struct {
 	// stateOwnerUID owns the state root and root's own files (the CA key among them): root on a
 	// host, and the test's own uid in a test, whose fixtures are its user's.
 	stateOwnerUID uint32
-	// restoreProven is set only once host checks H-C5 and H-C15 have passed (DC8, n2g-D8); a
-	// test sets it to run the engine over these adapters. Until then System.Restore refuses.
-	restoreProven bool
 }
 
 func production() machine {
@@ -166,12 +164,7 @@ func (m machine) system(digest string) (*admin.System, error) {
 			}}, nil
 		},
 	}
-	sys.Restore = func() (admin.Restorer, error) {
-		if !m.restoreProven {
-			return nil, restore.ErrUnproven
-		}
-		return m.engine(sys, self, systemd, backups)
-	}
+	m.restoreSeams(sys, d, self, systemd, backups)
 	sys.Carry = func() (admin.Carrier, error) { return m.carry(sys, systemd, d) }
 	return sys, nil
 }
@@ -207,15 +200,67 @@ func (m machine) carry(sys *admin.System, systemd *units.Manager, software paths
 	}}, nil
 }
 
-// engine is the restore engine over the host's adapters (RW1, SM4), run by the verb under the
-// team lock it holds.
-func (m machine) engine(sys *admin.System, self string, systemd *units.Manager, backups func() (backup.Deps, error)) (admin.Restorer, error) {
+// restoreSeams are the restore engine and the drill. DC8, n2g-D8: the engine only once the
+// restore drill's proof record, root's own, is of this build, the installed Tuwunel and this
+// systemd major, with every clause of H-C5 and H-C15 passed. The drill's own restores and
+// discards are what make the proof, so its engine is not gated; its key is the one Restore
+// checks, read the same way.
+func (m machine) restoreSeams(sys *admin.System, d paths.Digest, self string, systemd *units.Manager, backups func() (backup.Deps, error)) {
+	root, stateOwnerUID := m.root, m.stateOwnerUID
+	key := func(ctx context.Context) (restore.Key, error) {
+		pin, err := m.readPin()
+		if err != nil {
+			return restore.Key{}, err
+		}
+		systemdVersion, err := systemd.SystemdVersion(ctx)
+		if err != nil {
+			return restore.Key{}, err
+		}
+		return restore.Key{Software: d, Tuwunel: pin.Version, Systemd: systemdVersion}, nil
+	}
+	deps := func(context.Context) (restore.Deps, error) { return m.engineDeps(sys, self, systemd, backups) }
+	engine := func(ctx context.Context) (admin.Restorer, error) {
+		dd, err := deps(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return admin.Engine{Deps: dd}, nil
+	}
+	sys.Restore = func(ctx context.Context) (admin.Restorer, error) {
+		k, err := key(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := restore.Proven(root, stateOwnerUID, k); err != nil {
+			return nil, err
+		}
+		return engine(ctx)
+	}
+	sys.Drill = func(context.Context) (admin.Driller, error) {
+		return admin.HostDrill{
+			Sys: sys, Engine: engine, Deps: deps, Key: key,
+			TakeBackup: func(ctx context.Context, held *teamlock.Lock) (int64, error) {
+				b, err := backups()
+				if err != nil {
+					return 0, err
+				}
+				res, err := backup.Take(ctx, b, held, nil)
+				return res.Backup, err
+			},
+			Dial: hostnet.Answers, Drill: drill.Run,
+		}, nil
+	}
+}
+
+// engineDeps is the restore engine's Deps over the host's adapters (RW1, SM4), its hooks unset;
+// the engine is run by the verb under the team lock it holds.
+func (m machine) engineDeps(sys *admin.System, self string, systemd *units.Manager, backups func() (backup.Deps, error)) (restore.Deps, error) {
 	b, err := backups()
 	if err != nil {
-		return nil, err
+		return restore.Deps{}, err
 	}
 	root, stateOwnerUID := m.root, m.stateOwnerUID
-	return admin.Engine{Deps: restore.Deps{
+	return restore.Deps{
 		Root: root, CtlUID: b.CtlUID, StateOwnerUID: stateOwnerUID,
 		Units: restoreUnits{systemd}, Ready: b.Ready, Run: m.runner,
 		Child: admin.RestoreChild{Live: sys.Child, Unit: func(argv []string) admin.Child { return admin.UnitChild{Runner: m.runner, Argv: argv} }},
@@ -246,7 +291,7 @@ func (m machine) engine(sys *admin.System, self string, systemd *units.Manager, 
 		Sandbox: host.TeamSandbox,
 		Version: func(team paths.TeamID) (paths.ServerVersion, error) { return host.ReadUnitsVersion(root, team) },
 		Self:    self,
-	}}, nil
+	}, nil
 }
 
 // regKey is the registration key an applied config holds; a config without one was not

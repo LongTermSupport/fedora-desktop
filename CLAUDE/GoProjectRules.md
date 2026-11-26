@@ -102,6 +102,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_temp_not_exclusive`       | a temporary created without O_EXCL and then renamed or linked into place, so a link planted at its predictable name is followed and the write lands where it points                                                            | `fsx.WriteAtomic`: `<path>.tmp.<pid>` written by `os.WriteFile`, in a directory a container shares (fedora-desktop#417 review)                                                                                          |
 | `project_seat_number_text`         | text a person is told to type or pick from that spells out a seat (a launch with the seat, a seat placeholder, a hand-over or a repair naming the seat, a row labelled by its seat or handle), when only the machine knows it  | `ccy --teams <team>`'s chooser rows (`seat 2  <handle>  free`) and its ways on (`ccy --teams 3@<team>`), the owner having to know a seat number (Plan 00265 R90)                                                        |
 | `project_root_create_follows_link` | a create through an `os.Root` without O_EXCL, which follows a link inside the root at the last name, O_NOFOLLOW or not, so a dangling link there gets its target created                                                       | the seat-record lock, opened `O_RDWR\|O_CREATE` through the checkout's `os.Root` (Plan 00265 R36, the batch 22b review)                                                                                                 |
+| `project_store_refusal_lost`       | a teamchat seat-store add's refusal (its list full) that reaches no return, so the write goes ahead without the entry and what it stood for is lost                                                                            | teamchat `engine`: the proof logged a full read-receipt queue and went on, so the human never saw the message read (Plan 00267 C2)                                                                                      |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
 `go vet -vettool=<driver> help ...` does not reach it) says what it does and
@@ -4273,3 +4274,43 @@ chooser map a row back to its seat.
 - Green, the fix: 0 findings. The chooser takes the seat this checkout worked in
   (`seatchoice.Pick` over the seat records, `conversation.SeatLastRan`), rows are words, the ways
   on and repairs name teams (`seats conversation` takes a team and finds its one recorded seat).
+
+### project_store_refusal_lost
+
+**What it is about.** The seat store's capped lists refuse an entry when full (B 2.3.2: "the
+operation is refused loudly, never dropped"). The refusal is what makes the whole write fail,
+so nothing is lost and the work is tried again. A caller that answers it with a log line (or
+with "no change, no error") lets the write go ahead without the entry, and what the entry
+stood for is gone with no one told.
+
+**Why it exists.** Plan 00267 (lossless delivery), DESIGN C2: the proof queued each HUMAN item's
+`m.read` receipt with `AddReceipt` and, when the queue was full, logged `no read receipt for`
+and settled the proof, so the human never saw their message read.
+
+**What it flags**, outside `internal/teamchat/member/state` and outside test files: a call of a
+`state.Store` method named `Add...` whose last result is an error, when that error reaches no
+return of the function (or function literal) the call is in: the result discarded as a statement
+or into `_`; held in a variable that no return names and no `if` tests with a body returning an
+error of its own (a return whose last result is not `nil`); or passed anywhere but a return.
+
+**Not flagged**: package `state`, which owns the lists; an add with no error result (the ledger
+and missed lists roll, and the read-receipt queue keeps each room's latest receipt when full);
+a test file, which fills a store past its cap on purpose.
+
+**How to fix a violation.** Return the refusal, wrapped or translated into a refusal of your
+own, so the write is refused and tried again; or make the add one that cannot lose (the
+read-receipt queue: an `m.read` covers its room up to the event, so a full queue keeps each
+room's latest).
+
+- Red, fixture: `testdata/src/storeadd/internal/teamchat/member/engine` (the if-init form with a
+  log line, the error held first, a discarded result as a statement and into `_`, `ErrFull`
+  matched and swallowed, `return false, nil`, a loss inside a function literal, the error of a
+  two-result add (`added, err :=`) swallowed: 8 findings; returned, wrapped, held then returned,
+  translated and a two-result add returned: clean; an add with no error: clean; the test file
+  and `member/state`: not judged). The two-result form was added with `AddDropped`: the first
+  draft took every multi-name assignment for a loss, a false finding on `engine.applyBounces`.
+- Red, real tree (the driver as `go vet -vettool` over `./internal/teamchat/...`): one finding,
+  `engine/proof.go` (`receipt`). `engine/send.go`'s `AddSending`, which answers with its own
+  refusal, was a finding of the first draft and is not one now.
+- Green: `AddReceipt` cannot refuse (`TestAFullReceiptQueueKeepsEachRoomsLatest`), so the proof
+  calls it with nothing to lose: 0 findings.

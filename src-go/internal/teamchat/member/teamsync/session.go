@@ -793,7 +793,7 @@ func (s *sess) judgeAll(ctx context.Context, events []json.RawMessage, restored 
 			}
 			room = proto.PurposeQuestions
 		}
-		s.take(&j, v, e.id, restored, jr.lk, counted, room)
+		s.take(&j, v, e.id, restored, jr, counted, room)
 	}
 	if s.floor.Below(jr.floor) {
 		j.batch.Floors = map[string]state.Floor{proto.PurposeMain: jr.floor}
@@ -825,6 +825,8 @@ type roomJudged struct {
 	vs    []proto.Verdict
 	lk    *memLookup
 	floor state.Floor
+	// judge is the room's judge, which also says who bounces a drop (proto.Judge.Bounce).
+	judge proto.Judge
 }
 
 // judgeRoom is SY4 with SY4a's resolve first over one room's events, oldest first, over a
@@ -870,7 +872,7 @@ func (s *sess) judgeRoom(ctx context.Context, j *judged, rj roomJudge) (roomJudg
 		Server: s.a.Server, Self: s.a.Self, RoomID: rj.room, Purpose: rj.purpose,
 		Roster: s.roster, NowMs: j.now, Lookup: lk, Flood: &j.flood,
 	}
-	out := roomJudged{evs: evs, lk: lk, floor: rj.floor, vs: make([]proto.Verdict, 0, len(evs))}
+	out := roomJudged{evs: evs, lk: lk, floor: rj.floor, vs: make([]proto.Verdict, 0, len(evs)), judge: judge}
 	for _, e := range evs {
 		ej := judge
 		if rj.replayed != nil && rj.replayed(originTs(e.v), e.id) {
@@ -899,8 +901,12 @@ func (s *sess) resolveInput(view team.View, room string) resolveInput {
 }
 
 // take is one verdict's outcome in the batch (the table of SY4), its item in the room of
-// purpose room, and UH1's count.
-func (s *sess) take(j *judged, v proto.Verdict, id string, restored func(int64) bool, lk proto.Lookup, counted map[string]bool, room string) {
+// purpose room, UH1's count, and the bounce this member owes for a drop (Plan 00267 C2).
+func (s *sess) take(j *judged, v proto.Verdict, id string, restored func(int64) bool, jr roomJudged, counted map[string]bool, room string) {
+	lk := jr.lk
+	if reason, owed := jr.judge.Bounce(v); owed && id != "" {
+		j.batch.Bounces = append(j.batch.Bounces, team.Bounce{ID: id, Room: room, From: v.Event.Sender, Reason: reason, SentMS: v.Event.OriginTs})
+	}
 	switch v.Outcome {
 	case proto.Deliver:
 		if !s.admit(j, v) {

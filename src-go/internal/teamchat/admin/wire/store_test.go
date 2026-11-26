@@ -51,7 +51,7 @@ func (b *busConn) Call(_ context.Context, _ string, _ dbus.ObjectPath, method st
 	case "org.freedesktop.DBus.Properties.Get":
 		values := map[string]any{
 			"LoadState": "loaded", "ActiveState": "active", "InvocationID": bytes.Repeat([]byte{0xab}, 16),
-			"NRestarts": uint32(2), "Result": "success",
+			"NRestarts": uint32(2), "Result": "success", "Version": pinnedSystemd,
 		}
 		name, ok := args[1].(string)
 		if !ok {
@@ -182,7 +182,7 @@ func writeTar(t *testing.T, root string, team paths.TeamID, n int64) backup.Sour
 // engineOf is the restore engine the wiring builds once restore is proven.
 func engineOf(t *testing.T, sys *admin.System) admin.Engine {
 	t.Helper()
-	r, err := sys.Restore()
+	r, err := sys.Restore(t.Context())
 	if err != nil {
 		t.Fatalf("Restore: %v", err)
 	}
@@ -194,19 +194,22 @@ func engineOf(t *testing.T, sys *admin.System) admin.Engine {
 }
 
 // RW1, SM4, n2g-D8: once restore is proven, System.Restore is the engine over the host's own
-// adapters; production stays refused (TestRestoreIsUnproven).
+// adapters; without a passed proof it stays refused (TestRestoreIsUnproven).
 func TestRestoreEngineIsTheHostsAdapters(t *testing.T) {
 	f := &fakeMachine{root: t.TempDir(), proven: true}
 	sys := build(t, f)
 	d := engineOf(t, sys).Deps
-	if d.Root != f.root || d.CtlUID != 990 || d.StateOwnerUID != 0 || d.Self != "/usr/libexec/teamchat-admin" || d.FS != (restore.OS{Root: f.root}) {
+	if d.Root != f.root || d.CtlUID != 990 || d.StateOwnerUID != f.owner || d.Self != "/usr/libexec/teamchat-admin" || d.FS != (restore.OS{Root: f.root, StateOwnerUID: f.owner}) {
 		t.Fatalf("Deps %+v", d)
 	}
 	if d.Ready != (hostnet.Readiness{}) || d.Clock != (systemClock{}) || d.Rand != rand.Reader {
 		t.Fatalf("Deps %+v", d)
 	}
-	if missing := nilFields(reflect.ValueOf(d)); len(missing) > 0 {
+	if missing := nilFields(reflect.ValueOf(d), "OnStaged", "AfterSwap"); len(missing) > 0 {
 		t.Fatalf("restore.Deps seams left nil: %v", missing)
+	}
+	if d.OnStaged != nil || d.AfterSwap != nil {
+		t.Fatal("a real restore runs the drill's hooks: OnStaged and AfterSwap must be nil")
 	}
 	if reflect.TypeOf(d.Approvals) != reflect.TypeOf(sys.Host.Approvals) || reflect.TypeOf(d.Status) != reflect.TypeOf(sys.Host.Status) {
 		t.Fatalf("Approvals %T, Status %T: not the host's", d.Approvals, d.Status)
@@ -403,7 +406,7 @@ func TestRestoreEngineRuns(t *testing.T) {
 		t.Fatalf("Discard with no record = %q, %v", out, err)
 	}
 	sys := build(t, &fakeMachine{root: t.TempDir(), proven: true, noCtl: true})
-	if r, err := sys.Restore(); r != nil || err == nil || !strings.Contains(err.Error(), "no "+paths.CtlUser+" account") {
+	if r, err := sys.Restore(t.Context()); r != nil || err == nil || !strings.Contains(err.Error(), "no "+paths.CtlUser+" account") {
 		t.Fatalf("Restore with no account = %v, %v", r, err)
 	}
 }

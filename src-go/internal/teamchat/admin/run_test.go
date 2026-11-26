@@ -97,7 +97,7 @@ func specVerbs() map[string]Class {
 	add(ClassRoot, "member", "add", "return", "park", "retire", "reissue", "set")
 	add(ClassRoot, "role", "apply")
 	add(ClassRoot, "human", "password", "devices", "logout", "lock", "unlock")
-	for _, v := range []string{"redact", "backup", "backups", "restore", "health", "check", "footprint"} {
+	for _, v := range []string{"redact", "backup", "backups", "restore", "restore-drill", "health", "check", "footprint"} {
 		add(ClassRoot, v)
 	}
 	add(ClassRoot, "lxc", "apply", "restart", "start", "stop", "reconcile", "record-running", "boot", "record-started")

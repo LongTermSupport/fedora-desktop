@@ -186,7 +186,7 @@ func TestRestoreDryRunSaysWhatItWouldStartAndWritesNothing(t *testing.T) {
 	a := realDir(t, h, "a")
 	record(t, h, registry.Record{Name: "ccy-a", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true})
 	exitCodeIs(t, h.run("restore", "--dry-run"), 0, h)
-	contains(t, "dry run", h.stderr(), "would start ccy-a in "+a+": /launch/ccy --supervise --resume "+conversationOf("ccy-a")+"\n",
+	contains(t, "dry run", h.stderr(), "would start ccy-a in "+a+", resuming its conversation.\n",
 		"ccy session restore: 0 started, 0 failed.\n")
 	if len(startedSessions(h)) != 0 {
 		t.Fatal("a dry run starts nothing")
@@ -416,7 +416,21 @@ func TestADryRunSaysAMarkedRecordWouldStartFresh(t *testing.T) {
 	a := realDir(t, h, "a")
 	recordOnly(t, h, registry.Record{Name: "ccy-new", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, FreshIfNoConversation: true})
 	exitCodeIs(t, h.run("restore", "--dry-run"), 0, h)
-	contains(t, "dry run", h.stderr(), "would start ccy-new fresh in "+a+" (no conversation to resume): /launch/ccy --supervise\n")
+	contains(t, "dry run", h.stderr(), "would start ccy-new fresh in "+a+" (no conversation to resume).\n")
+}
+
+// Plan 00265 R89/R90: a dry run says what it would start in words, its teams by name; the
+// replayed command line, whose --teams list names each seat, is not shown.
+func TestADryRunNamesTheTeamsAndNoSeat(t *testing.T) {
+	h := newHarness(t)
+	restoreHost(h)
+	a := realDir(t, h, "a")
+	rec := registry.Record{Name: "ccy-t", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true}
+	rec.Args = []string{"--token", "work", "--teams", "2@lts,dev1@qa"}
+	record(t, h, rec)
+	exitCodeIs(t, h.run("restore", "--dry-run"), 0, h)
+	contains(t, "dry run", h.stderr(), "would start ccy-t in "+a+", resuming its conversation, on teams lts and qa.\n")
+	lacks(t, "dry run", h.stderr(), "2@lts", "--token")
 }
 
 // --check judges a marked never-run record restorable, so the self-update cycle's

@@ -137,8 +137,54 @@ func teamFuncs() map[string]func(TeamID) string {
 		"SealRecord": SealRecord, "DrillRecord": DrillRecord, "CarriedRecord": CarriedRecord,
 		"CarryExport": CarryExport, "CarryDrillExport": CarryDrillExport,
 		"CarryImportRecord": CarryImportRecord, "CarryStaging": CarryStaging,
-		"HomeserverCarryStaging": HomeserverCarryStaging,
+		"HomeserverCarryStaging": HomeserverCarryStaging, "RestoreDrillMarker": RestoreDrillMarker,
 	}
+}
+
+// No two func(TeamID) string give one team the same path: two meanings of one file make each
+// owner's reader take the other's file for its own (the restore drill's marker once shared the
+// carry's drill record, so the carry guard refused the drill's own team, issue #324). Names that
+// are not paths (a user, an Element profile) live in namespaces of their own and are not compared.
+func TestNoTwoTeamFuncsNameTheSamePath(t *testing.T) {
+	for _, s := range sampleTeams {
+		if got := sharedTeamPaths(teamFuncs(), mustTeam(t, s)); len(got) != 0 {
+			t.Errorf("team %s: %q name the same path: give each its own name", s, got)
+		}
+	}
+}
+
+// The check can fail: two functions that give the team one path are reported, by name.
+func TestTheSharedPathCheckDiscriminates(t *testing.T) {
+	funcs := map[string]func(TeamID) string{
+		"DrillRecord": DrillRecord,
+		"Twin":        func(t TeamID) string { return AdminState(t) + "/drill.json" },
+		"RosterFile":  RosterFile,
+	}
+	if got := sharedTeamPaths(funcs, mustTeam(t, "ops")); !slices.Equal(got, []string{"DrillRecord=Twin"}) {
+		t.Errorf("got %q, want [DrillRecord=Twin]", got)
+	}
+}
+
+// sharedTeamPaths is each pair of funcs whose results for team are the same absolute path,
+// "A=B" with A before B, sorted.
+func sharedTeamPaths(funcs map[string]func(TeamID) string, team TeamID) []string {
+	byValue := map[string][]string{}
+	for name, f := range funcs {
+		if v := f(team); strings.HasPrefix(v, "/") {
+			byValue[v] = append(byValue[v], name)
+		}
+	}
+	var out []string
+	for _, names := range byValue {
+		slices.Sort(names)
+		for i := range names {
+			for _, other := range names[i+1:] {
+				out = append(out, names[i]+"="+other)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // notStateOfTheTeam are the func(TeamID) string whose result holds no state of the team on this

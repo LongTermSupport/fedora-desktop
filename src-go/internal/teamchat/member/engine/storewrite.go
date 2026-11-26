@@ -76,7 +76,7 @@ func (e *Engine) changeLocked(t paths.TeamID, f func(h *held, s *state.Store) (b
 	if err := h.writer.Write(s); err != nil {
 		return fmt.Errorf("engine: team %s: %w", t, err)
 	}
-	before := h.store.Receipts
+	before := receiptListsOf(h.store)
 	h.store = &s
 	h.tellReceipts(before)
 	e.publish()
@@ -229,7 +229,7 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (state.Floor, error)
 		now := e.cfg.Clock.WallMS()
 		out = e.changeLocked(b.Team, func(_ *held, s *state.Store) (bool, error) {
 			var err error
-			if added, err = apply(s, b); err != nil {
+			if added, err = apply(s, b, now); err != nil {
 				return false, err
 			}
 			if dropped, err = applyQuestions(s, b); err != nil {
@@ -282,8 +282,9 @@ func (h *held) keepUncounted(b team.Batch) {
 	}
 }
 
-// apply is b in a copy of its store; it is the items added, with their verdicts.
-func apply(s *state.Store, b team.Batch) (map[string]proto.Verdict, error) {
+// apply is b in a copy of its store at now, its bounces too; it is the items added, with their
+// verdicts.
+func apply(s *state.Store, b team.Batch, now int64) (map[string]proto.Verdict, error) {
 	added := map[string]proto.Verdict{}
 	if !b.Page {
 		s.Sync.NextBatch, s.Sync.RestoreEpoch, s.Sync.Fresh = b.NextBatch, b.RestoreEpoch, b.Fresh
@@ -318,7 +319,30 @@ func apply(s *state.Store, b team.Batch) (map[string]proto.Verdict, error) {
 		return slices.Contains(b.Redacts, p.ID) && !awaiting[p.ID]
 	})
 	ownedFloors(s)
-	return added, nil
+	return added, applyBounces(s, b, now)
+}
+
+// applyBounces is b's bounces in s at now (Plan 00267 C2, C6): each event once in the drop
+// ledger, past its keep pruned first, and a bounced receipt owed to its sender when it is new
+// there; a full list refuses the batch, never drops an entry.
+func applyBounces(s *state.Store, b team.Batch, now int64) error {
+	if len(b.Bounces) == 0 {
+		return nil
+	}
+	s.PruneDropped(now - state.DroppedKeepMS)
+	for _, x := range b.Bounces {
+		added, err := s.AddDropped(state.Dropped{ID: x.ID, Room: x.Room, From: x.From, SentMS: x.SentMS, AtMS: now, Reason: x.Reason})
+		if err != nil {
+			return fmt.Errorf("engine: team %s: %w", b.Team, err)
+		}
+		if !added {
+			continue
+		}
+		if err := s.AddOwed(state.Owed{Of: x.ID, To: x.From, State: proto.ReceiptBounced, Reason: x.Reason, AtMS: now}); err != nil {
+			return fmt.Errorf("engine: team %s: %w", b.Team, err)
+		}
+	}
+	return nil
 }
 
 // ownedFloors is B 2.3.2's floor rule: a room the store owes items in has its floor just below

@@ -228,6 +228,51 @@ func TestCmdPoolStateNamesTheSessionHoldingEachSeat(t *testing.T) {
 	}
 }
 
+// Plan 00265 R90 (Q5, Q7): each pool seat carries its role in the team, as the team's status
+// record names its member; a seat the record does not name, or no record, has none. SeatRoles
+// is the same for a checkout named by path, keyed by seat.
+func TestCmdPoolStateAndSeatRolesNameEachSeatsRole(t *testing.T) {
+	w := world(t)
+	checkout := filepath.Join(w.home, "repo")
+	holdSeat(t, w.home, checkout, "brisk", "repo.1+site.podman", "ccy-repo")
+	holdSeat(t, w.home, checkout, "brisk", "repo.2+site.podman", "ccy-repo-2")
+	w.cmd.Sessions = restorable{}
+	w.cmd.Status = func(paths.TeamID) (status.Record, bool, error) {
+		return status.Record{Members: []status.Member{
+			{Handle: "repo.1+site.podman", Role: "coordinator"},
+			{Handle: "other.2+site.podman", Role: "worker"},
+		}}, true, nil
+	}
+	got, err := w.cmd.PoolState("brisk", seatchoice.KindPodman)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles := map[string]string{}
+	for _, s := range got {
+		roles[s.Name] = s.Role
+	}
+	if roles["1"] != "coordinator" || roles["2"] != "" || len(roles) != 2 {
+		t.Fatalf("roles %v: seat 1 is the coordinator, seat 2 is not in the record", roles)
+	}
+	byPath, err := w.cmd.SeatRoles(checkout, "brisk")
+	if err != nil || len(byPath) != 1 || byPath["1"] != "coordinator" {
+		t.Fatalf("SeatRoles = %v, %v", byPath, err)
+	}
+	w.cmd.Status = func(paths.TeamID) (status.Record, bool, error) {
+		return status.Record{}, false, errors.New("unreadable")
+	}
+	if _, err := w.cmd.PoolState("brisk", seatchoice.KindPodman); err == nil || !strings.Contains(err.Error(), "unreadable") {
+		t.Fatalf("an unreadable status record: %v", err)
+	}
+	w.cmd.Status = func(paths.TeamID) (status.Record, bool, error) { return status.Record{}, false, nil }
+	if byPath, err := w.cmd.SeatRoles(checkout, "brisk"); err != nil || len(byPath) != 0 {
+		t.Fatalf("no status record: %v, %v", byPath, err)
+	}
+	if _, err := w.cmd.SeatRoles(checkout, "Not A Team"); err == nil {
+		t.Fatal("SeatRoles took a name outside the team grammar")
+	}
+}
+
 func TestCmdLiveRefusesANameOnBothSystems(t *testing.T) {
 	w := world(t, "fresh")
 	placeSeat(t, w.home, filepath.Join(w.home, "repo"), "fresh")

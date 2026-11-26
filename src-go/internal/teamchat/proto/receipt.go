@@ -1,6 +1,8 @@
 package proto
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"slices"
 	"strings"
 )
@@ -135,6 +137,14 @@ func ReceiptContent(r Receipt) (Value, error) {
 		return Value{}, err
 	}
 	return content, nil
+}
+
+// ReceiptTxn is the transaction ID of an owed receipt's post: derived from its item, addressee,
+// state and reason (never its time), so a post that may have reached the server is the same
+// transaction after a restart and lands once.
+func ReceiptTxn(of, to, state, reason string) string {
+	sum := sha256.Sum256([]byte("receipt\x00" + of + "\x00" + to + "\x00" + state + "\x00" + reason))
+	return "tc" + hex.EncodeToString(sum[:16])
 }
 
 // ReceiptOwed is the loop guard: a receipt, whether or not it decodes, is never itself given a

@@ -117,7 +117,25 @@
 # running instances (no arguments, no other flatpak verb). The deny rules are unchanged.
 # Issue #430 (ccy 3.124.87): ccy-teams and the claude-yolo front are rebuilt so a bare ccy --teams
 # or cc --teams list leaves out a teamchat team whose bus does not answer (each asked at most
-# 5 s, all at once), naming each above the list with why. The image is unchanged.
+# 5 s, all at once), naming each above the list with why.
+# Issue #431 (ccy 3.124.86, 3.124.88): ccy-sessions is rebuilt. A restore no longer starts a
+# session fresh while its checkout holds a conversation recorded under another session name; it
+# refuses, naming ccy-sessions retire-conversation CHECKOUT NAME, the new verb that retires that
+# record so the session can start fresh on purpose. ccy-sessions forget now retires the
+# forgotten session's conversation record too. Both apply to restores run after this play.
+# Plan 00265 Task 4.2 (ccy 3.124.89, 3.124.91): ccy-teams and the claude-yolo front are rebuilt.
+# ccy --teams <team> (and cc --teams <team>) takes the seat this checkout last worked in and asks
+# only when two seats have a conversation here, in words ("last ran 2 hours ago"); a bare
+# --teams with one team takes it; no message, help line or picker row shows a seat number. It
+# applies to launches after this play.
+# Plan 00267 Tasks 7.6, 7.7 (container 2.84.95): this play rebuilds the image, once, so its
+# teamchat delivers by size only (as many messages as fit 12 KiB, no 8-message cap, the rest
+# counted as pending) and in sections, one per kind of message, then teamchat's own facts.
+# Sessions started after the rebuild get it; play-teamchat below does the same for the host's
+# teamchat kit.
+# Issue #324: the image's teamchat is built from the paths package, which gains the restore
+# drill's names (container 2.84.97); the rebuild is the same single one, and nothing in the
+# image reads the new names.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC
@@ -138,6 +156,16 @@ playbooks/imports/play-claude-yolo.yml
 # (nothing else starts or stops now). At the next shutdown the running containers are recorded;
 # at the next boot those are started as lxc@<container>.service, then their recorded seats, and a
 # container that will not start no longer keeps the others' seats down (lxc boot).
+# Plan 00267 Tasks 7.6, 7.7: the host kit and the LXC members' copies carry the same teamchat as
+# the image above (deliveries limited by size only, in sections); member sessions started after
+# the run get it.
+# Issue #324 (the restore drill): teamchat-admin's restore now reads a restore proof record and
+# stays refused without one, and it gains `restore-drill`. The play gains
+# teamchat_restore_drill (default false) and, only where it is true, the drill port's SELinux
+# label. This host does not set it, so no drill port is labelled, no port is opened and NO
+# drill runs here. Expected: changed for the teamchat-admin copy and its link; the SELinux tasks
+# unchanged. Afterwards: `sudo teamchat-admin restore --team T --backup N` exits 70 naming the
+# missing restore proof, as it refused before.
 playbooks/imports/play-teamchat.yml
 
 # Plan 00265 R79: finishes the private-name guard's setup. It ASKS at the terminal for each
@@ -181,6 +209,17 @@ playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-li
 # offline, say), fewer units found than members declared, a probe that did not answer, or a
 # failed lxc-stop or lxc-start.
 00257-cross-host-lxc-team-members/lxc-no-autostart-acceptance.bash
+
+# Issue #325: play-photography's RapidRAW check now asks rpm for the package's real name,
+# rapid-raw (it asked for rapidraw, so every run downloaded the RPM, found it installed and
+# deleted it again), and fails on any rpm answer other than installed or not installed. The
+# play runs twice, in full, as the idempotence proof: the first run may converge the host;
+# the SECOND RUN MUST REPORT changed=0 in its PLAY RECAP. Any changed task there, or a
+# "Download RapidRAW RPM" that is not skipped, means #325 is not fixed.
+playbooks/imports/optional/common/play-photography.yml
+# The second pass of the #325 proof above: its PLAY RECAP must say changed=0.
+playbooks/imports/optional/common/play-photography.yml
+
 # Issue #322 (ccy 3.124.18): line-based listings are captured first instead of read through a
 # process substitution and its wait "$!". Besides the launcher, cc and agent-bus-install (whose
 # plays have run), the change reaches the user tools imgpaste, qnap-finder, raw-prune,

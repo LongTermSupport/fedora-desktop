@@ -35,9 +35,11 @@ const maxRounds = 3
 const (
 	flagType = "--type"
 	// flagBus is `cc --bus`'s: a host session on no team, so only the consent is asked.
-	flagBus    = "--bus"
-	typePodman = "podman"
-	typeHost   = "host"
+	flagBus = "--bus"
+	// flagAttended=false is the launcher saying nobody is at the terminal to be asked.
+	flagAttended = "--attended"
+	typePodman   = "podman"
+	typeHost     = "host"
 )
 
 // SeatFunc chooses the seat for a team and offers its role: the SEAT@TEAM ref, or "" with ExitOK
@@ -78,6 +80,9 @@ type Chooser struct {
 	Now func() time.Time
 	// UID is the user the acceptance record must belong to.
 	UID func() int
+
+	// nobody is this run's --attended=false.
+	nobody bool
 }
 
 // New is the chooser over a host and the flows it hands the work to.
@@ -90,6 +95,13 @@ func New(h *host.Host, seat SeatFunc, create CreateFunc, apply ApplyFunc, locked
 
 // Run is choose-teams with the arguments after its name.
 func (c *Chooser) Run(ctx context.Context, args []string) term.ExitCode {
+	args, ok := c.attendedArg(args)
+	if !ok {
+		return term.ExitUsage
+	}
+	if slices.Contains(args, flagSeated) {
+		return c.seated(ctx, slices.DeleteFunc(slices.Clone(args), func(a string) bool { return a == flagSeated }))
+	}
 	bus := slices.Contains(args, flagBus)
 	memberType, list, ok := c.parse(slices.DeleteFunc(slices.Clone(args), func(a string) bool { return a == flagBus }))
 	if !ok {
@@ -102,8 +114,11 @@ func (c *Chooser) Run(ctx context.Context, args []string) term.ExitCode {
 		return c.busOnly(ctx, memberType, list)
 	}
 	if !c.attended() && !allSeats(list) {
-		c.say("ccy-teams: 'choose-teams' asks its questions on a terminal, and there is none: run the launch at a terminal.")
-		return c.unattendedWays(ctx, memberType, list)
+		if list == "" {
+			c.say(noTerminal)
+			return term.ExitUsage
+		}
+		return c.unattended(ctx, memberType, list)
 	}
 	if list != "" {
 		return c.resolve(ctx, memberType, list)
@@ -119,12 +134,35 @@ func (c *Chooser) busOnly(ctx context.Context, memberType, list string) term.Exi
 		c.usage("'" + flagBus + "' is a host session on no team: --type=host, and no list.")
 		return term.ExitUsage
 	}
-	return c.consent(ctx, memberType, nil)
+	if code := c.consent(ctx, memberType, nil); code != term.ExitOK {
+		return code
+	}
+	return c.hostReady(ctx)
 }
 
-// attended is whether a person is at a terminal to be asked.
+// attended is whether a person is at a terminal to be asked: never when the launcher said
+// nobody is (--attended=false: a restore or a restart, whose terminal nobody watches).
 func (c *Chooser) attended() bool {
-	return c.Host.IsTerminal(c.Host.Stdin) && c.Host.IsTerminal(c.Host.Stderr)
+	return !c.nobody && c.Host.IsTerminal(c.Host.Stdin) && c.Host.IsTerminal(c.Host.Stderr)
+}
+
+// attendedArg takes the launcher's --attended=true|false out of args and records it.
+func (c *Chooser) attendedArg(args []string) ([]string, bool) {
+	c.nobody = false
+	var rest []string
+	for _, a := range args {
+		value, is := strings.CutPrefix(a, flagAttended+"=")
+		switch {
+		case !is:
+			rest = append(rest, a)
+		case value == "false":
+			c.nobody = true
+		case value != "true":
+			c.usage("'" + flagAttended + "' is true or false, not '" + value + "'.")
+			return nil, false
+		}
+	}
+	return rest, true
 }
 
 // allSeats is whether list names a seat in every item, so nothing needs choosing; only the

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
@@ -264,6 +265,38 @@ func TestAFullPendingListRefusesTheWholeBatch(t *testing.T) {
 	w.local(func() { counts = w.e.teams[ops].counts })
 	if counts.Ignored != 0 {
 		t.Fatal("a refused batch's counts were kept")
+	}
+}
+
+// Plan 00267 C2, C6: a batch's bounce is listed in the drop ledger and owes its sender one
+// bounced receipt; the same event bounced again adds neither; a full receipt queue refuses the
+// whole batch, so nothing is lost and the batch is fetched again.
+func TestABouncedDropIsLedgeredAndOwedOnce(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	w.held(ops)
+	bounce := team.Bounce{ID: evID(1), Room: proto.PurposeMain, From: agent(ops, 2), Reason: proto.ReasonVerb, SentMS: 100}
+	for range 2 {
+		_, err := w.e.Persist(t.Context(), team.Batch{Team: ops, NextBatch: "s1", Bounces: []team.Bounce{bounce}})
+		check(t, err)
+	}
+	s := w.store(ops)
+	wantDropped := []state.Dropped{{ID: evID(1), Room: proto.PurposeMain, From: agent(ops, 2), SentMS: 100, AtMS: startWall, Reason: proto.ReasonVerb}}
+	wantOwed := []state.Owed{{Of: evID(1), To: agent(ops, 2), State: proto.ReceiptBounced, Reason: proto.ReasonVerb, AtMS: startWall}}
+	if !slices.Equal(s.Dropped, wantDropped) || !slices.Equal(s.Owed, wantOwed) {
+		t.Fatalf("after the bounce twice: dropped %+v, owed %+v; want %+v and %+v", s.Dropped, s.Owed, wantDropped, wantOwed)
+	}
+	many := make([]team.Bounce, 0, 300)
+	for i := 2; i < 302; i++ {
+		b := bounce
+		b.ID = evID(i)
+		many = append(many, b)
+	}
+	if _, err := w.e.Persist(t.Context(), team.Batch{Team: ops, NextBatch: "s2", Bounces: many}); !errors.Is(err, state.ErrFull) {
+		t.Fatalf("a batch owing more receipts than the queue holds: %v, want the queue's refusal", err)
+	}
+	if s := w.store(ops); len(s.Dropped) != 1 || len(s.Owed) != 1 || s.Sync.NextBatch != "s1" {
+		t.Fatalf("part of a refused batch was kept: %d dropped, %d owed, next batch %q", len(s.Dropped), len(s.Owed), s.Sync.NextBatch)
 	}
 }
 

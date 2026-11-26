@@ -41,6 +41,8 @@ func freeText() map[string]fillFunc {
 		"pending":   nil,
 		"ledger":    nil,
 		"receipts":  nil,
+		"dropped":   nil,
+		"owed":      nil,
 		"pings":     nil,
 		"missed":    nil,
 		"gate keys": nil,
@@ -237,7 +239,7 @@ func fixedWritten() map[string]int {
 		"sync.floor_ms":    2 + len(storeRooms)*(len(`"questions":,`)+16),
 		"outbox.last_sent": 2 + 44,
 		// Each room's list of the event ids (44 bytes, quoted, comma) at its floor.
-		"sync.floor_ids,omitempty": 2 + len(storeRooms)*(len(`"questions":[],`)+maxFloorIDs*(2+44+1)),
+		"sync.floor_ids": 2 + len(storeRooms)*(len(`"questions":[],`)+maxFloorIDs*(2+44+1)),
 		// The questions room's keys (SPEC-n3f QX6). Each list is its frame (the key and the
 		// brackets) and its entries; the key `questions` is bounded whole by its codec, which
 		// counts the escaping, so it is one leaf; an event id has no character to escape.
@@ -264,8 +266,8 @@ var (
 // in rows (a key whose codec bounds it whole) is one leaf.
 func storeLeaves(typ reflect.Type, prefix string, rows map[string]int, out *[]string) {
 	for f := range typ.Fields() {
-		// The store's tags are bare names: no option such as omitempty changes what is written.
-		name := f.Tag.Get("json")
+		// A key's path is its name; omitempty only leaves an empty key out, never writes more.
+		name := strings.Split(f.Tag.Get("json"), ",")[0]
 		if name == "" {
 			continue
 		}
