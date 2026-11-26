@@ -70,7 +70,8 @@ an install skipped on its own record without a
 stat of what it installed (CLAUDE/QA.md, install-guard-trusts-record), an input list that
 picks by membership with no check that its names exist (CLAUDE/QA.md, filter-list-unchecked),
 two tasks that write the same block or line of a file
-with different content (CLAUDE/QA.md, duplicate-managed-block), and a sudoers rule whose target its user can modify or
+with different content (CLAUDE/QA.md, duplicate-managed-block), a shell include function that
+leans on a name Claude Code's shell snapshot drops (CLAUDE/QA.md, shell-snapshot-dropped-name), and a sudoers rule whose target its user can modify or
 steer, or a NOPASSWD rule no host variable can turn off (CLAUDE/QA.md, sudoers-rule).
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)

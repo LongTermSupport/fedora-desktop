@@ -148,7 +148,7 @@ Decision for C.2 (and the fix for today's start):
   reverses Plan 00257 Task B.12, "no LXC member session starts with its container", for the seats active at
   shutdown. Recorded; nothing more to decide.
 
-- [ ] ⬜ **Task C.2**: `teamchat-admin lxc reconcile`, plus a root unit from
+- [ ] 🔄 **Task C.2**: `teamchat-admin lxc reconcile`, plus a root unit from
   `play-lxc-install-config.yml` that calls it. The interface was agreed 26 Nov with a seat whose
   host's own IaC already starts the right containers at boot and after its maintenance runs.
 
@@ -163,7 +163,7 @@ Decision for C.2 (and the fix for today's start):
     container.
   - **The unit:** at shutdown it records the running containers. At boot it starts exactly those
     containers, then runs the verb, before the user's session restore. A host variable,
-    `lxc_seat_restore_starts_containers` (default true), turns the container start off on a
+    `teamchat_lxc_seat_restore_starts_containers` (default true), turns the container start off on a
     host whose own IaC owns that. The verb still runs there, called by that IaC at the end of
     its "started" step. This repo never names another project's systemd target.
   - **No watcher:** a container restarted outside any boot or maintenance run is not noticed
@@ -173,9 +173,78 @@ Decision for C.2 (and the fix for today's start):
   - **Tell the asking seat** the release that carries the verb, so it wires the call in then,
     with a check that the verb exists.
   - Logic in Go. Before it: the claude and node lookup above, test first, in the unit and in
-    `lxc start` (register R77).
+    `lxc start` (register R77). The lookup is built (R77 is fixed on v2-smoke). node is
+    optional: a native claude has none beside it, so only a missing claude refuses. `guest check` finds claude the same way, or apply would refuse an nvm seat before its unit exists.
+  - **Built (26 Nov):** the record is `/var/lib/teamchat-admin/_lxc-started.json` (root 0600,
+    `lxcstate.Started`); `lxc start` adds a seat after a start that succeeded. `lxc stop --member` did not exist and is added: it takes the seat out of the record first (so a stop
+    of a seat whose container is offline still counts), then stops its unit, with no lookup of
+    claude. `lxc reconcile` judges a session live by its seat lock, as the L3 probe does, and
+    prints `STARTED|LIVE|STOPPED|REFUSED\t<container>/<key>\t<why>`.
+  - [x] ✅ The boot unit, its running-containers record and `teamchat_lxc_seat_restore_starts_containers`.
+    **Decided (26 Nov, this plan's builder; the question is in `subagent-reports/261126-c2.md`):**
+    the unit belongs to the play that installs `teamchat-admin`, not to
+    `play-lxc-install-config.yml`. An LXC seat exists only where teamchat is installed, so a host
+    without teamchat needs no unit, and the unit can rely on the command it calls. It is ordered
+    after LXC's own service. The container snapshot (at stop) and the container start (at boot)
+    are two more `teamchat-admin lxc` operations, which keeps one command and one record
+    directory. The play passes the start step only when `teamchat_lxc_seat_restore_starts_containers` is
+    true. With it false, the unit runs only `reconcile`, and the host's own IaC still calls
+    `reconcile` itself at the end of its "started" step.
+  - [x] ✅ **Decided:** a seat that leaves its team (`lxc apply --phase absent`) is a stop on
+    purpose. The record rule already says "not since stopped on purpose", and an IaC removal is
+    one. So `apply --phase absent` takes the seat out of the started record, as `lxc stop --member` does. Reconcile then never reports a seat that can no longer exist. **Built** (`absent.go`
+    `run.leave`, first step, whether the container runs or not).
+  - **Built (26 Nov), the boot unit:** `teamchat-lxc-record.service` (`ExecStop=` `lxc record-running`, after `lxc.service`) records the running containers at shutdown in
+    `/var/lib/teamchat-admin/_lxc-running.json`. `teamchat-lxc-boot.service` (after
+    `multi-user.target`) runs `lxc start-recorded`, then `lxc reconcile`. Both carry the six v1
+    `InaccessiblePaths=`, so each runs in a private mount namespace. That is why
+    start-recorded never runs `lxc-start` itself: it asks the host systemd to start
+    `lxc@<container>.service`, through `units.Manager.Containers`, which starts only an `lxc@`
+    instance whose name fits the container grammar. It then waits up to 60 s on the clock for
+    lxc-info's `RUNNING`; a container still not running is `REFUSED`, named. The drop-in
+    `lxc@.service.d/teamchat.conf` (`Before=teamchat-lxc-record.service`) makes the record
+    unit stop first at shutdown, while every instance still runs. The play makes the drop-in's
+    directory and writes it with the units, starts the record unit and enables the boot unit
+    while an LXC member is present, and with `teamchat_lxc_seat_restore_starts_containers` false prints
+    the boot unit without start-recorded.
+  - [ ] ⬜ Open, unchecked: whether the host's `lxc` package ships `lxc@.service`. Fedora's is
+    believed to; without it start-recorded refuses every container.
+  - [ ] ⬜ Open, for C.3: after a boot start, the guest's systemd may not be ready when reconcile
+    reaches it, so a seat may be `REFUSED`; the live reboot will show it.
+  - [x] ✅ **Decided (26 Nov, the lead):** the variable agreed as
+    `lxc_seat_restore_starts_containers` is renamed `teamchat_lxc_seat_restore_starts_containers`,
+    because the paths rule D 3.1 (`TestEveryNameIsDerivedFromTheProduct`) requires every v2 name
+    to be formed from `teamchat`, and that rule is not narrowed. The asking seat had not wired
+    it yet. It is told the final name together with the release that carries the verb.
+  - **Departure from the first design:** the container start is not wired from `host.Systemd`.
+    That adapter refuses every unit but the teamchat server, terminator and restore units (SD8,
+    SD10), so it would have refused every container on a host. `units.Manager.Containers` is a
+    separate, start-only adapter for `lxc@` instances, and `host.Systemd` still refuses `lxc@`.
 
 - [ ] ⬜ **Task C.3**: verify-restore reports the LXC set.
+
+- [ ] ⬜ **Task C.4**: a restarted LXC seat signs in from its team's own token pool, on the token
+  it was on before. Asked for by another team's owner (26 Nov) for their containers, and agreed
+  by the coordinator. Design only until the owner has seen it; built after C.2 ships.
+
+  - **The last-launch record:** the seat's launch writes, beside the record of its conversation,
+    the token's pool name (a file's basename, never the secret, a descriptor or an inode) and its
+    flags, checked against an allowlist. It sits in a host-owned or root-owned place, never in
+    the checkout.
+  - **The restart** reads that record and opens the named token from the pool inside the
+    container (checked with that team: one token per file, `<team>_<name>.token`, under the
+    agent user's `~/.claude-tokens/tokens/`, directories 0700 and files 0600, all owned by that
+    user). It hands the token to claude through the root-written `/run` env file the seat unit
+    already reads (that file is then 0600). The pool directory is recreated on every run of that
+    team's play, so the record names a file, never a handle.
+  - **Never a fallback:** a missing or emptied token is a refusal that names it. The restart
+    never picks another token.
+  - **Rotation** is deliberate only: a verb rewrites the record (that team prefers a command to a
+    file). A restart never rotates.
+  - **Sharing:** that team's owner has set no rule on two live seats using one token, so the
+    design works either way. A rule, if one is wanted, is his to make.
+  - **Later:** the same record is what a standalone cc/ccy would read. That is a separate plan,
+    after batch 24 (agreed with the coordinator 26 Nov).
 
 ## Success Criteria
 

@@ -17,6 +17,30 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.85 — container 2.84.94
+
+- teamchat in the image is built from sources that name the LXC boot unit's files (the record
+  of the containers running at shutdown, the record and boot units, a drop-in of `lxc@.service`)
+  and its host variable `teamchat_lxc_seat_restore_starts_containers` (Plan 00266 Task C.2). A
+  ccy session does not use them.
+
+## 3.124.84 — container 2.84.93
+
+- teamchat in the image no longer names a record of the containers running at shutdown, which
+  3.124.83 added with no caller (Plan 00266 Task C.2).
+
+## 3.124.83 — container 2.84.92
+
+- teamchat in the image is built from sources that name two new host files, the record of
+  started LXC seats and of the containers running at shutdown (Plan 00266 Task C.2). A ccy
+  session does not use them.
+
+## 3.124.82 — container 2.84.91
+
+- teamchat in the image adds `guest find-claude`, the op an LXC seat start runs to ask the
+  seat user's interactive login shell where claude and node are (R77). A ccy session does
+  not use it; the image carries it because the teamchat binary is built from one source.
+
 ## 3.124.81 — container 2.84.90
 
 - teamchat in the image carries Plan 00267 Phase 7, the first turn-efficiency steps:

@@ -136,6 +136,13 @@ type Containers interface {
 	Guest(ctx context.Context, a lxccmd.Attach, op guest.Op, args []string, stdin []byte) (lxccmd.GuestResult, error)
 }
 
+// HostUnits is the host's systemd as `lxc start-recorded` uses it: a container is started as
+// LXC's own lxc@<container>.service, so it runs in the host's mount namespace, never in the
+// private one of the teamchat unit that asked (Plan 00266 C.2).
+type HostUnits interface {
+	Start(ctx context.Context, unit string) error
+}
+
 // Root is a pinned guest root as the phases use it: a *guestroot.Root by Pinned in production.
 type Root interface {
 	guestReads
@@ -182,6 +189,7 @@ type Deps struct {
 	LockDir   string // paths.AdminRunDir
 	Clock     Clock
 	LXC       Containers
+	Units     HostUnits // the host's systemd, which starts a recorded container at boot
 	Pin       func(ctx context.Context, container string) (Root, error)
 	Bus       func(ctx context.Context, r Root) (guestbus.Systemd, error)
 	Roster    Roster

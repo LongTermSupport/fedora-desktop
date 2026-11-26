@@ -175,3 +175,21 @@ func TestTwoSeatsOfOneUserRenderApart(t *testing.T) {
 		t.Errorf("%s\n%s", a, b)
 	}
 }
+
+// R77: the unit freezes no PATH. It names the seat's environment file, which each start writes
+// with the PATH it found through the seat user's login shell; systemd refuses a start whose
+// file is missing (no `-` prefix), so a start that skipped the lookup fails loudly.
+func TestRenderFreezesNoPath(t *testing.T) {
+	s := session(t)
+	text, err := Render(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(text, []byte("PATH=")) {
+		t.Errorf("the unit holds a PATH:\n%s", text)
+	}
+	want := "\nEnvironmentFile=" + paths.GuestSessionEnvFile(paths.LXCSeatKey(s.Team, s.Checkout, s.Seat)) + "\n"
+	if !bytes.Contains(text, []byte(want)) {
+		t.Errorf("the unit does not name its environment file %q:\n%s", want, text)
+	}
+}

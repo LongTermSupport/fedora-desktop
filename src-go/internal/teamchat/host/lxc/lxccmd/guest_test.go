@@ -293,3 +293,53 @@ func TestOnlyASeatOpTakesTheKey(t *testing.T) {
 		}
 	}
 }
+
+// R77: guest find-claude's stdout is its FOUND lines: claude once, node at most once, each a
+// path of the unit grammar named for its program; any other line, or a path outside the
+// grammar, is ErrOutput and quotes nothing of the guest's.
+func TestGuestFoundLines(t *testing.T) {
+	answer := func(stdout string) (GuestResult, error) {
+		f := &execx.Fake{}
+		f.On([]string{"lxc-attach"}, execx.Result{Stdout: []byte(stdout)})
+		return LXC{Runner: f}.Guest(t.Context(), attach(t), guest.OpFind, nil, nil)
+	}
+	res, err := answer("FOUND\tclaude\t/home/a/.nvm/v22/bin/claude\nFOUND\tnode\t/home/a/.nvm/v22/bin/node\n")
+	if err != nil || res.Found[guest.ProgramClaude] != "/home/a/.nvm/v22/bin/claude" || res.Found[guest.ProgramNode] != "/home/a/.nvm/v22/bin/node" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	res, err = answer("FOUND\tclaude\t/home/a/.local/bin/claude\n")
+	if err != nil || len(res.Found) != 1 {
+		t.Fatalf("claude alone: %+v %v", res, err)
+	}
+	for name, stdout := range map[string]string{
+		"nothing":           "",
+		"no claude":         "FOUND\tnode\t/a/node\n",
+		"claude twice":      "FOUND\tclaude\t/a/claude\nFOUND\tclaude\t/b/claude\n",
+		"another program":   "FOUND\tclaude\t/a/claude\nFOUND\tgh\t/a/gh\n",
+		"another name":      "FOUND\tclaude\t/a/node\n",
+		"a relative path":   "FOUND\tclaude\ta/claude\n",
+		"a space":           "FOUND\tclaude\t/a b/claude\n",
+		"a dollar":          "FOUND\tclaude\t/$HOME/claude\n",
+		"a changed line":    "CHANGED\tseat\nFOUND\tclaude\t/a/claude\n",
+		"an extra field":    "FOUND\tclaude\t/a/claude\textra\n",
+		"no final newline":  "FOUND\tclaude\t/a/claude",
+		"a stray line":      "FOUND\tclaude\t/a/claude\nhello\n",
+		"an unclean path":   "FOUND\tclaude\t/a/../claude\n",
+		"a doubled slash":   "FOUND\tclaude\t/a//claude\n",
+		"a carriage return": "FOUND\tclaude\t/a/claude\r\n",
+	} {
+		res, err := answer(stdout)
+		if !errors.Is(err, ErrOutput) || res.Found != nil {
+			t.Errorf("%s: %+v %v", name, res, err)
+		}
+		if err != nil && strings.Contains(err.Error(), "/a") {
+			t.Errorf("%s: the error quotes the guest: %v", name, err)
+		}
+	}
+	// A FOUND line from an op with no Finds is refused as any stray line is.
+	f := &execx.Fake{}
+	f.On([]string{"lxc-attach"}, execx.Result{Stdout: []byte("FOUND\tclaude\t/a/claude\n")})
+	if _, err := (LXC{Runner: f}).Guest(t.Context(), attach(t), guest.OpCheck, nil, nil); !errors.Is(err, ErrOutput) {
+		t.Errorf("guest check with a FOUND line: %v", err)
+	}
+}

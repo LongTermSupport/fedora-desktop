@@ -1,0 +1,14 @@
+[Unit]
+Description=After a boot, start the LXC containers that ran at the last shutdown, then their seats
+# after multi-user.target, which wants it, so its start never holds boot
+After=lxc.service multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/teamchat-admin lxc start-recorded
+ExecStart=/usr/local/sbin/teamchat-admin lxc reconcile
+TimeoutStartSec=30min
+InaccessiblePaths=<D 4.2's six v1 paths, each with its "-">
+
+[Install]
+WantedBy=multi-user.target

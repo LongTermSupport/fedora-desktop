@@ -1,0 +1,3 @@
+[Unit]
+# stops after teamchat-lxc-record.service, which records the running containers first
+Before=teamchat-lxc-record.service

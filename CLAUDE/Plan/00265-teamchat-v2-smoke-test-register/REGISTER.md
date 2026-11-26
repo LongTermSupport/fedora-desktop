@@ -1334,7 +1334,22 @@ before the move to v2. Filled in as causes are found.
 - **Fix (batch 24, Defence Before Fix):** first a rule that no function in a deployed shell
   include calls a single-underscore function or reads a global array; then the fix; then a
   test that applies the snapshot's filter and calls `git` in an aliased repo.
-- **Severity:** medium. **Issue:** TBF. **State:** open.
+- **Checked (batch 24):** the filter is in this container's `claude` binary too, beside a zsh
+  twin that names it "filter completion functions (single underscore prefix) but keep
+  double-underscore helpers"; variables reach the snapshot only through the environment.
+  `git-<alias>`, `git-branch-default`, `git-<alias>-branch-default`, `gh-<alias>`,
+  `clone-<alias>`, `remote-<alias>` and `gh-<alias>-token-phpstorm` were broken the same way.
+- **Detector:** `shell-snapshot-dropped-name`, a qa-ansible rule (`src-go/qa/ansible/snapshotdropped.go`, CLAUDE/QA.md section of that name): a function of an interactive shell
+  include that calls a single-underscore function or reads an unexported global. Red on the
+  play and three history includes (13 findings), green after the fix.
+- **Fixed:** the play's nine helpers renamed with a double underscore, `_GH_ACCOUNT_USERS`
+  replaced by a `case` in `__gh_account_git`; the history includes' `__history_search_file`
+  and `__history_shared_file` globals made functions (interactive-only code, fixed for the
+  class). `scripts/test-gh-alias-wrappers.bash` replays the include through the snapshot
+  filter into a clean shell: red (20 failures) before, green after.
+- **Severity:** medium. **Issue:** TBF. **State:** fixed in the repository; reaches a host
+  through the queued `changed-plays` (play-github-cli-multi, play-basic-configs). Report:
+  `subagent-reports/261126-r72-git-wrapper.md`.
 
 ## R73: no hot swap of a session's sign-in, and a plan that would fail over automatically
 
@@ -1428,7 +1443,15 @@ before the move to v2. Filled in as causes are found.
   - Freeze nothing in the unit or the record: a node bump moves the nvm directory.
   - Refuse loudly only when the lookup finds nothing.
   - The decision is in Plan 00266 under "Finding the claude command". Test first.
-- **Severity:** high where it applies (no seat starts). **Issue:** TBF. **State:** open.
+- **Severity:** high where it applies (no seat starts). **Issue:** TBF. **State:** fixed on
+  v2-smoke as Plan 00266 "How it is built" says; not yet seen live.
+  - A new guest op, `teamchat guest find-claude --user U`, asks the user's passwd login shell
+    (`-l -i -c`, 20 s bound, answers read between markers). The host re-checks each path.
+  - `lxc start` and `lxc restart` write the found PATH to `/run/teamchat-session-<key>.env`,
+    then start the unit. The unit names that file (`EnvironmentFile=`) and keeps no PATH.
+  - `guest check` (run by `lxc apply`) finds claude the same way, so apply no longer refuses
+    an nvm seat.
+  - node is optional: a native claude has none beside it. Only a missing claude refuses.
 
 ## R78: run.bash runs from a dirty checkout, or one behind its upstream
 
@@ -1815,8 +1838,9 @@ before the move to v2. Filled in as causes are found.
 
 - **Seen:** the owner's laptop, 26 Nov 10:44Z, relayed by the coordinator. After `run.bash --changed` to F44, `cc` in another team's checkout, which ran before the shutdown, exits 78:
   the checkout has no host seat of that team, a new one cannot be added because the team is
-  not served on this machine, and it prints a cross-machine issue-and-place pipe that names a
-  seat handle.
+  not served on this machine, and it prints a cross-machine issue-and-place pipe for a person to
+  complete and run (`seatadd.go:148`; the handle is left to them, and only the issued-but-not-
+  placed message at `:175` names one).
 - **What (checked in F44 code):** on teamchat, `cc` needs a host seat in the checkout's own
   pool. With none it runs `ccy-teams seats add <team> --host`, which issues on this machine's
   bus and refuses (78) a team with no status record here (`internal/teams/seatadd`, package
@@ -1825,7 +1849,8 @@ before the move to v2. Filled in as causes are found.
 - **Unchecked:** that the session before the update ran on the v1 bus, and which commit ended
   `cc`'s v1 path for a team on teamchat.
 - **Hazard:** the lossless rule and R90. A running seat becomes unstartable after an update,
-  and the way back is a command line naming a seat, run across two machines.
+  and the way back is a command line a person must complete with a seat, run across two
+  machines.
 - **Fix:**
   - The update carries a v1 seat over itself.
   - Or `cc` offers to fetch the seat from the machine that serves the team, in words, with no

@@ -52,6 +52,7 @@ func zeroDerivations() map[string]func() string {
 		"FenceTable":             func() string { return FenceTable(team) },
 		"SessionUnit":            func() string { return SessionUnit(team, "/srv/checkouts/thing", 1) },
 		"GuestRuntimeDir":        func() string { return GuestRuntimeDir(SeatKey{}) },
+		"GuestSessionEnvFile":    func() string { return GuestSessionEnvFile(SeatKey{}) },
 		"ServerBinary":           func() string { return ServerBinary(version) },
 		"AdminBinaryCopy":        func() string { return AdminBinaryCopy(digest) },
 		"HostKitDir":             func() string { return HostKitDir(digest).String() },

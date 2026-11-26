@@ -103,7 +103,7 @@ the coordinator's worker restarts.
      way.
   4. Docs and errors rewritten without seat numbers.
      The design goes here before the build; it touches `ccy-teams` and the launch, so it follows
-     batch 24.
+     batch 24. Design: [DESIGN-4.2-no-seat-numbers.md](DESIGN-4.2-no-seat-numbers.md).
 
 ## Success Criteria
 

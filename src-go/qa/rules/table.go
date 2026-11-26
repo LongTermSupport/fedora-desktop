@@ -233,6 +233,11 @@ var dynamicNames = []allowance{
 		reason: "/usr/bin/systemd-run of the restore's staging or secure unit, argv from StagingArgv or SecureArgv (SPEC-n2g RU1, RU2); the program inside is the Tuwunel units.json names or teamchat-admin itself, both run-time paths",
 	},
 	{
+		pkg:    "internal/teamchat/member/guest",
+		fn:     "Shell.ask",
+		reason: "the LXC seat user's own login shell, the shell field of its entry in the container's passwd database, held to an absolute path to an executable file and asked as `-l -i -c` where claude and node are (Plan 00265 R77)",
+	},
+	{
 		pkg:    "internal/wsi",
 		fn:     "run.sibling",
 		reason: "wsi-stop-grace, wsi-setting or wsi-resolve-model, run from the directory the wsi binary is in",

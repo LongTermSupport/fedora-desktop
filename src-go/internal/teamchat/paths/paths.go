@@ -99,8 +99,14 @@ const (
 	AdminStateRoot             = "/var/lib/" + AdminBinary
 	// AdminLXCDir holds C's LXC guest records. It starts with an underscore, which no team id
 	// can, so it never meets a team's AdminState (C 3.9).
-	AdminLXCDir  = AdminStateRoot + "/_lxc"
-	CtlStateRoot = "/var/lib/" + CtlUser
+	AdminLXCDir = AdminStateRoot + "/_lxc"
+	// LXCStartedFile is every seat `lxc start` started and `lxc stop` has not stopped, which
+	// `lxc reconcile` starts again (Plan 00266 C.2); LXCRunningFile is the containers that ran
+	// when the host last shut down, which `lxc start-recorded` starts at boot. Each starts with an
+	// underscore, as AdminLXCDir does.
+	LXCStartedFile = AdminStateRoot + "/_lxc-started.json"
+	LXCRunningFile = AdminStateRoot + "/_lxc-running.json"
+	CtlStateRoot   = "/var/lib/" + CtlUser
 	// TLSStateRoot holds each team's leaf certificate and key, the one place under /var/lib besides
 	// the status records that the health tick writes: it renews a leaf there while it can only read
 	// the admin state root, which holds the CA key and the approvals (SPEC-cross-network X31).
@@ -130,6 +136,13 @@ const (
 	SyslogBackup         = Product + "-backup"
 )
 
+// LXCBootService starts the LXC seats again after a boot, and LXCRecordService records the
+// containers running at shutdown for it (Plan 00266 C.2).
+const (
+	LXCBootService   = Product + "-lxc-boot.service"
+	LXCRecordService = Product + "-lxc-record.service"
+)
+
 // Ansible names (D 3.7, 3.8). TeamPortField is the port's key in a HostVarTeams entry.
 const (
 	HostVarTeams        = "teamchat_teams"
@@ -137,11 +150,14 @@ const (
 	HostVarLXCMembers   = "teamchat_lxc_members"
 	HostVarElementTeams = "teamchat_element_teams"
 	HostVarMigrations   = "teamchat_migrations"
-	OnlyTeamsVar        = "teamchat_only_teams"
-	PlayFile            = "playbooks/imports/play-teamchat.yml"
-	ElementPlayFile     = "playbooks/imports/optional/common/play-teamchat-element.yml"
-	AnsibleTag          = Product
-	TeamPortField       = "port"
+	// HostVarLXCStartsContainers is whether the boot unit starts the containers that ran at the
+	// last shutdown (Plan 00266 C.2); false where the host's own IaC starts them.
+	HostVarLXCStartsContainers = "teamchat_lxc_seat_restore_starts_containers"
+	OnlyTeamsVar               = "teamchat_only_teams"
+	PlayFile                   = "playbooks/imports/play-teamchat.yml"
+	ElementPlayFile            = "playbooks/imports/optional/common/play-teamchat-element.yml"
+	AnsibleTag                 = Product
+	TeamPortField              = "port"
 )
 
 // The ccy session's fixed paths (D 3.6): the seat and membership mounts, and the root of its
@@ -213,6 +229,11 @@ func ParseSessionUnit(name string) (SeatKey, error) {
 // GuestRuntimeDir is the XDG_RUNTIME_DIR a seat's session unit gives the session, its
 // RuntimeDirectory= under /run: the key alone, so B's sockets below it stay short (C 3.9.1).
 func GuestRuntimeDir(k SeatKey) string { return "/run/" + guestSessionPrefix + k.text() }
+
+// GuestSessionEnvFile is the environment file a seat's session unit names (EnvironmentFile=):
+// the PATH each start finds through the seat user's login shell, written by that start, never
+// kept in the unit (Plan 00265 R77). /run is emptied at every boot.
+func GuestSessionEnvFile(k SeatKey) string { return GuestRuntimeDir(k) + ".env" }
 
 // ServerBinary is the pinned homeserver binary of a version.
 func ServerBinary(v ServerVersion) string { return ServerDir + "/tuwunel-" + v.text() }

@@ -24,7 +24,7 @@ export LESSCHARSET=utf-8
 # play-basic-configs.yml creates the directory; bash saves nothing if it is missing.
 #
 # history-search.bash may start a shell with HISTFILE at /dev/null, so that up-arrow holds
-# only this terminal's commands, and leave the real file in __history_shared_file. The first
+# only this terminal's commands, and define __history_shared_file to name the real file. The first
 # prompt points HISTFILE back at it, before anything is appended.
 #
 # ignoredups, not ignoreboth: ignorespace drops any line starting with a space, and a
@@ -44,8 +44,8 @@ elif [[ $- == *i* ]]; then
     echo "bash history: ${HOME}/.local/state/bash is missing or not owned by $(id -un); history goes to ${HISTFILE:-the default file}. Re-run play-basic-configs.yml." >&2
 fi
 __history_append() {
-    if [[ -n "${__history_shared_file-}" ]]; then
-        HISTFILE="${__history_shared_file}"
+    if declare -F __history_shared_file >/dev/null; then
+        __history_shared_file HISTFILE
     fi
     builtin history -a
 }

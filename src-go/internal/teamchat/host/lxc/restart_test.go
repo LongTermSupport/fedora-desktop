@@ -31,7 +31,7 @@ func TestRestartResetsThenRestartsTheUnit(t *testing.T) {
 	if !slices.Equal(w.bus.calls, []string{"ResetFailed " + unitOf(t, "t1"), "Restart " + unitOf(t, "t1")}) {
 		t.Fatalf("systemd %v", w.bus.calls)
 	}
-	if len(w.lxc.calls) != 0 || len(w.roster.joins) != 0 {
+	if !slices.Equal(w.lxc.verbs(), []string{"c1 guest find-claude"}) || len(w.roster.joins) != 0 {
 		t.Fatalf("restart attached %v or joined %v", w.lxc.verbs(), w.roster.joins)
 	}
 }

@@ -22,6 +22,10 @@ var identify = identifyCaller
 // (guest.EstablishOffHost); a seam like identify.
 var identifyOffHost = identifyOffHostCaller
 
+// findShell is the lookup `guest find-claude` runs; a seam, so a test need not run a real
+// login shell.
+var findShell = guest.NewShell
+
 // memberLayout is the caller's own layout, whose state root `seat set-aside` acts on without
 // --state.
 var memberLayout = processLayout
@@ -113,6 +117,30 @@ func runGuestCheck(e Env, inv Invocation) term.ExitCode {
 		return guest.Finish(e.Stderr, guest.OpCheck, usage(msgGuestFlags))
 	}
 	return guest.Finish(e.Stderr, guest.OpCheck, guest.NewChecker().Check(context.Background(), u, *inv.Team, input(e)))
+}
+
+// runFindClaude is `guest find-claude --user U` (R77): the identified user's login shell asked
+// where claude and node are, each answer a FOUND line on stdout.
+func runFindClaude(e Env, inv Invocation) term.ExitCode {
+	id, err := identify(inv)
+	if err == nil {
+		err = errors.Join(findClaude(id, guest.NewOutput(e.Stdout, guest.OpFind)), id.Close())
+	}
+	return guest.Finish(e.Stderr, guest.OpFind, err)
+}
+
+func findClaude(id *guest.Identity, out *guest.Output) error {
+	found, err := findShell().Find(context.Background(), id)
+	if err != nil {
+		return err
+	}
+	if err := out.Found(guest.ProgramClaude, found.Claude); err != nil {
+		return err
+	}
+	if found.Node == "" {
+		return nil
+	}
+	return out.Found(guest.ProgramNode, found.Node)
 }
 
 func runPlaceBundle(e Env, inv Invocation) term.ExitCode {

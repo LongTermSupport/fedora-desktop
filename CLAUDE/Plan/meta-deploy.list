@@ -127,7 +127,11 @@ playbooks/imports/play-claude-yolo.yml
 # check now requires it. R57: the member program's digest is now the image-source digest, so the
 # kit is assembled in a new digest directory and its current link moves once (the present teams
 # are re-applied for the new member program, as on any member change); teamchat-admin keeps the
-# src-go tree id.
+# src-go tree id. Plan 00266 C.2: it also installs teamchat-lxc-record.service,
+# teamchat-lxc-boot.service and a drop-in /etc/systemd/system/lxc@.service.d/teamchat.conf, and,
+# while an LXC member is declared present, starts the record unit and enables the boot unit
+# (nothing else starts or stops now). At the next shutdown the running containers are recorded;
+# at the next boot those are started as lxc@<container>.service, then their recorded seats.
 playbooks/imports/play-teamchat.yml
 
 # Plan 00265 R79: finishes the private-name guard's setup. It ASKS at the terminal for each

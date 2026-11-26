@@ -106,11 +106,16 @@ func TestEveryInstalledFileIsJudgedOrRunsNothing(t *testing.T) {
 			services = append(services, f.Name)
 		case strings.HasSuffix(f.Name, ".timer") && strings.Contains(f.Text, "[Timer]"):
 		case f.Path == paths.ResolverStubFile, f.Path == paths.ResolverFile, f.Path == paths.TmpfilesFile:
+		// LXC's own unit's drop-in orders lxc@ instances and runs nothing: no [Service] section.
+		case f.Path == paths.LXCContainerDropInFile && !strings.Contains(f.Text, "[Service]"):
 		default:
-			t.Errorf("installed file %s is neither a service, a timer, the resolver stub nor the tmpfiles entry", f.Name)
+			t.Errorf("installed file %s is neither a service, a timer, the resolver stub, the tmpfiles entry nor lxc@'s drop-in", f.Name)
 		}
 	}
-	want := []string{paths.ServerUnitTemplate, paths.TLSUnitTemplate, paths.HealthService, paths.BackupService}
+	want := []string{
+		paths.ServerUnitTemplate, paths.TLSUnitTemplate, paths.HealthService, paths.BackupService,
+		paths.LXCRecordService, paths.LXCBootService,
+	}
 	if !slices.Equal(services, want) {
 		t.Errorf("installed services %q, want %q", services, want)
 	}
@@ -227,7 +232,7 @@ var unitSources = []struct{ file, why string }{
 	{"host/render.go", "a team's drop-in, which extends the base unit that carries the six paths; its filter is judged alone, in filteredUnits"},
 	{"host/tlsunit.go", "the terminator's per-team drop-in, which extends the base unit teamchat-tls@ that unitfiles makes, in madeUnits; the drop-in's filter is judged alone, in filteredUnits"},
 	{"restore/argv.go", "the restore's staging and secure units, in madeUnits"},
-	{"unitfiles/unitfiles.go", "every file the play installs: each service (the homeserver's and the terminator's base units, the health and backup services) in madeUnits as installedServices; the timers run nothing and the resolver stub is no unit (TestEveryInstalledFileIsJudgedOrRunsNothing)"},
+	{"unitfiles/unitfiles.go", "every file the play installs: each service (the homeserver's and the terminator's base units, the health and backup services, the LXC record and boot units) in madeUnits as installedServices; the timers and lxc@'s drop-in run nothing and the resolver stub is no unit (TestEveryInstalledFileIsJudgedOrRunsNothing)"},
 }
 
 // A file that makes unit text and is in no row of unitSources is a unit nobody has judged: a new

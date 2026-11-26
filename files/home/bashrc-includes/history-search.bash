@@ -16,7 +16,8 @@
 source "${BASH_SOURCE[0]%/*}/history-record.bash"
 
 __history_search() {
-    local context="${__history_search_file}" picked status=0 take=query moved
+    local context="" picked status=0 take=query moved
+    __history_search_file context
     # What is typed so far becomes the query through fzf's ENVIRONMENT, which only this user
     # can read. As a --query argument it would sit in fzf's argv, readable by every local
     # user through /proc for as long as the list is open. The bound command is fixed text,
@@ -62,10 +63,9 @@ if command -v fzf >/dev/null; then
     # set is left alone. Kept only when this
     # search is bound: without it, stock Ctrl+R searches the loaded list, and must see all.
     if [[ "${HISTFILE-}" == "${HOME}/.local/state/bash/history" ]]; then
-        __history_shared_file="${HISTFILE}"
         HISTFILE=/dev/null
         if [[ -z "$(trap -p EXIT)" ]]; then
-            trap 'HISTFILE="${__history_shared_file}"' EXIT
+            trap '__history_shared_file HISTFILE' EXIT
         fi
     fi
 else

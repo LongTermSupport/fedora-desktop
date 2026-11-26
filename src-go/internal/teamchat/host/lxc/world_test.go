@@ -38,6 +38,8 @@ const (
 	agentGID  = 1001
 	checkout  = "/srv/agent1/src/repo"
 	kitDigest = "0123456789abcdef"
+	// nvmBin is where agent1's login shell finds claude and node (R77).
+	nvmBin    = "/srv/agent1/.nvm/versions/node/v22.1.0/bin"
 	oldDigest = "fedcba9876543210"
 	runID     = "00112233aabbccdd"
 	agentAddr = "192.0.2.5"
@@ -256,6 +258,38 @@ type fakeLXC struct {
 	states  int
 	listErr error
 	log     *[]string
+	// found is guest find-claude's answer (R77): the paths the seat user's login shell finds.
+	found map[string]string
+}
+
+// fakeUnits is the host's systemd (Deps.Units): a start of lxc@<c>.service is recorded and runs
+// container c, unless stays holds it (a container whose start never reaches RUNNING); err fails a
+// unit's start.
+type fakeUnits struct {
+	lxc     *fakeLXC
+	started []string
+	err     map[string]error
+	stays   map[string]bool
+}
+
+func (u *fakeUnits) Start(_ context.Context, unit string) error {
+	if err := u.err[unit]; err != nil {
+		return err
+	}
+	u.started = append(u.started, unit)
+	c, isLXC := strings.CutPrefix(unit, "lxc@")
+	c, isService := strings.CutSuffix(c, ".service")
+	if !isLXC || !isService || u.stays[c] {
+		return nil
+	}
+	b, err := u.lxc.get(c)
+	if err != nil {
+		return err
+	}
+	u.lxc.mu.Lock()
+	defer u.lxc.mu.Unlock()
+	b.state = lxccmd.Running
+	return nil
 }
 
 func (f *fakeLXC) Containers(context.Context) ([]string, error) {
@@ -341,6 +375,9 @@ func (f *fakeLXC) Guest(_ context.Context, a lxccmd.Attach, op guest.Op, args []
 		if err := answer(c); err != nil {
 			return lxccmd.GuestResult{}, err
 		}
+	}
+	if op.Verb == guest.OpFind.Verb {
+		return lxccmd.GuestResult{Found: f.found}, nil
 	}
 	return lxccmd.GuestResult{}, nil
 }
@@ -529,6 +566,7 @@ type world struct {
 	t      *testing.T
 	host   string
 	lxc    *fakeLXC
+	units  *fakeUnits
 	roster *fakeRoster
 	bus    *fakeBus
 	clock  *fakeClock
@@ -566,7 +604,7 @@ func newWorld(t *testing.T) *world {
 	writeTree(t, host, map[string]string{"kit/bin/teamchat": "binary", "kit/plugin/hooks.json": "{}"})
 	w := &world{
 		t: t, host: host, origin: "v2",
-		lxc:    &fakeLXC{boxes: map[string]*box{}},
+		lxc:    &fakeLXC{boxes: map[string]*box{}, found: map[string]string{guest.ProgramClaude: nvmBin + "/claude", guest.ProgramNode: nvmBin + "/node"}},
 		roster: &fakeRoster{roster: map[paths.TeamID]map[string]string{}},
 		clock:  &fakeClock{now: time.UnixMilli(1_700_000_000_000)},
 		boot:   clock.NewFake(time.Hour, 1_700_000_000_000),
@@ -577,6 +615,7 @@ func newWorld(t *testing.T) *world {
 		listen: []netip.Addr{netip.MustParseAddr(bridgeAddr)},
 	}
 	w.bus = &fakeBus{log: &w.log}
+	w.units = &fakeUnits{lxc: w.lxc}
 	w.lxc.log = &w.log
 	w.roster.log = &w.log
 	return w
@@ -638,6 +677,7 @@ func (w *world) deps() Deps {
 		LockDir:   filepath.Join(w.host, "lock"),
 		Clock:     w.clock,
 		LXC:       w.lxc,
+		Units:     w.units,
 		Pin:       w.pin,
 		Bus:       func(context.Context, Root) (guestbus.Systemd, error) { return w.bus, w.busErr },
 		Roster:    w.roster,

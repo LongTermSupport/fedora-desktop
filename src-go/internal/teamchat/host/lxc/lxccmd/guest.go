@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -26,8 +27,12 @@ const MaxGuestOutput = 64 << 10
 // setVar is lxc-attach's flag for one variable of the op's cleared environment.
 const setVar = "--set-var"
 
-// maxChangedLine is the longest `CHANGED` line a guest op may print (TB2.4).
-const maxChangedLine = 256
+// maxChangedLine is the longest `CHANGED` line a guest op may print (TB2.4), and
+// maxFoundLine the longest FOUND line's program and path.
+const (
+	maxChangedLine = 256
+	maxFoundLine   = 4096
+)
 
 // Attach is who a guest op runs as, on which seat, and with which kit (C 3.9.1). Key is the
 // seat's, which a seat op (guest.Op.Keyed) is given as `--key`; guest check takes none.
@@ -41,9 +46,11 @@ type Attach struct {
 	Kit paths.Kit
 }
 
-// GuestResult is a guest op's output as TB2.4 reads it.
+// GuestResult is a guest op's output as TB2.4 reads it: what it changed, and for an op that
+// finds programs (guest find-claude, R77) the path of each it found, by program.
 type GuestResult struct {
 	Changed []guest.What
+	Found   map[string]string
 }
 
 // GuestError is a guest op that failed with its error object as stderr's last line: its exit
@@ -130,11 +137,11 @@ func (l LXC) Guest(ctx context.Context, a Attach, op guest.Op, args []string, st
 	if err != nil {
 		return GuestResult{}, failed(op, a.Container, stderr.Bytes(), err)
 	}
-	changed, err := parseChanged(op, stdout.Bytes())
+	res, err := parseOutput(op, stdout.Bytes())
 	if err != nil {
 		return GuestResult{}, fmt.Errorf("%w: %s in container %s: %s", ErrOutput, op.Verb, a.Container, err.Error())
 	}
-	return GuestResult{Changed: changed}, nil
+	return res, nil
 }
 
 // checkGuest refuses an attach TB3 forbids and an op that is not a guest op, and is the
@@ -211,27 +218,60 @@ func lastLine(b []byte) []byte {
 	return b
 }
 
-// parseChanged is TB2.4's reading of a guest op's stdout: each line exactly
-// `CHANGED<TAB><what>` with what in the op's set, each ended by a newline.
-func parseChanged(op guest.Op, out []byte) ([]guest.What, error) {
-	if len(out) == 0 {
-		return nil, nil
+// parseOutput is TB2.4's reading of a guest op's stdout: each line exactly
+// `CHANGED<TAB><what>` with what in the op's set, or, from an op that finds programs,
+// `FOUND<TAB><program><TAB><path>` with the program in its set, once, and the path of the unit
+// grammar named for it; each line ended by a newline. Such an op must answer its first program.
+func parseOutput(op guest.Op, out []byte) (GuestResult, error) {
+	var res GuestResult
+	if len(out) > 0 && !bytes.HasSuffix(out, []byte("\n")) {
+		return GuestResult{}, errors.New("no newline at the end")
 	}
-	if !bytes.HasSuffix(out, []byte("\n")) {
-		return nil, errors.New("no newline at the end")
-	}
-	var changed []guest.What
-	for line := range strings.SplitSeq(strings.TrimSuffix(string(out), "\n"), "\n") {
-		if len(line) > maxChangedLine {
-			return nil, errors.New("a line over its length")
+	if len(out) > 0 {
+		for line := range strings.SplitSeq(strings.TrimSuffix(string(out), "\n"), "\n") {
+			if err := res.line(op, line); err != nil {
+				return GuestResult{}, err
+			}
 		}
-		what, ok := strings.CutPrefix(line, "CHANGED\t")
-		if !ok || !slices.Contains(op.Changes, guest.What(what)) {
-			return nil, errors.New("a line that is not a CHANGED line of its set")
-		}
-		changed = append(changed, guest.What(what))
 	}
-	return changed, nil
+	if len(op.Finds) > 0 && res.Found[op.Finds[0]] == "" {
+		return GuestResult{}, fmt.Errorf("no %s found", op.Finds[0])
+	}
+	return res, nil
+}
+
+// line reads one line of a guest op's stdout into res.
+func (res *GuestResult) line(op guest.Op, line string) error {
+	if found, ok := strings.CutPrefix(line, "FOUND\t"); ok && len(op.Finds) > 0 {
+		return res.found(op, found)
+	}
+	if len(line) > maxChangedLine {
+		return errors.New("a line over its length")
+	}
+	what, ok := strings.CutPrefix(line, "CHANGED\t")
+	if !ok || !slices.Contains(op.Changes, guest.What(what)) {
+		return errors.New("a line that is not a CHANGED or FOUND line of its set")
+	}
+	res.Changed = append(res.Changed, guest.What(what))
+	return nil
+}
+
+// found reads a FOUND line's `<program><TAB><path>` into res.
+func (res *GuestResult) found(op guest.Op, found string) error {
+	program, p, ok := strings.Cut(found, "\t")
+	switch {
+	case !ok || len(found) > maxFoundLine || !slices.Contains(op.Finds, program):
+		return errors.New("a FOUND line that is not one of its set")
+	case res.Found[program] != "":
+		return errors.New("a program found twice")
+	case !paths.ValidUnitPath(p) || path.Base(p) != program:
+		return errors.New("a FOUND path that is not a clean absolute path of the unit grammar named for its program")
+	}
+	if res.Found == nil {
+		res.Found = map[string]string{}
+	}
+	res.Found[program] = p
+	return nil
 }
 
 // capped keeps the first MaxGuestOutput bytes written to it and notes any beyond. It never

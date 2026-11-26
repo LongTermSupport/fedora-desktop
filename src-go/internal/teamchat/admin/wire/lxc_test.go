@@ -18,6 +18,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/units"
 )
 
 const accounts = "root:x:0:0:root:/root:/bin/bash\nu:x:1000:1000::/home/u:/bin/bash\n"
@@ -76,6 +77,11 @@ func TestLXCDepsAreTheHosts(t *testing.T) {
 	if d.Root != f.root || d.LockDir != f.root+paths.AdminRunDir || d.Kit.String() != digest || d.HostKit != f.root+want ||
 		!reflect.DeepEqual(d.HostUIDs, map[int]bool{0: true, 1000: true}) || d.OwnerGID != 1000 || d.Bridge != Bridge {
 		t.Fatalf("deps %+v", d)
+	}
+	// Plan 00266 C.2: a recorded container is started through the host's systemd, as its lxc@
+	// instance and nothing else.
+	if _, ok := d.Units.(units.ContainerUnits); !ok {
+		t.Fatalf("the container start is a %T, not the host systemd's lxc@ start", d.Units)
 	}
 }
 

@@ -12,7 +12,9 @@
 #      `team approve` and `team apply` for each present team, over good cases with and without
 #      teamchat_only_teams and teamchat_site;
 #   3. the present phase's failed_when over `lxc apply` lines (a reach line fails it, a stopped
-#      container or a signed-out gh does not) and the held-back task's msg over both phases' lines.
+#      container or a signed-out gh does not) and the held-back task's msg over both phases' lines;
+#   4. teamchat_lxc_seat_restore_starts_containers (Plan 00266 C.2): its input check, the argv that prints
+#      the boot unit with or without its container start, and when the two restart units are enabled.
 #
 # Nothing here contacts a host or changes one: ansible runs against localhost with a throwaway
 # config and inventory, and every write lands in a temp directory. The repo's ansible.cfg is NOT
@@ -213,6 +215,53 @@ for name, (present_result, absent_result) in phase_cases.items():
         "ansible.builtin.copy": {"dest": f"{out_dir}/{name}.json", "content": as_json(renders), "mode": "0600"},
     }]})
 
+# The boot unit's container start (Plan 00266 C.2): the input check on
+# teamchat_lxc_seat_restore_starts_containers, the argv that prints the boot unit, and whether the two
+# restart units are enabled, over the variable unset, true, false and a quoted "false".
+inputs = task("Check the Play's Inputs", "ansible.builtin.assert")["ansible.builtin.assert"]["that"]
+starts_conditions = [c for c in inputs if "teamchat_lxc_seat_restore_starts_containers" in c]
+print_argv = task("Print Each Unit's Text", "ansible.builtin.command")["ansible.builtin.command"]["argv"]
+record_enabled = task("Run the LXC Record Unit While an LXC Member Is Present", "ansible.builtin.systemd_service")["ansible.builtin.systemd_service"]
+boot_enabled = task("Enable the LXC Boot Unit While an LXC Member Is Present", "ansible.builtin.systemd_service")["ansible.builtin.systemd_service"]
+if len(starts_conditions) != 1 or not isinstance(print_argv, str):
+    sys.exit("the play has no one input condition on teamchat_lxc_seat_restore_starts_containers, or its print argv is not one template")
+
+
+def expression(template):
+    if not (template.startswith("{{ ") and template.endswith(" }}")):
+        sys.exit(f"not one expression: {template!r}")
+    return template[3:-3]
+
+
+starts_cases = {
+    "starts-unset": ({}, [seat]),
+    "starts-true": ({"teamchat_lxc_seat_restore_starts_containers": True}, [seat]),
+    "starts-false": ({"teamchat_lxc_seat_restore_starts_containers": False}, [seat]),
+    "starts-quoted": ({"teamchat_lxc_seat_restore_starts_containers": "false"}, [seat]),
+    "starts-no-member": ({}, []),
+    "starts-absent-member": ({}, [with_(state="absent")]),
+}
+for name, (extra, members) in starts_cases.items():
+    reg = name.replace("-", "_")
+    case_vars = {"teamchat_teams": fixture["teams"], "teamchat_lxc_members": members,
+                 "item": "teamchat-lxc-boot.service\t/etc/systemd/system/teamchat-lxc-boot.service", **extra}
+    body = [{
+        "name": "Input condition",
+        "ansible.builtin.assert": {"that": starts_conditions, "quiet": True},
+        "ignore_errors": True,
+        "register": f"{reg}_check",
+    }]
+    renders = {"failed": f"{reg}_check.failed",
+               "record": f"[{expression(record_enabled['enabled'])}, {expression(record_enabled['state'])}]",
+               "boot": expression(boot_enabled["enabled"])}
+    if name != "starts-quoted":
+        renders["argv"] = expression(print_argv)
+    body.append({
+        "name": "Write what was rendered",
+        "ansible.builtin.copy": {"dest": f"{out_dir}/{name}.json", "content": as_json(renders), "mode": "0600"},
+    })
+    blocks.append({"name": f"Case {name}", "vars": case_vars, "block": body})
+
 render = [{"hosts": "localhost", "gather_facts": False, "vars": play["vars"], "tasks": blocks}]
 json.dump(render, open(render_path, "w"), indent=1)
 PY
@@ -297,6 +346,23 @@ check "both phases' held-back lines are shown, no changed line" \
 check "a skipped absent phase (no register) is no error" \
     '["SKIPPED\talpha\tagent@box-3/thing-1-0123456789abcdef\toffline: guest check gh"]' \
     "$(field phase-skipped-absent 'r["held"]')"
+
+echo "=== the boot unit's container start (teamchat_lxc_seat_restore_starts_containers) ==="
+admin_print='["/usr/local/sbin/teamchat-admin", "units", "print"'
+for name in starts-unset starts-true starts-false; do
+    check "$name: passes the input check" "false" "$(field "$name" 'r["failed"]')"
+done
+check "a quoted \"false\" is refused" "true" "$(field starts-quoted 'r["failed"]')"
+check "unset: the boot unit is printed with its container start" "$admin_print, \"teamchat-lxc-boot.service\"]" "$(field starts-unset 'r["argv"]')"
+check "true: the boot unit is printed with its container start" "$admin_print, \"teamchat-lxc-boot.service\"]" "$(field starts-true 'r["argv"]')"
+check "false: the boot unit is printed without it, so it runs only reconcile" \
+    "$admin_print, \"--no-container-start\", \"teamchat-lxc-boot.service\"]" "$(field starts-false 'r["argv"]')"
+check "a present member: the record unit is enabled and started" '[true, "started"]' "$(field starts-unset 'r["record"]')"
+check "a present member: the boot unit is enabled" "true" "$(field starts-false 'r["boot"]')"
+for name in starts-no-member starts-absent-member; do
+    check "$name: the record unit is disabled and stopped" '[false, "stopped"]' "$(field "$name" 'r["record"]')"
+    check "$name: the boot unit is disabled" "false" "$(field "$name" 'r["boot"]')"
+done
 
 echo
 echo "passed: $passed  failed: $failed"

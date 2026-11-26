@@ -32,7 +32,7 @@ var bVerbs = []string{
 	"recv", "wait", "inbox", "reply", "say", "ping", "report", "ask-human", "thread", "close", "retitle", "bump", "questions",
 	"history", "verify", "status", "version", "help",
 	"run", "link", "hook", "status-line", "whoami", "reach", "tls", "seat disconnected", "seat set-aside", "seat place-issued",
-	"seat place-lxc", "kit assemble", "guest check", "guest place-bundle", "guest membership", "guest remove",
+	"seat place-lxc", "kit assemble", "guest check", "guest find-claude", "guest place-bundle", "guest membership", "guest remove",
 }
 
 func TestTheTableIsBsVerbs(t *testing.T) {
@@ -154,6 +154,7 @@ func TestUsageSpellsBsForms(t *testing.T) {
 		"seat disconnected": "teamchat seat disconnected --bundle DIR --since MS --seed ID",
 		"guest check":       "teamchat guest check --user U --team T",
 		"guest membership":  "teamchat guest membership --user U --key K",
+		"guest find-claude": "teamchat guest find-claude --user U",
 		"guest remove":      "teamchat guest remove --user U --key K --team T",
 		"hook":              "teamchat hook session-start|user-prompt-submit|stop|session-end",
 	} {

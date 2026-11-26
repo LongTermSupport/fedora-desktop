@@ -1026,3 +1026,39 @@ func TestJournalTailRunsThroughExecx(t *testing.T) {
 		t.Errorf("tail err = %v", err)
 	}
 }
+
+// Plan 00266 C.2: Containers starts LXC's own lxc@<container>.service, waiting for its job, so a
+// container the boot unit asks for runs in the host's mount namespace, not the boot unit's.
+func TestContainersStartsAnLXCInstance(t *testing.T) {
+	for _, before := range []bool{true, false} {
+		r := newRig(t)
+		unit := "lxc@box-1.a_b.service"
+		r.jobAnswers(managerStartUnit, unit, "done", before)
+		if err := r.m.Containers().Start(t.Context(), unit); err != nil {
+			t.Fatalf("before=%v: %v", before, err)
+		}
+		checkJobCalls(t, r, managerStartUnit, unit)
+	}
+}
+
+// Containers starts nothing but an instance of lxc@ whose name the container grammar accepts,
+// before any call: not a teamchat unit, not the template, not an escaped or a second instance.
+func TestContainersStartsNothingElse(t *testing.T) {
+	bad := []string{
+		"", "lxc@.service", "lxc@-a.service", "lxc@.a.service", `lxc@a\x2fb.service`, "lxc@a/b.service",
+		"lxc@a@b.service", "lxc@a b.service", "lxc@a.service\n", "lxc@a.socket", "lxc.service",
+		"lxc@" + strings.Repeat("a", 65) + ".service", "teamchat-server@a.service", "sshd.service",
+	}
+	for _, unit := range bad {
+		r := newRig(t)
+		if err := r.m.Containers().Start(t.Context(), unit); !errors.Is(err, ErrUnitName) {
+			t.Errorf("%q: err = %v", unit, err)
+		}
+		if r.dials != 0 || len(r.run.Calls()) != 0 {
+			t.Errorf("%q reached the bus or a program", unit)
+		}
+	}
+	if err := checkUnit("lxc@a.service"); !errors.Is(err, ErrUnitName) {
+		t.Errorf("host.Systemd would act on an lxc@ instance: %v", err)
+	}
+}

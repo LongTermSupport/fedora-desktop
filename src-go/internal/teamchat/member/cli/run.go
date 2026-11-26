@@ -37,6 +37,7 @@ var runs = map[string]RunFunc{
 	verbVersion:     runVersion,
 	verbHelp:        runHelp,
 	verbGuestCheck:  runGuestCheck,
+	verbFindClaude:  runFindClaude,
 	verbPlaceBundle: runPlaceBundle,
 	verbMembership:  runMembership,
 	verbGuestRemove: runGuestRemove,

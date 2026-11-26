@@ -5,7 +5,7 @@
 # switch afterwards to the SAVED default (~/.config/gh/default-account), not to the account
 # that was active, so anything that had chosen an account was left on another one. run.bash
 # made the primary active, called gh-lts, and then read the primary's private config repo as
-# the wrong account. The wrappers now share one jinja-free function, _gh_as_account, which
+# the wrong account. The wrappers now share one jinja-free function, __gh_as_account, which
 # restores whatever was active before.
 #
 # The functions are extracted from the play's gh-aliases block with awk and sourced; the
@@ -40,12 +40,12 @@ extract() {
 }
 
 : >"$work/fn.bash"
-for fn in _gh_active_account _gh_as_account "gh-{{ alias }}" "clone-{{ alias }}" "gh-token-{{ alias }}"; do
+for fn in __gh_active_account __gh_as_account "gh-{{ alias }}" "clone-{{ alias }}" "gh-token-{{ alias }}"; do
     extract "$fn"
 done
 # clone-<alias> builds an ssh command with this play helper; its shape is not under test.
 cat >>"$work/fn.bash" <<'FN'
-_gh443_sshcmd() { echo "ssh -i $1"; }
+__gh443_sshcmd() { echo "ssh -i $1"; }
 FN
 
 # ── stubs ─────────────────────────────────────────────────────────────────────
@@ -187,15 +187,121 @@ OUT="$(run_fn gh-token-lts)"
 check "it reads the alias's token by name" "run as primary: auth token --hostname github.com --user lts-user" "$(grep '^run as' "$STUB_DIR/calls.log")"
 check "  without switching gh" "" "$(grep '^switch' "$STUB_DIR/calls.log")"
 
+echo "== after Claude Code's shell snapshot (Plan 00265 R72)"
+# Claude Code's Bash tool does not read ~/.bashrc: it replays a snapshot of the login shell,
+# which keeps every function except those whose name starts with a single underscore (its
+# filter is [[ "$func" == _[!_]* ]]) and of the variables only those exported. The whole
+# gh-aliases block is rendered for one alias, sourced, put through that filter, and replayed
+# into a clean shell, where each command must still work.
+awk '
+    index($0, "marker: \"# {mark} ANSIBLE MANAGED: GitHub CLI Multi-Account Aliases\"") { m = 1; next }
+    m && !b && /^ +block: \|$/ { b = 1; next }
+    b && /^ +$|^$/ { print ""; next }
+    b {
+        match($0, /^ +/)
+        if (indent == 0) indent = RLENGTH
+        if (RLENGTH < indent) exit
+        print substr($0, indent + 1)
+    }
+' "$PLAY" | awk -v root="$REPO_ROOT" '{
+    gsub(/\{%[^%]+%\}/, ""); gsub(/\{\{ alias \}\}/, "lts"); gsub(/\{\{ username \}\}/, "lts-user")
+    gsub(/\{\{ root_dir \}\}/, root); print
+}' >"$work/block.bash"
+check "the gh-aliases block renders with no Jinja left" "yes" "$(grep -q 'function git()' "$work/block.bash" && ! grep -qE '\{\{|\{%' "$work/block.bash" && echo yes || echo no)"
+if ! bash --norc --noprofile -c 'source "$1" || exit 1
+    declare -F | while read -r _ _ func; do
+        [[ "$func" == _[!_]* ]] || declare -f "$func"
+    done' _ "$work/block.bash" >"$work/snapshot.bash"; then
+    echo "FAIL: the rendered gh-aliases block could not be sourced" >&2
+    exit 1
+fi
+
+# git-account-helper names the alias in $STUB_DIR/alias, as it does for a github.com-<alias>
+# remote; git logs each call and answers the few questions the wrappers ask.
+cat >"$work/bin/git-account-helper" <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = detect ] && [ -f "$STUB_DIR/alias" ] || exit 1
+cat "$STUB_DIR/alias"
+STUB
+cat >"$work/bin/git" <<'STUB'
+#!/usr/bin/env bash
+words="$(printf ' %s' "$@")"
+echo "git${words}" >>"$STUB_DIR/calls.log"
+while [ "${1-}" = -c ]; do shift 2; done
+words="$(printf ' %s' "$@")"
+case "${words# }" in
+    "symbolic-ref --quiet refs/remotes/origin/HEAD") ;;
+    "symbolic-ref --short refs/remotes/origin/HEAD") echo origin/main ;;
+    "remote get-url origin") echo "git@github.com:owner/repo.git" ;;
+esac
+STUB
+chmod +x "$work/bin/git-account-helper" "$work/bin/git"
+mkdir -p "$work/repo"
+# replay.bash <snapshot> <command…> — what the Bash tool does: source the snapshot, then run.
+cat >"$work/replay.bash" <<'REPLAY'
+source "$1"
+shift
+"$@"
+REPLAY
+
+# snap <command…> — the command in a clean shell holding only the snapshot and the
+# environment; prints its stdout, then "rc=<code>".
+snap() {
+    local out code=0
+    out="$(cd "$work/repo" && env -i HOME="$work/home" PATH="$PATH" STUB_DIR="$STUB_DIR" \
+        bash "$work/replay.bash" "$work/snapshot.bash" "$@" 2>"$work/stderr")" || code=$?
+    printf '%s\nrc=%s' "$out" "$code"
+}
+# snap_check <label> <want> <command…> — snap, and the output and stderr judged.
+snap_check() {
+    local label="$1" want="$2"
+    shift 2
+    check "$label" "$want" "$(snap "$@")"
+    check "  with nothing missing" "" "$(grep -E 'command not found|unknown GitHub account' "$work/stderr")"
+}
+account_git="git -c core.sshCommand=ssh -F /dev/null -o HostName=github.com -p 22 -i $work/home/.ssh/github_lts -o IdentitiesOnly=yes -o AddKeysToAgent=yes -c credential.https://github.com.helper="
+
+start primary
+echo lts >"$STUB_DIR/alias"
+snap_check "git in a repository with an account's remote" "
+rc=0" git status
+check "  runs as that account over SSH and HTTPS" "yes" "$(grep -q ' status$' <<<"$(grep -F "$account_git" "$STUB_DIR/calls.log" | grep -F -- '--user lts-user)')" && echo yes || echo no)"
+start primary
+snap_check "git-lts" "
+rc=0" git-lts fetch
+check "  runs as that account" "yes" "$(grep -q ' fetch$' <<<"$(grep -F "$account_git" "$STUB_DIR/calls.log")" && echo yes || echo no)"
+start primary
+rm -f "$STUB_DIR/alias"
+snap_check "git in a repository with no account's remote" "
+rc=0" git status
+check "  is plain git" "git status" "$(cat "$STUB_DIR/calls.log")"
+start primary
+echo lts >"$STUB_DIR/alias"
+snap_check "git-branch-default" "main
+rc=0" git-branch-default
+snap_check "git-lts-branch-default" "main
+rc=0" git-lts-branch-default
+start primary
+snap_check "gh-lts" "output of api user
+rc=0" gh-lts api user
+check "  runs as the alias's account and puts gh back" "primary" "$(cat "$STUB_DIR/active")"
+start primary
+snap_check "clone-lts" "output of repo clone owner/repo -- --config core.sshCommand=ssh -F /dev/null -o HostName=github.com -p 22 -i $work/home/.ssh/github_lts -o IdentitiesOnly=yes -o AddKeysToAgent=yes
+rc=0" clone-lts owner/repo
+start primary
+snap_check "remote-lts -y" "
+rc=0" remote-lts -y
+check "  points origin at the alias's host" "yes" "$(grep -qxF 'git remote set-url origin git@github.com-lts:owner/repo.git' "$STUB_DIR/calls.log" && echo yes || echo no)"
+
 echo "== the play's wiring"
 # Every account switch in the gh-aliases block sits in a function whose job is to switch
-# (gh-switch, gh-set-default) or in _gh_as_account, which puts the account back.
+# (gh-switch, gh-set-default) or in __gh_as_account, which puts the account back.
 switchers="$(awk '
     /^ *function [^ ]+\(\) \{/ { fn = $2; sub(/\(\).*/, "", fn) }
     /gh auth switch/ && fn != "" { print fn }
 ' "$PLAY" | sort -u | tr '\n' ' ')"
-check "only gh-switch, gh-set-default and _gh_as_account switch accounts" "_gh_as_account gh-set-default gh-switch " "$switchers"
-check "gh-<alias>-token-phpstorm goes through _gh_as_account" "yes" "$(grep -qE '^ *_gh_as_account "\{\{ username \}\}" _gh_phpstorm_token_report ' "$PLAY" && echo yes || echo no)"
+check "only gh-switch, gh-set-default and __gh_as_account switch accounts" "__gh_as_account gh-set-default gh-switch " "$switchers"
+check "gh-<alias>-token-phpstorm goes through __gh_as_account" "yes" "$(grep -qE '^ *__gh_as_account "\{\{ username \}\}" __gh_phpstorm_token_report ' "$PLAY" && echo yes || echo no)"
 
 echo ""
 echo "RESULT: passed: $passed failed: $failed"

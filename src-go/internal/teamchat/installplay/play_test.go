@@ -13,6 +13,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/unitfiles"
 )
 
 // repo is the checkout's root, from this package's directory.
@@ -98,7 +99,8 @@ func TestTheHooksPlaysCtlStateRootIsPaths(t *testing.T) {
 
 // What the play builds from those variables is what `paths` builds from the same parts: the
 // admin program's digest-named home, the kit's binary and its current link, the server binary
-// and pin, the owner group file, and the two timers it runs.
+// and pin, the owner group file, the two timers it runs, and the two LXC restart units it enables
+// with the flag and the host variable that print the boot unit without its container start.
 func TestThePlaysDerivedPathsAreThePathsPackagesDerivedPaths(t *testing.T) {
 	const digest = "0123456789abcdef0123456789abcdef01234567"
 	d, err := paths.ParseDigest(digest)
@@ -125,6 +127,10 @@ func TestThePlaysDerivedPathsAreThePathsPackagesDerivedPaths(t *testing.T) {
 		"the carry archive cap file": paths.CarryMaxArchiveFile,
 		"the health timer":           paths.HealthTimer,
 		"the backup timer":           paths.BackupTimer,
+		"the LXC record unit":        paths.LXCRecordService,
+		"the LXC boot unit":          paths.LXCBootService,
+		"the boot unit's start flag": unitfiles.NoContainerStartFlag,
+		"the container start var":    "{{ " + paths.HostVarLXCStartsContainers + " | default(true) }}",
 		"the admin program's link":   "{{ tc_admin_link }}",
 		"the member program's link":  "{{ tc_member_link }}",
 		"the units the verb lists":   "units",
@@ -349,5 +355,31 @@ func TestThePlayReadsNothingTheTargetLacks(t *testing.T) {
 		if task["delegate_to"] != "localhost" {
 			t.Errorf("%s: %s is not delegated to localhost, so it would build on the target", buildTasks, taskName(task))
 		}
+	}
+}
+
+// Plan 00266 C.2: the drop-in of LXC's own lxc@.service is one of the units the play writes, and
+// systemd's lxc@.service.d directory is not there on a fresh host; the play makes it, root's
+// 0755, before it writes any unit.
+func TestThePlayMakesTheLXCDropInDirectoryFirst(t *testing.T) {
+	p := loadPlay(t)
+	const makeDir, write = "Make the Directory of LXC's Unit Drop-in", "Write Each Unit"
+	dir := taskModule(t, p, makeDir, "ansible.builtin.file")
+	for key, want := range map[string]string{
+		"path": filepath.Dir(paths.LXCContainerDropInFile), "state": "directory",
+		"owner": "root", "group": "root", "mode": "0755",
+	} {
+		if dir[key] != want {
+			t.Errorf("the drop-in directory's %s = %v, want %q", key, dir[key], want)
+		}
+	}
+	order := make([]string, 0, len(p.Tasks))
+	for _, task := range p.Tasks {
+		if name, ok := task["name"].(string); ok {
+			order = append(order, name)
+		}
+	}
+	if i, j := slices.Index(order, makeDir), slices.Index(order, write); i < 0 || j < 0 || i > j {
+		t.Errorf("the drop-in directory is made at task %d, the units written at %d", i, j)
 	}
 }

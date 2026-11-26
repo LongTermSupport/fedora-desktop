@@ -11,6 +11,8 @@ func hostNames(t *testing.T) map[string][]string {
 		"HealthServiceFile": {HealthServiceFile}, "HealthTimerFile": {HealthTimerFile},
 		"BackupServiceFile": {BackupServiceFile}, "BackupTimerFile": {BackupTimerFile},
 		"TmpfilesFile": {TmpfilesFile}, "HealthDropInFile": {HealthDropInFile},
+		"LXCBootServiceFile": {LXCBootServiceFile}, "LXCRecordServiceFile": {LXCRecordServiceFile},
+		"LXCContainerDropInFile": {LXCContainerDropInFile},
 	}
 	for _, s := range sampleTeams {
 		team := mustTeam(t, s)
@@ -62,6 +64,9 @@ func TestHostNames(t *testing.T) {
 		BackupTimerFile:                 "/etc/systemd/system/teamchat-backup.timer",
 		TmpfilesFile:                    "/etc/tmpfiles.d/teamchat.conf",
 		HealthDropInFile:                "/etc/systemd/system/teamchat-health.service.d/teams.conf",
+		LXCBootServiceFile:              "/etc/systemd/system/teamchat-lxc-boot.service",
+		LXCRecordServiceFile:            "/etc/systemd/system/teamchat-lxc-record.service",
+		LXCContainerDropInFile:          "/etc/systemd/system/lxc@.service.d/teamchat.conf",
 	} {
 		if got != want {
 			t.Errorf("got %s, want %s", got, want)

@@ -43,6 +43,9 @@ type guestWorld struct {
 	srv    *fakehs.Server
 	// attachPath, when set, is the PATH the attach itself runs with.
 	attachPath string
+	// passwd and shell are the guest's passwd database and the user's login shell, which
+	// answers claude at ~/.local/bin/claude.
+	passwd, shell string
 }
 
 func fixedNow() time.Time { return time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC) }
@@ -64,6 +67,14 @@ func newGuestWorld(t *testing.T) *guestWorld {
 	if err := os.Symlink(versioned, filepath.Join(w.home, ".local", "bin", "claude")); err != nil {
 		t.Fatal(err)
 	}
+	w.passwd = filepath.Join(t.TempDir(), "passwd")
+	w.shell = filepath.Join(t.TempDir(), "bash")
+	executable(t, w.shell)
+	passwd := "agent:x:1000:1000::" + w.home + ":" + w.shell + "\n"
+	if err := os.WriteFile(w.passwd, []byte(passwd), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w.run.On([]string{w.shell}, execx.Result{Stdout: []byte(shellAnswer(cleanLink(t, filepath.Join(w.home, ".local", "bin", "claude")), ""))})
 	w.run.On([]string{filepath.Join(w.system[1], "gh"), "auth", "status"}, execx.Result{Stdout: []byte("Logged in to github.com account someone\n")})
 	w.srv = fakehs.New(fakehs.Options{ServerName: "bus.example.com", Now: fixedNow, Quirks: fakehs.TuwunelQuirks()})
 	if err := w.srv.Start(); err != nil {
@@ -75,6 +86,26 @@ func newGuestWorld(t *testing.T) *guestWorld {
 		}
 	})
 	return w
+}
+
+// cleanLink is a link called claude to target, in a directory whose path is of the unit grammar
+// (a subtest's temporary directory is named after it, commas and all).
+func cleanLink(t *testing.T, target string) string {
+	t.Helper()
+	d, err := os.MkdirTemp("", "guest-bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(d); err != nil {
+			t.Error(err)
+		}
+	})
+	link := filepath.Join(d, "claude")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	return link
 }
 
 func dir(t *testing.T, name string) string {
@@ -97,7 +128,7 @@ func executable(t *testing.T, path string) {
 }
 
 func (w *guestWorld) checker() Checker {
-	return Checker{Sys: w.sys, Run: w.run, Kernel: w.kernel, SystemDirs: w.system}
+	return Checker{Sys: w.sys, Run: w.run, Kernel: w.kernel, SystemDirs: w.system, Shell: Shell{Run: w.run, Passwd: w.passwd, SystemDirs: w.system}}
 }
 
 func (w *guestWorld) stdin() string {
@@ -118,18 +149,18 @@ func (w *guestWorld) check(t *testing.T, stdin string) error {
 	return w.checker().Check(t.Context(), agentUser(t), alpha(t), Input{Stdin: strings.NewReader(stdin)})
 }
 
-// GU2: every check passes; gh is run once, at the path found on the unit's PATH, with that
-// PATH and the home; tmux is only looked at.
+// GU2: every check passes; the login shell is asked for claude (R77), then gh is run once, at
+// the path found on the unit's PATH, with that PATH and the home; tmux is only looked at.
 func TestCheckPasses(t *testing.T) {
 	w := newGuestWorld(t)
 	if err := w.check(t, w.stdin()); err != nil {
 		t.Fatal(err)
 	}
 	calls := w.run.Calls()
-	if len(calls) != 1 {
-		t.Fatalf("calls %v: only gh auth status runs", calls)
+	if len(calls) != 2 || calls[0].Name != w.shell {
+		t.Fatalf("calls %v: only the login shell and gh auth status run", calls)
 	}
-	gh := calls[0]
+	gh := calls[1]
 	if gh.Name != filepath.Join(w.system[1], "gh") || !slices.Equal(gh.Args, []string{"auth", "status", "--hostname", "github.com"}) {
 		t.Errorf("gh ran as %s", gh.Line())
 	}
@@ -153,7 +184,7 @@ func TestUnitPath(t *testing.T) {
 
 func TestNewChecker(t *testing.T) {
 	c := NewChecker()
-	if c.Sys != (OS{}) || c.Kernel != (LinuxKernel{}) || !slices.Equal(c.SystemDirs, SystemDirs) {
+	if c.Sys != (OS{}) || c.Kernel != (LinuxKernel{}) || !slices.Equal(c.SystemDirs, SystemDirs) || c.Shell.Passwd != NewShell().Passwd {
 		t.Errorf("checker = %+v", c)
 	}
 	if _, ok := c.Run.(execx.OS); !ok {
@@ -257,7 +288,7 @@ func TestCheckFindsEachProgram(t *testing.T) {
 				t.Setenv("PATH", w.attachPath)
 			}
 			wantCode(t, w.check(t, w.stdin()), 78, c.code)
-			if len(w.run.Calls()) != 0 {
+			if w.run.Called(filepath.Join(w.system[1], "gh") + " auth") {
 				t.Errorf("ran %v before every program was found", w.run.Calls())
 			}
 		})
@@ -276,7 +307,7 @@ func TestCheckRunsTheFirstGhOnThePath(t *testing.T) {
 	if err := w.check(t, w.stdin()); err != nil {
 		t.Fatal(err)
 	}
-	if calls := w.run.Calls(); len(calls) != 1 || calls[0].Name != filepath.Join(w.system[1], "gh") {
+	if calls := w.run.Calls(); len(calls) != 2 || calls[1].Name != filepath.Join(w.system[1], "gh") {
 		t.Errorf("ran %v", calls)
 	}
 }

@@ -250,8 +250,14 @@ func (r *run) parks(ctx context.Context, team paths.TeamID, leavers []*member) [
 	return parked
 }
 
-// leave is one seat's steps 2-5, after its park.
+// leave is one seat's steps 2-5, after its park. A seat that leaves is stopped on purpose, so it
+// is first taken out of the record of started seats (Plan 00266 C.2), as `lxc stop` does, and
+// `lxc reconcile` never starts it again, whether its container runs or not.
 func (r *run) leave(ctx context.Context, m *member, parked bool) {
+	if err := recordStarted(r.d, verb, lxcstate.StartedSeat{Container: m.box, Key: m.key}, false); err != nil {
+		r.fail(m, err)
+		return
+	}
 	if m.handle == "" {
 		m.done, m.status = true, statusDrop
 		r.line(m, Changed, lineNoHandle)

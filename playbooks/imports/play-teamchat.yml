@@ -31,7 +31,8 @@
 #      `lxc apply --phase present` (the declared LXC members placed and joined). approve and
 #      apply get each team's own teamchat_lxc_members entries; both LXC phases get the whole
 #      declaration (DESIGN-v2-C-host.md 3.5.1 steps 10 to 13, 3.9.2).
-#   6. The health and backup timers are enabled exactly while a team is declared present, so a
+#   6. The health and backup timers are enabled exactly while a team is declared present, and the
+#      two units that start the LXC seats again after a boot exactly while an LXC member is, so a
 #      host with no team starts nothing.
 #
 # Tags: each part runs alone with --tags. The input and host checks, the owner group, the
@@ -66,6 +67,13 @@
 #   teamchat_carry_max_archive_bytes
 #                            optional: the carry archive's cap in bytes, which team export and
 #                            team import read (SPEC-carry CN5). Default 1073741824 (1 GiB).
+#   teamchat_lxc_seat_restore_starts_containers
+#                            optional boolean, default true (Plan 00266 C.2). The boot unit
+#                            (teamchat-lxc-boot.service) starts the LXC containers that ran at the
+#                            last shutdown, then `lxc reconcile` starts their recorded seats again.
+#                            false leaves the container start out of the unit, which then runs
+#                            only reconcile: for a host whose own IaC starts its containers, and
+#                            calls reconcile itself once they run.
 #   teamchat_memory_high, teamchat_cache_capacity_modifier
 #                            the server pin's values (defaults 512M and 0.5, NOT yet measured on
 #                            a real host: DESIGN-v2-C-host.md H-C1).
@@ -108,6 +116,9 @@
     tc_scoped_present: "{{ tc_present if teamchat_only_teams is not defined else tc_present | selectattr('team', 'in', teamchat_only_teams) | list }}"
     tc_scoped_absent: "{{ tc_absent if teamchat_only_teams is not defined else tc_absent | selectattr('team', 'in', teamchat_only_teams) | list }}"
     tc_lxc: "{{ teamchat_lxc_members | default([]) }}"
+    tc_lxc_present_members: "{{ tc_lxc | rejectattr('state', 'defined') | list + tc_lxc | selectattr('state', 'defined') | selectattr('state', 'eq', 'present') | list }}"
+    # Whether the boot unit starts the containers that ran at the last shutdown (Plan 00266 C.2).
+    tc_lxc_starts_containers: "{{ teamchat_lxc_seat_restore_starts_containers | default(true) }}"
     # The teams each LXC phase acts on, passed as --only-teams. The absent phase takes the present
     # teams and the absent ones in the run's scope: every seat an absent team's LXC record holds
     # is parked and removed before `team remove` stops its homeserver.
@@ -150,6 +161,7 @@
           - teamchat_only_teams is not defined or (teamchat_only_teams is sequence and teamchat_only_teams is not string)
           - teamchat_approve_teams is not defined or (teamchat_approve_teams is sequence and teamchat_approve_teams is not string)
           - teamchat_address | default('') == ''
+          - teamchat_lxc_seat_restore_starts_containers | default(true) is boolean
           # The LXC members: their shape and their team here, every other rule by the Go reader.
           # The conditions run in order, so the later ones see only mappings with every key.
           - tc_lxc is sequence and tc_lxc is not string
@@ -173,7 +185,8 @@
           container, a user, a checkout and a whole-number seat, a state of present or absent if it
           has one, and no two with the same team, container, checkout and seat;
           teamchat_address (the teamchat0 bus address) is not built in this play yet and must be
-          unset or empty: the LXC path does not need it, its seats being given the bridge address.
+          unset or empty: the LXC path does not need it, its seats being given the bridge address;
+          teamchat_lxc_seat_restore_starts_containers must be true or false, unquoted.
         quiet: true
       tags: [always]
 
@@ -644,7 +657,9 @@
         mode: "0644"
       tags: [tuwunel]
 
-    # The units are Go's text. The admin program just linked prints the list and each file.
+    # The units are Go's text. The admin program just linked prints the list and each file; with
+    # teamchat_lxc_seat_restore_starts_containers false, the boot unit is printed without its
+    # container start.
     - name: List the Units the Admin Program Installs
       ansible.builtin.command:
         argv: ["{{ tc_admin_link }}", units, list]
@@ -654,10 +669,21 @@
 
     - name: Print Each Unit's Text
       ansible.builtin.command:
-        argv: ["{{ tc_admin_link }}", units, print, "{{ item.split('\t')[0] }}"]
+        argv: "{{ [tc_admin_link, 'units', 'print'] + ([] if tc_lxc_starts_containers else ['--no-container-start']) + [item.split('\t')[0]] }}"
       loop: "{{ tc_unit_list.stdout_lines }}"
       changed_when: false
       register: tc_unit_text
+      tags: [units]
+
+    # One of the units is a drop-in of LXC's own lxc@.service (Plan 00266 C.2), whose directory a
+    # fresh host does not have; the copy below makes no directory.
+    - name: Make the Directory of LXC's Unit Drop-in
+      ansible.builtin.file:
+        path: /etc/systemd/system/lxc@.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
       tags: [units]
 
     # A command's stdout loses its trailing newline in Ansible, so the file's end is made explicit
@@ -850,4 +876,21 @@
       loop:
         - teamchat-health.timer
         - teamchat-backup.timer
+      tags: [teams]
+
+    # The LXC seats' restart after a boot (Plan 00266 C.2) runs exactly while an LXC member is
+    # declared present. The record unit is started now, so its stop at the next shutdown records
+    # the running containers (an inactive unit runs no ExecStop); the boot unit is only enabled,
+    # to run at the next boot, never by this play.
+    - name: Run the LXC Record Unit While an LXC Member Is Present
+      ansible.builtin.systemd_service:
+        name: teamchat-lxc-record.service
+        enabled: "{{ tc_lxc_present_members | length > 0 }}"
+        state: "{{ 'started' if tc_lxc_present_members | length > 0 else 'stopped' }}"
+      tags: [teams]
+
+    - name: Enable the LXC Boot Unit While an LXC Member Is Present
+      ansible.builtin.systemd_service:
+        name: teamchat-lxc-boot.service
+        enabled: "{{ tc_lxc_present_members | length > 0 }}"
       tags: [teams]

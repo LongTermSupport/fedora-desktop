@@ -841,6 +841,7 @@ func scanPlayUX(fsys fs.FS, dirs []string, f *Findings) error {
 	reportPlayUX(duplicateManagedBlocks(sources), f)
 	reportPlayUX(scratchAlwaysChanged(sources), f)
 	reportPlayUX(imageBuildArgVolatile(sources), f)
+	reportPlayUX(snapshotDroppedNames(fsys, sources), f)
 	return nil
 }
 

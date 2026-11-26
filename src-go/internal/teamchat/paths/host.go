@@ -23,6 +23,16 @@ const (
 	HealthDropInFile = systemdDir + "/" + HealthService + ".d/teams.conf"
 )
 
+// The installed units that start the LXC seats again after a boot (Plan 00266 C.2).
+const (
+	LXCBootServiceFile   = systemdDir + "/" + LXCBootService
+	LXCRecordServiceFile = systemdDir + "/" + LXCRecordService
+	// LXCContainerDropInFile is the drop-in of LXC's own template unit lxc@.service, which the
+	// boot unit starts each recorded container through: it orders every lxc@ instance before
+	// LXCRecordService, so at shutdown the record is taken before any instance stops.
+	LXCContainerDropInFile = systemdDir + "/lxc@.service.d/" + Product + ".conf"
+)
+
 // TmpfilesFile is the host's systemd-tmpfiles entry: the directories the units write under /run and
 // the leaves' root, made at every boot before a unit runs.
 const TmpfilesFile = "/etc/tmpfiles.d/" + Product + ".conf"

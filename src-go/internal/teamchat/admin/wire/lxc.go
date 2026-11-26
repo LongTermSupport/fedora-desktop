@@ -31,8 +31,9 @@ const guestSystemdSocket = "/run/systemd/private"
 const hostPasswd = "/etc/passwd"
 
 // lxcDeps is System.LXC: the lxc programs as root, the guest pin, the guest's systemd, and the
-// host's facts, read when an lxc verb first needs them. The verbs add the Roster and Refresh.
-func (m machine) lxcDeps(clock systemClock, ownerGroup func() (int, error)) (*lxc.Deps, error) {
+// host's facts, read when an lxc verb first needs them, and the host systemd's start of a
+// container's lxc@ instance (start-recorded). The verbs add the Roster and Refresh.
+func (m machine) lxcDeps(clock systemClock, ownerGroup func() (int, error), boxUnits lxc.HostUnits) (*lxc.Deps, error) {
 	gid, err := ownerGroup()
 	if err != nil {
 		return nil, fmt.Errorf("the owner group: %w", err)
@@ -47,7 +48,7 @@ func (m machine) lxcDeps(clock systemClock, ownerGroup func() (int, error)) (*lx
 	}
 	root := m.root
 	return &lxc.Deps{
-		Root: root, LockDir: root + paths.AdminRunDir, Clock: clock, LXC: m.containers(), Pin: m.pin(), Bus: guestSystemd,
+		Root: root, LockDir: root + paths.AdminRunDir, Clock: clock, LXC: m.containers(), Units: boxUnits, Pin: m.pin(), Bus: guestSystemd,
 		Approvals: declare.FileApprovals{Path: func(t paths.TeamID) string { return root + paths.ApprovedFile(t) }, GID: -1},
 		Origin:    health.Stamps{Root: root}.Origin, V1: v1NotBuilt{}, Guard: teamlock.All(restore.Guard(root), carry.Guard(root), carry.DrillImportGuard(root, m.stateOwnerUID)),
 		Kit: kit, HostKit: root + paths.HostKitDir(kit).String(), HostUIDs: uids, OwnerGID: gid, Bridge: Bridge,

@@ -11,7 +11,8 @@ import (
 
 // knownFiles is how a units usage error names the files.
 const knownFiles = "the files are teamchat-server@.service, teamchat-tls@.service, teamchat-health.service, " +
-	"teamchat-health.timer, teamchat-backup.service, teamchat-backup.timer, stub-resolv.conf, resolv.conf, teamchat.conf"
+	"teamchat-health.timer, teamchat-backup.service, teamchat-backup.timer, stub-resolv.conf, resolv.conf, teamchat.conf, " +
+	"teamchat-lxc-record.service, teamchat-lxc-boot.service, lxc@.service.conf"
 
 // `units list` is one line per installed file, its name and its install path, in the play's
 // order, for every caller class; it reaches no host seam.
@@ -24,7 +25,10 @@ func TestUnitsList(t *testing.T) {
 		"teamchat-backup.timer\t/etc/systemd/system/teamchat-backup.timer\n" +
 		"stub-resolv.conf\t/usr/local/share/teamchat/resolve/stub-resolv.conf\n" +
 		"resolv.conf\t/usr/local/share/teamchat/resolve/resolv.conf\n" +
-		"teamchat.conf\t/etc/tmpfiles.d/teamchat.conf\n"
+		"teamchat.conf\t/etc/tmpfiles.d/teamchat.conf\n" +
+		"teamchat-lxc-record.service\t/etc/systemd/system/teamchat-lxc-record.service\n" +
+		"teamchat-lxc-boot.service\t/etc/systemd/system/teamchat-lxc-boot.service\n" +
+		"lxc@.service.conf\t/etc/systemd/system/lxc@.service.d/teamchat.conf\n"
 	for _, c := range []Class{ClassRoot, ClassCtl, ClassOther} {
 		if got := run(t, procFor(c), "", "units", "list"); got.code != term.ExitOK || got.stdout != want || got.stderr != "" {
 			t.Errorf("units list by %v = %+v", c, got)
@@ -43,6 +47,36 @@ func TestUnitsPrint(t *testing.T) {
 			if got := run(t, procFor(c), "", "units", "print", f.Name); got.code != term.ExitOK || got.stdout != f.Text || got.stderr != "" {
 				t.Errorf("units print %s by %v = %d %q, stdout differs: %v", f.Name, c, got.code, got.stderr, got.stdout != f.Text)
 			}
+		}
+	}
+}
+
+// `units print --no-container-start <name>` is the file as a host with
+// teamchat_lxc_seat_restore_starts_containers false installs it (Plan 00266 C.2): the boot unit
+// without its
+// container start, every other file as it is. The flag comes before the name, once.
+func TestUnitsPrintWithoutTheContainerStart(t *testing.T) {
+	for _, f := range unitfiles.FilesFor(false) {
+		got := run(t, rootProc(), "", "units", "print", "--no-container-start", f.Name)
+		if got.code != term.ExitOK || got.stdout != f.Text || got.stderr != "" {
+			t.Errorf("%s: %d %q, stdout differs: %v", f.Name, got.code, got.stderr, got.stdout != f.Text)
+		}
+	}
+	boot := run(t, rootProc(), "", "units", "print", "--no-container-start", "teamchat-lxc-boot.service")
+	if strings.Contains(boot.stdout, "start-recorded") || !strings.Contains(boot.stdout, "lxc reconcile") {
+		t.Errorf("the boot unit without the start:\n%s", boot.stdout)
+	}
+	if with := run(t, rootProc(), "", "units", "print", "teamchat-lxc-boot.service"); !strings.Contains(with.stdout, "lxc start-recorded") {
+		t.Errorf("the boot unit with the start:\n%s", with.stdout)
+	}
+	for _, args := range [][]string{
+		{"--no-container-start"},
+		{"--no-container-start", "--no-container-start", "resolv.conf"},
+		{"resolv.conf", "--no-container-start"},
+	} {
+		got := run(t, rootProc(), "", append([]string{"units", "print"}, args...)...)
+		if got.code != term.ExitUsage || got.stdout != "" {
+			t.Errorf("%q: %+v", args, got)
 		}
 	}
 }

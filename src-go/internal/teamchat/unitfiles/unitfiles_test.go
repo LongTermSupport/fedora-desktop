@@ -45,6 +45,9 @@ func TestFilesAreWhatThePlayInstalls(t *testing.T) {
 		{filepath.Base(paths.ResolverStubFile), paths.ResolverStubFile},
 		{filepath.Base(paths.ResolverFile), paths.ResolverFile},
 		{filepath.Base(paths.TmpfilesFile), paths.TmpfilesFile},
+		{paths.LXCRecordService, paths.LXCRecordServiceFile},
+		{paths.LXCBootService, paths.LXCBootServiceFile},
+		{"lxc@.service.conf", paths.LXCContainerDropInFile},
 	}
 	got := make([][2]string, 0, len(want))
 	for _, f := range Files() {
@@ -61,6 +64,141 @@ func TestFilesAreWhatThePlayInstalls(t *testing.T) {
 // sixPathsLine stands in a golden file for D 4.2's line, as it does in C 3.2.3's block: v1's
 // names live in package v1names alone (the teamchat-keeps-off-v1 gate).
 const sixPathsLine = "InaccessiblePaths=<D 4.2's six v1 paths, each with its \"-\">"
+
+// noStartGolden is the boot unit's golden as a host with
+// teamchat_lxc_seat_restore_starts_containers false installs it.
+const noStartGolden = paths.LXCBootService + ".no-container-start.golden"
+
+// The boot unit without its container start is its own golden too.
+func TestTheBootUnitWithoutTheStartIsItsGolden(t *testing.T) {
+	f, ok := LookupFor(paths.LXCBootService, false)
+	if !ok {
+		t.Fatal("no boot unit")
+	}
+	golden := strings.ReplaceAll(f.Text, v1names.InaccessiblePaths+"\n", sixPathsLine+"\n")
+	if *update {
+		if err := os.WriteFile(filepath.Join("testdata", noStartGolden), []byte(golden), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	if want := testfiles.Read(t, "testdata", noStartGolden); !bytes.Equal([]byte(golden), want) {
+		t.Errorf("differs from testdata/%s:\n got:\n%s\nwant:\n%s", noStartGolden, f.Text, want)
+	}
+}
+
+// execLines are the values of a unit text's lines with key, in order.
+func execLines(text, key string) []string {
+	var out []string
+	for _, l := range lines(text) {
+		if v, ok := strings.CutPrefix(l, key+"="); ok {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// Plan 00266 C.2: the boot unit starts the containers that ran at the last shutdown, then the
+// recorded seats in them; with the start left out (the host's own IaC starts its containers) it
+// runs reconcile alone. Either way it runs after LXC's own service and after multi-user.target,
+// which it is wanted by, so it never holds boot (unit-holds-boot-target), its start is bounded,
+// and it names no target but multi-user.target.
+func TestTheBootUnit(t *testing.T) {
+	admin := paths.AdminBinaryPath
+	for _, c := range []struct {
+		start bool
+		want  []string
+	}{
+		{true, []string{admin + " lxc start-recorded", admin + " lxc reconcile"}},
+		{false, []string{admin + " lxc reconcile"}},
+	} {
+		f, ok := LookupFor(paths.LXCBootService, c.start)
+		if !ok || f.Path != paths.LXCBootServiceFile {
+			t.Fatalf("start %v: %+v %v", c.start, f, ok)
+		}
+		if got := execLines(f.Text, "ExecStart"); !slices.Equal(got, c.want) {
+			t.Errorf("start %v: ExecStart %q, want %q", c.start, got, c.want)
+		}
+		for key, want := range map[string]string{
+			"Type": "oneshot", "After": "lxc.service multi-user.target", "WantedBy": "multi-user.target",
+		} {
+			if got := execLines(f.Text, key); !slices.Equal(got, []string{want}) {
+				t.Errorf("start %v: %s %q, want %q", c.start, key, got, want)
+			}
+		}
+		if got := execLines(f.Text, "TimeoutStartSec"); len(got) != 1 || got[0] == "infinity" || got[0] == "0" {
+			t.Errorf("start %v: the start is not bounded: %q", c.start, got)
+		}
+		if targets := namedTargets(f.Text); !slices.Equal(targets, []string{"multi-user.target"}) {
+			t.Errorf("start %v: names the targets %q", c.start, targets)
+		}
+	}
+}
+
+// namedTargets are the systemd targets a unit text names, each once.
+func namedTargets(text string) []string {
+	var out []string
+	for _, w := range strings.FieldsFunc(text, func(r rune) bool { return r == ' ' || r == '=' || r == '\n' }) {
+		if strings.HasSuffix(w, ".target") && !slices.Contains(out, w) {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+// Plan 00266 C.2: the record unit does nothing at boot and records the running containers as it
+// stops at shutdown. It is ordered after lxc.service, so it stops before LXC's service stops the
+// containers. It is started at boot (an inactive unit runs no ExecStop) and stays active.
+func TestTheRecordUnit(t *testing.T) {
+	f := file(t, paths.LXCRecordService)
+	for key, want := range map[string][]string{
+		"Type": {"oneshot"}, "RemainAfterExit": {"yes"}, "After": {"lxc.service"}, "WantedBy": {"multi-user.target"},
+		"ExecStop": {paths.AdminBinaryPath + " lxc record-running"}, "ExecStart": nil,
+	} {
+		if got := execLines(f.Text, key); !slices.Equal(got, want) {
+			t.Errorf("%s %q, want %q", key, got, want)
+		}
+	}
+	if got := execLines(f.Text, "TimeoutStopSec"); len(got) != 1 || got[0] == "infinity" || got[0] == "0" {
+		t.Errorf("the stop is not bounded: %q", got)
+	}
+}
+
+// Plan 00266 C.2: the boot unit starts each container as its lxc@ instance, which at shutdown
+// would stop in parallel with the record unit. The drop-in orders every instance before the
+// record unit, so the record unit, stopping in the reverse order, records while they all run. It
+// changes nothing else of LXC's unit: one [Unit] section, one Before= line, nothing it runs.
+func TestTheContainerDropIn(t *testing.T) {
+	f := file(t, "lxc@.service.conf")
+	if f.Path != paths.LXCContainerDropInFile {
+		t.Fatalf("path %s", f.Path)
+	}
+	var directives []string
+	for _, l := range lines(f.Text) {
+		if l != "" && !strings.HasPrefix(l, "#") {
+			directives = append(directives, l)
+		}
+	}
+	if want := []string{"[Unit]", "Before=" + paths.LXCRecordService}; !slices.Equal(directives, want) {
+		t.Errorf("directives %q, want %q", directives, want)
+	}
+}
+
+// Leaving the container start out changes the boot unit alone.
+func TestLookupForChangesOnlyTheBootUnit(t *testing.T) {
+	for _, f := range Files() {
+		got, ok := LookupFor(f.Name, false)
+		if !ok || got.Path != f.Path {
+			t.Fatalf("%s: %+v %v", f.Name, got, ok)
+		}
+		if (got.Text != f.Text) != (f.Name == paths.LXCBootService) {
+			t.Errorf("%s: without the start the text is %q", f.Name, got.Text)
+		}
+	}
+	if _, ok := LookupFor("nothing", false); ok {
+		t.Error("found a file that is not one")
+	}
+}
 
 // Each text is its golden file, which changes only when its source does (go test -update
 // rewrites them; the server's golden is C 3.2.3's block as the design writes it).
@@ -347,7 +485,7 @@ func TestLookupKnowsOnlyTheFiles(t *testing.T) {
 			t.Errorf("Lookup(%q) found a file", name)
 		}
 	}
-	if got := strings.Join(Names(), " "); got != "teamchat-server@.service teamchat-tls@.service teamchat-health.service teamchat-health.timer teamchat-backup.service teamchat-backup.timer stub-resolv.conf resolv.conf teamchat.conf" {
+	if got := strings.Join(Names(), " "); got != "teamchat-server@.service teamchat-tls@.service teamchat-health.service teamchat-health.timer teamchat-backup.service teamchat-backup.timer stub-resolv.conf resolv.conf teamchat.conf teamchat-lxc-record.service teamchat-lxc-boot.service lxc@.service.conf" {
 		t.Errorf("Names() = %s", got)
 	}
 }
@@ -356,8 +494,9 @@ func TestLookupKnowsOnlyTheFiles(t *testing.T) {
 // text names, whatever its prefix; an empty ExecStart= (a reset) names none.
 func TestExecBinaries(t *testing.T) {
 	want := map[string][]string{
-		paths.HealthService: {paths.AdminBinaryPath},
-		paths.BackupService: {paths.AdminBinaryPath},
+		paths.HealthService:  {paths.AdminBinaryPath},
+		paths.BackupService:  {paths.AdminBinaryPath},
+		paths.LXCBootService: {paths.AdminBinaryPath, paths.AdminBinaryPath},
 	}
 	for _, f := range Files() {
 		if got := ExecBinaries(f.Text); !slices.Equal(got, want[f.Name]) {
