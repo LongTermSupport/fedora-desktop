@@ -747,7 +747,10 @@ filled in as each cause is known.
   sweep found one instance, and the wrong and right sites share a shape
   ([R68](reports/R68.md)).
 - **Severity:** high (breaks the documented answer path). **Issue:** TBF. **State:** on F44
-  (`e67e28d72`, 26 Nov; batch 20, `f59504a18`); not yet run live.
+  (`e67e28d72`, 26 Nov; batch 20, `f59504a18`); not yet run live. Seen again on 26 Nov
+  ~08:30Z: the coordinator, relaunched, got exit 23 "no item <id> in main" replying to two
+  questions-room posts. That is the pre-fix behaviour, so its session runs a kit older than
+  `e67e28d72`. The live proof waits on its image being rebuilt there.
 
 ## R67: the status-line golden test reports a process that died as it was killed as outliving the render
 
@@ -1344,3 +1347,34 @@ before the move to v2. Filled in as causes are found.
     contradicts the owner's rule that switching is a hot swap the owner triggers.
 - **Severity:** medium. **Issue:** TBF. **State:** open; decision 3 to be settled before 00146
   starts.
+
+## R74: owner requirement — ccy as its own installable package
+
+- **Seen:** the owner, 26 Nov 08:19Z, on starting Claude seats inside LXC containers: the
+  commands inside a container may differ from the host's, so ccy should be extracted from
+  fedora-desktop into its own package that can be installed natively inside containers that
+  might not run Fedora.
+- **State:** recorded as an owner requirement. There is no plan yet and none is started.
+  Plan 00266 records each LXC seat's own start command for now.
+
+## R75: the team picker offers teams that were removed
+
+- **Seen:** the owner's terminal, 26 Nov 08:26Z. A bare `ccy --teams` in a checkout offered
+  four teams, each "on teamchat, 1 podman seat here". Most are retired, and one is not on the
+  bus at all.
+- **Cause (read in code):**
+  - The list is every team with a seat in the checkout's pool
+    (`teams/chooser/teamchat.go:209-233`, `teams/system/cmd.go:196` `PoolTeams`).
+  - R59's filter drops a team only when it has no status record **and** this machine's
+    fedora-desktop host_vars declare it `absent` (`teams/system/lifecycle.go:47-73`).
+  - "No record and no entry" counts as served on another machine, so it is still offered
+    (`lifecycle.go:33-35`). Another repository's declaration of the removal is never read.
+  - Nothing deletes pool seats: `team remove --purge` leaves the owners' seat stores
+    (`lifecycle.go:26-28`).
+- **Fix (batch 24, agreed with the coordinator):**
+  - (a) A pool seat issued by this machine's own homeserver, whose team has no status record
+    here, is gone, whatever the host_vars say.
+  - (b) A `ccy-teams seats forget <team>` verb deletes a retired team's pool seats on the
+    owner's word, and refuses a held seat or a live team. The owner's retire decision is
+    their Q17.
+- **Severity:** medium. **Issue:** #386 (related). **State:** open.

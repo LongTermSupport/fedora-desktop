@@ -1,6 +1,6 @@
 # Plan 00266: seat restart after reboot
 
-**Status**: Not Started (design for the owner; nothing is built until the owner has seen it)
+**Status**: In Progress (design for the owner; nothing is built until the owner has seen it)
 **Created**: 2026-11-26
 **Owner**: dev
 **Priority**: High (Phase A is a security gap)
@@ -63,14 +63,44 @@ The full findings, each with file and line, are in [DESIGN.md](DESIGN.md).
   link, not at or above `$HOME`), the token (a pool name, never a path) and the seats
   (declared for this machine, of the record's kind).
 
-### Phase C: LXC containers and member sessions (needs the owner's ruling)
+### Phase C: LXC containers and member sessions
 
-- [ ] ⬜ **Task C.1**: The owner rules on reversing Plan 00257's "a session never starts with its
-  container", in the narrow form: restart only the member units active at shutdown.
+Owner (26 Nov, verbatim in substance): starting claude in an LXC container means getting in
+(ssh or lxc-attach), going to the right folder, then the right claude command, and the
+commands inside the container may differ from the host's. For now, log what command starts
+each LXC seat and replay it. Do not agonise over the threat model for LXC yet; harden later.
+
+So, for LXC only, each seat's record is the way in (lxc-attach or ssh, the container, the
+user), the directory, and the launcher or claude command as it is inside that container. The
+launch that starts the seat writes it, into a host-owned file (root or the host user, never
+inside the container or a checkout it mounts), and restore replays it. The validation of
+Phase A and B is owed for LXC too, and is recorded as owed, not blocking.
+
+**The supported route for a teamchat (v2) seat inside a container** is its session unit, which
+`teamchat-admin lxc start --member <container>/<key>` starts from the host (checked,
+`src-go/internal/teamchat/host/lxc/unit/unit.go:1-95`).
+
+- It runs as the container user, in the seat's checkout:
+  `tmux … new-session -d … teamchat run --claude --kind lxc --key <key> --resume-recorded -- claude`.
+  So it already resumes the seat's recorded conversation.
+- It has no `[Install]` section and `Restart=no`, so nothing starts it at boot.
+- A seat that must come back after the container boots is restarted through that unit (Task
+  C.2), never through a unit of its own inside the container.
+- (DESIGN.md's `agent-bus-claude-<user>.service` is the v1 bus's unit, not this one.)
+
+**Sign-in (checked, `unit.go:84-95`):** the unit sets only HOME, XDG_RUNTIME_DIR and PATH and
+passes no token, so claude uses the container user's own stored Claude login. A seat inside a
+container therefore needs that user logged in to Claude once, interactively, inside the
+container. The host's per-session token pool does not reach it.
+
+- [x] ✅ **Task C.0**: How an LXC seat starts and signs in: answered above.
+- [ ] ⬜ **Task C.1**: Owner ruling, given 26 Nov: seats in LXC come back after a reboot, which
+  reverses Plan 00257's "a session never starts with its container" for the seats active at
+  shutdown. Recorded; nothing more to decide.
 - [ ] ⬜ **Task C.2**: A root unit from `play-lxc-install-config.yml`. At shutdown it records the
-  running containers and their active member units, root-owned under `/var/lib`. At boot it
-  starts exactly those: names in both the snapshot and `agent_bus_lxc_members`, units by
-  their derived name only. It runs before the user's session restore, and its logic is in Go.
+  running containers and their active seat units, root-owned under `/var/lib`. At boot it
+  starts exactly those containers, then runs `teamchat-admin lxc start --member` for each
+  recorded seat, by its declared container and key only. It runs before the user's session restore, and its logic is in Go.
 - [ ] ⬜ **Task C.3**: verify-restore reports the LXC set.
 
 ## Success Criteria
