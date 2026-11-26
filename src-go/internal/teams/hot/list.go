@@ -377,7 +377,11 @@ func (x *Hot) SessionsIn(ctx context.Context, team string) ([]string, error) {
 			continue
 		}
 		run, readErr := lookup.Running(runtime, kindOf(container), rec)
-		if readErr == nil && run.Bus == BusV1 && slices.ContainsFunc(run.V1.Seats, func(s membership.Seat) bool { return s.Team == team }) {
+		if readErr != nil {
+			// It may be in the team: skipped, remove would take it for a stopped session.
+			return nil, fmt.Errorf("whether the running session %s is in %s cannot be told: %w", name, team, readErr)
+		}
+		if run.Bus == BusV1 && slices.ContainsFunc(run.V1.Seats, func(s membership.Seat) bool { return s.Team == team }) {
 			in = append(in, name)
 		}
 	}

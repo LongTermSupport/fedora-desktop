@@ -93,6 +93,12 @@ func Locate(rec registry.Record, getenv func(string) string) (Location, error) {
 	return Location{Path: filepath.Join(membership.SessionDir(checkout, rec.Name), File), System: system.AgentBus, decode: decodeV1}, nil
 }
 
+// SystemOfRecord is the one system of a session record's --teams list in its own checkout
+// (system.AgentBus or system.Teamchat), read as Locate reads it.
+func SystemOfRecord(rec registry.Record, getenv func(string) string) (string, error) {
+	return systemOf(rec, rec.Dir, getenv)
+}
+
 // systemOf is the one system of the record's --teams list in checkout: agent-bus for no list or
 // one a v2 team cannot be in, else system.Resolve's (which refuses a list on both). The declared
 // v1 teams are not read: the launch refused a name on both systems, so the status records and

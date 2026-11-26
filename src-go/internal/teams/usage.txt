@@ -146,7 +146,8 @@ Usage:
   ccy-teams remove <team>          take a team down, on a terminal only: it says what is
                                    lost, offers a backup first, and keeps the team's data
                                    unless you choose to delete it and type its name; once
-                                   it is down, its seats' conversation records are removed
+                                   it is down, its stopped sessions are taken off it and
+                                   its seats' conversation records are removed
   ccy-teams backup <team>          back the team's homeserver up now
   ccy-teams restore <team> [<n>] [--yes]
                                    restore backup <n> after a yes/no (--yes: none);

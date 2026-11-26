@@ -49,6 +49,10 @@ rc=0
     printf '==> session runner: starting run.bash at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     bash "${HOME}/run.bash"
 } >>"${STATE}/run.log" 2>&1 || rc=$?
-printf '%s\n' "${rc}" >"${STATE}/run.exit.tmp"
-mv -f "${STATE}/run.exit.tmp" "${STATE}/run.exit"
+if ! exit_tmp=$(mktemp -- "${STATE}/run.exit.tmp.XXXXXXXXXX"); then
+    printf 'session runner: cannot create a temporary for %s/run.exit (run.bash exited %s)\n' "${STATE}" "${rc}" >&2
+    exit 1
+fi
+printf '%s\n' "${rc}" >"${exit_tmp}"
+mv -f -- "${exit_tmp}" "${STATE}/run.exit"
 exit 0

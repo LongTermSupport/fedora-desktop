@@ -2,6 +2,8 @@ package hot
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -90,6 +92,20 @@ func TestListReadsNoMembershipForACcyNoBusUnderAReusedName(t *testing.T) {
 	}
 	if in, err := r.x.SessionsIn(t.Context(), "alpha"); err != nil || len(in) != 0 {
 		t.Fatalf("in alpha: %v %v", in, err)
+	}
+}
+
+// R36 batch review, finding 3: a running session whose membership cannot be read may be in the
+// team. Skipping it let remove take it for a stopped one (its record still names the team) and
+// rewrite its record and drop its report while its keeper ran; it is an error naming it instead.
+func TestARunningSessionWhoseMembershipCannotBeReadIsAnError(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
+	r.labelled("abc123\trunning\t" + session + "\n")
+	if err := os.WriteFile(filepath.Join(r.dir(), membership.File), []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if in, err := r.x.SessionsIn(t.Context(), "alpha"); err == nil || !strings.Contains(err.Error(), session) {
+		t.Fatalf("in alpha: %v %v, want an error naming %s", in, err, session)
 	}
 }
 

@@ -196,6 +196,32 @@ func TestLocateNeedsTheOwnersHomeForATeamchatList(t *testing.T) {
 	}
 }
 
+// SystemOfRecord is the one system of a session record's teams in its own checkout, as Locate
+// reads it (R36 review finding 3: remove takes off only the stopped sessions on the agent bus).
+func TestSystemOfRecordIsTheSystemItsTeamsAreOnInItsCheckout(t *testing.T) {
+	w := newWorld(t)
+	getenv := w.where().Getenv
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{nil, system.AgentBus},
+		{[]string{"--teams", "1@alpha"}, system.AgentBus},
+		{[]string{"--teams", "1@beta"}, system.Teamchat},
+	} {
+		w.poolSeat("beta")
+		rec := registry.Record{Name: "ccy-x", Dir: w.checkout, Prefix: "ccy", Args: c.args}
+		got, err := SystemOfRecord(rec, getenv)
+		if err != nil || got != c.want {
+			t.Errorf("SystemOfRecord(%q) = %q, %v, want %q", c.args, got, err, c.want)
+		}
+	}
+	rec := registry.Record{Name: "ccy-x", Dir: w.checkout, Prefix: "ccy", Args: []string{"--teams", "1@beta"}}
+	if _, err := SystemOfRecord(rec, func(string) string { return "" }); err == nil {
+		t.Error("a teamchat list with no owner's home was told a system")
+	}
+}
+
 // Here is Claude's home and the environment it was given.
 func TestHereIsClaudesHomeAndTheEnvironment(t *testing.T) {
 	env := map[string]string{"HOME": "/home/u"}

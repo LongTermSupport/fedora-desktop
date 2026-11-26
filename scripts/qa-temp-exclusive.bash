@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # qa-temp-exclusive.bash — the temp-not-exclusive rules (.semgrep/temp-exclusive.yml; Plan 00265 R36).
 #
-# A temporary named by the process id (<file>.tmp.<pid>) and created without an exclusive create
-# follows a symlink planted at that name before it is renamed into place. This gate finds every
+# A temporary under a name anyone can guess (<file>.tmp.<pid>, or a fixed suffix such as
+# <file>.tmp) and created without an exclusive create follows a symlink planted at that name
+# before it is renamed into place. This gate finds every
 # such temporary in the shell and Python of every file git would publish. The rules' reasoning,
 # and how to fix a finding, are in CLAUDE/QA.md under "temp-not-exclusive"; Go's half is the
 # analyzer project_temp_not_exclusive.

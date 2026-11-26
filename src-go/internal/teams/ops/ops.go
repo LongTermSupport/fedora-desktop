@@ -81,6 +81,12 @@ type Ops struct {
 	// ForgetTeam, when set, removes the records of the team's seats' conversations in every
 	// checkout that holds seats (conversation.ForgetTeam) once the team is down (issue 417).
 	ForgetTeam func(team string) error
+	// StoppedIn, when set, is every stopped session whose record still names the team on the
+	// agent bus, asked while the team is up (its running sessions were taken off it by then);
+	// TakeStoppedOff takes the team out of those sessions' records and keeper reports once the
+	// team is down, before ForgetTeam (R36 review finding 3). Both or neither are set.
+	StoppedIn      func(team string) ([]string, error)
+	TakeStoppedOff func(team string, names []string) error
 
 	// PlayLock takes the host's play lock, the one every play run shares; PlayLockWait bounds
 	// how long a flow waits for another run to let it go (Locked).

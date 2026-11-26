@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,9 +11,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
@@ -50,6 +51,10 @@ const (
 
 var seatSources = []string{SourceLaunch, SourceFresh, SourceRebind, SourceRelaunch, SourceSet, SourceExit}
 
+// seatRecordsLocked, when set (tests only), is called with the lock file's path once a writer
+// holds the checkout's seat-record lock, before it reads or writes any record.
+var seatRecordsLocked func(lockPath string)
+
 // seatRecord is one seat's record, field for field.
 type seatRecord struct {
 	V         int    `json:"v"`
@@ -62,7 +67,12 @@ type seatRecord struct {
 
 // SeatRecordPath is where checkout keeps the record of s.
 func SeatRecordPath(checkout string, s membership.Seat) string {
-	return filepath.Join(checkout, seatRecordDir, s.Team, s.Seat+".json")
+	return filepath.Join(checkout, seatRecordRel(s))
+}
+
+// seatRecordRel is the record of s from the checkout's top.
+func seatRecordRel(s membership.Seat) string {
+	return filepath.Join(seatRecordDir, s.Team, s.Seat+".json")
 }
 
 // parseList is a --teams list of seats (spaces dropped, as agent-bus drops them), at least one.
@@ -89,20 +99,79 @@ func RecordSeats(checkout, list, id, source string, nowMS int64) error {
 	if !slices.Contains(seatSources, source) {
 		return fmt.Errorf("%q is not a seat record's source", source)
 	}
-	for _, s := range seats {
-		data, err := json.Marshal(seatRecord{V: 1, Seat: s.Seat, Team: s.Team, SessionID: id, Source: source, WrittenMS: nowMS})
-		if err != nil {
-			return fmt.Errorf("the record of seat %s@%s: %w", s.Seat, s.Team, err)
+	// Everything is reached through the checkout as an os.Root: a container can write the
+	// checkout, and a link it planted would otherwise steer the host's writes out of it.
+	root, err := os.OpenRoot(checkout)
+	if err != nil {
+		return fmt.Errorf("the seat records of %s: %w", checkout, err)
+	}
+	return errors.Join(recordSeatsIn(root, checkout, seats, id, source, nowMS), root.Close())
+}
+
+// recordSeatsIn writes each seat's record under the checkout's seat-record lock, every path
+// resolved inside root.
+func recordSeatsIn(root *os.Root, checkout string, seats []membership.Seat, id, source string, nowMS int64) error {
+	if err := root.MkdirAll(seatRecordDir, 0o700); err != nil {
+		return fmt.Errorf("the seat records of %s: %w", checkout, err)
+	}
+	lock, err := root.OpenFile(filepath.Join(seatRecordDir, seatRecordLock), os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return fmt.Errorf("could not open the seat-record lock of %s: %w", checkout, err)
+	}
+	return withSeatRecordLock(lock, func() error {
+		for _, s := range seats {
+			data, err := json.Marshal(seatRecord{V: 1, Seat: s.Seat, Team: s.Team, SessionID: id, Source: source, WrittenMS: nowMS})
+			if err != nil {
+				return fmt.Errorf("the record of seat %s@%s: %w", s.Seat, s.Team, err)
+			}
+			rel := seatRecordRel(s)
+			if err := root.MkdirAll(filepath.Dir(rel), 0o700); err != nil {
+				return fmt.Errorf("the seat records of %s: %w", checkout, err)
+			}
+			if err := writeInRoot(root, rel, append(data, '\n')); err != nil {
+				return fmt.Errorf("could not write the record of seat %s@%s in %s: %w", s.Seat, s.Team, checkout, err)
+			}
 		}
-		path := SeatRecordPath(checkout, s)
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			return fmt.Errorf("the seat records of %s: %w", checkout, err)
-		}
-		if err := fsx.WriteAtomic(path, "seat record", append(data, '\n'), 0o600); err != nil {
-			return err
+		return nil
+	})
+}
+
+// writeInRoot writes rel whole inside root: an exclusively created temporary beside it under a
+// random name, renamed into place, so no reader sees half of it and a planted name is never
+// opened.
+func writeInRoot(root *os.Root, rel string, data []byte) error {
+	tmp := rel + ".tmp." + rand.Text()
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if err = errors.Join(err, f.Close()); err == nil {
+		err = root.Rename(tmp, rel)
+	}
+	if err != nil {
+		if rmErr := root.Remove(tmp); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+			err = errors.Join(err, rmErr)
 		}
 	}
-	return nil
+	return err
+}
+
+// seatRecordLock is the checkout's seat-record lock file, in its seat-record directory.
+const seatRecordLock = ".lock"
+
+// withSeatRecordLock runs fn holding flock(2) on lock, the checkout's seat-record lock (the old
+// #417 branch's lock, 4001e4789): every writer of seat records takes it, so a launch's seats are
+// written together and a team's removal never lands between them. lock is closed, which releases
+// it.
+func withSeatRecordLock(lock *os.File, fn func() error) error {
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return errors.Join(fmt.Errorf("could not lock %s: %w", lock.Name(), err), lock.Close())
+	}
+	if seatRecordsLocked != nil {
+		seatRecordsLocked(lock.Name())
+	}
+	return errors.Join(fn(), lock.Close())
 }
 
 // readSeatRecord is the record of s in checkout; found is false when there is none.

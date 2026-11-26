@@ -88,6 +88,10 @@ func (o *Ops) Remove(ctx context.Context, args []string) term.ExitCode {
 	if code, ok := o.heading(ctx, team); !ok {
 		return code
 	}
+	stopped, code, ok := o.stoppedIn(team)
+	if !ok {
+		return code
+	}
 	if code, ok := o.backupFirst(ctx, team); !ok {
 		return code
 	}
@@ -103,7 +107,22 @@ func (o *Ops) Remove(ctx context.Context, args []string) term.ExitCode {
 	if !ok {
 		return code
 	}
-	return o.confirmDown(ctx, team, purge)
+	return o.confirmDown(ctx, team, purge, stopped)
+}
+
+// stoppedIn is the team's stopped sessions (R36 review finding 3), asked while the team is up and
+// its running sessions are off it: which system a session's teams are on is read from the team's
+// status, which the take-down changes. A failure takes nothing down.
+func (o *Ops) stoppedIn(team string) ([]string, term.ExitCode, bool) {
+	if o.StoppedIn == nil {
+		return nil, term.ExitOK, true
+	}
+	names, err := o.StoppedIn(team)
+	if err != nil {
+		o.Term.PrintError("the stopped sessions in " + team + " could not be found (" + err.Error() + "), so it was not taken down.")
+		return nil, term.ExitFailure, false
+	}
+	return names, term.ExitOK, true
 }
 
 // sessionsOff is H29: the team's running sessions are offered to be taken off it first (each a
@@ -137,7 +156,11 @@ func (o *Ops) sessionsOff(ctx context.Context, team string) (term.ExitCode, bool
 		}
 	}
 	left, err := o.SessionsIn(ctx, team)
-	if err != nil || len(left) > 0 {
+	if err != nil {
+		o.Term.PrintError("the sessions in " + team + " could not be found again (" + err.Error() + "), so it was not taken down.")
+		return term.ExitFailure, false
+	}
+	if len(left) > 0 {
 		o.Term.PrintError(strings.Join(left, ", ") + " still in " + team + ", so it was not taken down.")
 		return term.ExitFailure, false
 	}
@@ -288,7 +311,7 @@ func (o *Ops) takeDownHeld(ctx context.Context, team string, purge bool) (term.E
 }
 
 // confirmDown reads the stamps back: the team must now be removed, or gone altogether.
-func (o *Ops) confirmDown(ctx context.Context, team string, purge bool) term.ExitCode {
+func (o *Ops) confirmDown(ctx context.Context, team string, purge bool, stopped []string) term.ExitCode {
 	status, err := o.Refresh(ctx)
 	if err != nil {
 		return term.ExitFailure
@@ -302,6 +325,20 @@ func (o *Ops) confirmDown(ctx context.Context, team string, purge bool) term.Exi
 	} else {
 		o.Term.Say("Team " + team + " is down; its data is kept in /var/lib/agent-bus/" + team + ".")
 	}
+	// Both steps run whatever the other does: the team is down, and a second remove is refused as
+	// a team not built here, so nothing later would finish either.
+	code := term.ExitOK
+	if o.TakeStoppedOff != nil && len(stopped) > 0 {
+		if err := o.TakeStoppedOff(team, stopped); err != nil {
+			o.Term.PrintError("Team " + team + " is down, but its stopped sessions could not all be taken off it: " + err.Error() +
+				". Each session named still lists " + team + " in its record: a restore of it would join a team made again as " +
+				team + ", so fix what is named, then take " + team + " out of that session's --teams before restoring it.")
+			code = term.ExitFailure
+		} else {
+			o.Term.Say("The stopped sessions " + strings.Join(stopped, ", ") + " are taken off " + team +
+				", so a restore does not rejoin a team made again as " + team + ".")
+		}
+	}
 	if o.ForgetTeam != nil {
 		if err := o.ForgetTeam(team); err != nil {
 			o.Term.PrintError("Team " + team + " is down, but its seats' conversation records could not all be removed: " + err.Error())
@@ -309,7 +346,7 @@ func (o *Ops) confirmDown(ctx context.Context, team string, purge bool) term.Exi
 		}
 		o.Term.Say("Its seats' conversation records are removed, so a team made again as " + team + " resumes nothing of this one.")
 	}
-	return term.ExitOK
+	return code
 }
 
 // Backup is "ccy-teams backup <team>": a backup taken now, as root. The installer's own exit

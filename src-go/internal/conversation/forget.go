@@ -45,21 +45,43 @@ func forgetIn(checkout, team string) (err error) {
 	}()
 	rel := filepath.Join(seatRecordDir, team)
 	parts := strings.Split(rel, string(filepath.Separator))
+	above := len(strings.Split(seatRecordDir, string(filepath.Separator)))
+	present, err := realDirs(root, checkout, team, parts[:above])
+	if err != nil || !present {
+		return err
+	}
+	lock, err := root.OpenFile(filepath.Join(seatRecordDir, seatRecordLock), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return fmt.Errorf("could not open the seat-record lock of %s: %w", checkout, err)
+	}
+	return withSeatRecordLock(lock, func() error {
+		present, err := realDirs(root, checkout, team, parts)
+		if err != nil || !present {
+			return err
+		}
+		if err := root.RemoveAll(rel); err != nil {
+			return fmt.Errorf("could not remove the seat records of team %s at %s: %w", team, filepath.Join(checkout, rel), err)
+		}
+		return nil
+	})
+}
+
+// realDirs is whether every directory from the first of parts to the last is there, each a real
+// directory under root: false when one is missing, an error when one is not a directory (a link is
+// never followed) or cannot be read.
+func realDirs(root *os.Root, checkout, team string, parts []string) (bool, error) {
 	for i := range parts {
 		sub := filepath.Join(parts[:i+1]...)
 		info, err := root.Lstat(sub)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
-			return nil
+			return false, nil
 		case err != nil:
-			return fmt.Errorf("the seat records of team %s: %s: %w", team, filepath.Join(checkout, sub), err)
+			return false, fmt.Errorf("the seat records of team %s: %s: %w", team, filepath.Join(checkout, sub), err)
 		case !info.IsDir():
-			return fmt.Errorf("the seat records of team %s are left as they are: %s is not a directory (a link is never followed)",
+			return false, fmt.Errorf("the seat records of team %s are left as they are: %s is not a directory (a link is never followed)",
 				team, filepath.Join(checkout, sub))
 		}
 	}
-	if err := root.RemoveAll(rel); err != nil {
-		return fmt.Errorf("could not remove the seat records of team %s at %s: %w", team, filepath.Join(checkout, rel), err)
-	}
-	return nil
+	return true, nil
 }

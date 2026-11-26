@@ -1159,7 +1159,10 @@ create: a shell redirect, `install`, `cp`, `open(path, "w")`, `write_text` or `o
 `O_EXCL` opens whatever is already at the name and follows a link planted there. Two rules in
 `.semgrep/temp-exclusive.yml`: `temp-not-exclusive` (shell, in any file that holds it) finds a
 path named by the process id (`$$`, `${$}`, `$BASHPID`) that a redirect writes, that `mv` moves, or
-that a variable holds which a later line moves with `mv`; `temp-not-exclusive-python` finds a
+that a variable holds which a later line moves with `mv`, and a path under a fixed suffix
+(`.tmp`, `.new`, `.part`, `.temp`) that a redirect writes and an `mv` on that line or within 40
+lines after it moves, or that a variable holds which a later line moves with `mv`;
+`temp-not-exclusive-python` finds a
 non-exclusive create at a path the same function renames, replaces or links into place, whatever
 its name. Run by `qa-temp-exclusive.bash` over every file git would publish but documents and Go
 (Go is judged by the analyzer `project_temp_not_exclusive`, [GoProjectRules.md](GoProjectRules.md))
@@ -1179,9 +1182,10 @@ a symlink, `ln -s` without `-f` to a fresh name (`symlink(2)` is exclusive). In 
 temporary with mode `"x"` or `os.O_CREAT | os.O_EXCL`. **Never** add an exclude to clear a
 finding; that is the owner's decision.
 
-**What it does not see.** In shell, a temporary under a fixed suffix (`"$file.tmp"` then `mv`):
-widening the rule to it is the owner's decision. A temporary created in one function and moved in
-another (Python), and the daemon-deployed `.claude/ccy/claude-supervise.py` and
+**What it does not see.** In shell, a fixed-suffix temporary under another suffix, one written
+by `install` or `cp` straight to a literal path rather than by a redirect, and an `mv` more than
+40 lines after the write. A
+temporary created in one function and moved in another (Python), and the daemon-deployed `.claude/ccy/claude-supervise.py` and
 `.claude/provision.sh`, which every gate leaves to the daemon's own QA.
 
 ### find-race-negated-stat-test

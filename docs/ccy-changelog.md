@@ -17,6 +17,43 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.77 — container 2.84.89
+
+- When `ccy-teams remove` has taken a team's sessions off it and cannot read them again, it
+  says why, instead of an error with no session named.
+
+## 3.124.76 — container 2.84.89
+
+- A launch writes its seats' conversation records, and takes their lock, inside its checkout
+  only: a seat-records directory a container replaced with a link is refused, never followed to
+  write outside the checkout.
+
+## 3.124.75 — container 2.84.89
+
+- `ccy-teams remove` deletes a stopped session's keeper report inside its checkout only: a
+  directory a container replaced with a link is refused, never followed to a file outside it.
+- When a stopped session cannot be taken off the team, `remove` still tries every other one and
+  still forgets the team's seat records, then fails naming each session left on the team.
+- `remove` refuses, naming the session, when a running session's membership cannot be read,
+  instead of taking it for a stopped session and rewriting its record while it runs.
+
+## 3.124.74 — container 2.84.89
+
+- **`ccy-teams remove` takes the team's stopped sessions off it.** It already took the running
+  ones off. A stopped session's record still listed the team, so restoring it rejoined a team
+  made again under the same name, and its keeper report let a plain `ccy --teams <seat>@<team>`
+  resume the old team's conversation. Now each stopped agent-bus session keeps its other teams,
+  loses this one, and its keeper report is dropped. A teamchat team of the same name is another
+  team and is left alone (Plan 00265 R36, review finding 3).
+
+## 3.124.73 — container 2.84.89
+
+- **Seat records are written under a lock.** A launch writes all of its seats' conversation
+  records while it holds `flock` on `.claude/ccy/seat-conversations/.lock`, and
+  `ccy-teams remove` takes the same lock before it removes a team's records. Two launches of
+  the same seats can no longer leave one seat on each conversation (Plan 00265 R36, the lock
+  of the earlier #417 implementation, kept).
+
 ## 3.124.72 — container 2.84.89
 
 - **Temporaries are created exclusively.** The session registry, the restore manifest, the

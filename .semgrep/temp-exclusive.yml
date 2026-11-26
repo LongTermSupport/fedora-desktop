@@ -23,7 +23,8 @@ rules:
 
   # Shell (and any text that holds shell: a template, a play's shell block). The name of a file
   # built from the process id ($$, ${$}, $BASHPID) and then written by a redirect, or moved into
-  # place by mv: the predictable name is the defect, whatever writes it.
+  # place by mv: the predictable name is the defect, whatever writes it. A fixed suffix is as
+  # predictable, so a redirect into one that a nearby mv moves is a finding too.
   - id: temp-not-exclusive
     pattern-either:
       # A redirect into a pid-named path: `} >"$state.tmp.$$"`.
@@ -33,6 +34,13 @@ rules:
       # A variable holding a pid-named path that a later line moves with mv:
       # `local tmp="$file.tmp.$$"` ... `mv -f -- "$tmp" "$file"`. The finding is the assignment.
       - pattern-regex: '(?m)^(?![ \t]*#)[^\n]*?(?<![\w$])(\w+)=["'']?[^\s;]*(?:\$\$|\$\{\$\}|\$\{?BASHPID\b)[^\n]*(?=(?:\n[^\n]*){1,40}?\n[^\n#]*\bmv\b[^\n]*\$\{?\1(?!\w))'
+      # A temporary under a fixed suffix (.tmp, .new, .part, .temp), written by a redirect and
+      # moved by an mv that names the same path on that line or within 40 lines after it:
+      # `>"$f.tmp"` ... `mv -f "$f.tmp" "$f"`. The finding is the redirect.
+      - pattern-regex: '(?m)^(?![ \t]*#)[^\n]*?(?<![<0-9&])>>?[ \t]*"?([^\s;|&<>()"'']*\.(?:tmp|new|part|temp))(?=["''\s;|&)]|$)(?=(?:[^\n]*\n){0,40}?[^\n#]*?\bmv\b[^\n]*?\1)'
+      # A variable holding a fixed-suffix path that a later line moves with mv:
+      # `tmp="$file.tmp"` ... `mv -f -- "$tmp" "$file"`. The finding is the assignment.
+      - pattern-regex: '(?m)^(?![ \t]*#)[^\n]*?(?<![\w$])(\w+)=["'']?[^\s;$()]*(?:\$\{?\w+\}?[^\s;$()"'']*)*\.(?:tmp|new|part|temp)["'']?(?=[\s;]|$)(?=(?:\n[^\n]*){1,40}?\n[^\n#]*\bmv\b[^\n]*\$\{?\1(?!\w))'
     paths:
       exclude:
         # This rule file and its fixtures.

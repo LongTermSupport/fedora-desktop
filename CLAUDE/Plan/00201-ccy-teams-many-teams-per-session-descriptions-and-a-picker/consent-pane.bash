@@ -14,6 +14,7 @@ fi
 status_file="$1"
 status=0
 "$2" --teams "$3" || status=$?
-printf '%s\n' "${status}" >"${status_file}.tmp"
-mv -f -- "${status_file}.tmp" "${status_file}"
+tmp=$(mktemp -- "${status_file}.tmp.XXXXXXXXXX")
+printf '%s\n' "${status}" >"${tmp}"
+mv -f -- "${tmp}" "${status_file}"
 exec sleep 3600

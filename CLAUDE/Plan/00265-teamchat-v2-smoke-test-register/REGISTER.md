@@ -556,21 +556,69 @@ filled in as each cause is known.
   blocking in `qa-all` (`qa-gates.tsv` row `temp-not-exclusive`) and `qa-changed` (check
   `temp-exclusive`, SPEC-qa-changed B69), CLAUDE/QA.md "temp-not-exclusive"; ccy 3.124.72,
   container 2.84.89. Fixed: commits 6633dc113, 4bb754029, 94a6dd0b2 and the wiring commit after
-  them. **OPEN for the owner:** (a) widening the shell rule to fixed suffixes (`"$f.tmp"` then
-  `mv`): a trial found 11 more lines, mostly test and plan scripts; (b) the daemon-deployed
-  `.claude/ccy/claude-supervise.py` (7 sites) and `.claude/provision.sh` (2), which every gate
+  them. (a) widening the shell rule to fixed suffixes (`"$f.tmp"` then `mv`): decided and
+  done, below; (b) the daemon-deployed
+  `.claude/ccy/claude-supervise.py` (6 pid-named temporaries and 1 with a fixed suffix) and `.claude/provision.sh` (2), which every gate
   excludes, to report upstream. (3) checked in the code, not yet run: when none of the named
-  seats has a seat record (teamchat only), `ForSeats` falls back to the teamchat sessions' desired membership
-  (`conversation/seats.go`, `v2Sessions`). `remove` takes only the team's running sessions off
-  it (`sessionsOff`, H29) and never touches the desired file of a stopped session that can
-  still be restored. So after `remove` and a new team of the same name, a plain
-  `ccy --teams <seat>@<team>` can resume the old team's conversation through such a session.
-  The fix (remove also takes stopped sessions off the team, or the fallback refuses a desired
-  file older than the team) is a design choice put to the coordinator.
+  seats has a seat record, `ForSeats` falls back to the sessions: on an agent-bus checkout each
+  session's keeper report (`v1Sessions`), on teamchat each session's desired membership
+  (`v2Sessions`, `conversation/seats.go`). `ccy-teams remove` takes down an agent-bus team and
+  takes only its running sessions off it (`sessionsOff`, H29; `session remove` refuses a stopped
+  session). A stopped session's own record still lists the team, and its keeper report still
+  names the seat. So after `remove` and a new team of the same name, a plain
+  `ccy --teams <seat>@<team>` can resume the old team's conversation through such a session,
+  and restoring that session rejoins the new team.
+- **Decided by the coordinator (26 Nov):** (3) is fixed by (a): remove also takes stopped
+  sessions off the team, with a red-then-green test of remove, a new team of the same name and a
+  plain launch. The fixed-suffix widening is done under the same rule. The old branch's lock is
+  kept, not an owner question. All three go in the batch after 13.
+- **Lock ported (on v2-smoke, after batch 13):** a launch writes its seats' records under
+  `flock` on `.claude/ccy/seat-conversations/.lock`, and `ForgetTeam` takes the same lock
+  through its `os.Root`. The tests were red, because neither took the lock, and are green now
+  (ccy 3.124.73). **Corrected (batch review, finding 4):** the commit says the lock is never
+  reached through a link. Only the lock file itself is opened `O_NOFOLLOW`. The launch reaches
+  the directories above it, and writes each seat record, by plain path, as before the port. So a
+  container that links `.claude/ccy/seat-conversations` elsewhere makes the host's launch write
+  records there. **Fixed (the coordinator's call, this batch):** the launch now reaches the lock
+  and every record through the checkout as an `os.Root`. Each record is written to an
+  exclusively created temporary renamed into place, so a linked seat-records or team directory
+  is refused. The test (both links) was red, records written outside, and is green now (ccy
+  3.124.76).
+- **Re-reviewed (qa-reviewer, the five fixes):** pass with one should-fix. When `remove` read
+  the team's sessions again after taking them off and the read failed, the error was dropped,
+  so the person saw no session and no cause. The error is now printed. The test was red and is
+  green now (ccy 3.124.77).
+- **(3) fixed (on v2-smoke, after batch 13):** `remove` asks, while the team is still up and
+  once its running sessions are off it, which stopped sessions name it on the agent bus (each
+  record's system read as a restore reads it, `conversation.SystemOfRecord`). Once the team is
+  down it takes the team out of those records, keeping their other teams, and drops their
+  keeper reports, before it forgets the seat records. A teamchat team of the same name is left
+  alone. Tests: the choice, the taking off, the order and refusals in `remove`, and the wiring.
+  Each was red first and is green now (ccy 3.124.74).
+- **Widened (on v2-smoke, after batch 13):** the shell rule also finds a fixed-suffix temporary
+  (`.tmp`, `.new`, `.part`, `.temp`) that a redirect writes and an `mv` within 40 lines moves,
+  written straight or held in a variable. The fixture's new cases were red on the old rule (5
+  missed lines) and are green now. The sweep found 12 lines in 9 files: plan, test and vmtest
+  scripts, a test's fake clipboard, and the UniFi play, whose temporary takes the properties
+  file's mode. Each now uses `mktemp` beside its target, and the gate is clean.
+- **Batch review (qa-reviewer, 26 Nov, fix before merge), on v2-smoke:**
+  - (1) remove deleted a stopped session's keeper report by a path that follows links. It now
+    deletes inside the checkout only (`os.Root`), before the record is rewritten.
+  - (2) a stopped session that could not be taken off skipped the forgetting, and a second
+    remove is refused. Now every session is tried, the seat records are always forgotten, and
+    the failure names each session left, saying what a restore of it would do.
+  - (3) a running session whose membership could not be read was skipped, then taken for a
+    stopped one. remove now refuses, naming it.
+  - (4) the lock's link claim did not hold; the launch's writes are now confined (above).
+  - (5) two suites without `set -e` now stop when `mktemp` fails.
+  - Each code fix was red first and is green now.
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
-  open: review findings (1) and (3); the owner's call on the old branch's lock on seat-record
-  writes (4001e4789); the branches stay until a human deletes them (after the carry-over they
-  are covered by behaviour, not by git history).
+  the parts through ccy 3.124.72 (fsx's exclusive temporary, remove forgetting seat records and
+  never following a link above them, `--fresh` for an unused seat, rule `temp-not-exclusive`)
+  are on F44 (`e67e28d72`, 26 Nov). The lock port, (3), the widening and the review fixes
+  (ccy 3.124.73 to 3.124.77) are on v2-smoke for the next batch; (b) is for the daemon's upstream.
+  The six branches (ci/v2-batch3, 3b, 3c and the three old agent branches) wait for the
+  owner's yes to delete them, asked by the coordinator once this is green.
 
 ## R49: a worker's failed questions join was reported as "event not found"
 
@@ -640,8 +688,8 @@ filled in as each cause is known.
   reads questions. The engine's fake `Refetch` now keeps each fetch's room. No rule: the
   sweep found one instance, and the wrong and right sites share a shape
   ([R68](reports/R68.md)).
-- **Severity:** high (breaks the documented answer path). **Issue:** TBF. **State:** fixed on
-  v2-smoke, batch 20 (`f59504a18`); not yet run live.
+- **Severity:** high (breaks the documented answer path). **Issue:** TBF. **State:** on F44
+  (`e67e28d72`, 26 Nov; batch 20, `f59504a18`); not yet run live.
 
 ## R67: the status-line golden test reports a process that died as it was killed as outliving the render
 
@@ -657,8 +705,8 @@ filled in as each cause is known.
   well short of the grandchild's 60 s sleep); a passing step waits only until the process ends.
   `TestOutlivesDecision` was red on the old decision. The sweep found no other instance
   ([R67](reports/R67.md)).
-- **Severity:** low (a false red on an unrelated batch). **Issue:** TBF. **State:** fixed on
-  v2-smoke, batch 18 (6b300c2a0).
+- **Severity:** low (a false red on an unrelated batch). **Issue:** TBF. **State:** on F44
+  (`e67e28d72`, 26 Nov; batch 18, 6b300c2a0).
 
 ## R66: the edit-time lint hook lints the project-rule fixtures, which carry deliberate findings
 
@@ -688,8 +736,8 @@ filled in as each cause is known.
   later (v1 `written_ms` against v2 `written_ms`), which fixes a session already running without
   a relaunch. Repair on such a session is now refused by name as a v2 verb. Report:
   [reports/R65.md](reports/R65.md).
-- **Severity:** high (the printed repair hint does harm). **Issue:** TBF. **State:** fixed on
-  v2-smoke, batch 17 (`76d9bf5f0`); not yet run live. Live check: the team confirms after its reboot
+- **Severity:** high (the printed repair hint does harm). **Issue:** TBF. **State:** on F44
+  (`e67e28d72`, 26 Nov; batch 17, `76d9bf5f0`); not yet run live. Live check: the team confirms after its reboot
   that the directory does not come back and the session lists its teams.
 
 ## R64: a link restart re-judges the questions room and rate-drops the owner's posts
@@ -726,7 +774,7 @@ filled in as each cause is known.
   so). A post past the limit is delivered, counted in `status`'s `counts.human_over_limit` and
   logged with one line naming it. Report: [reports/R64.md](reports/R64.md).
 - **Severity:** high (the owner's words can be dropped for good). **Issue:** TBF. **State:**
-  fixed on v2-smoke, batch 13 (544ebda3d); the human exemption on v2-smoke, batch 16
+  on F44 (`e67e28d72`, 26 Nov): batch 13 (544ebda3d) and the human exemption, batch 16
   (`d9a4fcc80`); not yet run live.
 
 ## R63: `declare` fails a converge while a declared session runs with a record not its own
@@ -743,8 +791,8 @@ filled in as each cause is known.
   verdict of its own, `<name> DEFERRED`. The line says the record is written when `declare` runs
   again after the session stops. Nothing is written while the session runs. A record that differs
   while the session is stopped is still refused without `--replace`.
-- **Severity:** medium (a play's converge). **Issue:** TBF. **State:** fixed on v2-smoke, batch
-  14 (`f1e50d031`); not yet run live. Report: [reports/R63.md](reports/R63.md).
+- **Severity:** medium (a play's converge). **Issue:** TBF. **State:** on F44 (`e67e28d72`, 26 Nov;
+  batch 14, `f1e50d031`); not yet run live. Report: [reports/R63.md](reports/R63.md).
 
 ## R62: `project_walk_open` does not take a regular-file check written as a switch case
 
@@ -761,7 +809,7 @@ filled in as each cause is known.
   `||`) and whose body leaves, with a fixture in `rules/testdata`. Its message names the forms it
   takes.
 - **Severity:** low (a correct guard refused; a by-hand run finds the accepted form). **Issue:**
-  TBF. **State:** fixed on v2-smoke, batch 15 (`0db93cad0`; reports/R62.md): a tagless switch
+  TBF. **State:** on F44 (`e67e28d72`, 26 Nov; batch 15, `0db93cad0`; reports/R62.md): a tagless switch
   clause that leaves on a failed check (alone, in `||`, or listed) guards what follows when
   every earlier clause leaves or holds the check; `break`/`fallthrough` in a clause and `&&`
   are no guard; the message names the forms taken.
@@ -812,8 +860,8 @@ filled in as each cause is known.
   - The leave notice: no change (withdrawn).
 - **Not ours:** the session network policy has to admit a hot-joined team's port. That is the
   owner's host configuration.
-- **Severity:** high (a join reported done that never happened). **Issue:** TBF. **State:** fixed
-  on v2-smoke, batch 12 (`b239a00a6`, `2a0b1854c`: the host reads a running older image's
+- **Severity:** high (a join reported done that never happened). **Issue:** TBF. **State:** on
+  F44 (`2e057a895`, 26 Nov; batch 12, `b239a00a6`, `2a0b1854c`: the host reads a running older image's
   report.json, which has no `down`, as down null; `8d93dd3d7`: container 2.84.82, ccy
   3.124.60); not yet run live. Detail: `reports/R60.md`.
 
@@ -831,8 +879,8 @@ filled in as each cause is known.
   entry is a team served elsewhere, offered as before. Every chooser (session add, launches,
   the `--teams` chooser, seats add) consults it. Residual: an `absent` entry later deleted
   leaves no removal record. Detail: `reports/R59.md`.
-- **Severity:** medium. **Issue:** #386 (related). **State:** fixed on v2-smoke, batch 19
-  (058938264); not yet run live.
+- **Severity:** medium. **Issue:** #386 (related). **State:** on F44 (`e67e28d72`, 26 Nov;
+  batch 19, 058938264); not yet run live.
 
 ## R57: `teamchat version` names all of `src-go`, so equal teamchat builds disagree
 
@@ -860,8 +908,8 @@ filled in as each cause is known.
   says what the digest names. The label is renamed `ccy-image-source-commit` (the image-source
   commit, never HEAD; a HEAD label would change the image every commit). No rule: the class is
   semantic; the sweep found the two instances ([R57](reports/R57.md)).
-- **Severity:** low (misleading, harmless). **Issue:** TBF. **State:** fixed on v2-smoke, batch 21
-  (`9114b2b70`; ccy 3.124.66, container 2.84.86); not yet run live.
+- **Severity:** low (misleading, harmless). **Issue:** TBF. **State:** on F44 (`e67e28d72`, 26 Nov;
+  batch 21, `9114b2b70`, and the label note; ccy 3.124.66, container 2.84.86); not yet run live.
 
 ## R56: a Lightning instance on a busy team's rooms grows to 75 GB resident
 

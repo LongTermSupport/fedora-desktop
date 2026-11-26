@@ -224,6 +224,32 @@ func TestRemoveStopsWhileASessionIsStillInTheTeam(t *testing.T) {
 	}
 }
 
+// R36 re-review: the sessions read again after taking them off may fail; the person is told
+// why, not shown an empty list of names.
+func TestRemoveSaysWhyWhenTheSessionsCannotBeReadAgain(t *testing.T) {
+	r := removeRig(t)
+	calls := 0
+	r.ops.SessionsIn = func(context.Context, string) ([]string, error) {
+		calls++
+		if calls == 1 {
+			return []string{"ccy-a"}, nil
+		}
+		return nil, errors.New("ccy-a's membership is unreadable")
+	}
+	r.ops.TakeOut = func(context.Context, string, string) bool { return true }
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 1 {
+		t.Fatalf("code %d: %s", code, r.said())
+	}
+	if !strings.Contains(r.said(), "the sessions in alpha could not be found again (ccy-a's membership is unreadable), so it was not taken down.") {
+		t.Fatalf("said %q", r.said())
+	}
+	for _, line := range r.lines() {
+		if strings.HasPrefix(line, opsDeclare) || strings.HasPrefix(line, opsInstaller) {
+			t.Fatalf("taken down with its sessions unread: %q", line)
+		}
+	}
+}
+
 func TestRemoveExplainWidthFollowsTheTerminal(t *testing.T) {
 	for _, c := range []struct {
 		cols int
