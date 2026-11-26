@@ -611,6 +611,9 @@ filled in as each cause is known.
   row. The row is added, as the coordinator chose, and this is the batch's last change. Nit for
   the next batch: a dangling relative link at the lock gets its target created inside the
   checkout before the open is refused.
+- **Batch 22c `bf9ec613` (ci/v2-batch13): ready, held off F44.** It adds the `realClocks` row.
+  The reviewer's spot-check of that row passed, and CI run 45773214021 is green. It
+  fast-forwards from F44 and stays off it until the coordinator says.
 - **(3) fixed (on v2-smoke, after batch 13):** `remove` asks, while the team is still up and
   once its running sessions are off it, which stopped sessions name it on the agent bus (each
   record's system read as a restore reads it, `conversation.SystemOfRecord`). Once the team is
