@@ -1,6 +1,6 @@
 # Plan 00266: seat restart after reboot
 
-**Status**: In Progress (Tasks C.2 and C.3 are built and await the host deploy and a live reboot; Phases A, B and Task C.4 are design for the owner, unbuilt until the owner has seen them)
+**Status**: In Progress (Tasks C.2 and C.3 are built and await the host deploy and a live reboot; Phases A and B are cleared to build, and Task C.4 after C.2 ships, by the coordinator's decision of 2026-11-26 19:01Z, journal 191831Z, which the owner may reverse)
 **Created**: 2026-11-26
 **Owner**: dev
 **Priority**: High (Phase A is a security gap)
