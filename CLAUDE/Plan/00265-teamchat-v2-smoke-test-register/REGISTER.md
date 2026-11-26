@@ -560,17 +560,26 @@ filled in as each cause is known.
   `mv`): a trial found 11 more lines, mostly test and plan scripts; (b) the daemon-deployed
   `.claude/ccy/claude-supervise.py` (6 pid-named temporaries and 1 with a fixed suffix) and `.claude/provision.sh` (2), which every gate
   excludes, to report upstream. (3) checked in the code, not yet run: when none of the named
-  seats has a seat record (teamchat only), `ForSeats` falls back to the teamchat sessions' desired membership
-  (`conversation/seats.go`, `v2Sessions`). `remove` takes only the team's running sessions off
-  it (`sessionsOff`, H29) and never touches the desired file of a stopped session that can
-  still be restored. So after `remove` and a new team of the same name, a plain
-  `ccy --teams <seat>@<team>` can resume the old team's conversation through such a session.
-  The fix (remove also takes stopped sessions off the team, or the fallback refuses a desired
-  file older than the team) is a design choice put to the coordinator.
+  seats has a seat record, `ForSeats` falls back to the sessions: on an agent-bus checkout each
+  session's keeper report (`v1Sessions`), on teamchat each session's desired membership
+  (`v2Sessions`, `conversation/seats.go`). `ccy-teams remove` takes down an agent-bus team and
+  takes only its running sessions off it (`sessionsOff`, H29; `session remove` refuses a stopped
+  session). A stopped session's own record still lists the team, and its keeper report still
+  names the seat. So after `remove` and a new team of the same name, a plain
+  `ccy --teams <seat>@<team>` can resume the old team's conversation through such a session,
+  and restoring that session rejoins the new team.
+- **Decided by the coordinator (26 Nov):** (3) is fixed by (a): remove also takes stopped
+  sessions off the team, with a red-then-green test of remove, a new team of the same name and a
+  plain launch. The fixed-suffix widening is done under the same rule. The old branch's lock is
+  kept, not an owner question. All three go in the batch after 13.
+- **Lock ported (on v2-smoke, after batch 13):** a launch writes its seats' records under
+  `flock` on `.claude/ccy/seat-conversations/.lock`, and `ForgetTeam` takes the same lock
+  through its `os.Root`. The tests were red, because neither took the lock, and are green now
+  (ccy 3.124.73).
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
-  open: review findings (1) and (3); the owner's call on the old branch's lock on seat-record
-  writes (4001e4789); the branches stay until a human deletes them (after the carry-over they
-  are covered by behaviour, not by git history).
+  open: (3) fix (a) and the fixed-suffix widening, both on v2-smoke for the batch after 13.
+  The six branches (ci/v2-batch3, 3b, 3c and the three old agent branches) wait for the
+  owner's yes to delete them, asked by the coordinator once this is green.
 
 ## R49: a worker's failed questions join was reported as "event not found"
 

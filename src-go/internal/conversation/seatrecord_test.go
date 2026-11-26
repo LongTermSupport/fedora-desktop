@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
@@ -329,5 +330,76 @@ func TestTranscriptOfAnIDInTheCheckout(t *testing.T) {
 	path, err := TranscriptOf(w.checkout, id)
 	if err != nil || path != filepath.Join(w.checkout, ".claude/ccy/projects/-workspace", id+".jsonl") {
 		t.Fatalf("TranscriptOf = %q, %v", path, err)
+	}
+}
+
+// heldElsewhere is whether another open file description cannot take path's flock(2) now.
+func heldElsewhere(t *testing.T, path string) bool {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Clean(path), os.O_RDWR, 0)
+	if err != nil {
+		t.Fatalf("the seat-record lock %s: %v", path, err)
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if err == nil {
+		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
+			t.Fatal(err)
+		}
+		return false
+	}
+	if !errors.Is(err, syscall.EWOULDBLOCK) {
+		t.Fatalf("flock %s: %v", path, err)
+	}
+	return true
+}
+
+// lockedDuring runs write and reports, for every time a seat-record writer took the checkout's
+// lock, whether that lock was the checkout's and was held against everyone else.
+func lockedDuring(t *testing.T, checkout string, write func() error) []string {
+	t.Helper()
+	var seen []string
+	seatRecordsLocked = func(lockPath string) {
+		if lockPath != filepath.Join(checkout, seatRecordDir, ".lock") {
+			seen = append(seen, "the lock is "+lockPath)
+		}
+		if !heldElsewhere(t, lockPath) {
+			seen = append(seen, "not held")
+		}
+		seen = append(seen, "locked")
+	}
+	t.Cleanup(func() { seatRecordsLocked = nil })
+	if err := write(); err != nil {
+		t.Fatal(err)
+	}
+	return seen
+}
+
+// The old #417 branch's lock (4001e4789), kept: a launch writes every seat of its list under
+// flock(2) on the checkout's seat-record lock, so two launches of the same seats cannot leave
+// one seat on each conversation.
+func TestRecordSeatsWritesUnderTheCheckoutsLock(t *testing.T) {
+	w := newWorld(t)
+	seen := lockedDuring(t, w.checkout, func() error {
+		return RecordSeats(w.checkout, "1@alpha,2@beta", id, SourceLaunch, recordMS)
+	})
+	if !slices.Equal(seen, []string{"locked"}) {
+		t.Fatalf("RecordSeats under the lock: %v, want the lock taken once and held", seen)
+	}
+}
+
+// Removing a team's records takes the same lock, so it never lands between another writer's seats.
+func TestForgetTeamRemovesUnderTheCheckoutsLock(t *testing.T) {
+	w := newWorld(t)
+	w.record("1@alpha", id, SourceLaunch)
+	seen := lockedDuring(t, w.checkout, func() error {
+		return ForgetTeam([]string{w.checkout}, "alpha")
+	})
+	if !slices.Equal(seen, []string{"locked"}) {
+		t.Fatalf("ForgetTeam under the lock: %v, want the lock taken once and held", seen)
 	}
 }

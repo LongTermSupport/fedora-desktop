@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.73 — container 2.84.89
+
+- **Seat records are written under a lock.** A launch writes all of its seats' conversation
+  records while it holds `flock` on `.claude/ccy/seat-conversations/.lock`, and
+  `ccy-teams remove` takes the same lock before it removes a team's records. Two launches of
+  the same seats can no longer leave one seat on each conversation (Plan 00265 R36, the lock
+  of the earlier #417 implementation, kept).
+
 ## 3.124.72 — container 2.84.89
 
 - **Temporaries are created exclusively.** The session registry, the restore manifest, the

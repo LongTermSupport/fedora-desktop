@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
@@ -50,6 +51,10 @@ const (
 
 var seatSources = []string{SourceLaunch, SourceFresh, SourceRebind, SourceRelaunch, SourceSet, SourceExit}
 
+// seatRecordsLocked, when set (tests only), is called with the lock file's path once a writer
+// holds the checkout's seat-record lock, before it reads or writes any record.
+var seatRecordsLocked func(lockPath string)
+
 // seatRecord is one seat's record, field for field.
 type seatRecord struct {
 	V         int    `json:"v"`
@@ -89,20 +94,47 @@ func RecordSeats(checkout, list, id, source string, nowMS int64) error {
 	if !slices.Contains(seatSources, source) {
 		return fmt.Errorf("%q is not a seat record's source", source)
 	}
-	for _, s := range seats {
-		data, err := json.Marshal(seatRecord{V: 1, Seat: s.Seat, Team: s.Team, SessionID: id, Source: source, WrittenMS: nowMS})
-		if err != nil {
-			return fmt.Errorf("the record of seat %s@%s: %w", s.Seat, s.Team, err)
-		}
-		path := SeatRecordPath(checkout, s)
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			return fmt.Errorf("the seat records of %s: %w", checkout, err)
-		}
-		if err := fsx.WriteAtomic(path, "seat record", append(data, '\n'), 0o600); err != nil {
-			return err
-		}
+	dir := filepath.Join(checkout, seatRecordDir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("the seat records of %s: %w", checkout, err)
 	}
-	return nil
+	lock, err := os.OpenFile(filepath.Join(dir, seatRecordLock), os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return fmt.Errorf("could not open the seat-record lock of %s: %w", checkout, err)
+	}
+	return withSeatRecordLock(lock, func() error {
+		for _, s := range seats {
+			data, err := json.Marshal(seatRecord{V: 1, Seat: s.Seat, Team: s.Team, SessionID: id, Source: source, WrittenMS: nowMS})
+			if err != nil {
+				return fmt.Errorf("the record of seat %s@%s: %w", s.Seat, s.Team, err)
+			}
+			path := SeatRecordPath(checkout, s)
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				return fmt.Errorf("the seat records of %s: %w", checkout, err)
+			}
+			if err := fsx.WriteAtomic(path, "seat record", append(data, '\n'), 0o600); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// seatRecordLock is the checkout's seat-record lock file, in its seat-record directory.
+const seatRecordLock = ".lock"
+
+// withSeatRecordLock runs fn holding flock(2) on lock, the checkout's seat-record lock (the old
+// #417 branch's lock, 4001e4789): every writer of seat records takes it, so a launch's seats are
+// written together and a team's removal never lands between them. lock is closed, which releases
+// it.
+func withSeatRecordLock(lock *os.File, fn func() error) error {
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return errors.Join(fmt.Errorf("could not lock %s: %w", lock.Name(), err), lock.Close())
+	}
+	if seatRecordsLocked != nil {
+		seatRecordsLocked(lock.Name())
+	}
+	return errors.Join(fn(), lock.Close())
 }
 
 // readSeatRecord is the record of s in checkout; found is false when there is none.
