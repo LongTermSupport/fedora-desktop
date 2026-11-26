@@ -675,6 +675,28 @@
       register: tc_unit_text
       tags: [units]
 
+    # The boot unit starts each recorded container as an instance of LXC's own lxc@.service
+    # (Plan 00266 C.2). A host without that template unit would have every boot start refused, so
+    # a run that enables the boot unit's container start fails here instead.
+    - name: Look For LXC's Own Template Unit
+      ansible.builtin.stat:
+        path: /usr/lib/systemd/system/lxc@.service
+      register: tc_lxc_template_unit
+      when: tc_lxc_present_members | length > 0 and tc_lxc_starts_containers
+      tags: [units]
+
+    - name: Fail When LXC's Own Template Unit Is Missing
+      ansible.builtin.assert:
+        that:
+          - tc_lxc_template_unit.stat.exists
+        fail_msg: >-
+          /usr/lib/systemd/system/lxc@.service is missing: the LXC seat restore starts each container
+          through it. Install LXC with play-lxc-install-config.yml, or set
+          teamchat_lxc_seat_restore_starts_containers: false where the host's own IaC starts the
+          containers.
+      when: tc_lxc_present_members | length > 0 and tc_lxc_starts_containers
+      tags: [units]
+
     # One of the units is a drop-in of LXC's own lxc@.service (Plan 00266 C.2), whose directory a
     # fresh host does not have; the copy below makes no directory.
     - name: Make the Directory of LXC's Unit Drop-in
@@ -857,6 +879,18 @@
       register: tc_lxc_present
       changed_when: tc_lxc_present.stdout_lines | select('match', tc_changed_re) | list | length > 0
       failed_when: tc_lxc_present.rc != 0 or tc_lxc_present.stdout_lines | select('search', tc_reach_re) | list | length > 0
+      tags: [teams]
+
+    # Only `lxc start` records a seat for the boot unit to start again (Plan 00266 C.2), so every
+    # seat whose session runs now is added to that record: a seat started before the record
+    # existed, or by hand, comes back after the next boot too. A seat already recorded is KEPT;
+    # nothing is started or taken out.
+    - name: Record the LXC Seats Whose Session Runs
+      ansible.builtin.command:
+        argv: ["{{ tc_admin_link }}", lxc, record-started]
+      when: tc_lxc_present_members | length > 0
+      register: tc_lxc_recorded
+      changed_when: tc_lxc_recorded.stdout_lines | select('match', '^ADDED\t') | list | length > 0
       tags: [teams]
 
     # The held-back lines of both phases, shown without -v (C 3.9.3): each names the seat and why

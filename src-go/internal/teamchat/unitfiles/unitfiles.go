@@ -229,15 +229,16 @@ WantedBy=multi-user.target
 
 // bootUnit is paths.LXCBootService (Plan 00266 C.2): at boot, the containers that ran at the last
 // shutdown started (when startContainers), then every recorded seat in a running container that
-// is down started again by `lxc reconcile`. It runs after multi-user.target, which wants it, so
-// its start never holds boot (unit-holds-boot-target), and it is bounded. Its private mount
-// namespace (the v1 paths made inaccessible) is no container's: `lxc start-recorded` has the host
-// systemd start each one as its lxc@ instance.
+// is down started again. Both are the one command `lxc boot`, which reconciles even after a
+// refused container start: a second ExecStart= would never run after a failed first one. Without
+// the start it is `lxc reconcile`. It runs after multi-user.target, which wants it, so its start
+// never holds boot (unit-holds-boot-target), and it is bounded. Its private mount namespace (the
+// v1 paths made inaccessible) is no container's: the start has the host systemd start each one as
+// its lxc@ instance.
 func bootUnit(startContainers bool) string {
-	what, exec := "the LXC seats that are down again", ""
+	what, verb := "the LXC seats that are down again", "reconcile"
 	if startContainers {
-		what = "the LXC containers that ran at the last shutdown, then their seats"
-		exec = "ExecStart=" + paths.AdminBinaryPath + " lxc start-recorded\n"
+		what, verb = "the LXC containers that ran at the last shutdown, then their seats", "boot"
 	}
 	return "[Unit]\n" +
 		"Description=After a boot, start " + what + "\n" +
@@ -245,8 +246,7 @@ func bootUnit(startContainers bool) string {
 		"After=" + lxcService + " multi-user.target\n" +
 		"\n[Service]\n" +
 		"Type=oneshot\n" +
-		exec +
-		"ExecStart=" + paths.AdminBinaryPath + " lxc reconcile\n" +
+		"ExecStart=" + paths.AdminBinaryPath + " lxc " + verb + "\n" +
 		"TimeoutStartSec=30min\n" +
 		v1names.InaccessiblePaths + "\n" +
 		"\n[Install]\n" +

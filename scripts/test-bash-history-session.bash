@@ -149,6 +149,22 @@ run_shell "$home" "$rc" "$with_fzf" "echo kept-by-the-exit-trap" >/dev/null
 check "the session is still saved to the shared file when it exits" "1" \
     "$(grep -cx 'echo kept-by-the-exit-trap' "$home/.local/state/bash/history")"
 
+echo "== a HISTFILE of the user's own, set before the search include"
+# A user who points HISTFILE elsewhere (here /dev/null, no history kept) before the include
+# runs is not redirected by it, so no prompt may point HISTFILE back at the shared file.
+home="$(new_home own)"
+rc="$WORK_DIR/own.rc"
+printf 'source %q\nHISTFILE=/dev/null\nsource %q\n' "$WORK_DIR/profile.bash" "$WORK_DIR/history-search.bash" >"$rc"
+chmod 0644 "$rc"
+out="$(run_shell "$home" "$rc" "$with_fzf" "$(cat <<EOF
+echo typed-with-no-history
+printf 'PROBE-FILE:%s\n' "${dollar}HISTFILE"
+EOF
+)")"
+check "the user's own HISTFILE survives every prompt" "/dev/null" "$(probe "$out" FILE)"
+check "and nothing reaches the shared file" "0" \
+    "$(grep -cx 'echo typed-with-no-history' "$home/.local/state/bash/history")"
+
 echo "== without the Ctrl+R search (no fzf): stock bash"
 home="$(new_home stock)"
 rc="$(rc_file stock)"

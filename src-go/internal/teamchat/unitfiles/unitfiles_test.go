@@ -99,8 +99,9 @@ func execLines(text, key string) []string {
 }
 
 // Plan 00266 C.2: the boot unit starts the containers that ran at the last shutdown, then the
-// recorded seats in them; with the start left out (the host's own IaC starts its containers) it
-// runs reconcile alone. Either way it runs after LXC's own service and after multi-user.target,
+// recorded seats in them, in one command (`lxc boot`), so a refused container start cannot keep
+// systemd from running the reconcile; with the start left out (the host's own IaC starts its
+// containers) it runs reconcile alone. Either way it runs after LXC's own service and after multi-user.target,
 // which it is wanted by, so it never holds boot (unit-holds-boot-target), its start is bounded,
 // and it names no target but multi-user.target.
 func TestTheBootUnit(t *testing.T) {
@@ -109,7 +110,7 @@ func TestTheBootUnit(t *testing.T) {
 		start bool
 		want  []string
 	}{
-		{true, []string{admin + " lxc start-recorded", admin + " lxc reconcile"}},
+		{true, []string{admin + " lxc boot"}},
 		{false, []string{admin + " lxc reconcile"}},
 	} {
 		f, ok := LookupFor(paths.LXCBootService, c.start)
@@ -496,7 +497,7 @@ func TestExecBinaries(t *testing.T) {
 	want := map[string][]string{
 		paths.HealthService:  {paths.AdminBinaryPath},
 		paths.BackupService:  {paths.AdminBinaryPath},
-		paths.LXCBootService: {paths.AdminBinaryPath, paths.AdminBinaryPath},
+		paths.LXCBootService: {paths.AdminBinaryPath},
 	}
 	for _, f := range Files() {
 		if got := ExecBinaries(f.Text); !slices.Equal(got, want[f.Name]) {

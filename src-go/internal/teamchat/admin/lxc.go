@@ -246,6 +246,54 @@ func lxcStartRecorded(ctx context.Context, e Env, args []string) term.ExitCode {
 	return term.ExitOK
 }
 
+// lxcBoot is `lxc boot` (Plan 00266 C.2), the boot unit's one start: lxc.StartRecorded, then
+// lxc.Reconcile whatever the start found, so one container that will not start keeps no other
+// container's seats down. Every line of both on stdout, printed before any error; non-zero when
+// either failed or refused a start, naming each count.
+func lxcBoot(ctx context.Context, e Env, args []string) term.ExitCode {
+	d, code := lxcBootDeps(e, args, "lxc boot")
+	if code != term.ExitOK {
+		return code
+	}
+	boxes, startErr := lxc.StartRecorded(ctx, d)
+	seats, reconcileErr := lxc.Reconcile(ctx, d, nil)
+	var b strings.Builder
+	for _, l := range boxes {
+		b.WriteString(l.String() + "\n")
+	}
+	for _, l := range seats {
+		b.WriteString(l.String() + "\n")
+	}
+	if code = answer(e, b.String()); code != term.ExitOK {
+		return code
+	}
+	if err := errors.Join(startErr, reconcileErr); err != nil {
+		return failWith(e, err)
+	}
+	if nb, ns := lxc.BootRefusals(boxes), lxc.Refused(seats); nb+ns > 0 {
+		return fail(e.Stderr, term.ExitFailure, fmt.Sprintf("lxc boot: %d container start refused, %d seat start refused; each REFUSED line names its cause", nb, ns))
+	}
+	return term.ExitOK
+}
+
+// lxcRecordStarted is `lxc record-started` (Plan 00266 C.2), which the play runs after the
+// present phase: lxc.RecordStarted, one `ADDED` or `KEPT` line a live seat.
+func lxcRecordStarted(ctx context.Context, e Env, args []string) term.ExitCode {
+	d, code := lxcBootDeps(e, args, "lxc record-started")
+	if code != term.ExitOK {
+		return code
+	}
+	seats, err := lxc.RecordStarted(ctx, d)
+	if err != nil {
+		return failWith(e, err)
+	}
+	var b strings.Builder
+	for _, s := range seats {
+		b.WriteString(s.String() + "\n")
+	}
+	return answer(e, b.String())
+}
+
 // lxcBootDeps is the Deps of a boot verb, which takes no argument.
 func lxcBootDeps(e Env, args []string, verb string) (lxc.Deps, term.ExitCode) {
 	sys, code := e.system()

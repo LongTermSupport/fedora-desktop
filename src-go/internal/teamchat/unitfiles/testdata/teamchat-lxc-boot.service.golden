@@ -5,8 +5,7 @@ After=lxc.service multi-user.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/teamchat-admin lxc start-recorded
-ExecStart=/usr/local/sbin/teamchat-admin lxc reconcile
+ExecStart=/usr/local/sbin/teamchat-admin lxc boot
 TimeoutStartSec=30min
 InaccessiblePaths=<D 4.2's six v1 paths, each with its "-">
 

@@ -134,6 +134,90 @@ func reconcileSeat(ctx context.Context, d Deps, names []string, seat lxcstate.St
 	return ReconcileStarted, ""
 }
 
+// recordStartedVerb is every `lxc record-started` error's verb.
+const recordStartedVerb = "lxc record-started"
+
+// SeatRecorded is one live seat `lxc record-started` found: `ADDED\t<container>/<key>` when the
+// record did not hold it, `KEPT\t...` when it did.
+type SeatRecorded struct {
+	Seat  lxcstate.StartedSeat
+	Added bool
+}
+
+func (s SeatRecorded) String() string {
+	if s.Added {
+		return "ADDED\t" + s.Seat.String()
+	}
+	return "KEPT\t" + s.Seat.String()
+}
+
+// RecordStarted is `lxc record-started` (Plan 00266 C.2): every seat of a team's LXC record, not
+// left, whose container runs and whose session is live is added to the record of started seats,
+// so a seat that ran before `lxc start` kept that record is started again after a boot. The play
+// runs it after the present phase, so it is idempotent: a seat already recorded is kept, and
+// nothing is taken out or started. A seat whose liveness cannot be read fails it with the record
+// left as it was.
+func RecordStarted(ctx context.Context, d Deps) ([]SeatRecorded, error) {
+	s, err := lxcstate.ReadStarted(d.Root)
+	if err != nil {
+		return nil, &host.Error{Verb: recordStartedVerb, Step: stepStartedFile, Err: err}
+	}
+	names, err := d.LXC.Containers(ctx)
+	if err != nil {
+		return nil, &host.Error{Verb: recordStartedVerb, Step: stepState, Err: err}
+	}
+	teams, err := recordTeams(d.Root)
+	if err != nil {
+		return nil, &host.Error{Verb: recordStartedVerb, Step: stepRecord, Err: err}
+	}
+	var out []SeatRecorded
+	next := s
+	for _, team := range teams {
+		rec, _, err := lxcstate.ReadRecord(d.Root, team)
+		if err != nil {
+			return nil, &host.Error{Verb: recordStartedVerb, Step: stepRecord, Err: err}
+		}
+		for _, e := range rec.Members {
+			if e.Status == lxcstate.StatusLeft {
+				continue
+			}
+			seat := lxcstate.StartedSeat{Container: e.Container, Key: rec.SeatOf(e).Key()}
+			live, err := seatLiveNow(ctx, d, names, seat)
+			if err != nil {
+				return nil, err
+			}
+			if live {
+				out = append(out, SeatRecorded{Seat: seat, Added: !s.Has(seat)})
+				next = next.Add(seat)
+			}
+		}
+	}
+	if len(next.Seats) != len(s.Seats) {
+		if err := lxcstate.WriteStarted(d.Root, next); err != nil {
+			return nil, &host.Error{Verb: recordStartedVerb, Step: stepStartedFile, Err: err}
+		}
+	}
+	return out, nil
+}
+
+// seatLiveNow is whether the seat's container runs and its session is live; a container stopped,
+// missing or stopping on the way is not live.
+func seatLiveNow(ctx context.Context, d Deps, names []string, seat lxcstate.StartedSeat) (bool, error) {
+	why, err := boxState(ctx, d.LXC, names, seat.Container)
+	if err != nil {
+		return false, &host.Error{Verb: recordStartedVerb, Step: stepState, Err: err}
+	}
+	if why != "" {
+		return false, nil
+	}
+	live, err := sessionLive(ctx, d, seat)
+	var off *OfflineError
+	if errors.As(err, &off) {
+		return false, nil
+	}
+	return live, err
+}
+
 // sessionLive is whether the seat's session holds its seat lock, read through the pinned root as
 // the L3 probe reads it.
 func sessionLive(ctx context.Context, d Deps, seat lxcstate.StartedSeat) (live bool, err error) {

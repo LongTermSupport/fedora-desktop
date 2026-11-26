@@ -219,6 +219,62 @@ func TestReconcileFaults(t *testing.T) {
 	}
 }
 
+func (w *world) recordStarted() []string {
+	w.t.Helper()
+	got, err := RecordStarted(context.Background(), w.deps())
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	out := make([]string, 0, len(got))
+	for _, l := range got {
+		out = append(out, l.String())
+	}
+	return out
+}
+
+// C.2: `lxc record-started` records each placed seat whose session is live, so a seat that ran
+// before the record existed comes back after a boot. A seat whose session is down, or whose
+// container is stopped, is not recorded; a second run changes nothing; nothing is started.
+func TestRecordStartedRecordsTheLiveSeats(t *testing.T) {
+	w := placed(t)
+	w.lxc.calls, w.bus.calls = nil, nil
+	if got := w.recordStarted(); len(got) != 0 || w.started().Has(theSeat(t)) {
+		t.Fatalf("a seat that is down: %q", got)
+	}
+	holdSeat(t, w.lxc.boxes["c1"], lockRecord)
+	w.lxc.boxes["c1"].state = lxccmd.Stopped
+	if got := w.recordStarted(); len(got) != 0 || w.started().Has(theSeat(t)) {
+		t.Fatalf("a stopped container: %q", got)
+	}
+	w.lxc.boxes["c1"].state = lxccmd.Running
+	seat := "c1/" + keyOf(t, "t1").String()
+	if got := w.recordStarted(); !slices.Equal(got, []string{"ADDED\t" + seat}) || !w.started().Has(theSeat(t)) {
+		t.Fatalf("a live seat: %q, record %+v", got, w.started())
+	}
+	if got := w.recordStarted(); !slices.Equal(got, []string{"KEPT\t" + seat}) {
+		t.Fatalf("the second run: %q", got)
+	}
+	if len(w.bus.calls) != 0 {
+		t.Fatalf("a record started a unit: %v", w.bus.calls)
+	}
+}
+
+// A container list that fails, or a seat whose liveness cannot be read, fails the record with it
+// left as it was.
+func TestRecordStartedFaults(t *testing.T) {
+	w := placed(t)
+	holdSeat(t, w.lxc.boxes["c1"], lockRecord)
+	w.lxc.listErr = errFault
+	if _, err := RecordStarted(context.Background(), w.deps()); !errors.Is(err, errFault) || w.started().Has(theSeat(t)) {
+		t.Fatalf("list: %v", err)
+	}
+	w.lxc.listErr = nil
+	w.lxc.boxes["c1"].stateErr = errFault
+	if _, err := RecordStarted(context.Background(), w.deps()); !errors.Is(err, errFault) || w.started().Has(theSeat(t)) {
+		t.Fatalf("state: %v", err)
+	}
+}
+
 // C.2: a seat that leaves its team (`lxc apply --phase absent`) is a stop on purpose, so it is
 // taken out of the record of started seats, and reconcile never reports a seat that cannot exist.
 func TestAbsentForgetsTheStartedSeat(t *testing.T) {
