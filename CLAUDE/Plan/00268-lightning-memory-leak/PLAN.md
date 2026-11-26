@@ -43,17 +43,21 @@ another batch; this plan decides at the end whether it stays.
 
 - [x] ✅ **Task 1.1**: Research: Lightning's stack, upstream issues, teamchat's traffic, ranked
   hypotheses, reproduction design ([RESEARCH.md](RESEARCH.md)).
+
 - [ ] ⬜ **Task 1.2**: The laptop's host seat runs the read-only commands in
   [laptop-commands.md](laptop-commands.md) (build and update history, which process and which
   memory class, busy thread, growth per instance over an hour, logs, data sizes). Record the
   anonymised results in RESEARCH.md section 1 and re-rank the hypotheses.
+
 - [ ] ⬜ **Task 1.3**: A read-only traffic probe (Go): a team's event counts by room, type,
   relation (thread, reply, edit), receipt and presence change, per hour, over a window, with no
   content. Run on the busy team for 25 Nov and on a quieter team for comparison.
+
 - [ ] ⬜ **Task 1.3a**: The stall window first: the bus host's admin seat runs
   [bus-host-commands.md](bus-host-commands.md) for 25 Nov 17:00:00Z-17:15:00Z in the busy team's
   main, questions and reports rooms (event shapes only, no bodies). Name the event shape at or
   just before 17:09:12Z that could start a GUI-thread runaway (RESEARCH.md 8.1).
+
 - [x] ✅ **Task 1.4**: Owner decision D1, then IaC: a per-team key `lightning_diagnostics` in an
   `agent_bus_element_teams` entry. When true, the launcher's Exec line adds
   `LIGHTNING_SCROLL_MEMORY_TRACE=1 LIGHTNING_SYNC_TRACE=100` and
@@ -65,19 +69,91 @@ another batch; this plan decides at the end whether it stays.
   `meta-deploy.bash`; on for the busy team, only on Lightning 0.10.7 or later (its `--log-file`
   cap; the laptop's version is unchecked: laptop-commands.md step 1). Built; the owner sets the
   key in host_vars and runs the queued play.
+
 - [ ] ⬜ **Task 1.5**: Owner question Q20: what the incident left behind. The laptop's host seat
   runs [laptop-commands.md](laptop-commands.md) section 10 (systemd's CPU and peak accounting of
   the killed scope, Lightning's stderr in the journal or the ccy-teams log, any rolling log).
   Answer: [Q20-answer.md](Q20-answer.md).
+
 - [x] ✅ **Task 1.6**: Dogfooding fault: `systemd.LaunchClient` appends a client's stderr to
   `<ccy-teams state dir>/<client>-<team>.log` with no cap or rotation. Log it as a GitHub issue
   before Task 1.4 turns tracing on. Logged: issue #429 (the fix is that issue's, not this plan's).
+
 - [x] ✅ **Task 1.7**: Catch the trigger next time (RESEARCH.md 7.5): slow-event sync tracing in
   Task 1.4's key, and a user-level watchdog (IaC) that, when the instance's log is silent for
   60 s while its RSS climbs past a threshold, records per-thread CPU and an all-threads
   backtrace once. Lightning's own stall tracer logs only when a stall ends, so it cannot. Built:
   `agent-bus-lightning watch` (`internal/lightning/watch`, W1-W13; L17), the user service
   `agent-bus-lightning-watch`, run by the play only while a team has the key true.
+
+- [ ] ⬜ **Task 1.8**: The owner's Q20 follow-up, 26 Nov 11:08Z (verbatim): "if we set a memory
+  limit, can we have something that kills and dumps loads of useful info when it hits the
+  limit? so we by definition catch it and get all the details when we need it?". A memory
+  tripwire that captures everything before it kills. It extends Task 1.7's watch, which
+  already finds the instance's process and appends to one capped file,
+  `lightning-watchdog.log`, beside its log. The dated capture folder below is new.
+
+  - **The limit:** a hard `MemoryMax` on the instance's own cgroup, with a trip line well below
+    it and well above normal. The laptop's instances differ (journal 101655Z): the busier
+    team's is about 650 MB, growing about 12 MiB/h, the other's about 410 MB, growing about
+    1.8 MiB/h. So a trip line of a few GB, set per team: both values come from the team's key
+    in host_vars, never hard-coded.
+  - **Evidence first:** `flatpak run` moves the app into its own `app-flatpak-<id>-<pid>.scope`,
+    so a limit on a wrapping scope may not follow it. Find where the process really lands, then
+    set the limit on that scope (`systemctl --user set-property`) from the watch, or from the
+    launcher if a launch-time property holds.
+  - **On trip** (`memory.events` high, or `memory.current` past the line), before any kill, the
+    watch captures into one dated folder: `smaps_rollup`, the map count with the memfd and
+    QtQml mapping counts, the fd list, `/proc/<pid>/status`, each thread's state and CPU,
+    Lightning's own log tail, and the last minutes of the sync and read-receipt trace lines.
+  - **Then the kill, of the one pid the watch found:** SIGABRT, so systemd-coredump keeps a core
+    and a backtrace, then SIGKILL after a short grace if the pid still lives. No ptrace is
+    needed, so ptrace_scope stays 1 (D3). Whether the core is symbolised depends on Lightning's
+    Flatpak debug extension being installed; check that and record the answer.
+    - Never `flatpak kill`: it stops every instance of the app, the other team's included.
+    - Never rely on SIGTERM: in the 26 Nov runaway (coordinator's host-seat report, 11:18Z) the
+      spinning main thread ignored it at 27.6 GB, and only SIGKILL stopped it. A busy event
+      loop never runs a graceful-quit handler, and a crash handler the app installs for
+      SIGABRT could stall too, so the grace is bounded.
+    - The trip line must sit well below `MemoryMax`, or the kernel's OOM kill (SIGKILL, no core)
+      comes first and the capture is lost.
+  - **Tell the team:** a teamchat notice to the team that the instance was caught, naming the
+    folder.
+  - **Acceptance:** a test trips it on a stand-in process and shows the folder and the
+    coredump entry. Go, test first, in `internal/lightning/watch`.
+  - **Order:** after batch 23 lands, in the batch with 00266's C.2 (batch 24). Its plain memory
+    cap is pulled forward as Task 1.9.
+
+- [ ] 🔄 **Task 1.9**: A plain 2 GB cap now, ahead of 1.8's capture. Owner (Q20, 26 Nov 11:40Z,
+  verbatim): "but for now lets also mitigate this with flatpak limits etc. I thin there's no
+  reason for it to need more than 1GB so a 2GB cap is probably OK. If it could crash and
+  restart automtically that would be handy, with some kind of reporting somehow so we know its
+  happend. Or jsut crash and I have to restart manually woudl be OK". He also ruled out pinning
+  an older Lightning build: the upstream fix is in the hands of the coordinating team's own investigation.
+
+  - **The cap:** a user systemd prefix drop-in on the app's Flatpak scopes
+    (`app-flatpak-<app id>-.scope.d/`) setting `MemoryMax`, with the value from host_vars
+    (default 2G), installed by the play that installs the Lightning watch. Every instance gets
+    it, whichever team launched it. The host seat checks on the laptop that systemd applies a
+    prefix drop-in to these transient scopes.
+  - **The notice:** when the kernel kills an instance at the cap, the team is told: a teamchat
+    notice naming the instance and the time, plus a desktop notification. The exact source
+    (the scope's `oom-kill` result, or the watch seeing the pid gone with the slice's
+    `memory.events` oom_kill count risen) is chosen test first.
+  - **No automatic restart:** the owner accepts a manual one, and an automatic one would hide a
+    runaway loop.
+  - **Acceptance:** the drop-in is in place on the laptop, `systemctl --user show` on a running
+    instance's scope reports the cap, and a stand-in kill produces the notice.
+  - **Order:** its own CI build after batch 23 lands, ahead of batch 24.
+  - **Built** (report `subagent-reports/261126-task-1-9.md`): the play's `agent-bus-lightning` tag
+    places `app-flatpak-<app id>-.scope.d/agent-bus-memory-cap.conf` (`MemoryMax`, `MemorySwapMax=0`
+    so zram cannot stretch it, `OnFailure=agent-bus-lightning-capped@%n.service`), the app id read
+    from the Matrix client list; `agent_bus_lightning_memory_max` (home-level, default 2G, `false`
+    removes it) is checked before anything is installed. On for every host that runs the play,
+    not gated like `lightning_diagnostics`. The notice is the oneshot user unit
+    `agent-bus-lightning-capped@.service`: a critical desktop notification naming the scope.
+    Open: the teamchat notice (the desktop user holds no bus identity, so it cannot post), and
+    the host seat's checks on the laptop (report section 4). Queued in `meta-deploy.list`.
 
 ### Phase 2: Reproduce
 

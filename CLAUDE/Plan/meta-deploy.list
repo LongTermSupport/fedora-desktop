@@ -159,6 +159,11 @@ playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-li
 
 # Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that
 # is running, the session units are present, not enabled and not linked in
+# Task 1.9: it also caps every Lightning instance's memory at 2G with no swap
+# (agent_bus_lightning_memory_max in host_vars; false removes it), as a user systemd drop-in on
+# the app's Flatpak scopes, and places agent-bus-lightning-capped@.service, which a kill at the
+# cap starts to raise a critical desktop notification; nothing reopens Lightning. The user
+# manager is reloaded; the cap holds for instances opened after the run (close and reopen each).
 # multi-user.target.wants. A stopped container is reported offline and skipped. It then ASKS,
 # per running container, whether to reboot it (default no; asked at the terminal even under
 # meta-deploy) and reboots only on the owner's yes, then checks no claude runs for its members'
