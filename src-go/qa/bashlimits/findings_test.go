@@ -355,6 +355,42 @@ func TestWrittenAllowlistIsWorldReadable(t *testing.T) {
 	}
 }
 
+// A rewrite replaces an allowlist that is a link and never writes through it: the checkout's
+// os.Root follows a link at the last name, so a write in place would land on the file it names.
+func TestRewriteReplacesALinkedAllowlist(t *testing.T) {
+	root := repo(t)
+	elsewhere := filepath.Join(root, "elsewhere")
+	before, err := os.ReadFile(filepath.Join(root, allowlistRel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, root, "elsewhere", string(before))
+	if err := os.Remove(filepath.Join(root, allowlistRel)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../elsewhere", filepath.Join(root, allowlistRel)); err != nil {
+		t.Fatal(err)
+	}
+	put(t, root, "files/bin/long", script(70))
+	if r := run(t, root, "--base", "HEAD", "--update"); r.code != ExitOK {
+		t.Fatalf("exit %d: %s", r.code, r.err)
+	}
+	after, err := os.ReadFile(elsewhere)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("the linked file was written through:\n%s", after)
+	}
+	info, err := os.Lstat(filepath.Join(root, allowlistRel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o644 {
+		t.Errorf("the allowlist after the rewrite: %v, want a plain 0644 file", info.Mode())
+	}
+}
+
 func TestSummaryLineSaysWhatItCounts(t *testing.T) {
 	r := run(t, repo(t), "--base", "HEAD")
 	// small + long are checked (long allowlisted), run.bash is checked too now, and

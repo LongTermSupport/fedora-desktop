@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -518,6 +519,30 @@ func TestForgetTeamRefusesALinkedLock(t *testing.T) {
 	}
 	if err := RecordSeats(w.checkout, "2@beta", id, SourceLaunch, recordMS); err == nil || !strings.Contains(err.Error(), "could not open the seat-record lock") {
 		t.Errorf("RecordSeats with the lock a link: %v, want the lock refused", err)
+	}
+}
+
+// A dangling link at the lock is refused by both writers, and the file it names is never made: an
+// os.Root follows the link at the last name, so a create there that is not exclusive would make it.
+func TestSeatRecordWritersCreateNothingThroughADanglingLock(t *testing.T) {
+	w := newWorld(t)
+	w.record("1@alpha", id, SourceLaunch)
+	lock := filepath.Join(w.checkout, seatRecordDir, seatRecordLock)
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../../../planted", lock); err != nil {
+		t.Fatal(err)
+	}
+	planted := filepath.Join(w.checkout, "planted")
+	if err := ForgetTeam([]string{w.checkout}, "alpha"); err == nil || !strings.Contains(err.Error(), "could not open the seat-record lock") {
+		t.Errorf("ForgetTeam with the lock a dangling link: %v, want the lock refused", err)
+	}
+	if err := RecordSeats(w.checkout, "2@beta", id, SourceLaunch, recordMS); err == nil || !strings.Contains(err.Error(), "could not open the seat-record lock") {
+		t.Errorf("RecordSeats with the lock a dangling link: %v, want the lock refused", err)
+	}
+	if _, err := os.Lstat(planted); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the dangling lock's target: %v, want it never created", err)
 	}
 }
 

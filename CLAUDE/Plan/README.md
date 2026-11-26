@@ -34,6 +34,10 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00267-teamchat-lossless-delivery](00267-teamchat-lossless-delivery/) - In Progress (design's three questions answered; build test-first). Every addressed teamchat message ends delivered or bounced, visibly to its sender.
+
+- [00266-seat-restart-after-reboot](00266-seat-restart-after-reboot/) - In Progress (design for the owner). Containers and seats back after a reboot, rebuilt from validated records; first closes checkout config the host applies unasked.
+
 - [00265-teamchat-v2-smoke-test-register](00265-teamchat-v2-smoke-test-register/) - In Progress. The running register of every v2 agent-team fault found while smoke testing it for real work (teamchat, `ccy --teams`, `ccy-teams`, `ccy-sessions`), each fixed in its own unit and merged on the integration branch `v2-smoke`.
 
 - [00264-runtime-ad-hoc-teams-on-a-bus-guest](00264-runtime-ad-hoc-teams-on-a-bus-guest/) - Not Started (design written; waiting on the owner's decisions). The owner's question Q61: create, approve and remove agent-bus teams at runtime on a bus guest with no play run, and what stays in IaC. Recommends a policy-bounded request spool, and a closing notice plus tombstone so members' seats release cleanly.

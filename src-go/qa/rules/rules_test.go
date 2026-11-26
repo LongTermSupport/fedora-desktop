@@ -236,8 +236,8 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 66 {
-		t.Fatalf("want 66 rules, got %d", got)
+	if got := len(All()); got != 67 {
+		t.Fatalf("want 67 rules, got %d", got)
 	}
 }
 

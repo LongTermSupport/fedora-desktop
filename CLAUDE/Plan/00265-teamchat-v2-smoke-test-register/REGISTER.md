@@ -95,6 +95,13 @@ filled in as each cause is known.
   Seats are numbered only, and named seats are dropped. So `seats add` serves a machine where the
   human has sudo (the laptop). Two later ideas, not now: a route that adds a seat over ssh to the
   bus host, and seats an agent requests.
+- **Owner, 26 Nov (via the coordinator):** typing a seat number is "a dead UX" (they had been
+  given `cc --teams 4@ballicom`). Checked in the code at ccy 3.124.57 and 3.124.72: no number is
+  needed. A teamchat team named alone takes the checkout's one free seat of the launcher's kind,
+  adds one when there is none, and lists several with the lowest free as the default
+  (`chooser/teamchat.go` `teamchatSeat`). The help said only "a team alone asks the seat", so it
+  is reworded on v2-smoke for batch 23 (ccy 3.124.80; `docs/ccy.md` too). Not built, waiting
+  for the owner: a plain `cc` with no `--teams` joining the checkout's one team by itself.
 
 ## R6: a `ref` refusal names no cause
 
@@ -159,7 +166,11 @@ filled in as each cause is known.
   question", a reason that cannot be true for N 0. It belongs with R7.
 - **Reproduce:** the coordinator replies with `teamchat reply` to a human's top-level post in
   questions; read the next turns' hook lines.
-- **Severity:** medium. **Issue:** TBF. **State:** open (with R7).
+- **Seen again (26 Nov):** the coordinator gets the notice on every prompt. Its posts that day
+  were `reply` to the owner's top-level posts, `thread Q<n>`, `thread Q<n> --note` and
+  `ask-human`; none named Q0. The reply was sent and placed in the owner's thread, so nothing
+  was lost; only the notice is wrong. Why it repeats on every turn is not traced yet.
+- **Severity:** medium. **Issue:** TBF. **State:** open (with R7); batch 24.
 
 ## R12: a worker cannot verify a human's message from the questions room
 
@@ -509,7 +520,8 @@ filled in as each cause is known.
 ## R36: an earlier #417 implementation sits on unmerged branches
 
 - **Seen:** this seat, 2026-11-25, while clearing the branch pool.
-- **What:** three remote branches from an earlier session (2026-11-24; `agent-a2be5458…`,
+- **What:** three branches from an earlier session (all on origin; only `agent-a1aeb314…` is
+  also local) (2026-11-24; `agent-a2be5458…`,
   `agent-adff76a1…`, `agent-a1aeb314…`) hold another implementation of #417 (ccy 3.125.0 to
   3.125.5) that never reached F44. U4 built #417 again on `v2-smoke`. Those branches also hold
   work U4 may not have: "a team taken down forgets its seats' conversation pointers", a
@@ -611,6 +623,18 @@ filled in as each cause is known.
   row. The row is added, as the coordinator chose, and this is the batch's last change. Nit for
   the next batch: a dangling relative link at the lock gets its target created inside the
   checkout before the open is refused.
+- **Batch 22c `bf9ec613` (ci/v2-batch13): ready, held off F44.** It adds the `realClocks` row.
+  The reviewer's spot-check of that row passed
+  ([report](subagent-reports/261126-qa-reviewer-batch22c-spotcheck.md)), and CI run 45773214021 is green. It
+  fast-forwards from F44 and stays off it until the coordinator says.
+- **The dangling-link nit, fixed as a class (on v2-smoke, for batch 23):** rule
+  `project_root_create_follows_link` (an `os.Root` create without `O_EXCL` follows a link at the
+  last name, `O_NOFOLLOW` or not; both forms checked on Go 1.26 first). Red: the fixture (6
+  findings, all missed with the analyzer reporting nothing) and the tree, 3 findings. Swept:
+  `bashlimits`' allowlist rewrite (it wrote through a linked allowlist: red, now an exclusive
+  temporary renamed over the name) and `semgrepreport`'s self-test copy (an `os.MkdirTemp`
+  directory, now `O_EXCL`). Fixed: the lock is created exclusively and an existing one opened
+  without create (red: the planted target was made; ccy 3.124.79).
 - **(3) fixed (on v2-smoke, after batch 13):** `remove` asks, while the team is still up and
   once its running sessions are off it, which stopped sessions name it on the agent bus (each
   record's system read as a restore reads it, `conversation.SystemOfRecord`). Once the team is
@@ -640,8 +664,20 @@ filled in as each cause is known.
   never following a link above them, `--fresh` for an unused seat, rule `temp-not-exclusive`)
   are on F44 (`e67e28d72`, 26 Nov). The lock port, (3), the widening and the review fixes
   (ccy 3.124.73 to 3.124.77) are on v2-smoke for the next batch; (b) is for the daemon's upstream.
-  The six branches (ci/v2-batch3, 3b, 3c and the three old agent branches) wait for the
-  owner's yes to delete them, asked by the coordinator once this is green.
+  The owner answered Q14: delete ci/v2-batch3, 3b and 3c (and 3d, which has the same tip) and
+  the three old agent branches, through the guard. The coordinator's logged verdict (26 Nov):
+  `agent-a1aeb314…` has no value, since every feature it holds was rebuilt on v2-smoke. The
+  other two are ancestors of it. No open pull request or review comment holds any of them
+  (`gh pr list`, checked). The guard proves neither path yet: v2-smoke is not a declared
+  integration line, and batches reach F44 as new commits. So the deletion waits for the hooks
+  seat's two guard paths (contained, and the logged no-value retire), dry run first. The same
+  verdict covers v2-smoke-u1, u2, u4, u5 and u7 (each differs from v2-smoke only by an empty
+  park commit), u3, u6, u8 and u9 (ancestors of v2-smoke), and private-names-no-first-word
+  (on F44 as c219e89ce). The clean detached `untracked/wt-b6` waits too: the guard refuses a
+  HEAD no ref holds, though its patch is in v2-smoke. One named hold stays:
+  `lightning-default-client` (Plan 00254 Task 7.1, Lightning as the default Matrix client),
+  un-parked when v1 is retired, because Lightning is then the only human surface. #325
+  (`photography-idempotent`) and the end of #324 (`restore-drill`) go in batch 24.
 
 ## R49: a worker's failed questions join was reported as "event not found"
 
@@ -712,7 +748,10 @@ filled in as each cause is known.
   sweep found one instance, and the wrong and right sites share a shape
   ([R68](reports/R68.md)).
 - **Severity:** high (breaks the documented answer path). **Issue:** TBF. **State:** on F44
-  (`e67e28d72`, 26 Nov; batch 20, `f59504a18`); not yet run live.
+  (`e67e28d72`, 26 Nov; batch 20, `f59504a18`); not yet run live. Seen again on 26 Nov
+  ~08:30Z: the coordinator, relaunched, got exit 23 "no item <id> in main" replying to two
+  questions-room posts. That is the pre-fix behaviour, so its session runs a kit older than
+  `e67e28d72`. The live proof waits on its image being rebuilt there.
 
 ## R67: the status-line golden test reports a process that died as it was killed as outliving the render
 
@@ -1080,6 +1119,11 @@ before the move to v2. Filled in as causes are found.
 - **Severity:** medium. **Issue:** TBF. **Unit:** U7.
   **State:** fixed (U7, merged b1d62a0e0): status reads Matrix presence per agent
   (`presence`: online, unavailable, offline, unknown). Live proof owed (reports/U7.md).
+  On F44 (`engine/status.go:406-410` there, checked 26 Nov). On 26 Nov at 08:05Z the devops
+  seat still showed present=false for everyone but itself, which is the old code's output, so
+  that seat is very likely on a teamchat older than the rollout (its version has been asked
+  for). One gap remains: `present` is true only for "online", so an idle ("unavailable")
+  member reads as absent.
 
 ## R15: tab title, tmux session and seat drift apart
 
@@ -1214,3 +1258,144 @@ before the move to v2. Filled in as causes are found.
   team seat says so in its first message.
 - **Reproduce:** launch a team seat whose project Dockerfile fails to build.
 - **Severity:** medium. **Issue:** TBF. **State:** open.
+
+## R69: a host `cc` seat gets no PEER message, only pings
+
+- **Seen:** the laptop host seat (a host `cc` worker, delivery "socket"), 26 Nov. It reported
+  this after the owner found it idle. The coordinator's job sent at 07:54Z with `say` printed
+  `queued:false` and no error.
+- **What (the seat's evidence, its own check):** the coordinator's PEER messages appear in the
+  seat's `teamchat history` (direction "in", kind "peer"), but none reached the session.
+  `teamchat recv` returns nothing. Status shows pending 0, ignored 63, dropped 420. Every
+  delivery the session did get from 25 Nov on was a PING (fetch).
+- **Correction (08:14Z, from the seat's link log):** my first read said the loss was between
+  the store and the session. That was wrong. The link drops the messages at receive.
+  - Its `link.log` holds 433 lines `teamsync lts-ops: dropped <id>: sender`, covering every
+    PEER from every sender. The coordinator's 07:54Z job is among them.
+  - The 14 "in"/"peer" history items are the same drops: that binary's history records a
+    dropped item too.
+  - Pings are not in the log, and both were delivered.
+- **Cause (read in code, matches all the evidence):** this is issue #422.
+  - That seat's member is `human_text: false`, and its kit is ccy 3.124.41 (teamchat digest
+    90f502ac…).
+  - Before #422 was fixed, the judge's `human_text` gate dropped every agent text with
+    `sender`, not only a relayed human's words. A ping is not text, so it passed.
+  - F44 has the fix: dc6b81aac, "an agent say reaches a human_text false worker". The gate is
+    now `c.Text.Relay != nil && !HumanText(self)` (`proto/verdict.go:461-464`).
+  - F44 also has c8a011430 ("a drop is counted under its reason; history, sent and reply say
+    who an item is for"), which covers most of R71.
+- **Live proof owed after the rollout to that machine:** a `say` to the host seat is delivered,
+  and its `link.log` has no new `sender` drop.
+- **Severity:** high (a host worker could not be given work by message). **Issue:** #422.
+  **State:** fixed on F44 (`e67e28d72`); that machine runs an older kit, so it waits on the
+  deploy there.
+
+## R70: a sender is not told its message was dropped
+
+- **Seen:** the coordinator, 26 Nov, on R69's lost job.
+- **What (checked in code):** `say` and `reply` print `sent` once the homeserver accepts the
+  event. Nothing comes back when the receiving link drops or ignores it, so the sender sees
+  success either way.
+- **Proposed (design, not built):** a NOTICE back to the sender for a drop of a message
+  addressed to the dropping member, naming the reason. For batch 24, after R69.
+- **Severity:** medium. **Issue:** TBF. **State:** open.
+
+## R71: status counts carry no reason, and history no recipient
+
+- **Seen:** the laptop host seat, 26 Nov.
+- **What:** `dropped 420` and `ignored 63` are not defined in `teamchat help status`, and no
+  command lists what was dropped or ignored. The status record has `dropped_by` (reason counts)
+  and the link log names each drop (`teamsync/session.go:959-968`), but neither is named in the
+  help (`kit/skill.txt:82` names `counts.dropped_by`; the help does not). On that seat's
+  kit, `teamchat history` items had no "to" field, so a member could not tell which inbound
+  PEERs were addressed to it; F44 adds it (c8a011430). Two different messages that open with the same paragraph look
+  like a duplicate (the seat's "T4").
+- **Fix (batch 24):** the help defines each count and names the log. History's "to" is done on
+  F44 (c8a011430) and reaches that seat with its kit update.
+- **Severity:** low. **Issue:** TBF. **State:** open.
+
+## R72: the `git` wrapper fails in Claude Code sessions in an aliased repository
+
+- **Seen:** a host `cc` seat on another dev machine, 26 Nov. Plain `git` fails because
+  `_gh_account_git` is not defined; `command git` works.
+- **Cause (checked):** both functions are defined together in
+  `playbooks/imports/play-github-cli-multi.yml` (`_gh_account_git` at line 1416; `git()` calls
+  it at 1445). They are written to `~/.bashrc-includes/gh-aliases.inc.bash`, which `.bashrc`
+  sources. Claude Code's Bash tool replays a snapshot of the login shell, and that snapshot
+  leaves out every function whose name starts with a single underscore. The filter
+  `[[ "$func" == _[!_]* ]] ||` was found in the installed `claude` binary. So `git()` survives
+  and its helper does not. It breaks only where the remote is `github.com-<alias>`, the one
+  case in which `git()` calls the helper.
+- **Also (read by a sub-agent, unchecked):** the snapshot drops variables, so the
+  `_GH_ACCOUNT_USERS` array (line 1396) is lost too. `git-<alias>`, `clone-<alias>`,
+  `gh-<alias>` and `git-branch-default` are likely broken the same way.
+- **Fix (batch 24, Defence Before Fix):** first a rule that no function in a deployed shell
+  include calls a single-underscore function or reads a global array; then the fix; then a
+  test that applies the snapshot's filter and calls `git` in an aliased repo.
+- **Severity:** medium. **Issue:** TBF. **State:** open.
+
+## R73: no hot swap of a session's sign-in, and a plan that would fail over automatically
+
+- **Seen:** the owner's question, 26 Nov, after the coordinator's session stopped three times
+  on a five-hour limit.
+- **What (read in code; line numbers in the reply to the coordinator, 08:1xZ):**
+  - A session's token is `--token NAME`, otherwise the checkout's Quick Launch choice,
+    otherwise the menu.
+  - The name is kept in the container label `ccy-token`, in `.claude/ccy/.last-launch.conf`,
+    and in the ccy-sessions record, but only when `--token` was typed.
+  - Nothing moves a running session to another token. Plan 00146 (switching through the
+    supervisor) is Not Started.
+  - A user unit `ccy-session-token-failover` seen on a dev machine is not in this repository.
+  - ⚠️ Plan 00146's decision 3 records an automatic restart on the next declared token, which
+    contradicts the owner's rule that switching is a hot swap the owner triggers.
+- **Severity:** medium. **Issue:** TBF. **State:** open; decision 3 to be settled before 00146
+  starts.
+
+## R74: owner requirement — ccy as its own installable package
+
+- **Seen:** the owner, 26 Nov 08:19Z, on starting Claude seats inside LXC containers: the
+  commands inside a container may differ from the host's, so ccy should be extracted from
+  fedora-desktop into its own package that can be installed natively inside containers that
+  might not run Fedora.
+- **State:** recorded as an owner requirement. There is no plan yet and none is started.
+  Plan 00266 records each LXC seat's own start command for now.
+
+## R75: the team picker offers teams that were removed
+
+- **Seen:** the owner's terminal, 26 Nov 08:26Z. A bare `ccy --teams` in a checkout offered
+  four teams, each "on teamchat, 1 podman seat here". Most are retired, and one is not on the
+  bus at all.
+- **Cause (read in code):**
+  - The list is every team with a seat in the checkout's pool
+    (`teams/chooser/teamchat.go:209-233`, `teams/system/cmd.go:196` `PoolTeams`).
+  - R59's filter drops a team only when it has no status record **and** this machine's
+    fedora-desktop host_vars declare it `absent` (`teams/system/lifecycle.go:47-73`).
+  - "No record and no entry" counts as served on another machine, so it is still offered
+    (`lifecycle.go:33-35`). Another repository's declaration of the removal is never read.
+  - Nothing deletes pool seats: `team remove --purge` leaves the owners' seat stores
+    (`lifecycle.go:26-28`).
+- **Fix (batch 24, agreed with the coordinator):**
+  - (a) A pool seat issued by this machine's own homeserver, whose team has no status record
+    here, is gone, whatever the host_vars say.
+  - (b) A `ccy-teams seats forget <team>` verb deletes a retired team's pool seats on the
+    owner's word, and refuses a held seat or a live team. The owner's retire decision is
+    their Q17.
+- **Severity:** medium. **Issue:** #386 (related). **State:** open.
+
+## R76: "teamchat is starting or restarting" from a link that is running
+
+- **Seen:** the coordinator, 26 Nov 08:11Z. It got a prompt notice "teamchat is starting or
+  restarting; team messages wait on the server", while its status showed link restarts 0 and
+  uptime 13750 s.
+- **Cause (read in code):** when a verb or hook gets no answer from the link, it asks
+  `ReadDown` why (`member/client/client.go:223`, `member/client/nolink.go:43-69`).
+  - `ReadDown` starts from `DownStarting`. It changes that only for a failed link, or for a
+    restarting one with a next-try time.
+  - So a link whose `keeper.json` says `running` (`state/values.go:22`), but which did not
+    answer this one call in time (busy, or the host loaded), is reported as starting or
+    restarting.
+  - The words are wrong, and the state it implies (messages waiting) may be wrong too.
+- **Fix (batch 24):** a held keeper lock with the link `running` is its own state. The words say
+  the link is up but did not answer this call in time, and name the bound. A test runs over a
+  `keeper.json` that says running.
+- **Severity:** low (misleading, not lossy). **Issue:** TBF. **State:** open.

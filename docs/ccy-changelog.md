@@ -17,6 +17,20 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.80 — container 2.84.89
+
+- `--help` now says that a teamchat team named alone (`ccy --teams <team>`,
+  `cc --teams <team>`) asks the seat only when there is a real choice. The checkout's one free
+  seat is taken, a seat is added when there is none, and with several Enter takes the lowest
+  free one, so no seat number need be typed. The behaviour is unchanged; only the help said
+  less than it does.
+
+## 3.124.79 — container 2.84.89
+
+- A launch or `ccy-teams remove` that meets a dangling link at the checkout's seat-record lock
+  refuses it without creating the file the link names. Before, the lock's create followed the
+  link and made that file inside the checkout before refusing.
+
 ## 3.124.78 — container 2.84.89
 
 - A launch or `ccy-teams remove` that cannot take the checkout's seat-record lock within 30

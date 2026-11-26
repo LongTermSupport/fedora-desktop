@@ -1,0 +1,3 @@
+## 08:49 · decision · — — The three design questions answered
+
+The coordinator answered DESIGN.md's three open questions as engineering calls under the owner's rule, not for the owner: receipts go in the reports room; staleness never drops an addressed item judged on replay (delivered marked late with its send time, except a waiting-only verb whose sender gave up, which bounces `expired`); a bounce to a human is a reply in the room and thread the message came from, the questions room for a message to the coordinator. Build order as planned, test first, one bounce test per verdict; the first batch commit goes to the coordinator.
