@@ -137,7 +137,9 @@ The tests cite these numbers.
   `VMTEST-FRESHNESS-ARTEFACT <base-name> <file> <sha> label=<l> variant=<v> url=<u>` of the base,
   in probe order:
 
-  - download it to `images/<file>` with `curl -fL --progress-bar -o <file>.partial`, adding
+  - download it to `images/<file>` with `curl -fL --progress-bar -o <dir>/<file>.partial`, `<dir>`
+    a directory the run makes beside the file (`.<file>.fetch-<random>`, removed after; rule
+    `project_temp_not_exclusive`, issue 417), adding
     `-z <file>` when a local copy exists. A non-empty `.partial` replaces the file
     (`downloaded <file> (<n> bytes)`). An empty one is removed and keeps the current copy
     (`<file> is current (not modified upstream)`). If there is no copy at all, that is a failure.
@@ -195,7 +197,8 @@ The tests cite these numbers.
   The command hashes the disk and reads its size and mtime. `refresh_state` is `complete` when
   the guest's revision is at least the probe's, otherwise `incomplete`. The recipe digest is
   E30's. A full base adds `--treeinfo-probe <probe> --tree <tree>`. `write_base_record` writes
-  `base.json.new`, which is renamed over `base.json`. The disk is made 0444, the build directory
+  `base.json.<random>.new` (created exclusively, `os.CreateTemp`; issue 417), which is renamed
+  over `base.json`. The disk is made 0444, the build directory
   is removed, and stdout gets `VMTEST-BASE-BUILT <name> <disk> refresh_state=<state>`.
 
 ### The guest

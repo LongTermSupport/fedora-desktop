@@ -168,6 +168,9 @@ func TestW1ToW26AWholeDictationWithNoDesktopPrintsTheText(t *testing.T) {
 	if !slices.Equal(k.states(), []string{"PREPARING", "RECORDING", "TRANSCRIBING", "IDLE"}) {
 		t.Fatalf("states %q", k.states())
 	}
+	if !k.soxWroteInADirOfItsOwn(".resampled.wav rate 16k") {
+		t.Errorf("sox did not write in a directory of its own: %q", k.calls())
+	}
 	for _, path := range []string{k.pidFile(), k.wav(), k.wav() + ".resampled.wav"} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Errorf("%s is left behind: %v", path, err)
@@ -180,7 +183,6 @@ func TestW1ToW26AWholeDictationWithNoDesktopPrintsTheText(t *testing.T) {
 	for _, want := range []string{
 		filepath.Join(k.bin, "wsi-stop-grace"),
 		filepath.Join(k.bin, "wsi-resolve-model") + " --mode batch --language en auto",
-		"sox " + k.wav() + " " + k.wav() + ".resampled.wav rate 16k",
 		"soxi -D " + k.wav(),
 		"faster-whisper-transcribe " + k.wav(),
 	} {
@@ -377,7 +379,7 @@ func TestW20AudioToolFailures(t *testing.T) {
 	if code := k.exec(); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if !k.called("sox " + k.wav() + " " + k.wav() + ".padded pad 0 1") {
+	if !k.soxWroteInADirOfItsOwn(".padded pad 0 1") {
 		t.Fatalf("not padded: %q", k.calls())
 	}
 }
@@ -608,4 +610,23 @@ func TestL3TheTranscriberInstallHintIsThePipLine(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	k.wantStderr("[ERROR]     Install: pip install --user faster-whisper")
+}
+
+// soxWroteInADirOfItsOwn is whether sox was run on the recording writing its name plus rest
+// inside a directory beside it made for the run (rule project_temp_not_exclusive), and whether
+// that directory is gone.
+func (k *kit) soxWroteInADirOfItsOwn(rest string) bool {
+	prefix := "sox " + k.wav() + " " + k.wav() + ".sox-"
+	return slices.ContainsFunc(k.calls(), func(c string) bool {
+		middle, ok := strings.CutPrefix(c, prefix)
+		if !ok {
+			return false
+		}
+		dir, tail, found := strings.Cut(middle, "/")
+		if !found || tail != filepath.Base(k.wav())+rest {
+			return false
+		}
+		_, err := os.Stat(k.wav() + ".sox-" + dir)
+		return os.IsNotExist(err)
+	})
 }
