@@ -99,8 +99,14 @@ const (
 	AdminStateRoot             = "/var/lib/" + AdminBinary
 	// AdminLXCDir holds C's LXC guest records. It starts with an underscore, which no team id
 	// can, so it never meets a team's AdminState (C 3.9).
-	AdminLXCDir  = AdminStateRoot + "/_lxc"
-	CtlStateRoot = "/var/lib/" + CtlUser
+	AdminLXCDir = AdminStateRoot + "/_lxc"
+	// LXCStartedFile is every seat `lxc start` started and `lxc stop` has not stopped, which
+	// `lxc reconcile` starts again (Plan 00266 C.2); LXCRunningFile is the containers that ran
+	// when the host last shut down, which the boot unit starts. Each starts with an underscore,
+	// as AdminLXCDir does.
+	LXCStartedFile = AdminStateRoot + "/_lxc-started.json"
+	LXCRunningFile = AdminStateRoot + "/_lxc-running.json"
+	CtlStateRoot   = "/var/lib/" + CtlUser
 	// TLSStateRoot holds each team's leaf certificate and key, the one place under /var/lib besides
 	// the status records that the health tick writes: it renews a leaf there while it can only read
 	// the admin state root, which holds the CA key and the approvals (SPEC-cross-network X31).

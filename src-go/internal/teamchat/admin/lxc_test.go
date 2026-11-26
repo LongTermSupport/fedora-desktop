@@ -345,10 +345,11 @@ type brokenWriter struct{}
 
 func (brokenWriter) Write([]byte) (int, error) { return 0, errors.New("stdout closed") }
 
-// lxc restart and lxc start (SU3, SU4): one --member C/K, nothing else; a seat no record holds
-// is refused (70); a stopped container holding the seat is 69, naming it.
+// lxc restart, lxc start and lxc stop (SU3, SU4, Plan 00266 C.2): one --member C/K, nothing
+// else; a seat no record holds is refused (70); a stopped container holding the seat is 69,
+// naming it.
 func TestLXCRestart(t *testing.T) {
-	for _, verb := range []string{"restart", "start"} {
+	for _, verb := range []string{"restart", "start", "stop"} {
 		t.Run(verb, func(t *testing.T) { lxcSeatVerb(t, verb) })
 	}
 }
@@ -660,5 +661,49 @@ func TestLXCRosterFailures(t *testing.T) {
 	w.lie = func(a *Answer) { a.Handle = "thing.9+box-1.lxc" }
 	if _, err := r.Join(ctx, alpha(t), lxc.Join{Op: apply.OpMemberAdd, Prefix: p, Seat: 3}); err == nil || !strings.Contains(err.Error(), "not what it was asked") {
 		t.Fatalf("a lying child: %v", err)
+	}
+}
+
+// lxc reconcile (Plan 00266 C.2): no argument but --container C; one line a recorded seat on
+// stdout; non-zero only when a start was refused.
+func TestLXCReconcile(t *testing.T) {
+	w := newWorld(t)
+	decl := lxcDecl(t, lxcEntry("box-1", 1))
+	boxes := stopped("box-1")
+	boxes.states["box-2"] = lxccmd.Running
+	sys := w.lxcSys(t, decl, boxes)
+	for _, args := range [][]string{{"extra"}, {"--container"}, {"--container", "Box 1"}, {"--member", "box-1/" + seatKey(t, 1)}} {
+		if out := w.lxcVerb(sys, "", append([]string{"lxc", "reconcile"}, args...)...); out.code != term.ExitUsage {
+			t.Errorf("%v: %d %s", args, out.code, out.stderr)
+		}
+	}
+	if out := w.lxcVerb(sys, "", "lxc", "reconcile"); out.code != term.ExitOK || out.stdout != "" {
+		t.Fatalf("no record: %d %q %s", out.code, out.stdout, out.stderr)
+	}
+	if err := os.MkdirAll(w.root+paths.AdminStateRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var started lxcstate.Started
+	for _, c := range []string{"box-1", "box-2"} {
+		box, err := paths.ParseContainerName(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		key, err := paths.ParseSeatKey(seatKey(t, 1))
+		if err != nil {
+			t.Fatal(err)
+		}
+		started = started.Add(lxcstate.StartedSeat{Container: box, Key: key})
+	}
+	if err := lxcstate.WriteStarted(w.root, started); err != nil {
+		t.Fatal(err)
+	}
+	out := w.lxcVerb(sys, "", "lxc", "reconcile", "--container", "box-1")
+	if out.code != term.ExitOK || out.stdout != "STOPPED\tbox-1/"+seatKey(t, 1)+"\toffline: container stopped\n" {
+		t.Fatalf("box-1: %d %q %s", out.code, out.stdout, out.stderr)
+	}
+	out = w.lxcVerb(sys, "", "lxc", "reconcile")
+	if out.code != term.ExitFailure || !strings.Contains(out.stdout, "REFUSED\tbox-2/") || !strings.Contains(out.stderr, "1 start refused") {
+		t.Fatalf("refused: %d %q %s", out.code, out.stdout, out.stderr)
 	}
 }

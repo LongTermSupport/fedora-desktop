@@ -148,7 +148,7 @@ Decision for C.2 (and the fix for today's start):
   reverses Plan 00257 Task B.12, "no LXC member session starts with its container", for the seats active at
   shutdown. Recorded; nothing more to decide.
 
-- [ ] ⬜ **Task C.2**: `teamchat-admin lxc reconcile`, plus a root unit from
+- [ ] 🔄 **Task C.2**: `teamchat-admin lxc reconcile`, plus a root unit from
   `play-lxc-install-config.yml` that calls it. The interface was agreed 26 Nov with a seat whose
   host's own IaC already starts the right containers at boot and after its maintenance runs.
 
@@ -175,7 +175,12 @@ Decision for C.2 (and the fix for today's start):
   - Logic in Go. Before it: the claude and node lookup above, test first, in the unit and in
     `lxc start` (register R77). The lookup is built (R77 is fixed on v2-smoke). node is
     optional: a native claude has none beside it, so only a missing claude refuses. `guest check` finds claude the same way, or apply would refuse an nvm seat before its unit exists.
-    The verb, record and unit are not started.
+  - **Built (26 Nov):** the record is `/var/lib/teamchat-admin/_lxc-started.json` (root 0600,
+    `lxcstate.Started`); `lxc start` adds a seat after a start that succeeded. `lxc stop --member` did not exist and is added: it takes the seat out of the record first (so a stop
+    of a seat whose container is offline still counts), then stops its unit, with no lookup of
+    claude. `lxc reconcile` judges a session live by its seat lock, as the L3 probe does, and
+    prints `STARTED|LIVE|STOPPED|REFUSED\t<container>/<key>\t<why>`.
+  - [ ] ⬜ The boot unit, its running-containers record and `lxc_seat_restore_starts_containers`.
 
 - [ ] ⬜ **Task C.3**: verify-restore reports the LXC set.
 

@@ -157,6 +157,52 @@ func lxcStart(ctx context.Context, e Env, args []string) term.ExitCode {
 	return lxcSeatVerbRun(ctx, e, args, "lxc start", lxc.Start)
 }
 
+// lxcStop is `lxc stop --member C/K` (Plan 00266 C.2), in lxc restart's form: lxc.Stop, which
+// takes the seat out of the record `lxc reconcile` starts again.
+func lxcStop(ctx context.Context, e Env, args []string) term.ExitCode {
+	return lxcSeatVerbRun(ctx, e, args, "lxc stop", lxc.Stop)
+}
+
+// lxcReconcile is `lxc reconcile [--container C]` (Plan 00266 C.2): lxc.Reconcile, one line a
+// recorded seat on stdout, printed before any error; non-zero only when a start was refused.
+func lxcReconcile(ctx context.Context, e Env, args []string) term.ExitCode {
+	sys, code := e.system()
+	if code != term.ExitOK {
+		return code
+	}
+	flags, err := parseFlags(args, []string{"container"})
+	if err != nil {
+		return failWith(e, err)
+	}
+	var only *paths.ContainerName
+	if v, given := flags["container"]; given {
+		box, err := paths.ParseContainerName(v)
+		if err != nil {
+			return failWith(e, usagef("--container: %v", err))
+		}
+		only = &box
+	}
+	d, code := lxcDeps(e, sys)
+	if code != term.ExitOK {
+		return code
+	}
+	lines, err := lxc.Reconcile(ctx, d, only)
+	if err != nil {
+		return failWith(e, err)
+	}
+	var b strings.Builder
+	for _, l := range lines {
+		b.WriteString(l.String() + "\n")
+	}
+	if code = answer(e, b.String()); code != term.ExitOK {
+		return code
+	}
+	if n := lxc.Refused(lines); n > 0 {
+		return fail(e.Stderr, term.ExitFailure, fmt.Sprintf("lxc reconcile: %d start refused; each REFUSED line names its cause", n))
+	}
+	return term.ExitOK
+}
+
 // lxcSeatVerbRun is a verb acting on one seat's unit, named by one --member C/K.
 func lxcSeatVerbRun(ctx context.Context, e Env, args []string, verb string,
 	act func(context.Context, lxc.Deps, paths.ContainerName, paths.SeatKey) error,

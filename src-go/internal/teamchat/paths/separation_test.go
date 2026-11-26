@@ -146,7 +146,7 @@ func constNames() map[string][]string {
 		"OwnerGroupFile": OwnerGroupFile, "ServerDir": ServerDir, "ServerPinFile": ServerPinFile,
 		"HostKitRoot": HostKitRoot, "HostKitCurrent": HostKitCurrent().String(),
 		"HomeserverStateRoot": HomeserverStateRoot, "HomeserverPrivateStateRoot": HomeserverPrivateStateRoot,
-		"AdminStateRoot": AdminStateRoot, "AdminLXCDir": AdminLXCDir, "CtlStateRoot": CtlStateRoot, "TLSStateRoot": TLSStateRoot,
+		"AdminStateRoot": AdminStateRoot, "AdminLXCDir": AdminLXCDir, "LXCStartedFile": LXCStartedFile, "LXCRunningFile": LXCRunningFile, "CtlStateRoot": CtlStateRoot, "TLSStateRoot": TLSStateRoot,
 		"StatusRoot": StatusRoot, "StatusInstalledFile": StatusInstalledFile, "LXCRecordDir": LXCRecordDir,
 		"AdminRunDir": AdminRunDir, "ServerUnitTemplate": ServerUnitTemplate, "TLSUnitTemplate": TLSUnitTemplate,
 		"FenceUnitTemplate": FenceUnitTemplate, "ServerStateDirectory": ServerStateDirectory,

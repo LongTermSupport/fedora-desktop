@@ -35,14 +35,17 @@ const (
 
 // seatJob is what `lxc restart` or `lxc start` does to the seat's unit over the guest's systemd,
 // with the words its errors use.
+// A job that ends a session asks nothing of claude (noLookup).
 type seatJob struct {
 	verb, step, whyStopped string
+	noLookup               bool
 	run                    func(ctx context.Context, s guestbus.Systemd, unit string) error
 }
 
 var (
 	restartJob = seatJob{verb: restartVerb, step: "restart", whyStopped: whyStoppedRestart, run: restartUnit}
 	startJob   = seatJob{verb: startVerb, step: "start", whyStopped: whyStoppedStart, run: startUnit}
+	stopJob    = seatJob{verb: stopVerb, step: "stop", whyStopped: whyStoppedStop, noLookup: true, run: stopUnit}
 )
 
 // Restart is `lxc restart --member C/K` (SU3): the seat's session unit reset, then restarted,
@@ -58,8 +61,12 @@ func Restart(ctx context.Context, d Deps, container paths.ContainerName, key pat
 // Start is `lxc start --member C/K` (SU4): the seat's session unit reset, then started with
 // systemd's StartUnit, which leaves a unit that already runs as it is, so a running session is
 // never ended. The seat, the refusals and the offline causes are Restart's, in the start's words.
+// A seat started is recorded as started (Plan 00266 C.2), for `lxc reconcile`.
 func Start(ctx context.Context, d Deps, container paths.ContainerName, key paths.SeatKey) error {
-	return runSeatJob(ctx, d, container, key, startJob)
+	if err := runSeatJob(ctx, d, container, key, startJob); err != nil {
+		return err
+	}
+	return recordStarted(d, startVerb, lxcstate.StartedSeat{Container: container, Key: key}, true)
 }
 
 // runSeatJob finds the seat, pins its container and runs job on its unit alone.
@@ -87,8 +94,10 @@ func runSeatJob(ctx context.Context, d Deps, container paths.ContainerName, key 
 	if err != nil {
 		return &host.Error{Verb: job.verb, Step: "unit", Drift: refused(err), Err: err}
 	}
-	if err := sessionPath(ctx, d, root, job, container, key, user); err != nil {
-		return err
+	if !job.noLookup {
+		if err := sessionPath(ctx, d, root, job, container, key, user); err != nil {
+			return err
+		}
 	}
 	s, err := d.Bus(ctx, root)
 	if err != nil && !refused(err) {

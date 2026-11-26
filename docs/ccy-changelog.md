@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.83 — container 2.84.92
+
+- teamchat in the image is built from sources that name two new host files, the record of
+  started LXC seats and of the containers running at shutdown (Plan 00266 Task C.2). A ccy
+  session does not use them.
+
 ## 3.124.82 — container 2.84.91
 
 - teamchat in the image adds `guest find-claude`, the op an LXC seat start runs to ask the

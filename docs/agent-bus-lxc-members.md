@@ -405,6 +405,12 @@ teamchat_lxc_members:
   session in its LXC container**, which runs the same); the seat key is the last part of the
   seat's name in the play's `lxc apply` lines. `teamchat-admin lxc restart --member` restarts
   it, ending the session that runs.
+- **A started seat comes back after a reboot.** `lxc start` records the seat in a root-only
+  file on the host, and `teamchat-admin lxc stop --member` stops its session and forgets it.
+  `teamchat-admin lxc reconcile [--container <name>]` starts each recorded seat whose container
+  runs and whose session is not live, prints one line a seat (`STARTED`, `LIVE`, `STOPPED`,
+  `REFUSED` with its cause), never starts a container, and exits non-zero only when a start was
+  refused (Plan 00266 Task C.2).
 - **One entry is one seat.** A container may hold any number of entries, for any users and
   checkouts; a coordinator and a worker on one checkout are two entries with two seats. There is
   no `role`: the team's `coordinator` names the coordinator's handle.
