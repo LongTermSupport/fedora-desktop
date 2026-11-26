@@ -121,12 +121,32 @@ Decision for C.2 (and the fix for today's start):
   reverses Plan 00257 Task B.12, "no LXC member session starts with its container", for the seats active at
   shutdown. Recorded; nothing more to decide.
 
-- [ ] ⬜ **Task C.2**: A root unit from `play-lxc-install-config.yml`. At shutdown it records the
-  running containers and their active seat units, root-owned under `/var/lib`. At boot it
-  starts exactly those containers, then runs `teamchat-admin lxc start --member` for each
-  recorded seat, by its declared container and key only. It runs before the user's session restore, and its logic is in Go.
-  Before it: the claude and node lookup above, test first, in the unit and in `lxc start`
-  (register R77).
+- [ ] ⬜ **Task C.2**: `teamchat-admin lxc reconcile`, plus a root unit from
+  `play-lxc-install-config.yml` that calls it. The interface was agreed 26 Nov with a seat whose
+  host's own IaC already starts the right containers at boot and after its maintenance runs.
+
+  - **The record:** every seat started through `lxc start --member` and not since stopped on
+    purpose with `lxc stop --member`, root-owned under `/var/lib`, outside every container and
+    checkout. A seat whose container was stopped (by a shutdown or by maintenance) stays recorded.
+  - **The verb, idempotent:** for each recorded seat, if its container runs and its session unit
+    does not, it starts the seat (`lxc start --member`, by the declared container and key only).
+    It leaves a live session alone. It skips a stopped container and reports it, never starting
+    it. One line per seat (started, already live, container stopped, refused with its cause).
+    The exit is non-zero only when a start was refused. `--container <name>` limits it to one
+    container.
+  - **The unit:** at shutdown it records the running containers. At boot it starts exactly those
+    containers, then runs the verb, before the user's session restore. A host variable,
+    `lxc_seat_restore_starts_containers` (default true), turns the container start off on a
+    host whose own IaC owns that. The verb still runs there, called by that IaC at the end of
+    its "started" step. This repo never names another project's systemd target.
+  - **No watcher:** a container restarted outside any boot or maintenance run is not noticed
+    until the next call.
+  - **Tests:** the four seat cases, a refused start's exit, the record kept across a container
+    stop, `--container`, and the variable off.
+  - **Tell the asking seat** the release that carries the verb, so it wires the call in then,
+    with a check that the verb exists.
+  - Logic in Go. Before it: the claude and node lookup above, test first, in the unit and in
+    `lxc start` (register R77).
 
 - [ ] ⬜ **Task C.3**: verify-restore reports the LXC set.
 
