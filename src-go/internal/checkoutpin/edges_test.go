@@ -77,7 +77,7 @@ func TestCommandEdges(t *testing.T) {
 	}
 	write(t, r.dir, "compose.yml", "include:\n  - ../x.yml\n")
 	for _, mode := range []string{"true", "false"} {
-		if code := r.cmd().Compose([]string{mode}); code != term.ExitFailure {
+		if code := r.cmd().Compose(context.Background(), []string{mode}); code != term.ExitFailure {
 			t.Errorf("compose %s with an outside include: %v", mode, code)
 		}
 	}

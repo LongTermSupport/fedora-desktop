@@ -26,10 +26,12 @@ import (
 //     applies the file and never asks. Passed, stdout is `-v` and `<src>:<dst>:<opt>` per
 //     mount, one per line, the source resolved, for the launcher's run.
 //   - V2. `ccy-teams internal checkout-pin compose <unattended>`, which the launcher asks before
-//     a compose up: with true (a restore, a restart's relaunch, a launch with nobody to ask) the
-//     compose files' digest must be the one recorded, else exit 1 naming the files and the verb;
-//     with false (a person is there and chose to start them) the digest is recorded. No compose
-//     file is exit 0 either way.
+//     a compose up: the compose files' digest must be the one recorded. With true (a restore, a
+//     restart's relaunch, a launch with nobody to ask) any other is exit 1 naming the files and
+//     the verb. With false (a person is there and chose to start them) any other shows every
+//     line of every file the digest covers, says why, and asks [y/N]: only a yes records it and
+//     is exit 0; a no, or no terminal, is exit 1 and records nothing, since the container could
+//     have written what a person's Enter would otherwise approve. No compose file is exit 0.
 //   - V3. `ccy-teams approve mounts|compose|last-launch [CHECKOUT]` (the checkout defaults to the
 //     working directory), a person's: shown what it approves (each mount resolved, every line of
 //     every file the compose digest covers, or each saved launch choice), a [y/N] question at a terminal, and only a yes records the digest. No terminal is
@@ -132,7 +134,7 @@ func (c Command) validMounts(dir string, content []byte, mustExist bool) ([]Moun
 }
 
 // Compose is V2.
-func (c Command) Compose(args []string) term.ExitCode {
+func (c Command) Compose(ctx context.Context, args []string) term.ExitCode {
 	if len(args) != 1 || (args[0] != "true" && args[0] != "false") {
 		return c.usage(usageCompose)
 	}
@@ -140,7 +142,7 @@ func (c Command) Compose(args []string) term.ExitCode {
 	if err != nil {
 		return c.fail(err)
 	}
-	files, digest, present, err := ComposeDigest(dir)
+	files, digest, present, err := ComposeRead(dir)
 	if err != nil {
 		return c.fail(err)
 	}
@@ -151,17 +153,36 @@ func (c Command) Compose(args []string) term.ExitCode {
 	if err != nil {
 		return c.fail(err)
 	}
-	if args[0] == "true" {
-		if err := store.Verify(dir, KindCompose, digest); err != nil {
-			c.say("✗ " + err.Error() + " (read: " + strings.Join(files, ", ") + ")")
-			return term.ExitFailure
-		}
+	err = store.Verify(dir, KindCompose, digest)
+	refused, isRefusal := errors.AsType[*RefusalError](err)
+	switch {
+	case err == nil:
 		return term.ExitOK
+	case !isRefusal:
+		return c.fail(err)
+	case args[0] == "true" || c.Confirm == nil:
+		names := make([]string, 0, len(files))
+		for _, f := range files {
+			names = append(names, f.Name)
+		}
+		c.say("✗ " + err.Error() + " (read: " + strings.Join(names, ", ") + ")")
+		return term.ExitFailure
+	}
+	c.say("The compose files of " + dir + " are not the ones approved: " + refused.Why + ". A container session can write them.")
+	c.say("`up -d` would run them as you, on this machine (under --engine docker, as root):")
+	c.showFiles(files)
+	yes, err := c.Confirm(ctx, "Start these compose files, and approve them for this checkout's launches and restores?")
+	if err != nil {
+		return c.fail(err)
+	}
+	if !yes {
+		c.say("Not started; nothing recorded. To approve them later: " + ApproveVerb(KindCompose, dir))
+		return term.ExitFailure
 	}
 	if err := store.Record(dir, KindCompose, digest, c.Now()); err != nil {
 		return c.fail(err)
 	}
-	c.say("✓ Recorded the compose files a restore may start (" + strings.Join(files, ", ") + ").")
+	c.say("✓ Approved the compose files shown; a change to them is asked about again.")
 	return term.ExitOK
 }
 

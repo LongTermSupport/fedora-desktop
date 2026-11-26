@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.119 — container 2.84.110
+
+- An attended launch whose compose files are not the approved content no longer starts and
+  records them on the `[Y/n]` Enter: ccy says why, shows every line of every file it would run,
+  and asks `[y/N]`. Only a yes starts them and records them for later restores; a no, or no
+  terminal, starts nothing and records nothing. Approved content starts unasked, as before
+  (Plan 00266 security review, finding 3; project rule `project_pin_record_unconfirmed`).
+
 ## 3.124.118 — container 2.84.110
 
 - The image's teamchat posts a receipt to a message's sender at each point of its delivery

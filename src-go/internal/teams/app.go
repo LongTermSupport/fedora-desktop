@@ -453,7 +453,7 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 			return a.Pin.ProjectMounts(rest[1:])
 		case "checkout-pin":
 			if len(rest) > 1 && rest[1] == string(checkoutpin.KindCompose) {
-				return a.Pin.Compose(rest[2:])
+				return a.Pin.Compose(ctx, rest[2:])
 			}
 		case "session-name":
 			return sessionname.Command{

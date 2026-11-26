@@ -106,6 +106,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_teamchat_root_read` | a teamchat machine record (paths' status-root names) handed to a call in ccy-teams with no `TeamchatRoot` in front, so a test world reads the machine's own teams | `teams` wiring: the session-name role lookup and four more read the status record through `system.StatusRecord`, past `teamtest`'s root (Plan 00265 batch 26 review) |
 | `project_checkout_config_pin` | a constant naming a checkout file the host launcher applies (`.claude/ccy/mounts`, `.claude/ccy/.last-launch.conf`, a compose file or override) outside `internal/checkoutpin`, so a container session's write to its checkout reaches the host unapproved | `sessions` restore's own compose file list (Plan 00266 Task A.1; its bash half is the semgrep rule `ccy-host-applies-checkout-config`) |
 | `project_record_launcher_exec` | a read of a session record's `Launcher` field (its `launcher=` path) outside `internal/registry`, other than in a comparison, so a planted record line is a program the next boot or a team restart runs | `sessions` restore's start of a recorded session and `teams/restart`'s start of a stopped one (Plan 00266 Task A.4) |
+| `project_pin_record_unconfirmed`   | a `checkoutpin.Store.Record` with no `Confirm` or `YesNo` asked before it in the same function, so a container's write to its checkout is recorded as a person's approval                                                                                  | the attended compose check's record of whatever the files held (Plan 00266 security review, finding 3)                                                                                                                  |
 | `project_memory_ahead_of_store` | teamchat engine memory written inside a store write's change function, which runs before the write, so a refused write leaves memory ahead of the disk | teamchat `engine`: recv's settle forgot each delivered item's content inside its write, so a refused ack left the items pending with nothing to render (issue #443's sweep) |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
@@ -4471,3 +4472,30 @@ a read kept in a variable, and the clean forms (the table, a comparison, a write
 handed out of `internal/registry` in a copy.
 
 **How to fix.** `registry.Launcher(getenv, rec)`.
+
+### project_pin_record_unconfirmed
+
+**What it is about.** A digest recorded in `internal/checkoutpin`'s store is an approval: every
+later launch nobody attends (a restore after a reboot, a team restart) applies the content it
+covers unasked. A ccy container writes its checkout, so a record of whatever the checkout holds,
+made without showing it, launders a container's write into an approval (Plan 00266 security
+review, finding 3, class "an approval does not cover what is actually run or mounted").
+
+**What it flags**, in src-go's `internal/` and `cmd/` trees (not the nested `qa` module, not test
+files), every call of `checkoutpin.Store.Record` in a function body with no call of a method or
+function field named `Confirm` or `YesNo` before it (a closure is judged as its own body).
+`checkoutpin.WriteLastLaunch` is exempt: it records the digest of the bytes it has just written.
+
+**Red.** `go vet -vettool=<driver> -project_pin_record_unconfirmed ./internal/... ./cmd/...` on the
+tree before the fix flagged exactly `internal/checkoutpin/command.go:161` (`Compose`, the attended
+compose check, which recorded the files' digest unshown after a `[Y/n]` question whose Enter meant
+yes); the fixture `qa/rules/testdata/pinrecord` holds it, a record in a closure that asks nobody,
+a record in another package, and the clean forms (the approve verb, a `YesNo` first,
+`WriteLastLaunch`, a test file). Green: `Compose` shows every file and asks `Confirm` (default no)
+before it records.
+
+**Not caught.** A question whose answer is not consulted, a question asked in another function
+before this one is called, and a digest written to the store by other means.
+
+**How to fix.** Show the content (`Shown`, `showFiles`), ask with `Confirm` or `YesNo` defaulting
+to no, and record only on a yes.

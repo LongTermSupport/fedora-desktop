@@ -168,32 +168,34 @@ func TestProjectMountsChecksTheDisk(t *testing.T) {
 // naming the verb. No compose file is nothing to judge.
 func TestComposePin(t *testing.T) {
 	r := newRig(t)
-	if code := r.cmd().Compose([]string{"true"}); code != term.ExitOK {
+	if code := r.cmd().Compose(context.Background(), []string{"true"}); code != term.ExitOK {
 		t.Fatalf("no compose files: %v", code)
 	}
 	write(t, r.dir, "compose.yml", "services: {}\n")
-	if code := r.cmd().Compose([]string{"true"}); code != term.ExitFailure || !strings.Contains(r.err.String(), "ccy-teams approve compose "+r.dir) {
+	if code := r.cmd().Compose(context.Background(), []string{"true"}); code != term.ExitFailure || !strings.Contains(r.err.String(), "ccy-teams approve compose "+r.dir) {
 		t.Fatalf("unattended, nothing recorded: %v %q", code, r.err.String())
 	}
-	if code := r.cmd().Compose([]string{"false"}); code != term.ExitOK {
+	r.answer = yes()
+	if code := r.cmd().Compose(context.Background(), []string{"false"}); code != term.ExitOK {
 		t.Fatalf("attended: %v %s", code, r.err.String())
 	}
-	if code := r.cmd().Compose([]string{"true"}); code != term.ExitOK {
+	r.answer = nil
+	if code := r.cmd().Compose(context.Background(), []string{"true"}); code != term.ExitOK {
 		t.Fatalf("unattended, recorded: %v %s", code, r.err.String())
 	}
 	write(t, r.dir, "compose.yml", "services:\n  x:\n    volumes: [/:/host]\n")
-	if code := r.cmd().Compose([]string{"true"}); code != term.ExitFailure || !strings.Contains(r.err.String(), "changed since") {
+	if code := r.cmd().Compose(context.Background(), []string{"true"}); code != term.ExitFailure || !strings.Contains(r.err.String(), "changed since") {
 		t.Fatalf("unattended, changed: %v %q", code, r.err.String())
 	}
 	r.answer = yes()
 	if code := r.cmd().Approve(context.Background(), []string{"compose"}); code != term.ExitOK || !strings.Contains(r.err.String(), "compose.yml") {
 		t.Fatalf("approve compose: %v %q", code, r.err.String())
 	}
-	if code := r.cmd().Compose([]string{"true"}); code != term.ExitOK {
+	if code := r.cmd().Compose(context.Background(), []string{"true"}); code != term.ExitOK {
 		t.Fatalf("unattended, approved: %v %s", code, r.err.String())
 	}
 	for _, args := range [][]string{nil, {"maybe"}, {"true", "x"}} {
-		if code := r.cmd().Compose(args); code != term.ExitUsage {
+		if code := r.cmd().Compose(context.Background(), args); code != term.ExitUsage {
 			t.Errorf("Compose(%q) = %v", args, code)
 		}
 	}
@@ -215,5 +217,38 @@ func TestApproveComposeShowsTheContent(t *testing.T) {
 		if !strings.Contains(r.err.String(), want) {
 			t.Errorf("approval screen lacks %q:\n%s", want, r.err.String())
 		}
+	}
+}
+
+// C7 (finding 3, the hazard): an attended launch whose compose files are not the approved
+// content shows every line and asks, default no; only a yes records them. No terminal, or a no,
+// starts nothing and records nothing; the approved content is started unasked.
+func TestComposeAttendedShowsAndAsks(t *testing.T) {
+	r := newRig(t)
+	write(t, r.dir, "compose.yml", "services:\n  x:\n    volumes: [/home:/h]\n")
+	if code := r.cmd().Compose(context.Background(), []string{"false"}); code != term.ExitFailure || !strings.Contains(r.err.String(), "ccy-teams approve compose "+r.dir) {
+		t.Fatalf("no terminal: %v %q", code, r.err.String())
+	}
+	r.answer = no()
+	if code := r.cmd().Compose(context.Background(), []string{"false"}); code != term.ExitFailure || len(r.asked) != 1 {
+		t.Fatalf("a no: %v asked %v", code, r.asked)
+	}
+	if !strings.Contains(r.err.String(), "volumes: [/home:/h]") || !strings.Contains(r.err.String(), "no approval is recorded") {
+		t.Fatalf("the question did not show the content and why: %q", r.err.String())
+	}
+	if code := r.cmd().Compose(context.Background(), []string{"true"}); code != term.ExitFailure {
+		t.Fatalf("a no recorded the files: %v", code)
+	}
+	r.answer = yes()
+	if code := r.cmd().Compose(context.Background(), []string{"false"}); code != term.ExitOK || len(r.asked) != 2 {
+		t.Fatalf("a yes: %v asked %v %q", code, r.asked, r.err.String())
+	}
+	if code := r.cmd().Compose(context.Background(), []string{"false"}); code != term.ExitOK || len(r.asked) != 2 {
+		t.Fatalf("approved content was asked about again: %v asked %v", code, r.asked)
+	}
+	write(t, r.dir, "compose.yml", "services:\n  x:\n    volumes: [/:/host]\n")
+	r.answer = no()
+	if code := r.cmd().Compose(context.Background(), []string{"false"}); code != term.ExitFailure || !strings.Contains(r.err.String(), "changed since") {
+		t.Fatalf("changed, a no: %v %q", code, r.err.String())
 	}
 }
