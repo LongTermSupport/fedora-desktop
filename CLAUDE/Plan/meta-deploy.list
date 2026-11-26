@@ -130,14 +130,17 @@ playbooks/imports/play-claude-yolo.yml
 # src-go tree id.
 playbooks/imports/play-teamchat.yml
 
-# Plan 00265 R79: writes the private-name guard's pinned list, <git dir>/private-terms-pinned
-# (mode 0600, yours), from the team, member and container names host_vars declares, the teams
-# this bus host serves (one sudo, to list /var/lib/teamchat-ctl), and your vault-encrypted
-# private_name_terms; set those first (localhost.yml.dist shows the form). It prints only a
-# count. It stops, naming the cause, on a plaintext private_name_terms item, on a pinned list
-# you wrote by hand (move its names into private_name_terms and delete the file first), or on
-# a machine with teams but no name specific enough to block.
-playbooks/imports/play-git-hooks-security.yml
+# Plan 00265 R79: finishes the private-name guard's setup. It ASKS at the terminal for each
+# private name that is not a team name (a client or project name), one at a time with nothing
+# shown as you type, until an empty line; a name already listed is skipped. Each is vault-encrypted into
+# private_name_terms in host_vars (nothing else there changes), and the names in the pinned list
+# you wrote by hand (<git dir>/private-terms-pinned) are imported the same way; the list is
+# decrypted again to check it, and only then is the hand-written file deleted. It then runs
+# play-git-hooks-security.yml (one sudo, to list /var/lib/teamchat-ctl), which writes the pinned
+# list again (mode 0600) from host_vars' team, member and container names, the teams this bus
+# host serves and private_name_terms, and prints how many names are pinned, never the names.
+# A second run is safe: press Enter at the first question to add nothing.
+00265-teamchat-v2-smoke-test-register/r79-private-names.bash
 
 # Plan 00268 Tasks 1.4, 1.7 (Lightning memory leak): rebuilds agent-bus-lightning and rewrites
 # the Lightning launchers. A lightning team whose agent_bus_element_teams entry has

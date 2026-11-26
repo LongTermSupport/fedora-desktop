@@ -343,6 +343,8 @@ also	tests/fixtures/ansible-regex-class-escape/*	go	covered	qa/ansible
 also	tests/fixtures/ansible-root-umask/*	go	covered	qa/ansible
 # The sudoers-rule fixtures of qa-ansible are read only by the Go tests of the rule.
 also	tests/fixtures/ansible-sudoers/*	go	covered	qa/ansible
+# The checkout-by-home-path fixtures of qa-ansible are read only by the Go tests of the rule.
+also	tests/fixtures/ansible-checkout-by-home-path/*	go	covered	qa/ansible
 # The sudoers-rule check of qa-ansible reads the sudoers sources the plays install and the root
 # installers' put_file lines, so a change to one runs the gate.
 also	files/etc/sudoers.d/*,files/usr/local/sbin/*	ansible-patterns	-

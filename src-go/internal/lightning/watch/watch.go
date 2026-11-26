@@ -40,6 +40,9 @@
 //	   one rolled copy, W7).
 //	W12 The record names kernel.yama.ptrace_scope, or that the kernel has no Yama: above 0, a
 //	   backtrace tool the watchdog starts may not attach to Lightning, and the record says why.
+//	W13 A /proc file is read only when it is a regular file; anything else there is an error
+//	   naming it (a named pipe would block the read for ever). A /proc or task entry that is not
+//	   a directory is no process or thread, and is skipped.
 package watch
 
 import (
@@ -123,7 +126,7 @@ func (w *Watcher) Tick(ctx context.Context, now time.Time) error {
 	}
 	alive := map[process]bool{}
 	for _, e := range entries {
-		if _, err := strconv.Atoi(e.Name()); err != nil {
+		if _, err := strconv.Atoi(e.Name()); err != nil || !e.IsDir() {
 			continue
 		}
 		p, err := w.look(ctx, e.Name(), now)
@@ -191,11 +194,11 @@ func (w *Watcher) look(ctx context.Context, pid string, now time.Time) (process,
 // diagnosticLog is the process's diagnostic log when it is a Lightning instance launched with
 // one under Instances, "" otherwise. Its argv is read only when its comm is Lightning's (W4).
 func (w *Watcher) diagnosticLog(pid string) (string, error) {
-	name, err := fs.ReadFile(w.Proc, pid+"/comm")
+	name, err := w.readProc(pid + "/comm")
 	if err != nil || strings.TrimSpace(string(name)) != comm {
 		return "", err
 	}
-	raw, err := fs.ReadFile(w.Proc, pid+"/cmdline")
+	raw, err := w.readProc(pid + "/cmdline")
 	if err != nil {
 		return "", err
 	}
@@ -230,7 +233,7 @@ func (w *Watcher) isInstanceLog(p string) bool {
 
 // status is the process's real uid and RSS in KiB.
 func (w *Watcher) status(pid string) (int, int, error) {
-	data, err := fs.ReadFile(w.Proc, pid+"/status")
+	data, err := w.readProc(pid + "/status")
 	if err != nil {
 		return 0, 0, err
 	}
@@ -265,7 +268,7 @@ type statFields struct{ id, name, state, utime, stime, start string }
 // stat reads a /proc stat line. The name is in parentheses and may hold anything, so the fields
 // are counted from the last ")".
 func (w *Watcher) stat(file string) (statFields, error) {
-	data, err := fs.ReadFile(w.Proc, file)
+	data, err := w.readProc(file)
 	if err != nil {
 		return statFields{}, err
 	}
@@ -284,6 +287,20 @@ func (w *Watcher) stat(file string) (statFields, error) {
 		id: strings.TrimSpace(line[:open]), name: line[open+1 : closing],
 		state: rest[state], utime: rest[utime], stime: rest[stime], start: rest[start],
 	}, nil
+}
+
+// readProc reads a file under /proc only when it is a regular file (W13): opening a named pipe
+// blocks until something writes to it. /proc's own files are regular, so the check refuses only
+// what a real /proc never holds.
+func (w *Watcher) readProc(name string) ([]byte, error) {
+	info, err := fs.Stat(w.Proc, name)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("reading /proc/%s: not a regular file", name)
+	}
+	return fs.ReadFile(w.Proc, name)
 }
 
 // gone is whether err is a process (or thread) that ended between two reads.
@@ -334,6 +351,9 @@ func (w *Watcher) threads(b *strings.Builder, pid string) error {
 		return fmt.Errorf("listing %s's threads: %w", pid, err)
 	}
 	for _, t := range tasks {
+		if !t.IsDir() {
+			continue
+		}
 		dir := path.Join(pid, "task", t.Name())
 		fields, err := w.stat(dir + "/stat")
 		if gone(err) {
@@ -342,7 +362,7 @@ func (w *Watcher) threads(b *strings.Builder, pid string) error {
 		if err != nil {
 			return err
 		}
-		wchan, err := fs.ReadFile(w.Proc, dir+"/wchan")
+		wchan, err := w.readProc(dir + "/wchan")
 		if gone(err) {
 			continue
 		}

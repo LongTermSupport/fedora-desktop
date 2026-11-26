@@ -1513,6 +1513,40 @@ before the move to v2. Filled in as causes are found.
   host and site, and `teamchat_site`; the guard's message no longer says to hand-edit the
   pinned list. Owed by the owner before the run: the existing hand-written pinned list is
   refused by pin, so its names move into `private_name_terms` and the file is deleted.
+- **The owner's setup is one script:** `r79-private-names.bash` (this folder), the R79 entry
+  of `meta-deploy.list`.
+  - It asks for each private name that is not a team name, with the echo off, until an empty
+    line.
+  - It imports the names of the hand-written pinned list, adds each one vault-encrypted to
+    `private_name_terms`, and checks the list by decrypting it again.
+  - Only then does it delete the hand-written file. It then runs the play and prints the
+    pinned count, never a name.
+  - The list edit is the lasting tool `scripts/vault-list.bash add VARIABLE [--import FILE]`
+    (Go, `src-go/internal/vaultlist`; V1-V6 in its package doc). It edits only the list's
+    block, encrypts through `./vault.bash encrypt`, and never shows a value.
+  - `vault.bash` is on the bash-limits ratchet and may not grow, so the list mode is Go. Its
+    host_vars handling is shared with setup-rclone as `internal/hostvars`.
+  - **Owner, once batch 23 is on F44: run `./CLAUDE/Plan/meta-deploy.bash`** (its R79 entry
+    is that script; it asks for the names at the terminal).
+  - **Its qa-reviewer (FIX-BEFORE-MERGE, fixed in the next commit):**
+    - The stopgap is now moved aside and put back if the play fails, so the guard never runs
+      with no pinned list.
+    - "Hand-written" is decided by pin's own header test (`qa-private-names pinned-state`), not
+      by a copy of the header.
+    - A test now holds every value off argv and the environment.
+    - SecurityRules names `vault-list`.
+  - **Not yet proven:** the real `ansible-vault decrypt --output -` reading stdin, and
+    `vault.bash encrypt` from a pipe, run only on the host; the owner's first run is their
+    proof. The stopgap's names are imported whole, team names included. A team name kept that
+    way stays in `private_name_terms` after its team is removed, until the owner deletes the
+    item.
+  - **Which checkout it pins:** only the one it runs from. The play runs pin with
+    `chdir: root_dir` (ansible.cfg's directory), and the script reads and removes the stopgap of
+    its own checkout. A worker clone that cannot run plays (no vault file, no sudo tty) and is
+    not the checkout meta-deploy runs from never gets a pin this way. Whoever provisions that
+    clone runs `scripts/qa-private-names.bash pin` in it, with the inventory JSON on stdin (the
+    play's keys, `private_name_terms` decrypted), after removing its hand-written list. It also
+    sets `core.hooksPath` to `scripts/git-hooks`.
 - **Severity:** high (a public repository). **Issue:** TBF. **State:** fixed on v2-smoke;
   waits on the host running the play (meta-deploy) and on the redaction route.
 
@@ -1661,4 +1695,65 @@ before the move to v2. Filled in as causes are found.
     commit (a workaround, logged here).
   - Re-scan every commit made here since the hooks stopped (`qa-private-names range`), to
     find any other leak that went in.
+- **Cause (found):** `play-git-hooks-security.yml` set `repo_path` to
+  `~/Projects/fedora-desktop`, not the checkout running the play (`root_dir`). This checkout is
+  elsewhere, so the play set `core.hooksPath` on the other checkout, and its own verify step
+  passed by looking there too. The host confirmed: this checkout's hooksPath is empty, the other
+  checkout's is set. Fixed by the commit that adds the qa-ansible rule `checkout-by-home-path`
+  (red on the play, green after `repo_path: "{{ root_dir }}"`; no other instance in
+  `playbooks/ tasks/ vars/ environment/`). Report: `subagent-reports/261126-dbf-repo-path.md`.
+  The play still has to run on the host (queued through `r79-private-names.bash` in
+  `meta-deploy.list`); the session-start hooksPath detector above is still to do.
+- **Interim (26 Nov 10:06Z, the coordinator's decision):** the play cannot run in this checkout
+  (no vault file, and become asks for a password with no tty), so the devops seat set
+  `core.hooksPath` here by hand, as a recorded interim, and proved it: `git hook run pre-commit`
+  scanned clean with rc 0. The hooks run here again; the hand scan stopped. The lasting owner of
+  this checkout's hooks path, and of its pinned list, is the infrastructure repository's dev-VM
+  checkout task, which provisions it; the play pins only the checkout that runs it.
 - **Severity:** high (all local security gates off, silently). **Issue:** TBF. **State:** open.
+
+## R85: a shutdown warning fails for a live seat that has no context sidecar
+
+- **Seen:** the owner's laptop shutdown-with-update, 26 Nov 10:17Z, relayed by the coordinator.
+  The reboot-warning signal to one team's ccy container exited 1: "--all-sessions found no live
+  session (no <session>.json context sidecar ...)". A live seat in it was not warned.
+- **Hazard:** the lossless rule. A seat with work in flight goes down unwarned, so it cannot
+  finish or hand off.
+- **Lead (checked, fact-check report r85-r88):** the message is the hooks daemon's
+  (`utils/operator_signal.py:306-311`), which finds a session by its context sidecar, while the
+  Go side counts a session live from tmux and its process tree, and its preflight never asks
+  for a sidecar (`src-go/internal/sessions/routes.go:198`). The two disagree on "live".
+- **Fix:** to find out (unchecked): why the live session had no sidecar, or why the signal
+  looked for one where it was not. Then the signal reaches every live session, and a session it
+  cannot reach is named as not warned, never a bare exit 1.
+- **Severity:** high (a live seat not warned before a shutdown). **Issue:** TBF. **State:** open.
+
+## R86: a stale ccy session record shows as live at shutdown
+
+- **Seen:** the same shutdown. The warning listed a ccy session with no container in its
+  process tree as "left out". It is the stale session already known on the laptop.
+- **Hazard:** the list says a session exists that has nothing in it, which hides the real
+  state from the operator and from `ccy-sessions restore`.
+- **Fix:** such a session either should not exist (cleaned up when its container ended) or shows
+  as stopped. To decide which owner (ccy-sessions or the ccy launcher) and why the record stayed.
+- **Severity:** low. **Issue:** TBF. **State:** open.
+
+## R87: a host cc session cannot be shown an operator signal
+
+- **Seen:** the same shutdown. "Not shown the warning: these cc sessions run claude on the host
+  with no ccy supervisor". The laptop's host seat is one.
+- **Hazard:** the lossless rule. An operator signal that cannot reach a session must reach it
+  another way. Today it reaches only the operator's terminal.
+- **Fix:** when a session cannot be shown the signal and it is a team seat, the signal also goes
+  to that seat as a teamchat notice (or the cc launch gains the supervisor's signal path). To
+  design.
+- **Severity:** medium. **Issue:** TBF. **State:** open.
+
+## R88: the shutdown warning prints the same blocks twice
+
+- **Seen:** the same shutdown. The same blocks printed twice.
+- **Cause (checked, fact-check report r85-r88):** `src-go/internal/sessions/reboot.go:105` and
+  `:187` each run `checkProjects`, so a countdown over one minute prints the "Left out" and
+  "Not shown" blocks (`routes.go:167`, `:171`) twice.
+- **Fix:** print them once per countdown, with a test for a countdown over one minute.
+- **Severity:** low (noise). **Issue:** TBF. **State:** open.

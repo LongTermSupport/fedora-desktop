@@ -63,7 +63,8 @@ module-built-for-running-kernel), a command task that reports changed on every r
 (CLAUDE/QA.md, command-always-changed), a task whose changed_when is true on every run it
 succeeds (CLAUDE/QA.md, changed-when-on-success), a task that only makes, fills or removes a scratch
 directory and reports changed (CLAUDE/QA.md, scratch-always-changed), a pipx task whose name
-is not the canonical one pipx keys its venv by (CLAUDE/QA.md, pipx-name-not-canonical), an image build given a
+is not the canonical one pipx keys its venv by (CLAUDE/QA.md, pipx-name-not-canonical), the
+checkout named by its usual clone path instead of root_dir (CLAUDE/QA.md, checkout-by-home-path), an image build given a
 build argument or label new on every commit or run (CLAUDE/QA.md, image-build-arg-volatile),
 an install skipped on its own record without a
 stat of what it installed (CLAUDE/QA.md, install-guard-trusts-record), an input list that

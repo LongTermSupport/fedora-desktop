@@ -1,0 +1,23 @@
+# Fixture for checkout-by-home-path (src-go/qa/ansible/checkouthome.go; CLAUDE/QA.md). Each line
+# ending "# EXPECT-FINDING" must be reported, and no other line.
+- hosts: desktop
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    # The R84 play as it was: the hooks went to this path, not the checkout that ran the play.
+    repo_path: "{{ lookup('env', 'HOME') }}/Projects/fedora-desktop"  # EXPECT-FINDING
+    hooks_dir: "/home/{{ user_login }}/Projects/fedora-desktop/scripts/git-hooks"  # EXPECT-FINDING
+  tasks:
+    - name: Point git at the hooks
+      community.general.git_config:
+        scope: local
+        repo: ~/Projects/fedora-desktop  # EXPECT-FINDING
+        name: core.hooksPath
+        value: scripts/git-hooks
+    - name: Run a script of the checkout
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cd "$HOME/Projects/fedora-desktop"  # EXPECT-FINDING
+        ./scripts/qa-private-names.bash pin
+    - name: Read a file of the checkout
+      ansible.builtin.slurp:
+        src: "{{ ansible_facts['env']['HOME'] }}/Projects/fedora-desktop/vars/fedora-version.yml"  # EXPECT-FINDING

@@ -143,12 +143,16 @@ type App struct {
 
 // WatchEnv is the watch verb's world.
 type WatchEnv struct {
-	Ctx   context.Context // stopping it ends the watch, with 0
-	Proc  fs.FS           // /proc
-	Run   execx.Runner    // the backtrace tools
-	Now   func() time.Time
-	After func(time.Duration) <-chan time.Time
+	Ctx  context.Context // stopping it ends the watch, with 0
+	Proc fs.FS           // /proc
+	Run  execx.Runner    // the backtrace tools
+	Now  func() time.Time
+	Wait func() <-chan time.Time // one watch.Interval: IntervalWait on the real clock
 }
+
+// IntervalWait is WatchEnv.Wait on the real clock. The bound is the constant watch.Interval, so
+// no caller can shorten it into a race.
+func IntervalWait() <-chan time.Time { return time.After(watch.Interval) }
 
 // refusal is a refused run (78), element.py's ElementError.
 type refusal struct{ msg string }
@@ -240,7 +244,7 @@ func (a App) watch(list matrixclients.List, home string) term.ExitCode {
 		select {
 		case <-env.Ctx.Done():
 			return term.ExitOK
-		case <-env.After(watch.Interval):
+		case <-env.Wait():
 		}
 	}
 }

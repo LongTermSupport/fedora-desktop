@@ -255,6 +255,30 @@ func pinnedUnion(auto, owner []string) []string {
 	return out
 }
 
+// pinnedState prints what the pinned list is, by writePinned's own header test: absent,
+// generated, or hand-written (one pin refuses). Its content is never printed.
+func (a app) pinnedState(rest []string, out, errOut *emit.Emitter) ExitCode {
+	if len(rest) != 0 {
+		return fail(errOut, errors.New("pinned-state takes no arguments"))
+	}
+	common, err := a.git(nil, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return fail(errOut, err)
+	}
+	old, err := a.env.ReadFile(filepath.Join(strings.TrimSpace(common), PinnedName))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		out.Line("absent")
+	case err != nil:
+		return fail(errOut, fmt.Errorf("the pinned list %s is unreadable: %w", PinnedName, err))
+	case strings.HasPrefix(string(old), PinnedHeader):
+		out.Line("generated")
+	default:
+		out.Line("hand-written")
+	}
+	return ExitOK
+}
+
 // writePinned replaces the pinned list whole, unless it is unchanged; a list written by hand is
 // refused, since replacing it would lose the owner's names. Only the count is printed.
 func (a app) writePinned(path string, names []string, out, errOut *emit.Emitter) ExitCode {

@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"testing"
 	"testing/fstest"
+	"testing/synctest"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -742,7 +743,7 @@ type fakeWatch struct {
 	env    *WatchEnv
 	now    time.Time
 	steps  []func()
-	waits  []time.Duration
+	waits  int
 	cancel context.CancelFunc
 }
 
@@ -753,25 +754,37 @@ func newFakeWatch(t *testing.T, proc fs.FS, steps []func()) *fakeWatch {
 	f := &fakeWatch{now: watchStart, steps: steps, cancel: cancel}
 	f.env = &WatchEnv{
 		Ctx: ctx, Proc: proc, Run: &execx.Fake{},
-		Now:   func() time.Time { return f.now },
-		After: f.after,
+		Now:  func() time.Time { return f.now },
+		Wait: f.wait,
 	}
 	return f
 }
 
-func (f *fakeWatch) after(d time.Duration) <-chan time.Time {
-	f.waits = append(f.waits, d)
+// wait is one watch.Interval on the fake clock.
+func (f *fakeWatch) wait() <-chan time.Time {
+	f.waits++
 	if len(f.steps) == 0 {
 		f.cancel()
 		return nil
 	}
-	f.now = f.now.Add(d)
+	f.now = f.now.Add(watch.Interval)
 	step := f.steps[0]
 	f.steps = f.steps[1:]
 	step()
 	ready := make(chan time.Time, 1)
 	ready <- f.now
 	return ready
+}
+
+// TestL17IntervalWaitIsOneInterval holds that the real wait between looks is watch.Interval, on
+// synctest's clock (a bubble starts at midnight UTC, 2000-01-01).
+func TestL17IntervalWaitIsOneInterval(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		start := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+		if got := <-IntervalWait(); !got.Equal(start.Add(watch.Interval)) {
+			t.Fatalf("the wait ended at %v, want %v", got, start.Add(watch.Interval))
+		}
+	})
 }
 
 func (w *world) watchApp(stdout, stderr *bytes.Buffer, env *WatchEnv) App {
@@ -838,8 +851,8 @@ func TestL17WatchLooksEachIntervalUntilStopped(t *testing.T) {
 	if code := w.watchApp(&out, &errOut, f.env).Run(); code != term.ExitOK || out.Len() != 0 {
 		t.Fatalf("exit %d stdout %q stderr %q", code, out.String(), errOut.String())
 	}
-	if !slices.Equal(f.waits, []time.Duration{watch.Interval, watch.Interval, watch.Interval}) {
-		t.Fatalf("waits %v, want three of %v", f.waits, watch.Interval)
+	if f.waits != 3 {
+		t.Fatalf("%d waits, want three", f.waits)
 	}
 	if !strings.Contains(errOut.String(), filepath.Join(w.root(), "teams")) {
 		t.Fatalf("stderr %q names no folder watched", errOut.String())

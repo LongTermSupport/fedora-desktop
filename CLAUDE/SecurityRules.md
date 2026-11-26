@@ -72,6 +72,10 @@ public — it lives in this repo. Full procedure:
   `./vault.bash replace <varname>` re-encrypts an **existing** one in place.
   Reach for `replace` whenever the variable is already present. `./vault.bash --help`
   lists the read-side commands (`get`, `list`, `dump`, `encrypt`).
+- **Adding items to a list whose every item is vaulted** (such as `private_name_terms`):
+  `scripts/vault-list.bash add <varname> [--import FILE]`. It asks for each value with the echo
+  off, encrypts it through `./vault.bash encrypt`, keeps the existing items, skips a value
+  already listed, and decrypts the list again to check it. Only counts are printed.
 
 **Example of variable-level encryption:**
 

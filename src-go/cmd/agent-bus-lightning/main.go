@@ -31,7 +31,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		Args: args, Stdin: stdin, Stdout: stdout, Stderr: stderr,
 		Euid: os.Geteuid(), UID: os.Getuid(), Home: passwdHome,
 		Watch: &lightning.WatchEnv{
-			Ctx: ctx, Proc: os.DirFS("/proc"), Run: execx.OS{}, Now: time.Now, After: time.After,
+			Ctx: ctx, Proc: os.DirFS("/proc"), Run: execx.OS{}, Now: time.Now, Wait: lightning.IntervalWait,
 		},
 	}.Run()
 }

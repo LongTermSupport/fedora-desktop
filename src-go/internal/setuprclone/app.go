@@ -24,7 +24,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostvars"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -277,7 +277,7 @@ func (r *run) encrypt(ctx context.Context, key string, stdin io.Reader) (string,
 	if err != nil {
 		return "", fmt.Errorf("ansible-vault encrypt_string failed: %w", err)
 	}
-	if _, err := parseVault(res.Stdout, key); err != nil {
+	if _, err := hostvars.ParseVault(res.Stdout, key); err != nil {
 		return "", err
 	}
 	return string(res.Stdout), nil
@@ -711,30 +711,10 @@ func (r *run) stepWrite(text []byte, read, mounts []mount) error {
 	if err != nil {
 		return r.failf("%s: %v", r.vars, err)
 	}
-	if err := writeKeepingMode(r.vars, out); err != nil {
+	if err := hostvars.WriteKeepingMode(r.vars, out); err != nil {
 		return r.failf("%v", err)
 	}
 	r.ok("host_vars updated")
-	return nil
-}
-
-// writeKeepingMode replaces the file (through a symlink, its target) whole, its mode kept.
-func writeKeepingMode(path string, data []byte) error {
-	target, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return fmt.Errorf("cannot resolve %s: %w", path, err)
-	}
-	info, err := os.Stat(target)
-	if err != nil {
-		return fmt.Errorf("cannot read %s: %w", path, err)
-	}
-	if err := fsx.WriteAtomic(target, "host_vars", data, info.Mode().Perm()); err != nil {
-		return fmt.Errorf("cannot write %s: %w", path, err)
-	}
-	// The umask narrowed the new file's mode; the old file's is kept.
-	if err := os.Chmod(target, info.Mode().Perm()); err != nil {
-		return fmt.Errorf("cannot keep the mode of %s: %w", path, err)
-	}
 	return nil
 }
 

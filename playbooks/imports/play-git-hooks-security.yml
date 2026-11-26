@@ -12,7 +12,7 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
-    repo_path: "{{ lookup('env', 'HOME') }}/Projects/fedora-desktop"
+    repo_path: "{{ root_dir }}"
     # A bus host's teamchat-ctl state root: one directory per team it serves
     # (internal/teamchat/paths.CtlStateRoot; installplay's test holds the two equal).
     pn_ctl_state_root: /var/lib/teamchat-ctl
@@ -107,8 +107,9 @@
         fail_msg: >-
           private_name_terms in host_vars must be a list whose every item is vault-encrypted;
           {{ 'it is not a list' if not pn_terms_is_list | bool else (pn_plaintext_items ~ ' item(s) are plaintext') }}.
-          No value is shown. Make each item with `./vault.bash encrypt private_name_term`, paste the
-          `!vault |` block it prints as one list item, and run this play again.
+          No value is shown. Remove each plaintext item, add the names again with
+          `scripts/vault-list.bash add private_name_terms` (it vault-encrypts each one), and run
+          this play again.
         quiet: true
 
     - name: Read Whether This Machine Serves Teams

@@ -56,6 +56,14 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   rclone's wizard in the foreground, the rclone configuration vaulted by `ansible-vault` from
   its stdin, `rclone_mounts` edited as two top-level blocks of the `host_vars` text and read
   back as YAML before the atomic write, and the rclone play run in the checkout.
+- `internal/hostvars/` — the `host_vars` editing setup-rclone and vault-list share: the file read
+  as YAML nodes (a `!vault` value is data), a top-level key's block replaced in the text, the
+  edit compared on read-back, and the file replaced whole with its mode kept.
+- `internal/vaultlist/` — the `vault-list` command (Plan 00265 R79, V1-V6 in its package doc):
+  values added to a `host_vars` list whose every item is vault-encrypted (`private_name_terms`),
+  each asked with the echo off through `ui.Lines.Secret`, encrypted by `./vault.bash encrypt`
+  from its stdin, and the list decrypted again (`ansible-vault decrypt`) after the write to
+  check it; only counts are printed.
 - `internal/reclaim/` — the `reclaim` command (spec `SPEC-reclaim.md`, E1-E30): the disk report
   and a numbered menu on `/dev/tty` of cleanups, each behind a default-no confirmation; root
   through `internal/sudo`, ncdu through `execx.Foregrounder`, podman and docker pruned as the
@@ -175,7 +183,7 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   doc): one Lightning instance (its own XDG data, config and cache), a homeserver settings file
   and a launcher per team the human watches in Lightning; a stale launcher of its own removed, an
   instance never; a team's `lightning_diagnostics` adds traces and a log file to its launcher.
-  Its `watch` verb (`internal/lightning/watch`, W1-W12, Plan 00268) is the diagnostics watchdog
+  Its `watch` verb (`internal/lightning/watch`, W1-W13, Plan 00268) is the diagnostics watchdog
   the `agent-bus-lightning-watch` user service runs: it reads only `/proc` and the logs'
   modification times, and records a stalled instance's threads once beside its log. Built and
   run by `play-agent-bus-element.yml`.
@@ -338,9 +346,9 @@ the launcher's front `claude-yolo` (root-owned at `/var/local/claude-yolo/claude
 `git-prompt-fetch` are installed root-owned
 in `/usr/local/bin` (`go_command_owner: root`; only that copy runs as root). Each binary lands
 at its old path. A new deployed command takes a row in
-`scripts/go-binary-suites.tsv`. `gh-account-setup`, `setup-rclone` and `consumer-install` are not deployed: they run from the
+`scripts/go-binary-suites.tsv`. `gh-account-setup`, `setup-rclone`, `vault-list` and `consumer-install` are not deployed: they run from the
 checkout (before any play, and to edit its `host_vars`), so `scripts/gh-account-setup.bash`,
-`scripts/setup-rclone.bash` and `scripts/consumer-install.bash` build them there (`run_go_command` in
+`scripts/setup-rclone.bash`, `scripts/vault-list.bash` and `scripts/consumer-install.bash` build them there (`run_go_command` in
 `scripts/lib/go-tool.bash`, the same flags) and execs it, so a signal sent to a wrapper reaches its command.
 `nvidia-status` is not deployed either: `play-nvidia.yml` tells the person to run
 `scripts/nvidia-status.bash` from the checkout, which builds it the same way. Never

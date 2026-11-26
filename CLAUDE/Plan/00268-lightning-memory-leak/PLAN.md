@@ -76,7 +76,7 @@ another batch; this plan decides at the end whether it stays.
   Task 1.4's key, and a user-level watchdog (IaC) that, when the instance's log is silent for
   60 s while its RSS climbs past a threshold, records per-thread CPU and an all-threads
   backtrace once. Lightning's own stall tracer logs only when a stall ends, so it cannot. Built:
-  `agent-bus-lightning watch` (`internal/lightning/watch`, W1-W12; L17), the user service
+  `agent-bus-lightning watch` (`internal/lightning/watch`, W1-W13; L17), the user service
   `agent-bus-lightning-watch`, run by the play only while a team has the key true.
 
 ### Phase 2: Reproduce
