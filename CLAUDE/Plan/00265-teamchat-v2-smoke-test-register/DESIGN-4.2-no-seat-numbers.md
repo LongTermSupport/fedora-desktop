@@ -12,14 +12,14 @@ Placeholders: `<team>`, `<checkout>`, `<repo>`.
   path. The paths come from `seat-checkouts`, written by the launch block and the board
   (`src-go/internal/teams/seatcheckouts/seatcheckouts.go:1-9,35`).
 - **Who holds a seat.** `system.PoolState` marks a seat held when a complete holding's keeper
-  runs, or its session record is kept (`system/cmd.go:118-176`).
+  runs, or its session record is kept (`system/cmd.go:149-178`).
 - **What a seat ran.** One record per seat in `.claude/ccy/seat-conversations/<team>/<seat>.json`
   with `session_id`, `source` and `written_ms` (`src-go/internal/conversation/seatrecord.go:33,60-77`).
 - **How the seat is chosen today.** A team named alone goes to `teamchatSeat`
   (`src-go/internal/teams/chooser/teamchat.go:85`). One free seat is taken (`:96-98`). Otherwise
   a list is shown, one row per seat, `seat <name>  <handle>  free|held`
   (`src-go/internal/teams/seatchoice/seatchoice.go:76-82`), and the default is **the lowest free
-  seat** (`seatchoice.go:8,63-70`; `teamchat.go:109-111`). Nothing reads the seat records. So
+  seat** (`seatchoice.go:9,65-73`; `teamchat.go:109-111`). Nothing reads the seat records. So
   when two seats are free, the default is the lowest-numbered one, not the one this checkout last
   worked in, and the owner has to know which number that was. That is R90's defect.
 - **Resume.** After the choice, `ccy_seats_resume` runs `ccy-teams internal seat-resume`
@@ -94,8 +94,8 @@ list).
 
 *Help and launcher text:*
 
-- `src-go/internal/teams/usage.txt:7`, `:293`, `:327`; `src-go/internal/ccylaunch/help.txt:55`
-- `files/var/local/claude-yolo/claude-yolo:247`, `:752`, `:887`
+- `src-go/internal/teams/usage.txt:7`, `:293`, `:327`; `src-go/internal/ccylaunch/help.txt:51`, `:55`
+- `files/var/local/claude-yolo/claude-yolo:243`, `:247`, `:752`, `:887`
 - `files/var/local/claude-code/cc-teams.bash:66`
 
 *Docs:*
