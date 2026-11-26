@@ -1810,3 +1810,25 @@ before the move to v2. Filled in as causes are found.
 - **Fix:** PLAN Task 4.2, detector first.
 - **Severity:** high (an owner rule; today's restore asks for exactly what it forbids).
   **Issue:** TBF. **State:** open.
+
+## R91: an update leaves a host cc seat unstartable, with no migration
+
+- **Seen:** the owner's laptop, 26 Nov 10:44Z, relayed by the coordinator. After `run.bash --changed` to F44, `cc` in another team's checkout, which ran before the shutdown, exits 78:
+  the checkout has no host seat of that team, a new one cannot be added because the team is
+  not served on this machine, and it prints a cross-machine issue-and-place pipe that names a
+  seat handle.
+- **What (checked in F44 code):** on teamchat, `cc` needs a host seat in the checkout's own
+  pool. With none it runs `ccy-teams seats add <team> --host`, which issues on this machine's
+  bus and refuses (78) a team with no status record here (`internal/teams/seatadd`, package
+  doc). The team is served on another machine. Its declared laptop member was never present,
+  so the seat was never placed in this checkout.
+- **Unchecked:** that the session before the update ran on the v1 bus, and which commit ended
+  `cc`'s v1 path for a team on teamchat.
+- **Hazard:** the lossless rule and R90. A running seat becomes unstartable after an update,
+  and the way back is a command line naming a seat, run across two machines.
+- **Fix:**
+  - The update carries a v1 seat over itself.
+  - Or `cc` offers to fetch the seat from the machine that serves the team, in words, with no
+    number, asking for the owner's password once.
+  - To design with R90 (PLAN Task 4.2).
+- **Severity:** high. **Issue:** TBF. **State:** open.
