@@ -22,7 +22,7 @@
 # command agent-bus-lightning (src-go/internal/lightning), and runs that command's diagnostics
 # watchdog as the user service agent-bus-lightning-watch only while a lightning team has
 # lightning_diagnostics true (Plan 00268). It caps every Lightning instance's memory
-# (agent_bus_lightning_memory_max, 2G by default, no swap) with a drop-in on the app's Flatpak
+# (agent_bus_lightning_memory_max, 5G by default, no swap) with a drop-in on the app's Flatpak
 # scopes, and a kill at the cap raises a desktop notification. Both Lightning steps are Go binaries
 # built here, so the Go toolchain is installed first; play-golang.yml stays its one source of
 # truth.
@@ -71,8 +71,10 @@
       {{ agent_bus_element_lightning_teams | selectattr('lightning_diagnostics', 'defined')
          | selectattr('lightning_diagnostics', 'equalto', true) | list | length > 0 }}
     # The memory cap on every Lightning instance (Plan 00268 Task 1.9): systemd's MemoryMax
-    # size (2G by default), or false for no cap. Set in host_vars as agent_bus_lightning_memory_max.
-    agent_bus_lightning_memory_cap: "{{ agent_bus_lightning_memory_max | default('2G') }}"
+    # size (5G by default), or false for no cap. Set in host_vars as agent_bus_lightning_memory_max.
+    # 5G (the owner's choice): older builds reached 2.2 GB on busy days with no runaway, and a
+    # runaway grows about 2.7 GB a minute, so the margin costs only a minute or so.
+    agent_bus_lightning_memory_cap: "{{ agent_bus_lightning_memory_max | default('5G') }}"
     agent_bus_lightning_memory_cap_on: "{{ agent_bus_lightning_memory_cap is not sameas false }}"
     # Lightning's Flatpak app id, read from the one Matrix client list, never spelt here.
     agent_bus_lightning_app_id: >-
@@ -147,7 +149,7 @@
                 and agent_bus_lightning_memory_cap is match('^[1-9][0-9]*[KMG]$'))
         fail_msg: >-
           agent_bus_lightning_memory_max must be a size systemd's MemoryMax takes, a whole number
-          and K, M or G (2G is the default), or false for no cap on Lightning's memory.
+          and K, M or G (5G is the default), or false for no cap on Lightning's memory.
         quiet: true
       tags: [agent-bus-lightning]
 

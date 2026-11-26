@@ -260,4 +260,4 @@ passwordless_sudo_for_unattended_deploys: false
 # (Plan 00268): systemd's MemoryMax on the app's Flatpak scopes, with no swap beyond it. An
 # instance that reaches it is killed by the kernel and a desktop notification says so; nothing
 # reopens it. A whole number and K, M or G; false removes the cap.
-# agent_bus_lightning_memory_max: 2G
+# agent_bus_lightning_memory_max: 5G

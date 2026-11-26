@@ -155,15 +155,15 @@ playbooks/imports/play-teamchat.yml
 # and elfutils (one sudo) for that record's backtrace, which kernel.yama.ptrace_scope=1 (set
 # by the self-update play) refuses; the record then says so. Before setting the key, check the
 # instance runs Lightning 0.10.7 or later (laptop-commands.md step 1): only 0.10.7 caps the log.
-playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-lightning
-
-# Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that
-# is running, the session units are present, not enabled and not linked in
-# Task 1.9: it also caps every Lightning instance's memory at 2G with no swap
+# Task 1.9: it also caps every Lightning instance's memory at 5G with no swap
 # (agent_bus_lightning_memory_max in host_vars; false removes it), as a user systemd drop-in on
 # the app's Flatpak scopes, and places agent-bus-lightning-capped@.service, which a kill at the
 # cap starts to raise a critical desktop notification; nothing reopens Lightning. The user
 # manager is reloaded; the cap holds for instances opened after the run (close and reopen each).
+playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-lightning
+
+# Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that
+# is running, the session units are present, not enabled and not linked in
 # multi-user.target.wants. A stopped container is reported offline and skipped. It then ASKS,
 # per running container, whether to reboot it (default no; asked at the terminal even under
 # meta-deploy) and reboots only on the owner's yes, then checks no claude runs for its members'
