@@ -97,7 +97,8 @@ questions and answers are in [OWNER-QUESTIONS.md](OWNER-QUESTIONS.md).
 - [ ] ⬜ **Task 1.5**: Keep the v1 bus out of ccy's tree (Q4). The v1 packages (`agentbus`,
   `bus`, `declare`, `marker`, `pingbus`, `cmd/pingbus-status-line`) are the group `stays-v1`
   in INVENTORY.md and stay in fedora-desktop. ccy-teams' edges to them (`teams` →
-  `agentbus`, `declare`, `pingbus`; `lightning` → `bus`) are cut: the seat install goes
+  `agentbus`, `declare`, `pingbus`; `teams/membership` → `pingbus/pyjson`; `lightning` →
+  `bus/seat`, `bus/pycompat`) are cut: the seat install goes
   through the provisioner hook (Task 1.2), and the v1 reads are removed from the packages that
   move, or the code that needs them stays here. The boundary rule (Task 1.1) fails any import
   from a moving package into `stays-v1`. Removing v1 itself is not part of this task.
