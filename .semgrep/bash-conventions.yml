@@ -586,19 +586,26 @@ rules:
   # container could widen its own next launch, unattended at a restore after a reboot.
   #
   # WRONG: mapfile -t lines <.claude/ccy/mounts     (the host parses the container's words)
+  # WRONG: cat > .claude/ccy/.last-launch.conf     (its keys and network go unpinned to a
+  #        launch nobody attends; so does reading it from bash)
   # WRONG: ccy_compose_up() { ... if "$@" up -d; then ... }   (no pin asked first)
   # RIGHT: PROJECT_MOUNTS from `ccy-teams internal project-mounts`, which refuses a file
   #        whose hash is not the one a person approved (ccy-teams approve mounts)
   # RIGHT: the function asks `ccy-teams internal checkout-pin compose ...` before its `up`
+  # RIGHT: `claude-yolo --read-launch-config|--write-launch-config|--launch-network "$PWD"`,
+  #        the Go front, which pins the saved launch choices (ccy-teams approve last-launch)
   #
   # The mounts path is caught on any line that is not a comment. A compose `up`, `run` or
   # `create` (the command "$@", podman-compose, docker-compose, docker compose, or a variable
   # whose name holds "compose", at a command position) is caught in a function with no
-  # checkout-pin line above it. Not caught: such a command outside a function, a compose run
-  # through a variable named otherwise, and the mounts path built from pieces.
+  # checkout-pin line above it. The saved launch choices (.last-launch.conf) are caught on any
+  # line that is not a comment or a message (echo, printf, print_*), except cc's own file in
+  # the host's ~/.claude, which no checkout holds. Not caught: such a command outside a
+  # function, a compose run through a variable named otherwise, and a path built from pieces.
   - id: ccy-host-applies-checkout-config
     pattern-either:
       - pattern-regex: '(?m)^(?![ \t]*#)[^\n#]*\.claude/ccy/mounts\b'
+      - pattern-regex: '(?m)^(?![ \t]*(?:#|echo[ \t]|printf[ \t]|print_\w+[ \t]))[^\n#]*(?<!HOME/\.claude/)(?<!~/\.claude/)\.last-launch\.conf\b'
       - pattern-regex: '(?sm)^[A-Za-z_][A-Za-z0-9_]*\(\)[ \t]*\{[ \t]*\n(?:(?!^\}[ \t]*$)(?!^[^\n#]*\bcheckout-pin\b).)*?^(?![ \t]*#)[^\n#]*?(?:^[ \t]*|[;&|(!][ \t]*|\b(?:then|do|else|if|while|until|exec|command|time)[ \t]+)(?:"\$@"|podman-compose|docker-compose|docker[ \t]+compose|"?\$\{?\w*[Cc][Oo][Mm][Pp][Oo][Ss][Ee]\w*(?:\[@\])?\}?"?)[ \t]+(?:up|run|create)\b'
     paths:
       include:

@@ -1933,7 +1933,12 @@ a command position) in a function with no `checkout-pin` line above it. The Go h
 ccy session writes its checkout, and the launcher bound what `.claude/ccy/mounts` named and ran
 `up -d` on the checkout's compose file as the host user, unasked, so a container could widen its
 own next launch, unattended at a restore. Red on the tree before the fix: `lib/common.bash:425`
-(the mounts reader) and `lib/network-management.bash:941` (`ccy_compose_up`), nothing else.
+(the mounts reader) and `lib/network-management.bash:941` (`ccy_compose_up`), nothing else. The
+saved launch choices joined the class later: a non-comment line naming `.last-launch.conf`,
+except a message line (`echo`, `printf`, `print_*`) and cc's own file in the host's `~/.claude`.
+Red on the tree before that fix: `claude-yolo:542`, `:3370`, `:3386` and
+`lib/network-management.bash:124`, nothing else; the launcher now reads and writes the file only
+through the Go front (`--read-launch-config`, `--write-launch-config`, `--launch-network`).
 
 **How to fix.** Take the mounts from `ccy-teams internal project-mounts`, and ask
 `ccy-teams internal checkout-pin compose <unattended>` before a compose up: both refuse content no

@@ -129,7 +129,7 @@ ccy_registry_launch_args() {
 # population is complete.
 CCY_REGISTRY_DROP_FLAGS=(--rebuild --create-token --list-tokens --token-usage --custom --custom-docker --top
     --prevent --debug --headless --disable-custom-docker --ssh-agent --no-restore --list-containers --stop-containers
-    --help --version -h -v --build-lock --read-launch-config --check-token --check-network --claude-versions --remove-network --stop --secret-screen --fresh --rebind)
+    --help --version -h -v --build-lock --read-launch-config --write-launch-config --launch-network --check-token --check-network --claude-versions --remove-network --stop --secret-screen --fresh --rebind)
 CCY_REGISTRY_DROP_VALUE_FLAGS=(--update-token --export-token --connect --disconnect --prompt --run-for --until --compose)
 CCY_REGISTRY_KEEP_VALUE_FLAGS=(--token --ssh-key --network --engine --max-age --teams)
 CCY_REGISTRY_KEEP_FLAGS=(--no-ssh --github-443 --no-network --supervise --no-supervise --no-bus --opencode -oc)

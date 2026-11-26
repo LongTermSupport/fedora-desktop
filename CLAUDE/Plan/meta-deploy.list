@@ -304,3 +304,9 @@ changed-plays
 # each checkout with a .claude/ccy/mounts file: `ccy-teams approve mounts <checkout>` (read what it
 # shows first). Before the next reboot, for each restored session with compose files:
 # `ccy-teams approve compose <checkout>`. A refused restore is named by `ccy-sessions verify-restore`.
+# Plan 00266 Phase A, the saved launch choices (ccy 3.124.107): the same play-claude-yolo.yml run
+# installs the launcher and rebuilds the claude-yolo front and ccy-teams. A launch now records
+# the .claude/ccy/.last-launch.conf it saves, and a restore, restart or headless launch refuses
+# one ccy did not write (a container can), naming it and `ccy-teams approve last-launch
+# <checkout>`. A file saved before the run has no record: before the next reboot, launch each
+# restored checkout once at a terminal (its save records it) or run that approve verb there.

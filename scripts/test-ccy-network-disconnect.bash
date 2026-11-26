@@ -48,6 +48,13 @@ export CCY_STATE_DIR="$SCRATCH/state"
 mkdir -p "$HOME" "$SCRATCH/projects/demo"
 # get_project_name reads the working directory: a generic parent gives the bare "demo".
 cd "$SCRATCH/projects/demo" || exit 1
+# The Quick Launch config is read and rewritten only by the Go front beside the launcher (F16),
+# which the library runs as $SCRIPT_DIR/claude-yolo: the real one, built here.
+if ! front_build=$(cd "$REPO_ROOT/src-go" && go build -trimpath -buildvcs=false -o "$SCRATCH/front/claude-yolo" ./cmd/claude-yolo 2>&1); then
+    echo "FAIL: the Go front does not build: $front_build" >&2
+    exit 1
+fi
+SCRIPT_DIR="$SCRATCH/front"
 export CONTAINER_ENGINE=podman
 
 passed=0
@@ -152,9 +159,11 @@ reset() {
 # The Quick Launch config, in the shape the launcher writes it at the end of a launch. A plain
 # ccy offers it (and a session restore takes it unasked), joining LAST_NETWORK.
 QL=".claude/ccy/.last-launch.conf"
+# It is written through the front, as the launcher writes it, so it is the pinned content a
+# launch nobody attends takes.
 write_quick_launch() {
     mkdir -p .claude/ccy
-    cat >"$QL" <<EOF
+    "$SCRIPT_DIR/claude-yolo" --write-launch-config "$PWD" <<EOF
 # CCY Launch Configuration
 # Config Version: 3
 SAVED_CONFIG_VERSION=3
@@ -165,7 +174,6 @@ LAST_SSH_KEYS="key-one key-two"
 LAST_NETWORK="$1"
 LAST_LAUNCH_DATE="2026-09-24"
 EOF
-    chmod 600 "$QL"
 }
 # What the launcher reads: it sources the file, so this does too.
 quick_launch_network() {
@@ -541,23 +549,19 @@ run_disconnect "" ""
 check "no container, no name, no saved default: the refusal names the Quick Launch network" "yes" "$(says "ccy --disconnect wrong-network" "$ERR")"
 check "and changes nothing" "wrong-network" "$(quick_launch_network)"
 
-# The config is rewritten beside itself and moved into place; a rewrite that cannot be made
-# is a failure that says so, never a quiet "done". The temporary comes from mktemp (an exclusive
-# create under a random name), so a mktemp that fails here stands for a rewrite that cannot be made.
+# A config no approval covers (a container can write it) is never pinned again by a forget,
+# which would approve its other choices: it is removed, and the output says so.
 reset
 save_network_preference wrong-network
 write_quick_launch wrong-network
-mkdir -p "$SCRATCH/failing-mktemp"
-printf '#!/bin/sh\nexit 1\n' >"$SCRATCH/failing-mktemp/mktemp"
-chmod +x "$SCRATCH/failing-mktemp/mktemp"
-PATH="$SCRATCH/failing-mktemp:$PATH" run_disconnect "" wrong-network
-check "a Quick Launch config that cannot be rewritten fails the command" "1" "$RC"
-check "and says which file" "yes" "$(says ".last-launch.conf" "$ERR")"
-check "and the config is unchanged" "wrong-network" "$(quick_launch_network)"
+awk '/^LAST_SSH_KEYS=/ { print "LAST_SSH_KEYS=\"planted\""; next } { print }' "$QL" >"$QL.next" && mv "$QL.next" "$QL"
+run_disconnect "" wrong-network
+check "an unapproved Quick Launch config naming the network is removed" "0 no" "$RC $([ -e "$QL" ] && echo yes || echo no)"
+check "and the output says which file and why" "yes" "$(says "Removed the Quick Launch configuration ($PWD/$QL)" "$OUT")"
 
-# A hand-edited LAST_NETWORK line (trailing space, a CR from another editor, a comment) still
-# reads as naming the network, but is not the exact line the rewrite replaces. The command must
-# then fail and name the line, never report the network cleared while the config still names it.
+# A hand-edited LAST_NETWORK line (trailing space, a CR from another editor, a comment) is not
+# a line ccy writes. The command must then fail and name the file and the line, never report
+# the network cleared while the config may still name it.
 for variant in "space" "cr" "comment"; do
     reset
     save_network_preference wrong-network
@@ -567,15 +571,11 @@ for variant in "space" "cr" "comment"; do
         cr) suffix=$'\r' ;;
         comment) suffix=" # hand-edited" ;;
     esac
-    ql_next=$(mktemp -- "$QL.new.XXXXXXXXXX") || {
-        echo "FATAL: cannot create a temporary beside $QL" >&2
-        exit 1
-    }
-    awk -v s="$suffix" '/^LAST_NETWORK=/ { print $0 s; next } { print }' "$QL" >"$ql_next" && mv "$ql_next" "$QL"
+    awk -v s="$suffix" '/^LAST_NETWORK=/ { print $0 s; next } { print }' "$QL" >"$QL.next" && mv "$QL.next" "$QL"
     run_disconnect "" wrong-network
     check "a hand-edited LAST_NETWORK line ($variant) fails the command" "1" "$RC"
     check "and it does not claim Quick Launch was cleared ($variant)" "no" "$(says "Cleared wrong-network from the Quick Launch" "$OUT")"
-    check "and it names the file and the line ($variant)" "yes" "$(says "$QL still names wrong-network on the line" "$ERR")"
+    check "and it names the file and the line ($variant)" "yes" "$(says "$PWD/$QL: line 8" "$ERR")"
 done
 
 echo ""

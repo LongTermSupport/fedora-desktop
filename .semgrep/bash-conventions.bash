@@ -754,6 +754,19 @@ fixture_mounts() {
     PROJECT_MOUNTS=$(ccy-teams internal project-mounts)
 }
 
+fixture_last_launch() {
+    # ruleid: ccy-host-applies-checkout-config
+    cat >.claude/ccy/.last-launch.conf <<<"LAST_NETWORK=\"x\""
+    # ruleid: ccy-host-applies-checkout-config
+    local config_file="$1/.last-launch.conf"
+    # ok: ccy-host-applies-checkout-config
+    echo "  ✗ .claude/ccy/.last-launch.conf  (contains token names)" >&2
+    # ok: ccy-host-applies-checkout-config
+    printf '%s\n' "$_name" >"$HOME/.claude/.last-launch.conf"
+    # ok: ccy-host-applies-checkout-config
+    saved=$("$SCRIPT_DIR/claude-yolo" --read-launch-config "$PWD" "$mode")
+}
+
 # ruleid: ccy-host-applies-checkout-config
 fixture_compose_unpinned() {
     while true; do

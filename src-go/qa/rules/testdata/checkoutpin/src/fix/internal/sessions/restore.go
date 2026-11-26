@@ -15,6 +15,15 @@ var composeFiles = []string{"docker-compose.yml", // want `"docker-compose.yml",
 // mountsFile is the project mounts spelt whole.
 const mountsFile = ".claude/ccy/mounts" // want `".claude/ccy/mounts", a checkout file the host applies, named outside internal/checkoutpin`
 
+// lastLaunch is the saved launch choices a launch nobody attends takes, spelt whole and as the
+// file's own name.
+const lastLaunch = ".claude/ccy/.last-launch.conf" // want `".claude/ccy/.last-launch.conf", a checkout file the host applies, named outside internal/checkoutpin`
+
+// LastLaunch joins the file's own name.
+func LastLaunch(dir string) string {
+	return filepath.Join(dir, ".claude/ccy", ".last-launch.conf") // want `".last-launch.conf", a checkout file the host applies, named outside internal/checkoutpin`
+}
+
 // Override is an override file in a constant expression.
 func Override(dir string) string {
 	return filepath.Join(dir, "docker-compose"+".override.yml") // want `"docker-compose.override.yml", a checkout file the host applies, named outside internal/checkoutpin`

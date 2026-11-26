@@ -23,6 +23,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylaunch"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/checkoutpin"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/shellword"
 )
@@ -78,6 +79,9 @@ type fileSpec struct {
 	Mode    string `json:"mode"`
 	DirMode string `json:"dirMode"`
 	AgeDays int    `json:"ageDays"`
+	// Pinned records the file as approved, as the launcher's own write of its saved launch
+	// configuration does (checkoutpin K5); only that file can be pinned.
+	Pinned bool `json:"pinned"`
 }
 
 // world is a reusable part of a scenario: files, environment and answers.
@@ -393,6 +397,34 @@ func (s sandbox) place(t *testing.T, f fileSpec) {
 		if err := os.Chmod(filepath.Dir(path), fs.FileMode(dirPerm)); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if f.Pinned {
+		s.pin(t, f.Path)
+	}
+}
+
+// pinnedAt is when a planted approval says it was given.
+var pinnedAt = time.Date(2030, 1, 10, 9, 0, 0, 0, time.UTC)
+
+// pin records the checkout's saved launch configuration, planted at rel, as approved.
+func (s sandbox) pin(t *testing.T, rel string) {
+	t.Helper()
+	if rel != cwdProject+"/"+checkoutpin.LastLaunch {
+		t.Fatalf("%s: only %s/%s can be pinned", rel, cwdProject, checkoutpin.LastLaunch)
+	}
+	env := s.baseEnv()
+	store, err := checkoutpin.Locate(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkout := filepath.Join(s.root, cwdProject)
+	_, digest, present, err := checkoutpin.LastLaunchDigest(checkout)
+	if err != nil || !present {
+		t.Fatalf("%s cannot be pinned: %v", rel, err)
+	}
+	// A fixed time: a scenario's machine clock is not always pinned, and the record is golden.
+	if err := store.Record(checkout, checkoutpin.KindLastLaunch, digest, pinnedAt); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -731,6 +763,10 @@ var volatile = []struct {
 	{regexp.MustCompile(`(/tmp/ccy-[a-z-]+-)[A-Za-z0-9]{6}(\.log|\.txt)`), "${1}XXXXXX${2}"},
 	{regexp.MustCompile(`(launch-[0-9]+-\{pid\}-)[0-9]+`), "${1}{random}"},
 	{regexp.MustCompile(`(\{sandbox\}/tmp/tmp\.)(?:[A-Za-z0-9]{10}|[0-9]{1,9})\b`), "${1}XXXXXXXXXX"},
+	// An approval's directory is named for the checkout's path, and its digest covers text that
+	// holds the launcher's version: both change with the sandbox and the release.
+	{regexp.MustCompile(`(ccy/approved/)[0-9a-f]{32}\b`), "${1}{checkout_digest}"},
+	{regexp.MustCompile(`(sha256=)[0-9a-f]{64}\b`), "${1}{sha256}"},
 }
 
 // render is the golden text of one outcome.

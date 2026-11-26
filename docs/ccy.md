@@ -2126,7 +2126,7 @@ nobody attends refuses a file ccy did not write, naming it and
 `ccy-teams approve last-launch <checkout>`, which shows every saved choice and asks as
 above. A launch at a terminal shows the choices and asks as before, warning when ccy did
 not write them, and its own save records them again. A file saved by a ccy older than
-3.124.106 has no record: launch the checkout once at a terminal, or approve it, before
+3.124.107 has no record: launch the checkout once at a terminal, or approve it, before
 the next unattended launch. `ccy --disconnect` blanks a saved network only in a file ccy
 wrote; a file it did not write that names the network is removed instead.
 

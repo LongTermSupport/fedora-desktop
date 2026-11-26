@@ -14,10 +14,11 @@ import (
 const checkoutPinPkg = "internal/checkoutpin"
 
 // checkoutPinNames are the checkout files the host launcher applies, which a container session
-// can write: the project mounts (binds of the session's next launch) and the compose files and
-// their overrides (`up -d`, run on the host).
+// can write: the project mounts (binds of the session's next launch), the saved launch choices
+// (the SSH keys and network a launch nobody attends takes) and the compose files and their
+// overrides (`up -d`, run on the host).
 var checkoutPinNames = []string{
-	".claude/ccy/mounts",
+	".claude/ccy/mounts", ".claude/ccy/.last-launch.conf", ".last-launch.conf",
 	"docker-compose.yml", "docker-compose.yaml", "podman-compose.yml", "podman-compose.yaml", "compose.yml", "compose.yaml",
 	"docker-compose.override.yml", "docker-compose.override.yaml", "podman-compose.override.yml",
 	"podman-compose.override.yaml", "compose.override.yml", "compose.override.yaml",
@@ -34,6 +35,8 @@ internal/checkoutpin:
 
 - .claude/ccy/mounts, the project's extra binds, which the launcher adds to the session's next
   container;
+- .claude/ccy/.last-launch.conf (or its own name, .last-launch.conf), the saved launch choices,
+  whose token, SSH keys and network a restore or a headless launch takes unasked;
 - the compose files (docker-compose, podman-compose and compose, .yml and .yaml) and their
   .override files, which the launcher runs ` + "`up -d`" + ` on, as the host user.
 

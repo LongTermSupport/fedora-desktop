@@ -68,7 +68,7 @@ const composeEnv = ".env"
 // Kind is what a record approves.
 type Kind string
 
-// The two kinds.
+// The kinds; KindLastLaunch is beside its file (lastlaunch.go).
 const (
 	KindMounts  Kind = "mounts"
 	KindCompose Kind = "compose"
@@ -76,8 +76,12 @@ const (
 
 // File is the checkout file a kind names, as a refusal says it.
 func (k Kind) File() string {
-	if k == KindMounts {
+	switch k {
+	case KindMounts:
 		return Mounts
+	case KindLastLaunch:
+		return LastLaunch
+	case KindCompose:
 	}
 	return "compose files"
 }
@@ -203,17 +207,7 @@ func (s Store) read(checkout string, kind Kind) (digest, at string, found bool, 
 
 // MountsDigest is the mounts file's content and digest, and whether there is one (K4).
 func MountsDigest(checkout string) (content []byte, digest string, present bool, err error) {
-	root, err := os.OpenRoot(checkout)
-	if err != nil {
-		return nil, "", false, err
-	}
-	defer closeRoot(root, &err)
-	content, present, err = readPinned(root, Mounts)
-	if err != nil || !present {
-		return nil, "", false, err
-	}
-	sum := sha256.Sum256(content)
-	return content, hex.EncodeToString(sum[:]), true, nil
+	return fileDigest(checkout, Mounts)
 }
 
 // maxComposeFiles bounds the files a compose digest follows.

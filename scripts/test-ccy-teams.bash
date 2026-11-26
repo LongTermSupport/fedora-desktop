@@ -757,7 +757,7 @@ echo "=== headless Quick Launch: the saved choices, never the prompt ==="
 awk '/^load_launch_config\(\) \{$/ {p=1} p {print} p && /^}$/ {exit}' "$LAUNCHER" >"$work/quick.bash"
 awk '/^# Try to load previous launch configuration/ {p=1} /^# A headless launch never unlocks an SSH key/ {exit} p' \
     "$LAUNCHER" >>"$work/quick.bash"
-check "the Quick Launch block was found" "yes" "$(has 'load_launch_config ".claude/ccy"' "$work/quick.bash")"
+check "the Quick Launch block was found" "yes" "$(has 'if load_launch_config; then' "$work/quick.bash")"
 proj="$work/proj"
 mkdir -p "$proj/.claude/ccy"
 # The saved file is read by the Go front beside the launcher (--read-launch-config, F16): the
@@ -792,6 +792,7 @@ quick() {
         }
         ccy_launch_teams() { printf "%s\n" "$TEAMS_LIST" >"$TEAMS_LOG"; CCY_SEATS="$TEAMS_LIST"; }
         ccy_nobody_to_ask() { [ "${QUICK_NOBODY:-false}" = true ]; }
+        ccy_launch_unattended() { [ "$HEADLESS_MODE" = true ] || ccy_nobody_to_ask || [ "$SESSION_RESTORE" = true ]; }
         ccy-teams() {
             if [ "$1" = describe-seats ]; then printf "%s%s%s\n" "$3" "${4:-none}" "${4:+ (worker)}"; return 0; fi
             printf "%s\n" "$*" >>"$TEAMS_REC"; return "${FAKE_RECORD_RC:-0}"
@@ -832,11 +833,17 @@ recorded_after() {
     quick "$@" >/dev/null
     if [ -s "$TEAMS_REC" ]; then paste -sd'|' "$TEAMS_REC"; else echo none; fi
 }
-# save <token> <keys> <network> [teams]: a format-2 file, as the launcher writes it.
+# save_text <token> <keys> <network> [teams]: a format-2 file's text, as the launcher writes it.
+save_text() {
+    printf 'SAVED_CONFIG_VERSION=2\nSAVED_CCY_VERSION="9.9.9"\nSAVED_CCY_HASH="h"\nLAST_TOKEN="%s"\nLAST_SSH_KEYS="%s"\nLAST_NETWORK="%s"\nLAST_TEAMS="%s"\n' \
+        "$1" "$2" "$3" "${4:-}"
+}
+# save <token> <keys> <network> [teams]: the file written through the front, as the launcher
+# writes it, so it is the pinned content a launch nobody attends takes (Plan 00266 K5).
 save() {
     : >"$PROMPT_LOG"
-    printf 'SAVED_CONFIG_VERSION=2\nSAVED_CCY_VERSION="9.9.9"\nSAVED_CCY_HASH="h"\nLAST_TOKEN="%s"\nLAST_SSH_KEYS="%s"\nLAST_NETWORK="%s"\nLAST_TEAMS="%s"\n' \
-        "$1" "$2" "$3" "${4:-}" >"$proj/.claude/ccy/.last-launch.conf"
+    save_text "$@" | "$work/front/claude-yolo" --write-launch-config "$proj" ||
+        { echo "FATAL: the front did not save the launch choices" >&2; exit 1; }
 }
 # teams_after <quick output args...>: whether the team launch ran, for what list, and the
 # arguments a restart would replay.
@@ -874,6 +881,19 @@ rm -f "$proj/.claude/ccy/.last-launch.conf"
 check "headless with no saved choices: refused, no prompt" "yes" \
     "$(grep -q 'rc=1 prompt=no' <<<"$(quick true)" && echo yes || echo no)"
 check "  it says how to launch instead" "yes" "$(has "--token" "$work/quick.err")"
+: >"$PROMPT_LOG"
+# The hazard: a container rewrote the saved choices (another key, its own network). A launch
+# nobody attends refuses them, naming the file and the verb that approves it; an attended one
+# shows them, warned, and asks.
+save personal /keys/id_a proj_net
+save_text personal /home/u/.ssh/id_other evil_net >"$proj/.claude/ccy/.last-launch.conf"
+check "headless, choices ccy did not write: refused, no prompt" "yes" \
+    "$(grep -q 'rc=1 prompt=no' <<<"$(quick true)" && echo yes || echo no)"
+check "  it names the file and the approve verb" "yes yes" \
+    "$(has "$proj/.claude/ccy/.last-launch.conf" "$work/quick.err") $(has "ccy-teams approve last-launch $proj" "$work/quick.err")"
+: >"$PROMPT_LOG"
+check "  interactive: the prompt is asked" "yes" "$(grep -q 'prompt=yes' <<<"$(quick false)" && echo yes || echo no)"
+check "  and the person is warned ccy did not write them" "yes" "$(has "ccy did not write these choices" "$work/quick.err")"
 : >"$PROMPT_LOG"
 check "headless with a launch-choice flag: the block is not entered" \
     "token= keys= no_ssh=true net= no_net=false rc=0 prompt=no" "$(quick true --no-ssh)"
@@ -1031,7 +1051,8 @@ save_as() {
         [ -z "$1" ] || printf '%s\n' "$1"
         printf 'SAVED_CCY_VERSION="%s"\nSAVED_CCY_HASH="%s"\n' "$2" "$3"
         printf '%s\n' 'LAST_TOKEN="personal"' 'LAST_SSH_KEYS="/keys/id_a"' 'LAST_NETWORK="proj_net"' 'LAST_TEAMS=""'
-    } | grep -v "^${4:-NOTHING}=" >"$conf"
+    } | grep -v "^${4:-NOTHING}=" | "$work/front/claude-yolo" --write-launch-config "$proj" ||
+        { echo "FATAL: the front did not save the launch choices" >&2; exit 1; }
 }
 kept_choices="token=personal keys=/keys/id_a no_ssh=false net=proj_net no_net=false rc=0 prompt=no"
 refused="rc=1 prompt=no"
@@ -1049,19 +1070,19 @@ check "same version, another hash (an unbumped change): warned, choices kept" "$
 check "  the warning names the developer error" "yes" "$(has "without version bump" "$work/quick.err")"
 
 save_as SAVED_CONFIG_VERSION=3 9.9.9 h
-check "another format: discarded, so headless is refused" "$refused" "$(quick true | grep -o 'rc=.*')"
-check "  the file is removed" "removed" "$(file_left)"
+check "another format: not taken, so headless is refused" "$refused" "$(quick true | grep -o 'rc=.*')"
+check "  the file is kept, for this launch's own save to replace" "kept" "$(file_left)"
 check "  the discard names the format" "yes" "$(has "format" "$work/quick.err")"
 save_as "" 3.80.0 old
-check "no format line: discarded" "$refused removed" "$(quick true | grep -o 'rc=.*') $(file_left)"
+check "no format line: not taken" "$refused kept" "$(quick true | grep -o 'rc=.*') $(file_left)"
 save_as SAVED_CONFIG_VERSION=2 3.80.0 old LAST_NETWORK
-check "a format-2 file missing a key: discarded" "$refused removed" "$(quick true | grep -o 'rc=.*') $(file_left)"
+check "a format-2 file missing a key: not taken" "$refused kept" "$(quick true | grep -o 'rc=.*') $(file_left)"
 check "  it names the missing key" "yes" "$(has "LAST_NETWORK" "$work/quick.err")"
 save_as SAVED_CONFIG_VERSION=2 3.80.0 old LAST_TEAMS
-check "a format-2 file without LAST_TEAMS: discarded" "$refused removed" "$(quick true | grep -o 'rc=.*') $(file_left)"
+check "a format-2 file without LAST_TEAMS: not taken" "$refused kept" "$(quick true | grep -o 'rc=.*') $(file_left)"
 check "  it names the missing key" "yes" "$(has "LAST_TEAMS" "$work/quick.err")"
 save_as SAVED_CONFIG_VERSION=2 3.80.0 old LAST_TOKEN
-check "a missing key is not filled from the environment" "$refused removed" \
+check "a missing key is not filled from the environment" "$refused kept" \
     "$(LAST_TOKEN=leaked quick true | grep -o 'rc=.*') $(file_left)"
 
 echo "=== a saved file that does not read is kept, never deleted on a guess ==="

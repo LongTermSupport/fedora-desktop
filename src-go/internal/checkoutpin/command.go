@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -29,11 +30,11 @@ import (
 //     compose files' digest must be the one recorded, else exit 1 naming the files and the verb;
 //     with false (a person is there and chose to start them) the digest is recorded. No compose
 //     file is exit 0 either way.
-//   - V3. `ccy-teams approve mounts|compose [CHECKOUT]` (the checkout defaults to the working
-//     directory), a person's: shown what it approves (each mount resolved, or the compose files
-//     read), a [y/N] question at a terminal, and only a yes records the digest. No terminal is
+//   - V3. `ccy-teams approve mounts|compose|last-launch [CHECKOUT]` (the checkout defaults to the
+//     working directory), a person's: shown what it approves (each mount resolved, the compose
+//     files read, or each saved launch choice), a [y/N] question at a terminal, and only a yes records the digest. No terminal is
 //     exit 1, so neither a session nor a pipe can approve; a mounts file that breaks a rule cannot
-//     be approved.
+//     be approved, nor a saved launch file the launcher would not read.
 //
 // Wrong arguments are exit 64.
 type Command struct {
@@ -48,7 +49,7 @@ type Command struct {
 
 const (
 	noMountsEnv  = "CCY_NO_PROJECT_MOUNTS"
-	usageApprove = "usage: ccy-teams approve mounts|compose [CHECKOUT]"
+	usageApprove = "usage: ccy-teams approve mounts|compose|last-launch [CHECKOUT]"
 	usageCompose = "usage: ccy-teams internal checkout-pin compose true|false"
 )
 
@@ -166,7 +167,7 @@ func (c Command) Compose(args []string) term.ExitCode {
 
 // Approve is V3.
 func (c Command) Approve(ctx context.Context, args []string) term.ExitCode {
-	if len(args) < 1 || len(args) > 2 || (args[0] != string(KindMounts) && args[0] != string(KindCompose)) {
+	if len(args) < 1 || len(args) > 2 || !slices.Contains([]Kind{KindMounts, KindCompose, KindLastLaunch}, Kind(args[0])) {
 		return c.usage(usageApprove)
 	}
 	kind, given := Kind(args[0]), ""
@@ -206,6 +207,9 @@ func (c Command) Approve(ctx context.Context, args []string) term.ExitCode {
 // shown says what an approval of kind in dir would cover and returns its digest, or false when
 // there is nothing to approve or it cannot be.
 func (c Command) shown(dir string, kind Kind) (string, bool) {
+	if kind == KindLastLaunch {
+		return c.shownLastLaunch(dir)
+	}
 	if kind == KindCompose {
 		files, digest, present, err := ComposeDigest(dir)
 		if err != nil || !present {
@@ -232,6 +236,27 @@ func (c Command) shown(dir string, kind Kind) (string, bool) {
 	for _, m := range mounts {
 		c.say("  " + m.Src + " → " + m.Dst + " (" + m.Opt + ")")
 	}
+	return digest, true
+}
+
+// shownLastLaunch says the saved launch choices an approval would let a launch nobody attends
+// take, and returns their digest; a file the launcher would not read cannot be approved.
+func (c Command) shownLastLaunch(dir string) (string, bool) {
+	content, digest, present, err := LastLaunchDigest(dir)
+	if err != nil || !present {
+		c.say(fmt.Sprintf("✗ no %s to approve in %s (%v)", LastLaunch, dir, err))
+		return "", false
+	}
+	settings, err := ParseLastLaunch(content)
+	if err != nil {
+		c.say(fmt.Sprintf("✗ %s/%s is not as ccy writes it, so it cannot be approved: %v", dir, LastLaunch, err))
+		return "", false
+	}
+	c.say("The launch choices " + dir + "/" + LastLaunch + " gives a launch with nobody to ask (a restore, a headless launch):")
+	for _, s := range settings {
+		c.say("  " + s.Key + "=" + strconv.Quote(s.Value))
+	}
+	c.say("Read them before you approve: LAST_SSH_KEYS are forwarded into the container, LAST_NETWORK is joined.")
 	return digest, true
 }
 

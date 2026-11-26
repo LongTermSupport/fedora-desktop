@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.124.106"  # Container 2.84.105: verify-restore reads the LXC set from a status file, no sudo; the history is in docs/ccy-changelog.md.
+CCY_VERSION="3.124.107"  # Container 2.84.105: the saved Quick Launch choices are pinned; the history is in docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -180,7 +180,7 @@ if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
     printf 'ccy version %s\nHash: %s\n' "$CCY_VERSION" "$CCY_HASH"
     exit 0
 fi
-if [[ "$1" = "--build-lock" || "$1" = "--read-launch-config" || "$1" = "--check-token" ||
+if [[ "$1" = "--build-lock" || "$1" = "--read-launch-config" || "$1" = "--write-launch-config" || "$1" = "--launch-network" || "$1" = "--check-token" ||
     "$1" = "--check-network" || "$1" = "--claude-versions" || "$1" = "--list-containers" ||
     "$1" = "--stop-containers" || "$1" = "--remove-network" || "$1" = "--stop" || "$1" = "--secret-screen" ]]; then
     print_error "ccy $1 is answered by the Go front, $SCRIPT_DIR/claude-yolo; run it without CCY_LEGACY."
@@ -539,17 +539,19 @@ PROJECT_NAME=$(get_project_name)
 # Function to load last launch configuration for current project
 # Returns 0 if valid config loaded, 1 if no config or invalid
 load_launch_config() {
-    local config_file="$1/.last-launch.conf" saved key value
-    [[ -f "$config_file" ]] || return 1  # No config, use interactive
+    local saved key value mode=attended
+    ccy_launch_unattended && mode=unattended
 
     # The Go front reads the file strictly (F16) and hands back KEY<TAB>value lines, never
-    # code to run. A file it cannot read is said, with its cause, and kept: this launch asks
+    # code to run; with nobody to ask, only choices ccy wrote or a person approved (a container
+    # can write the file). A file it refuses is said, with its cause, and kept: this launch asks
     # again, and a headless one is refused for want of saved choices. What the file does not
-    # set must not come from the environment, so the keys are cleared first. An empty file
-    # gives one empty line, which ends the loop.
+    # set must not come from the environment, so the keys are cleared first. No file, or an
+    # empty one, is nothing saved.
     unset SAVED_CONFIG_VERSION SAVED_CCY_VERSION SAVED_CCY_HASH LAST_TOKEN LAST_SSH_KEYS LAST_NETWORK LAST_TEAMS LAST_TEAM_ROLES LAST_LAUNCH_DATE
-    saved=$("$SCRIPT_DIR/claude-yolo" --read-launch-config "$config_file") ||
+    saved=$("$SCRIPT_DIR/claude-yolo" --read-launch-config "$PWD" "$mode") ||
         { echo "The saved launch configuration was not read (above); it is kept. Reconfiguring..." >&2; return 1; }
+    [[ -n "$saved" ]] || return 1
     while IFS=$'\t' read -r key value && [[ -n "$key" ]]; do printf -v "$key" '%s' "$value"; done <<<"$saved"
 
     # The format decides whether the saved choices can be read, not the ccy version that
@@ -559,16 +561,13 @@ load_launch_config() {
         printf '%s\n' "$rule" "⚠️  Saved launch configuration is in another format" "$rule" \
             "Saved format:  ${SAVED_CONFIG_VERSION:-none}" "This ccy reads format ${CONFIG_VERSION}" "" \
             "Reconfiguring with interactive prompts..." "$rule" "" >&2
-        rm -f "$config_file"
         return 1
     fi
 
     # Every key of the format is present, even if empty: an empty one is a choice.
-    local key
     for key in LAST_TOKEN LAST_SSH_KEYS LAST_NETWORK LAST_TEAMS; do
         if [[ ! -v "$key" ]]; then
-            echo "Saved launch configuration $config_file has no $key line; reconfiguring with interactive prompts..." >&2
-            rm -f "$config_file"
+            echo "The saved launch configuration has no $key line; reconfiguring with interactive prompts..." >&2
             return 1
         fi
     done
@@ -1237,7 +1236,7 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
     # No flags provided - try to load config. All of it is status and prompt, so stderr: a
     # headless session's stdout is its output (CLAUDE/StderrHygiene.md).
     {
-    if load_launch_config ".claude/ccy"; then
+    if load_launch_config; then
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "Quick Launch Available"
@@ -3367,7 +3366,7 @@ fi
 # The remembered roles are those of the teams the summary showed; any other team list forgets them.
 quick_saved_list="${CCY_SEATS:-${quick_kept_team:-}}"
 [ -n "$quick_saved_list" ] && [ "$quick_saved_list" = "${quick_team:-${quick_kept_team:-}}" ] || quick_roles=""
-cat > .claude/ccy/.last-launch.conf <<EOF
+"$SCRIPT_DIR/claude-yolo" --write-launch-config "$PWD" <<EOF
 # CCY Launch Configuration
 # Config Version: ${CONFIG_VERSION}
 # CCY Version: ${CCY_VERSION}
@@ -3383,7 +3382,6 @@ LAST_TEAMS="${CCY_SEATS:-${quick_kept_team:-}}"
 LAST_TEAM_ROLES="${quick_roles}"
 LAST_LAUNCH_DATE="$(date '+%Y-%m-%d')"
 EOF
-chmod 600 .claude/ccy/.last-launch.conf
 echo "✓ Configuration saved for quick launch next time"
 echo "✓ CCY version: $CCY_VERSION"
 echo ""

@@ -104,7 +104,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_root_create_follows_link` | a create through an `os.Root` without O_EXCL, which follows a link inside the root at the last name, O_NOFOLLOW or not, so a dangling link there gets its target created                                                       | the seat-record lock, opened `O_RDWR\|O_CREATE` through the checkout's `os.Root` (Plan 00265 R36, the batch 22b review)                                                                                                 |
 | `project_store_refusal_lost`       | a teamchat seat-store add's refusal (its list full) that reaches no return, so the write goes ahead without the entry and what it stood for is lost                                                                            | teamchat `engine`: the proof logged a full read-receipt queue and went on, so the human never saw the message read (Plan 00267 C2)                                                                                      |
 | `project_teamchat_root_read` | a teamchat machine record (paths' status-root names) handed to a call in ccy-teams with no `TeamchatRoot` in front, so a test world reads the machine's own teams | `teams` wiring: the session-name role lookup and four more read the status record through `system.StatusRecord`, past `teamtest`'s root (Plan 00265 batch 26 review) |
-| `project_checkout_config_pin` | a constant naming a checkout file the host launcher applies (`.claude/ccy/mounts`, a compose file or override) outside `internal/checkoutpin`, so a container session's write to its checkout reaches the host unapproved | `sessions` restore's own compose file list (Plan 00266 Task A.1; its bash half is the semgrep rule `ccy-host-applies-checkout-config`) |
+| `project_checkout_config_pin` | a constant naming a checkout file the host launcher applies (`.claude/ccy/mounts`, `.claude/ccy/.last-launch.conf`, a compose file or override) outside `internal/checkoutpin`, so a container session's write to its checkout reaches the host unapproved | `sessions` restore's own compose file list (Plan 00266 Task A.1; its bash half is the semgrep rule `ccy-host-applies-checkout-config`) |
 | `project_memory_ahead_of_store` | teamchat engine memory written inside a store write's change function, which runs before the write, so a refused write leaves memory ahead of the disk | teamchat `engine`: recv's settle forgot each delivered item's content inside its write, so a refused ack left the items pending with nothing to render (issue #443's sweep) |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
@@ -4431,6 +4431,14 @@ tree before the fix flagged `internal/sessions/restore.go:220` six times (restor
 file list); the fixture `qa/rules/testdata/checkoutpin` holds that defect, the mounts path spelt
 whole and in a `+` expression, a command naming a file, and the owner, a test file and a qa
 package. Green: restore asks `checkoutpin.ComposeFiles`.
+
+**Extended (Plan 00266, the saved launch choices).** `.claude/ccy/.last-launch.conf` and its own
+name `.last-launch.conf` are names of the class too: a restore or a headless launch takes the
+file's SSH keys and network unasked. No Go named it before the fix (the bash half was red on it),
+so the red is the fixture: `testdata/checkoutpin/.../sessions/restore.go` spells both, and
+`TestCheckoutConfigPin` failed on the two new `want` lines until the names joined the list.
+Green: the claude-yolo front reads and writes it only through `checkoutpin.LastLaunchDigest`,
+`WriteLastLaunch` and `LastLaunchPath`.
 
 **Not caught.** A name built at run time, a path joined from pieces each only part of a name
 (`".claude", "ccy", "mounts"`), a file found by listing a directory.

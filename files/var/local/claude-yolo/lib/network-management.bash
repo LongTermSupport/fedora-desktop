@@ -118,46 +118,16 @@ clear_network_preference() {
     rm -f -- "$network_file"
 }
 
-# The Quick Launch config, relative to the project directory: the launcher's save_launch_config
-# writes it after every launch and load_launch_config offers it on the next plain one (and a
-# session restore takes it unasked), joining its LAST_NETWORK.
-CCY_QUICK_LAUNCH_CONFIG=".claude/ccy/.last-launch.conf"
-
 # The network the Quick Launch config names, printed; nothing when there is no config or it
-# names none. Read with awk rather than sourced: only the one key is wanted here.
+# names none. The Go front reads the file (F16): the launcher never parses it here.
 _quick_launch_network() {
-    [ -f "$CCY_QUICK_LAUNCH_CONFIG" ] || return 0
-    awk -F'"' '/^LAST_NETWORK="/ { print $2; exit }' "$CCY_QUICK_LAUNCH_CONFIG"
+    "$SCRIPT_DIR/claude-yolo" --launch-network "$PWD"
 }
 
-# Blank LAST_NETWORK in the Quick Launch config when it names $1. Every other line is kept as
-# it is, and the rewrite is made beside the file (private, as the launcher makes it) and then
-# moved into place, so the launcher never reads half of one.
+# Blank LAST_NETWORK in the Quick Launch config when it names $1 (the Go front, F16: a file
+# no approval covers is removed instead, so a forget never approves a container's choices).
 _forget_quick_launch_network() {
-    local network="$1" file="$CCY_QUICK_LAUNCH_CONFIG" named tmp
-    if ! named=$(_quick_launch_network); then
-        print_error "Could not read the Quick Launch config $file, so whether it names $network is unknown."
-        return 1
-    fi
-    [ "$named" = "$network" ] || return 0
-    if ! tmp=$(mktemp -- "$file.tmp.XXXXXXXXXX") || ! (umask 077 && WANT="LAST_NETWORK=\"$network\"" awk '$0 == ENVIRON["WANT"] { print "LAST_NETWORK=\"\""; next } { print }' "$file" >"$tmp") ||
-        ! mv -f -- "$tmp" "$file"; then
-        rm -f -- "$tmp"
-        print_error "Could not rewrite the Quick Launch config $file, so it still names $network and accepting Quick Launch would join it again."
-        return 1
-    fi
-    # The rewrite replaces only the exact line the launcher writes. A hand-edited one (a
-    # trailing space or comment, a CR) still reads as naming the network, so it is read again.
-    if ! named=$(_quick_launch_network); then
-        print_error "Could not read the Quick Launch config $file back after rewriting it, so whether it still names $network is unknown."
-        return 1
-    fi
-    if [ "$named" = "$network" ]; then
-        print_error "$file still names $network on the line: $(awk '/^LAST_NETWORK="/ { print; exit }' "$file" | cat -A)"
-        print_error "That line is not the one ccy writes, so it was left as it is. Edit or delete it, then run the disconnect again."
-        return 1
-    fi
-    echo "Cleared $network from the Quick Launch configuration ($file)."
+    "$SCRIPT_DIR/claude-yolo" --launch-network "$PWD" --forget "$1"
 }
 
 # Say what --connect saved and what it means: the default is invisible otherwise, and it

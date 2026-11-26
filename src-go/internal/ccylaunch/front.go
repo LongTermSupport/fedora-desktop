@@ -122,10 +122,13 @@
 //     quota on each), and prints the used-up mark on stdout ("   ✗ no usage left: ...", led
 //     by three spaces because the chooser prints it straight after the token's row), nothing
 //     otherwise; exit 0. Anything but `[--mark] [--] FILE` is exit 64.
-//   - F16. `--read-launch-config FILE` (launchconfig.go) reads the bash launcher's saved launch
-//     configuration strictly and hands it back one KEY<TAB>value line per key; a file that
-//     cannot be read or is malformed is exit 1, its path and cause on stderr, and is never
-//     changed. Answered under CCY_LEGACY too: the bash asks it.
+//   - F16. `--read-launch-config CHECKOUT attended|unattended`, `--write-launch-config CHECKOUT`
+//     and `--launch-network CHECKOUT [--forget NETWORK]` (launchconfig.go) are the bash
+//     launcher's only way to its saved launch configuration, through internal/checkoutpin: read
+//     strictly and handed back one KEY<TAB>value line per key, a launch nobody attends taking
+//     only content the launcher wrote or a person approved; a file that cannot be read or is
+//     malformed is exit 1, its path and cause on stderr, and is never changed. Answered under
+//     CCY_LEGACY too: the bash asks them.
 //   - F17. `--check-token ENGINE IMAGE` (checktoken.go) asks the API, from inside the image,
 //     whether it accepts the token in CLAUDE_CODE_OAUTH_TOKEN: exit 0 accepted, 3 refused (the
 //     one case for token recovery), 1 a check that could not be made, its cause on stderr and
@@ -389,6 +392,8 @@ var bashQuestions = map[string]func(Front, context.Context) term.ExitCode{
 	listContainersFlag: Front.listContainers,
 	stopContainersFlag: Front.stopContainers,
 	removeNetworkFlag:  Front.removeNetwork,
+	writeConfigFlag:    func(f Front, _ context.Context) term.ExitCode { return f.writeLaunchConfig() },
+	launchNetworkFlag:  func(f Front, _ context.Context) term.ExitCode { return f.launchNetwork() },
 }
 
 // flagKind is the run the front answers itself, or flagNone.

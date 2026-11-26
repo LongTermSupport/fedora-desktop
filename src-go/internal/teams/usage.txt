@@ -208,16 +208,19 @@ Usage:
                                    size), one at a time, the coordinator first, inside a
                                    15-minute window; a compaction that failed or could not
                                    be judged is exit 1. Nothing is ended; shutdown does that
-  ccy-teams approve mounts|compose [<checkout>]
+  ccy-teams approve mounts|compose|last-launch [<checkout>]
                                    approve, as a person at a terminal, the content of a
                                    checkout's .claude/ccy/mounts (the host paths its sessions
-                                   bind) or of its compose files (which a restore starts with
-                                   up -d): it shows what it approves and asks [y/N]; a yes
-                                   records the content's SHA-256 under ~/.local/state/ccy,
-                                   outside every checkout. A launch binds only approved mounts,
-                                   and a launch nobody attends starts only approved compose
-                                   files, since a container session can write both. No
-                                   terminal is exit 1. <checkout> defaults to this directory
+                                   bind), of its compose files (which a restore starts with
+                                   up -d) or of its .claude/ccy/.last-launch.conf (the token,
+                                   SSH keys and network a launch nobody attends takes): it
+                                   shows what it approves and asks [y/N]; a yes records the
+                                   content's SHA-256 under ~/.local/state/ccy, outside every
+                                   checkout. A launch binds only approved mounts, and a launch
+                                   nobody attends starts only approved compose files and takes
+                                   only saved choices ccy wrote or a person approved, since a
+                                   container session can write all three. No terminal is
+                                   exit 1. <checkout> defaults to this directory
   ccy-teams for-checkout        print the team(s) that work on this checkout's GitHub
                                    OWNER/REPO (an organisation team by its owner, unless
                                    it excludes the repository), one per line on stdout, the

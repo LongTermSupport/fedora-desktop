@@ -52,7 +52,7 @@ The full findings, each with file and line, are in [DESIGN.md](DESIGN.md).
   The sweep found three more instances, put to the coordinator: `.claude/ccy/.last-launch.conf`
   applied by a headless launch (its SSH key and network), a host `cc` in a checkout a container
   also mounts (`.claude/settings.json` hooks), and host git in a mounted checkout
-  (`.git/config`). **The saved launch choices are fixed** (ccy 3.124.106): the rules hold
+  (`.git/config`). **The saved launch choices are fixed** (ccy 3.124.107): the rules hold
   `.last-launch.conf` (semgrep red on `claude-yolo:542,3370,3386` and
   `lib/network-management.bash:124`; the Go rule's fixture red on both new names), the
   claude-yolo front alone reads and writes the file through `checkoutpin` (K5), a launch nobody

@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.107 — container 2.84.105
+
+- The saved Quick Launch choices (`.claude/ccy/.last-launch.conf`) are pinned (Plan 00266
+  Phase A). The launcher reads and writes the file only through the claude-yolo front, which
+  records the SHA-256 of each file it saves; a restore, restart or headless launch refuses a
+  file ccy did not write (a session can write it), naming it and the new verb
+  `ccy-teams approve last-launch <checkout>`. An attended launch still offers the choices,
+  warning when ccy did not write them. `ccy --disconnect` removes, rather than re-pins, an
+  unapproved file that names the network. A file saved before this version has no record.
+
 ## 3.124.106 — container 2.84.105
 
 - `ccy-sessions verify-restore` reads the LXC set without sudo (Plan 00266 Task C.3). The LXC

@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/checkoutpin"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -16,11 +18,18 @@ const savedConfig = "# CCY Launch Configuration\n# Config Version: 2\n# CCY Vers
 	"LAST_TOKEN=\"personal\"\nLAST_SSH_KEYS=\"/keys/id_a /keys/id b\"\nLAST_NETWORK=\"\"\n" +
 	"LAST_TEAMS=\"dev1@team-a,qa2@team-b\"\nLAST_LAUNCH_DATE=\"2026-10-30\"\n"
 
-// configPath is a saved configuration's path in a fresh directory, holding text unless text
+// configPath is the saved configuration's path in a fresh checkout, holding text unless text
 // is nil.
 func configPath(t *testing.T, text *string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), ".last-launch.conf")
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, checkoutpin.LastLaunch)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if text != nil {
 		if err := os.WriteFile(path, []byte(*text), 0o600); err != nil {
 			t.Fatal(err)
@@ -29,14 +38,47 @@ func configPath(t *testing.T, text *string) string {
 	return path
 }
 
-// configRun is --read-launch-config of the file at path.
+// checkoutOf is the checkout a configPath is in.
+func checkoutOf(path string) string { return strings.TrimSuffix(path, "/"+checkoutpin.LastLaunch) }
+
+// stateEnv is the launcher's state directory for a run, beside the checkout.
+func stateEnv(path string) string { return "CCY_STATE_DIR=" + checkoutOf(path) + "-state" }
+
+// configRun is an attended --read-launch-config of the checkout the file at path is in.
 func configRun(t *testing.T, path string) *run {
 	t.Helper()
-	return newRun(install(t), launchConfigFlag, path)
+	return configRunAs(t, path, "attended")
+}
+
+func configRunAs(t *testing.T, path, mode string) *run {
+	t.Helper()
+	r := newRun(install(t), launchConfigFlag, checkoutOf(path), mode)
+	r.env(stateEnv(path))
+	return r
+}
+
+// pinned records the file at path as the launcher's own write.
+func pinned(t *testing.T, path string) {
+	t.Helper()
+	store, err := checkoutpin.Locate(func(k string) string {
+		return map[string]string{"CCY_STATE_DIR": checkoutOf(path) + "-state"}[k]
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkoutpin.WriteLastLaunch(store, checkoutOf(path), text, time.Unix(0, 0)); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestAGoodSavedConfigIsHandedBackOneKeyALine(t *testing.T) {
-	r := configRun(t, configPath(t, new(savedConfig)))
+	path := configPath(t, new(savedConfig))
+	pinned(t, path)
+	r := configRun(t, path)
 	if code := r.start(t); code != term.ExitOK {
 		t.Fatalf("exit %d, stderr %q", code, r.stderr)
 	}
@@ -98,9 +140,11 @@ func refused(t *testing.T, r *run, path, cause string, text *string) {
 	}
 }
 
-func TestAMissingFileIsReported(t *testing.T) {
-	path := configPath(t, nil)
-	refused(t, configRun(t, path), path, "no such file", nil)
+func TestAMissingFileIsNothingSaved(t *testing.T) {
+	r := configRun(t, configPath(t, nil))
+	if code := r.start(t); code != term.ExitOK || r.stdout.Len() != 0 || r.stderr.Len() != 0 {
+		t.Fatalf("exit %d, stdout %q, stderr %q", code, r.stdout, r.stderr)
+	}
 }
 
 func TestAnUnreadableFileIsReportedAndKept(t *testing.T) {
@@ -109,7 +153,7 @@ func TestAnUnreadableFileIsReportedAndKept(t *testing.T) {
 	if err := os.Mkdir(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	refused(t, configRun(t, path), path, "is a directory", nil)
+	refused(t, configRun(t, path), path, "not a regular file", nil)
 	if info, err := os.Stat(path); err != nil || !info.IsDir() {
 		t.Fatalf("the path was not kept: %v", err)
 	}
@@ -148,8 +192,8 @@ func TestAnUnknownKeyIsReportedAndKept(t *testing.T) {
 	refused(t, configRun(t, path), path, "LAST_SHELL", new(text))
 }
 
-func TestTheFlagTakesOneFile(t *testing.T) {
-	for _, args := range [][]string{{launchConfigFlag}, {launchConfigFlag, "a", "b"}} {
+func TestTheFlagTakesACheckoutAndWhetherAnyoneIsThere(t *testing.T) {
+	for _, args := range [][]string{{launchConfigFlag}, {launchConfigFlag, "a"}, {launchConfigFlag, "/a", "maybe"}, {launchConfigFlag, "/a", "attended", "b"}} {
 		r := newRun(install(t), args...)
 		if code := r.start(t); code != term.ExitUsage {
 			t.Fatalf("%q: exit %d, want %d", args, code, term.ExitUsage)
@@ -163,5 +207,120 @@ func TestTheFlagIsAnsweredUnderLegacyToo(t *testing.T) {
 	r.env(LegacyEnv + "=1")
 	if code := r.start(t); code != term.ExitOK || len(r.execer.Execs()) != 0 {
 		t.Fatalf("exit %d, execs %v", code, r.execer.Execs())
+	}
+}
+
+// The hazard (Plan 00266 K5): a launch nobody attends takes only saved choices the launcher
+// wrote itself or a person approved. A container's rewrite (another SSH key, another network)
+// is refused, naming the file and the verb that approves it, and nothing is handed back.
+func TestAnUnattendedLaunchTakesOnlyPinnedChoices(t *testing.T) {
+	path := configPath(t, new(savedConfig))
+	refused(t, configRunAs(t, path, "unattended"), path, "ccy-teams approve last-launch "+checkoutOf(path), new(savedConfig))
+	pinned(t, path)
+	r := configRunAs(t, path, "unattended")
+	if code := r.start(t); code != term.ExitOK || !strings.Contains(r.stdout.String(), "LAST_SSH_KEYS\t/keys/id_a /keys/id b\n") {
+		t.Fatalf("the launcher's own write: exit %d, stdout %q, stderr %q", code, r.stdout, r.stderr)
+	}
+	changed := strings.Replace(savedConfig, "/keys/id_a", "/home/u/.ssh/id_other", 1)
+	if err := os.WriteFile(path, []byte(changed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refused(t, configRunAs(t, path, "unattended"), path, "changed since", new(changed))
+}
+
+// An attended launch shows the choices and asks, as it always has; a changed file is handed
+// back with a warning that names it, for the person to read before they accept.
+func TestAnAttendedLaunchIsWarnedOfAChangedFile(t *testing.T) {
+	path := configPath(t, new(savedConfig))
+	r := configRun(t, path)
+	if code := r.start(t); code != term.ExitOK || !strings.Contains(r.stdout.String(), "LAST_TOKEN\tpersonal\n") {
+		t.Fatalf("exit %d, stdout %q", code, r.stdout)
+	}
+	if msg := r.stderr.String(); !strings.Contains(msg, path) || !strings.Contains(msg, "no approval") {
+		t.Fatalf("stderr %q does not warn of the file", msg)
+	}
+}
+
+// writeRun is --write-launch-config of the checkout path is in, given text on stdin.
+func writeRun(t *testing.T, path, text string) *run {
+	t.Helper()
+	r := newRun(install(t), writeConfigFlag, checkoutOf(path))
+	r.env(stateEnv(path))
+	r.front.Stdin = strings.NewReader(text)
+	return r
+}
+
+// The launcher's write goes through the front, which pins exactly the bytes it writes, so the
+// next launch nobody attends takes them.
+func TestTheWriteIsPinned(t *testing.T) {
+	path := configPath(t, nil)
+	r := writeRun(t, path, savedConfig)
+	if code := r.start(t); code != term.ExitOK {
+		t.Fatalf("exit %d, stderr %q", code, r.stderr)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != savedConfig {
+		t.Fatalf("wrote %q, %v", got, err)
+	}
+	r = configRunAs(t, path, "unattended")
+	if code := r.start(t); code != term.ExitOK {
+		t.Fatalf("the write was not pinned: exit %d, stderr %q", code, r.stderr)
+	}
+	r = writeRun(t, path, "LAST_TOKEN=\"$(id)\"\n")
+	if code := r.start(t); code != term.ExitFailure {
+		t.Fatalf("a value bash would expand was written: exit %d", code)
+	}
+	for _, args := range [][]string{{writeConfigFlag}, {writeConfigFlag, "rel"}, {writeConfigFlag, "/a", "b"}} {
+		if code := newRun(install(t), args...).start(t); code != term.ExitUsage {
+			t.Errorf("%q: exit %d, want %d", args, code, term.ExitUsage)
+		}
+	}
+}
+
+// networkRun is --launch-network over the checkout path is in.
+func networkRun(t *testing.T, path string, args ...string) *run {
+	t.Helper()
+	r := newRun(install(t), append([]string{launchNetworkFlag, checkoutOf(path)}, args...)...)
+	r.env(stateEnv(path))
+	return r
+}
+
+// --launch-network prints the network the saved choices join; --forget blanks it, and the
+// result is pinned again only when what it changes was pinned: a file nobody approved is
+// removed instead, so a forget never approves a container's other choices.
+func TestTheSavedNetworkIsReadAndForgotten(t *testing.T) {
+	text := strings.Replace(savedConfig, "LAST_NETWORK=\"\"", "LAST_NETWORK=\"proj_net\"", 1)
+	path := configPath(t, new(text))
+	pinned(t, path)
+	r := networkRun(t, path)
+	if code := r.start(t); code != term.ExitOK || r.stdout.String() != "proj_net\n" {
+		t.Fatalf("exit %d, stdout %q, stderr %q", code, r.stdout, r.stderr)
+	}
+	r = networkRun(t, path, "--forget", "other_net")
+	if code := r.start(t); code != term.ExitOK || r.stderr.Len() != 0 {
+		t.Fatalf("another network: exit %d, stderr %q", code, r.stderr)
+	}
+	r = networkRun(t, path, "--forget", "proj_net")
+	if code := r.start(t); code != term.ExitOK || !strings.Contains(r.stdout.String(), "Cleared proj_net") {
+		t.Fatalf("forget: exit %d, stdout %q, stderr %q", code, r.stdout, r.stderr)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != savedConfig {
+		t.Fatalf("after the forget %q, %v", got, err)
+	}
+	if code := configRunAs(t, path, "unattended").start(t); code != term.ExitOK {
+		t.Fatal("the forget's own write was not pinned")
+	}
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r = networkRun(t, path, "--forget", "proj_net")
+	if code := r.start(t); code != term.ExitOK || !strings.Contains(r.stdout.String(), "Removed") {
+		t.Fatalf("an unapproved file: exit %d, stdout %q, stderr %q", code, r.stdout, r.stderr)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("the unapproved file was kept: %v", err)
+	}
+	r = networkRun(t, path)
+	if code := r.start(t); code != term.ExitOK || r.stdout.Len() != 0 {
+		t.Fatalf("no file: exit %d, stdout %q", code, r.stdout)
 	}
 }

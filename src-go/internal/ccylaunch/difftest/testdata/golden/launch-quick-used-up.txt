@@ -56,6 +56,16 @@ dir  home/.claude-tokens/ccy/projects 0700
 dir  home/.claude-tokens/ccy/tokens 0700
 file home/.claude-tokens/ccy/tokens/work.2030-06-01.token 0600
      | {token:work}
+dir  home/.local 0700
+dir  home/.local/state 0700
+dir  home/.local/state/ccy 0700
+dir  home/.local/state/ccy/approved 0700
+dir  home/.local/state/ccy/approved/{checkout_digest} 0700
+file home/.local/state/ccy/approved/{checkout_digest}/last-launch 0600
+     | ccy-checkout-pin 1
+     | checkout={sandbox}/project
+     | sha256={sha256}
+     | approved=2030-01-10T09:00:00Z
 dir  project/.claude 0700
 dir  project/.claude/ccy 0700
 file project/.claude/ccy/.gitignore 0600

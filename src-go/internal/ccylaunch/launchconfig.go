@@ -1,126 +1,212 @@
 package ccylaunch
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"os"
-	"regexp"
-	"slices"
+	"path/filepath"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/checkoutpin"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-// F16, --read-launch-config FILE: the bash launcher's saved launch configuration
-// (.claude/ccy/.last-launch.conf), read strictly and handed back one `KEY<TAB>value` line per
-// key, in the file's order, for the bash to take with `read` (no source, no eval). The file
-// is the one the launcher writes at the end of a launch: `#` comment lines, then
-// SAVED_CONFIG_VERSION=<digits> and each other key as KEY="value", the value free of a
-// quote, a backslash, a `$`, a backtick and every control character, so it means the same
-// text to bash as it does here. Any other line, a key outside launchConfigKeys, a key twice, a
-// last line with no newline, or text that is not UTF-8 is malformed. A file that cannot be
-// read or is malformed is exit 1, one stderr line naming the path and the cause, and nothing
-// on stdout; the reader never changes the file. Which keys a format needs, and what a format
-// other than this ccy's means, is the launcher's to decide. The flag is answered under
-// CCY_LEGACY too: the bash launcher asks it, so handing it over would ask the bash itself.
+// F16, the bash launcher's saved launch configuration (checkoutpin.LastLaunch), which only the
+// front reads and writes, always through internal/checkoutpin (Plan 00266 K5):
+//
+//   - `--read-launch-config CHECKOUT attended|unattended` hands the file back one
+//     `KEY<TAB>value` line per key, in the file's order, for the bash to take with `read` (no
+//     source, no eval); no file is exit 0 and nothing. The file is read strictly
+//     (checkoutpin.ParseLastLaunch): a file that cannot be read or is malformed is exit 1, one
+//     stderr line naming the path and the cause, nothing on stdout, and the file is never
+//     changed. unattended (a restore, a restart, a headless launch, no terminal) takes only
+//     content whose digest is the one recorded: the launcher's own last write, or a person's
+//     approval (ccy-teams approve last-launch); anything else is exit 1 naming the file and that
+//     verb, since a container session can write it and its keys choose the SSH keys forwarded
+//     and the network joined. attended hands any content back, with a warning naming the file
+//     when it is not the recorded content: the launcher shows the choices and asks.
+//   - `--write-launch-config CHECKOUT` writes the text on stdin as the file, refusing text the
+//     reader would refuse, and records its digest.
+//   - `--launch-network CHECKOUT` prints the network the file joins (nothing for none or no
+//     file); with `--forget NETWORK` it blanks LAST_NETWORK when it names NETWORK, pinned again
+//     when the file was the recorded content, removed when it was not (a forget never approves
+//     the rest of a file nobody approved).
+//
+// CHECKOUT is an absolute path. Which keys a format needs, and what a format other than this
+// ccy's means, is the launcher's to decide. Answered under CCY_LEGACY too: the bash launcher asks
+// them, so handing them over would ask the bash itself.
 
 const (
-	launchConfigFlag  = "--read-launch-config"
-	launchConfigUsage = "usage: claude-yolo " + launchConfigFlag + " FILE\n"
-	formatKey         = "SAVED_CONFIG_VERSION"
+	launchConfigFlag   = "--read-launch-config"
+	writeConfigFlag    = "--write-launch-config"
+	launchNetworkFlag  = "--launch-network"
+	launchConfigUsage  = "usage: claude-yolo " + launchConfigFlag + " CHECKOUT attended|unattended\n"
+	writeConfigUsage   = "usage: claude-yolo " + writeConfigFlag + " CHECKOUT < TEXT\n"
+	launchNetworkUsage = "usage: claude-yolo " + launchNetworkFlag + " CHECKOUT [--forget NETWORK]\n"
+	maxLaunchConfig    = 64 << 10
 )
 
-// launchConfigKeys are the keys the launcher writes.
-var launchConfigKeys = []string{
-	formatKey, "SAVED_CCY_VERSION", "SAVED_CCY_HASH", "LAST_TOKEN", "LAST_SSH_KEYS",
-	"LAST_NETWORK", "LAST_TEAMS", "LAST_TEAM_ROLES", "LAST_LAUNCH_DATE",
-}
-
-var (
-	formatLine = regexp.MustCompile(`^` + formatKey + `=([0-9]+)$`)
-	quotedLine = regexp.MustCompile(`^([A-Z_]+)="([^"\\$` + "`" + `]*)"$`)
-)
-
-// launchConfig is F16.
+// launchConfig is F16's read.
 func (f Front) launchConfig() term.ExitCode {
-	if len(f.Args) != 2 {
+	if len(f.Args) != 3 || !filepath.IsAbs(f.Args[1]) || (f.Args[2] != "attended" && f.Args[2] != "unattended") {
+		return f.usage(launchConfigUsage)
+	}
+	saved, err := f.savedChoices(f.Args[1])
+	if err != nil {
+		return f.fail("ccy: cannot read the saved launch configuration " + err.Error())
+	}
+	checkout, settings, verified := saved.checkout, saved.settings, saved.refused
+	if saved.content == nil {
+		return term.ExitOK
+	}
+	if verified != nil {
+		if f.Args[2] == "unattended" {
+			return f.fail("ccy: " + verified.Error())
+		}
 		var p term.Printer
-		p.Print(f.Stderr, launchConfigUsage)
+		p.Print(f.Stderr, "⚠  "+checkoutpin.LastLaunchPath(checkout)+": "+verified.Why+"; ccy did not write these choices. Read them before you accept.\n")
 		if p.Err() != nil {
 			return term.ExitFailure
 		}
-		return term.ExitUsage
 	}
-	path := f.Args[1]
-	out, err := readLaunchConfig(path)
-	if err != nil {
-		return f.fail(fmt.Sprintf("ccy: cannot read the saved launch configuration %s: %v", path, err))
+	var out strings.Builder
+	for _, s := range settings {
+		out.WriteString(s.Key + "\t" + s.Value + "\n")
 	}
 	var p term.Printer
-	p.Print(f.Stdout, out)
+	p.Print(f.Stdout, out.String())
 	if err := p.Err(); err != nil {
 		return f.fail("ccy: could not write the saved launch configuration: " + err.Error())
 	}
 	return term.ExitOK
 }
 
-// readLaunchConfig is the file at path as `KEY<TAB>value` lines, or why it does not read.
-func readLaunchConfig(path string) (string, error) {
-	text, err := os.ReadFile(path)
-	if err != nil {
-		if pathErr, ok := errors.AsType[*os.PathError](err); ok {
-			return "", pathErr.Err
-		}
-		return "", err
-	}
-	if len(text) == 0 {
-		return "", nil
-	}
-	if text[len(text)-1] != '\n' {
-		return "", errors.New("it does not end in a newline (cut short?)")
-	}
-	var out strings.Builder
-	var seen []string
-	for i, line := range bytes.Split(text[:len(text)-1], []byte("\n")) {
-		key, value, err := launchConfigLine(string(line))
-		if err != nil {
-			return "", fmt.Errorf("line %d: %w", i+1, err)
-		}
-		if key == "" {
-			continue
-		}
-		if slices.Contains(seen, key) {
-			return "", fmt.Errorf("line %d: %s is set twice", i+1, key)
-		}
-		seen = append(seen, key)
-		out.WriteString(key + "\t" + value + "\n")
-	}
-	return out.String(), nil
+// saved is a checkout's saved choices as read: its real path, the file's bytes (nil for no
+// file), its settings, and the refusal a launch nobody attends would meet (nil when the content
+// is the recorded one).
+type saved struct {
+	checkout string
+	content  []byte
+	settings []checkoutpin.Setting
+	refused  *checkoutpin.RefusalError
 }
 
-// launchConfigLine is one line's key and value; no key for a comment.
-func launchConfigLine(line string) (string, string, error) {
-	if !utf8.ValidString(line) {
-		return "", "", errors.New("it is not UTF-8 text")
+// savedChoices reads the file in the checkout at dir, read once, so what is judged is what is
+// handed back. err is a file that does not read, its path first.
+func (f Front) savedChoices(dir string) (saved, error) {
+	checkout, err := checkoutpin.RealCheckout(dir)
+	if err != nil {
+		return saved{}, fmt.Errorf("in %s: %w", dir, err)
 	}
-	if strings.ContainsFunc(line, unicode.IsControl) {
-		return "", "", errors.New("it holds a control character")
+	s := saved{checkout: checkout}
+	path := checkoutpin.LastLaunchPath(checkout)
+	content, digest, present, err := checkoutpin.LastLaunchDigest(checkout)
+	if err != nil || !present {
+		return s, wrapPath(path, err)
 	}
-	if strings.HasPrefix(line, "#") {
-		return "", "", nil
+	if s.settings, err = checkoutpin.ParseLastLaunch(content); err != nil {
+		return s, wrapPath(path, err)
 	}
-	if m := formatLine.FindStringSubmatch(line); m != nil {
-		return formatKey, m[1], nil
+	store, err := checkoutpin.Locate(f.getenv)
+	if err != nil {
+		return s, wrapPath(path, err)
 	}
-	m := quotedLine.FindStringSubmatch(line)
-	if m == nil || m[1] == formatKey {
-		return "", "", fmt.Errorf("it is not KEY=\"value\" as ccy writes it: %q", line)
+	s.content = content
+	err = store.Verify(checkout, checkoutpin.KindLastLaunch, digest)
+	if refused, ok := errors.AsType[*checkoutpin.RefusalError](err); ok {
+		s.refused = refused
+		return s, nil
 	}
-	if !slices.Contains(launchConfigKeys, m[1]) {
-		return "", "", fmt.Errorf("%s is not a key ccy writes", m[1])
+	return s, wrapPath(path, err)
+}
+
+func wrapPath(path string, err error) error {
+	if err == nil {
+		return nil
 	}
-	return m[1], m[2], nil
+	return fmt.Errorf("%s: %w", path, err)
+}
+
+// writeLaunchConfig is F16's write.
+func (f Front) writeLaunchConfig() term.ExitCode {
+	if len(f.Args) != 2 || !filepath.IsAbs(f.Args[1]) {
+		return f.usage(writeConfigUsage)
+	}
+	if f.Stdin == nil {
+		return f.fail("ccy: " + writeConfigFlag + " writes its standard input, and there is none")
+	}
+	text, err := stdinread.Read(f.Stdin, stdinread.Options{
+		Prog: "claude-yolo " + writeConfigFlag, Err: f.Stderr, Limit: maxLaunchConfig + 1,
+		GiveUpAfter: stdinread.PipedGiveUp, RefuseTerminal: true, Clock: f.InputClock, IsTerminal: f.IsTerminal,
+	})
+	if err != nil {
+		return f.fail("ccy: could not read the launch configuration to save: " + err.Error())
+	}
+	if len(text) > maxLaunchConfig {
+		return f.fail("ccy: the launch configuration to save is longer than any ccy writes")
+	}
+	return f.saveChoices(f.Args[1], text, "")
+}
+
+// saveChoices writes text as the checkout's saved choices and pins it, saying said on stdout.
+func (f Front) saveChoices(dir string, text []byte, said string) term.ExitCode {
+	checkout, err := checkoutpin.RealCheckout(dir)
+	if err != nil {
+		return f.fail("ccy: cannot save the launch configuration in " + dir + ": " + err.Error())
+	}
+	store, err := checkoutpin.Locate(f.getenv)
+	if err == nil {
+		err = checkoutpin.WriteLastLaunch(store, checkout, text, f.clock().Now())
+	}
+	if err != nil {
+		return f.fail("ccy: " + err.Error())
+	}
+	return f.say(said)
+}
+
+// launchNetwork is F16's network question and forget.
+func (f Front) launchNetwork() term.ExitCode {
+	forget := len(f.Args) == 4 && f.Args[2] == "--forget" && f.Args[3] != ""
+	if (len(f.Args) != 2 && !forget) || !filepath.IsAbs(f.Args[1]) {
+		return f.usage(launchNetworkUsage)
+	}
+	s, err := f.savedChoices(f.Args[1])
+	if err != nil {
+		return f.fail("ccy: cannot read the saved launch configuration " + err.Error())
+	}
+	var named string
+	for _, setting := range s.settings {
+		if setting.Key == "LAST_NETWORK" {
+			named = setting.Value
+		}
+	}
+	if !forget {
+		if named == "" {
+			return term.ExitOK
+		}
+		return f.say(named + "\n")
+	}
+	network, path := f.Args[3], checkoutpin.LastLaunchPath(s.checkout)
+	if s.content == nil || named != network {
+		return term.ExitOK
+	}
+	if s.refused != nil {
+		if err := checkoutpin.RemoveLastLaunch(s.checkout); err != nil {
+			return f.fail("ccy: could not remove " + path + ", so it still names " + network + ": " + err.Error())
+		}
+		return f.say("Removed the Quick Launch configuration (" + path + "): it names " + network + " and " + s.refused.Why + ", so it is not kept; the next launch asks again.\n")
+	}
+	// The file parsed strictly, so the network is on exactly this line, once.
+	text := strings.Replace("\n"+string(s.content), "\nLAST_NETWORK=\""+network+"\"\n", "\nLAST_NETWORK=\"\"\n", 1)[1:]
+	return f.saveChoices(s.checkout, []byte(text), "Cleared "+network+" from the Quick Launch configuration ("+path+").\n")
+}
+
+// say prints text on stdout; nothing is exit 0 too.
+func (f Front) say(text string) term.ExitCode {
+	var p term.Printer
+	p.Print(f.Stdout, text)
+	if err := p.Err(); err != nil {
+		return f.fail("ccy: could not write the answer: " + err.Error())
+	}
+	return term.ExitOK
 }
