@@ -181,14 +181,18 @@ Decision for C.2 (and the fix for today's start):
     claude. `lxc reconcile` judges a session live by its seat lock, as the L3 probe does, and
     prints `STARTED|LIVE|STOPPED|REFUSED\t<container>/<key>\t<why>`.
   - [ ] ⬜ The boot unit, its running-containers record and `lxc_seat_restore_starts_containers`.
-    **Blocked on a decision** (report `subagent-reports/261126-c2.md`):
-    `play-lxc-install-config.yml` runs before `play-agent-bus.yml` and on hosts with no
-    teamchat, so a unit it installs cannot rely on `teamchat-admin` being there. Either the
-    container snapshot and start are not teamchat-admin's (and the unit calls `lxc reconcile`
-    only when it is installed), or the unit belongs to the teamchat play.
-  - [ ] ⬜ Also open: a seat that leaves its team (`lxc apply --phase absent`) stays in the
-    started record, so every later reconcile reports it REFUSED and exits non-zero until
-    `lxc stop` forgets it. Whether leaving counts as a stop on purpose is the owner's call.
+    **Decided (26 Nov, this plan's builder; the question is in `subagent-reports/261126-c2.md`):**
+    the unit belongs to the play that installs `teamchat-admin`, not to
+    `play-lxc-install-config.yml`. An LXC seat exists only where teamchat is installed, so a host
+    without teamchat needs no unit, and the unit can rely on the command it calls. It is ordered
+    after LXC's own service. The container snapshot (at stop) and the container start (at boot)
+    are two more `teamchat-admin lxc` operations, which keeps one command and one record
+    directory. The play passes the start step only when `lxc_seat_restore_starts_containers` is
+    true. With it false, the unit runs only `reconcile`, and the host's own IaC still calls
+    `reconcile` itself at the end of its "started" step.
+  - [ ] ⬜ **Decided:** a seat that leaves its team (`lxc apply --phase absent`) is a stop on
+    purpose. The record rule already says "not since stopped on purpose", and an IaC removal is
+    one. So `apply --phase absent` takes the seat out of the started record, as `lxc stop --member` does. Reconcile then never reports a seat that can no longer exist.
 
 - [ ] ⬜ **Task C.3**: verify-restore reports the LXC set.
 
