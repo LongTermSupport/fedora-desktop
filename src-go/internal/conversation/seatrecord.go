@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
@@ -114,9 +115,9 @@ func recordSeatsIn(root *os.Root, checkout string, seats []membership.Seat, id, 
 	if err := root.MkdirAll(seatRecordDir, 0o700); err != nil {
 		return fmt.Errorf("the seat records of %s: %w", checkout, err)
 	}
-	lock, err := root.OpenFile(filepath.Join(seatRecordDir, seatRecordLock), os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
+	lock, err := openSeatRecordLock(root, checkout)
 	if err != nil {
-		return fmt.Errorf("could not open the seat-record lock of %s: %w", checkout, err)
+		return err
 	}
 	return withSeatRecordLock(lock, func() error {
 		for _, s := range seats {
@@ -160,18 +161,79 @@ func writeInRoot(root *os.Root, rel string, data []byte) error {
 // seatRecordLock is the checkout's seat-record lock file, in its seat-record directory.
 const seatRecordLock = ".lock"
 
+// seatRecordLockWait is how long a writer waits for the seat-record lock before it fails naming
+// it: a launch and a remove hold it only while they write a few small files, so a lock held this
+// long is held by something stuck (or by a container), and waiting on would hang the command.
+const seatRecordLockWait = 30 * time.Second
+
+// seatRecordLockPoll is how often a waiting writer tries the lock again.
+const seatRecordLockPoll = 100 * time.Millisecond
+
+// lockClock is the clock the wait for the seat-record lock reads; a test gives a fake one.
+var lockClock interface {
+	Now() time.Time
+	Sleep(d time.Duration)
+} = realLockClock{}
+
+// realLockClock is the wall clock.
+type realLockClock struct{}
+
+func (realLockClock) Now() time.Time { return time.Now() }
+
+func (realLockClock) Sleep(d time.Duration) { time.Sleep(d) }
+
 // withSeatRecordLock runs fn holding flock(2) on lock, the checkout's seat-record lock (the old
 // #417 branch's lock, 4001e4789): every writer of seat records takes it, so a launch's seats are
 // written together and a team's removal never lands between them. lock is closed, which releases
 // it.
 func withSeatRecordLock(lock *os.File, fn func() error) error {
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		return errors.Join(fmt.Errorf("could not lock %s: %w", lock.Name(), err), lock.Close())
+	if err := takeSeatRecordLock(lock); err != nil {
+		return errors.Join(err, lock.Close())
 	}
 	if seatRecordsLocked != nil {
 		seatRecordsLocked(lock.Name())
 	}
 	return errors.Join(fn(), lock.Close())
+}
+
+// openSeatRecordLock opens the checkout's seat-record lock inside root, refusing a lock that is
+// not a plain file. An os.Root follows a link at the last name that stays inside it (O_NOFOLLOW
+// is not honoured there), so the file opened is compared with what the name itself is.
+func openSeatRecordLock(root *os.Root, checkout string) (*os.File, error) {
+	rel := filepath.Join(seatRecordDir, seatRecordLock)
+	f, err := root.OpenFile(rel, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("could not open the seat-record lock of %s: %w", checkout, err)
+	}
+	named, lerr := root.Lstat(rel)
+	opened, serr := f.Stat()
+	if err := errors.Join(lerr, serr); err != nil {
+		return nil, errors.Join(fmt.Errorf("could not open the seat-record lock of %s: %w", checkout, err), f.Close())
+	}
+	if !named.Mode().IsRegular() || !os.SameFile(named, opened) {
+		return nil, errors.Join(fmt.Errorf("could not open the seat-record lock of %s: %s is not a plain file (a link is never followed)",
+			checkout, filepath.Join(checkout, rel)), f.Close())
+	}
+	return f, nil
+}
+
+// takeSeatRecordLock takes flock(2) on lock without blocking, trying again every
+// seatRecordLockPoll; a lock still held after seatRecordLockWait is an error naming it.
+func takeSeatRecordLock(lock *os.File) error {
+	deadline := lockClock.Now().Add(seatRecordLockWait)
+	for {
+		err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		switch {
+		case err == nil:
+			return nil
+		case !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR):
+			return fmt.Errorf("could not lock %s: %w", lock.Name(), err)
+		case !lockClock.Now().Before(deadline):
+			return fmt.Errorf("the seat-record lock %s is still held after %s, so nothing was written: another launch or ccy-teams remove "+
+				"in this checkout is stuck holding it; end it, then try again", lock.Name(), seatRecordLockWait)
+		}
+		lockClock.Sleep(seatRecordLockPoll)
+	}
 }
 
 // readSeatRecord is the record of s in checkout; found is false when there is none.

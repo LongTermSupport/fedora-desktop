@@ -6,7 +6,9 @@ seen and stays open until a fix is proven. [PLAN.md](PLAN.md) holds the units an
 
 **Severity:** critical stops real work or silently loses information; high forces a manual
 workaround; medium misleads; low is cosmetic.
-**State:** `open`, `in progress (unit)`, `fixed (commit)` or `proven (how)`.
+**State:** `open`, `in progress (unit)`, `fixed (commit)` or `proven (how)`. "On F44 (X)"
+means F44 commit X has the tree of a v2-smoke commit that holds the cited fixes. F44 gets each
+batch as one commit-tree copy, so the v2-smoke hashes are never F44's ancestors.
 **Issue:** TBF means it is to be filed before its unit starts.
 **Cause class:** kept for the owner's retrospective in [Cause classes](#cause-classes) at the end,
 filled in as each cause is known.
@@ -588,6 +590,21 @@ filled in as each cause is known.
   the team's sessions again after taking them off and the read failed, the error was dropped,
   so the person saw no session and no cause. The error is now printed. The test was red and is
   green now (ccy 3.124.77).
+- **Reviewed (qa-reviewer, batch 22 `c5f27341`): fix before merge**
+  ([report](subagent-reports/261126-qa-reviewer-batch22.md)). All four findings are fixed (ccy
+  3.124.78):
+  - (1) The coordinator's test of (3) was missing. A test now runs the plain launch's seat
+    lookup (`ForSeats`). It finds the stopped session's conversation before the session is taken
+    off, and no session after. It was written after the fix, so it guards the fix; it was never
+    seen red.
+  - (2) The lock wait is now bounded: after 30 s it fails naming the lock (red: a hung `flock`).
+  - (3) Widened. An `os.Root` ignores `O_NOFOLLOW` on the last name and follows a relative link
+    that stays inside the checkout, so neither writer refused a linked lock, the launch
+    included. Finding 4's "the lock uses `O_NOFOLLOW`" held for absolute links only. Both
+    writers now open the lock through one opener, which refuses any lock that is not the plain
+    file at that name. The test was red on both writers.
+  - (4) A stopped session running again when the sessions are taken off is left as it is and
+    named (red: it was taken off).
 - **(3) fixed (on v2-smoke, after batch 13):** `remove` asks, while the team is still up and
   once its running sessions are off it, which stopped sessions name it on the agent bus (each
   record's system read as a restore reads it, `conversation.SystemOfRecord`). Once the team is
@@ -861,7 +878,7 @@ filled in as each cause is known.
 - **Not ours:** the session network policy has to admit a hot-joined team's port. That is the
   owner's host configuration.
 - **Severity:** high (a join reported done that never happened). **Issue:** TBF. **State:** on
-  F44 (`2e057a895`, 26 Nov; batch 12, `b239a00a6`, `2a0b1854c`: the host reads a running older image's
+  F44 (`2e057a895`, 26 Nov, whose tree is v2-smoke `d8c38c8d8`'s; batch 12, `b239a00a6`, `2a0b1854c`: the host reads a running older image's
   report.json, which has no `down`, as down null; `8d93dd3d7`: container 2.84.82, ccy
   3.124.60); not yet run live. Detail: `reports/R60.md`.
 

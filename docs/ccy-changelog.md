@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.78 — container 2.84.89
+
+- A launch or `ccy-teams remove` that cannot take the checkout's seat-record lock within 30
+  seconds fails, naming the lock, instead of waiting for ever. Both refuse a lock that is a link,
+  even one that stays inside the checkout.
+- A stopped session restored while its team was being taken down is now left as it is, and
+  `remove` names it with the command that takes it off.
+
 ## 3.124.77 — container 2.84.89
 
 - When `ccy-teams remove` has taken a team's sessions off it and cannot read them again, it

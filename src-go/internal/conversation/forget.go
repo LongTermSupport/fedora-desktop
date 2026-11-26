@@ -50,9 +50,9 @@ func forgetIn(checkout, team string) (err error) {
 	if err != nil || !present {
 		return err
 	}
-	lock, err := root.OpenFile(filepath.Join(seatRecordDir, seatRecordLock), os.O_RDWR|os.O_CREATE, 0o600)
+	lock, err := openSeatRecordLock(root, checkout)
 	if err != nil {
-		return fmt.Errorf("could not open the seat-record lock of %s: %w", checkout, err)
+		return err
 	}
 	return withSeatRecordLock(lock, func() error {
 		present, err := realDirs(root, checkout, team, parts)

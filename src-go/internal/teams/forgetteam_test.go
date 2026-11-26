@@ -181,6 +181,26 @@ func TestTakingStoppedSessionsOffATeamKeepsTheirOtherTeams(t *testing.T) {
 	}
 }
 
+// R36 (3), the coordinator's test (batch 22 review): a team made again under the name of one taken
+// down resumes nothing of the old one. Before the stopped session is taken off, a plain launch's
+// seat lookup (ForSeats) finds its conversation; after, it finds no session that held the seat.
+func TestATeamMadeAgainResumesNothingOfAStoppedSessionTakenOff(t *testing.T) {
+	store := registry.New(filepath.Join(t.TempDir(), "ccy", "sessions"))
+	dir := t.TempDir()
+	writeRecords(t, store, registry.Record{Name: "ccy-a", Dir: dir, Launcher: "/x/ccy", Prefix: "ccy", Args: []string{"--teams", "1@alpha"}})
+	plantV1Seat(t, dir, "ccy-a", "1", "alpha", seatConvID)
+	if got, err := conversation.ForSeats(dir, "1@alpha", conversation.Here(noHome)); err != nil || got.ID != seatConvID {
+		t.Fatalf("before: the seat lookup found %+v, %v, want the old conversation", got, err)
+	}
+	if err := takeStoppedOff(store, "alpha", []string{"ccy-a"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := conversation.ForSeats(dir, "1@alpha", conversation.Here(noHome))
+	if !errors.Is(err, conversation.ErrNoSeatConversation) {
+		t.Fatalf("after: the seat lookup found %+v, %v, want no session that held the seat", got, err)
+	}
+}
+
 // A keeper's report is removed inside its checkout only (R36 batch review, finding 1): a container
 // can replace a directory above the report with a link, and a removal that followed it would delete
 // a file of the host's outside the checkout.
