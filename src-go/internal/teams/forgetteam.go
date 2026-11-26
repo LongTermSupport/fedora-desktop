@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -98,6 +99,9 @@ func takeStoppedOff(store *registry.Store, team string, names []string) error {
 		if err != nil {
 			return err
 		}
+		if err := removeReport(rec.Dir, name); err != nil {
+			return err
+		}
 		kept := slices.DeleteFunc(seats, func(s membership.Seat) bool { return s.Team == team })
 		set := store.SetTeams
 		if rec.Prefix == membership.KindCC {
@@ -106,12 +110,31 @@ func takeStoppedOff(store *registry.Store, team string, names []string) error {
 		if err := set(name, membership.Canonical(kept)); err != nil {
 			return fmt.Errorf("could not take session %s off %s: %w", name, team, err)
 		}
-		report := membership.ReportPath(rec.Dir, name)
-		if err := os.Remove(report); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("could not remove session %s's keeper report %s: %w", name, report, err)
-		}
 	}
 	return nil
+}
+
+// removeReport removes a session's keeper report inside its checkout only: the checkout is opened
+// as an os.Root, so a link a container planted above the report (it can write the checkout) is
+// refused instead of followed to a file of the host's outside it.
+func removeReport(checkout, name string) error {
+	report := membership.ReportPath(checkout, name)
+	rel, err := filepath.Rel(checkout, report)
+	if err != nil {
+		return fmt.Errorf("session %s's keeper report %s: %w", name, report, err)
+	}
+	root, err := os.OpenRoot(checkout)
+	if err != nil {
+		return fmt.Errorf("could not open session %s's checkout %s: %w", name, checkout, err)
+	}
+	removeErr := root.Remove(rel)
+	if errors.Is(removeErr, fs.ErrNotExist) {
+		removeErr = nil
+	}
+	if removeErr != nil {
+		removeErr = fmt.Errorf("could not remove session %s's keeper report %s inside its checkout: %w", name, report, removeErr)
+	}
+	return errors.Join(removeErr, root.Close())
 }
 
 // stoppedOnBus is Ops.StoppedIn over the host's registry: a record's system is read as a restore
