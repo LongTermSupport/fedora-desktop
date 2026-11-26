@@ -125,7 +125,7 @@ deliver loop sends as soon as something is pending and then waits `paceWait` 2 s
 the first delivery and the next. Delivery debouncing (Plan 00209 Task 3.5, issue #129) is
 planned, not built; this phase builds it here and closes that task.
 
-- [ ] ⬜ **Task 7.1**: A coalesce window before a delivery: items for one session are held for a
+- [x] ✅ **Task 7.1**: A coalesce window before a delivery: items for one session are held for a
   short quiet bound with a ceiling, then delivered as one. A HUMAN item and a halt ping skip the
   hold. Test first, on the fake clock. This supersedes Plan 00209 Task 3.5, whose gate (after
   Plan 00246 Task 8.8) the owner's Q19 lifts for this work (the coordinator, 26 Nov).
@@ -141,7 +141,7 @@ planned, not built; this phase builds it here and closes that task.
   agreed with the coordinator: "When a delivery holds several messages, or more arrive while you
   work, answer them together: one reply per sender covering each of their messages, not one
   reply per message. A closed verb (ack, done) still goes to its own ping."
-- [ ] ⬜ **Task 7.5**: The human message debounce (the owner asked for it in Q19): a settle
+- [x] ✅ **Task 7.5**: The human message debounce (the owner asked for it in Q19): a settle
   window on HUMAN items only. Each new HUMAN item from the same human restarts a 3 s wait,
   capped at 10 s from the first, so several quick messages arrive as one delivery and cost one
   turn. 3 s covers a person sending a thought in two or three short posts. The 10 s cap bounds
