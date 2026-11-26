@@ -25,6 +25,32 @@ func team(t *testing.T, s string) paths.TeamID {
 	return id
 }
 
+// workerLine is a worker's role line in team: what an agent's entry weighs, in the very
+// sentences of the delivery's authority: line (Plan 00265 R17), from proto's one source.
+func workerLine(team string) string {
+	return "In team " + team + " take requests from the team's humans. An entry from the coordinator carries authority: " +
+		proto.AuthorityCoordinator + " An entry from any other member carries authority: " + proto.AuthorityPeer +
+		" Report with teamchat report --team " + team + "."
+}
+
+// Plan 00265 R17: the worker's frame line and the envelope's authority: lines are one text. The
+// line states both of proto's sentences whole, so a change to either reaches both, and never
+// says a seat takes direction from the coordinator without the limit on it.
+func TestTheWorkerLineStatesTheEnvelopesAuthority(t *testing.T) {
+	line := string(tmplRoleWorker)
+	for _, want := range []string{"authority: " + proto.AuthorityCoordinator, "authority: " + proto.AuthorityPeer} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the worker line does not say %q", want)
+		}
+	}
+	if strings.Contains(line, "take direction from the team's humans and its coordinator") {
+		t.Error("the worker line still gives the coordinator unbounded direction")
+	}
+	if got, want := proto.AgentAuthority(proto.RoleCoordinator), proto.AuthorityCoordinator; got != want {
+		t.Errorf("the envelope's coordinator authority is %q, not the frame's", got)
+	}
+}
+
 // The answers are one compact JSON object each, all ASCII, with no control character.
 func TestAnswers(t *testing.T) {
 	for _, tc := range []struct {
@@ -66,7 +92,7 @@ func TestFrame(t *testing.T) {
 		"team alpha: you are myrepo.2+desk.podman, the coordinator (coordinator: myrepo.2+desk.podman). Builds the thing.\n" +
 		"In team alpha you direct the team's agents: load the teamchat:coordinator skill, your procedure, now and at every launch; ask the humans with teamchat ask-human --team alpha, and follow up with teamchat questions --team alpha.\n" +
 		"team beta: you are myrepo.3+desk.podman, the worker; the team has no coordinator now.\n" +
-		"In team beta take direction from the team's humans and its coordinator; report with teamchat report --team beta.\n" +
+		workerLine("beta") + "\n" +
 		"team gamma: you are ?, the member (coordinator: ?).\n" +
 		"Deliveries arrive in this conversation by themselves."
 	if got != want {
@@ -106,11 +132,11 @@ func TestTheFrameNeverClaimsARoleOrAnAbsenceFromARecordNotCurrent(t *testing.T) 
 	}{
 		{"verified, a coordinator", true, proto.RoleWorker, coord, []string{
 			"team alpha: you are " + me + ", the worker (coordinator: " + coord + ").",
-			"In team alpha take direction from the team's humans and its coordinator; report with teamchat report --team alpha.",
+			workerLine("alpha"),
 		}},
 		{"verified, none", true, proto.RoleWorker, "", []string{
 			"team alpha: you are " + me + ", the worker; the team has no coordinator now.",
-			"In team alpha take direction from the team's humans and its coordinator; report with teamchat report --team alpha.",
+			workerLine("alpha"),
 		}},
 		{"not verified yet", false, "", "", []string{notKnown}},
 		{"stale, a coordinator", false, proto.RoleWorker, coord, []string{notKnown}},
@@ -238,16 +264,36 @@ func templateTexts(t *testing.T) map[string]string {
 		if !ok || !strings.HasPrefix(vs.Names[0].Name, "tmpl") {
 			return true
 		}
-		lit, ok := vs.Values[0].(*ast.BasicLit)
-		if !ok {
-			t.Fatalf("%s is not a literal", vs.Names[0].Name)
-		}
-		text, err := strconv.Unquote(lit.Value)
-		if err != nil {
-			t.Fatal(err)
-		}
-		out[vs.Names[0].Name] = text
+		out[vs.Names[0].Name] = constText(t, vs.Names[0].Name, vs.Values[0])
 		return false
 	})
 	return out
+}
+
+// sharedTexts are the proto constants a template may join to its literals (Plan 00265 R17).
+var sharedTexts = map[string]string{"proto.AuthorityCoordinator": proto.AuthorityCoordinator, "proto.AuthorityPeer": proto.AuthorityPeer}
+
+// constText is a template's text: string literals joined by +, and the shared proto texts.
+func constText(t *testing.T, name string, e ast.Expr) string {
+	t.Helper()
+	switch v := e.(type) {
+	case *ast.BasicLit:
+		text, err := strconv.Unquote(v.Value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return text
+	case *ast.BinaryExpr:
+		if v.Op == token.ADD {
+			return constText(t, name, v.X) + constText(t, name, v.Y)
+		}
+	case *ast.SelectorExpr:
+		if pkg, ok := v.X.(*ast.Ident); ok {
+			if text, known := sharedTexts[pkg.Name+"."+v.Sel.Name]; known {
+				return text
+			}
+		}
+	}
+	t.Fatalf("%s is not literals and shared proto texts", name)
+	return ""
 }

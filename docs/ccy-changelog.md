@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.112 — container 2.84.108
+
+- The image's teamchat weighs a PEER message from the team's coordinator (its `role:` line) as
+  direction for the work: the seat takes it as its next job, within its own permissions. It
+  approves nothing: a permission, a secret, a push to a protected branch, a delete or anything
+  a human must approve still needs a human's verified word. Any other member's message stays a
+  colleague's note. The envelope's `authority:` line, the SessionStart worker line and the
+  teamchat skill say the same, from one source (Plan 00265 R17).
+
 ## 3.124.111 — container 2.84.107
 
 - `ccy-sessions restore` and `ccy-teams restart` start a session with the installed launcher of

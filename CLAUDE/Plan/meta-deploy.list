@@ -182,6 +182,12 @@
 # verify-restore reads the LXC set from /var/lib/teamchat-status/lxc-set.json with no sudo
 # (lxc NO-STATUS / lxc STALE until the boot unit writes it this boot). The same single image
 # rebuild covers it (built from internal/teamchat/paths; nothing in it reads the new path).
+# Plan 00265 R17 (ccy 3.124.112, container 2.84.108): the same single rebuild gives the image's
+# teamchat one wording for what an agent's message weighs. A coordinator's message (role:
+# coordinator) is direction for the work, taken as the seat's next job within its own
+# permissions, and approves nothing a human must approve; any other member's is a colleague's
+# note. The envelope, the SessionStart frame and the skill say the same. Sessions started
+# after the rebuild get it.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC
@@ -237,6 +243,9 @@ playbooks/imports/play-claude-yolo.yml
 # Plan 00267 Task 3.1: the host kit and the LXC copies carry the same teamchat as the image
 # above (rate and budget hold a message instead of dropping it). Member sessions started after
 # the run get it.
+# Plan 00265 R17: the host kit and the LXC members' copies carry the same teamchat and skill as
+# the image above (a coordinator's message directs the work and approves nothing). Member
+# sessions started after the run get it.
 playbooks/imports/play-teamchat.yml
 
 # Plan 00265 R79: finishes the private-name guard's setup. It ASKS at the terminal for each
