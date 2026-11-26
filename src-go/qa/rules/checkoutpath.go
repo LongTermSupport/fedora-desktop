@@ -34,8 +34,9 @@ host applies is project_checkout_config_pin.
 A call's path is followed through constants, filepath.Join and path.Join (".claude", "ccy" as
 two pieces too), string concatenation, a local the function assigns it, a function of the
 package that returns it, and a helper it is passed to (f.at(rel)). The user's own ~/.claude is
-not a checkout path. Test files are not judged (a test plants the links), nor the nested qa
-module (its gates read the checkout they were run in).
+not a checkout path. Test files are not judged (a test plants the links), nor a function that takes a
+*testing.T, *B or *F or a testing.TB (a test helper in a fake machine's package, such as
+teamtest), nor the nested qa module (its gates read the checkout they were run in).
 
 Not caught: a path built at run time from words that are each not a piece of the name, one
 held in a field or a parameter, and a call through a wrapper of another package.
@@ -96,7 +97,7 @@ func runCheckoutPathSeam(pass *analysis.Pass) {
 		}
 		for _, decl := range f.Decls {
 			fd, ok := decl.(*ast.FuncDecl)
-			if !ok || fd.Body == nil {
+			if !ok || fd.Body == nil || takesTesting(pass, fd) {
 				continue
 			}
 			w := pathWalk{pass: pass, body: fd.Body, funcs: funcs}
@@ -108,6 +109,22 @@ func runCheckoutPathSeam(pass *analysis.Pass) {
 			})
 		}
 	}
+}
+
+// takesTesting is whether fd is a test helper: one of its parameters is a *testing.T, *B or *F,
+// or a testing.TB, so it plants a test's own world (a fake machine's package outside a _test.go
+// file), never acts for the host.
+func takesTesting(pass *analysis.Pass, fd *ast.FuncDecl) bool {
+	for _, field := range fd.Type.Params.List {
+		t := pass.TypesInfo.TypeOf(field.Type)
+		if ptr, isPtr := t.(*types.Pointer); isPtr {
+			t = ptr.Elem()
+		}
+		if named, isNamed := t.(*types.Named); isNamed && named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == "testing" {
+			return true
+		}
+	}
+	return false
 }
 
 // judge reports a call that acts by name on a checkout path one of its arguments names.

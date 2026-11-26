@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.123 — container 2.84.110
+
+- ccy-teams and ccy-sessions open every path under a checkout's `.claude/ccy` through an
+  `os.Root` of the checkout, so a link a container session put there is never followed out of
+  it. `cc --teams` made `.claude/ccy` and wrote its `.gitignore` by name, so a linked `.claude`
+  sent both outside the checkout; the `.gitignore` is now an exclusive create inside it. The
+  `allowed-hostnames` read refuses a link at the name (`restore --check` says so), and a
+  team's seat records and the seat keeper's report are read inside the checkout only. New
+  project rule `project_checkout_path_seam` (Plan 00266 review finding 10).
+
 ## 3.124.122 — container 2.84.110
 
 - A `.claude/ccy/mounts` approval covers where each host path resolves, not only the file's

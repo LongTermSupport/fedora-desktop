@@ -79,7 +79,7 @@ func ReportPath(checkout, session string) string {
 // ReadReport is the session's report; os.ErrNotExist before its keeper wrote one.
 func ReadReport(checkout, session string) (Report, error) {
 	path := ReportPath(checkout, session)
-	f, err := os.Open(filepath.Clean(path))
+	f, err := openInCheckout(checkout, path)
 	if err != nil {
 		return Report{}, fmt.Errorf("the seat keeper's report %s: %w", path, err)
 	}
@@ -98,6 +98,21 @@ func ReadReport(checkout, session string) (Report, error) {
 		return Report{}, fmt.Errorf("the seat keeper's report %s is not what a keeper writes: %w", path, err)
 	}
 	return r, nil
+}
+
+// openInCheckout opens path, a file under checkout, through an os.Root of the checkout: a
+// container writes the checkout, and a link it put on the way cannot reach a file outside it.
+func openInCheckout(checkout, path string) (f *os.File, err error) {
+	rel, err := filepath.Rel(checkout, path)
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(checkout)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	return root.Open(rel)
 }
 
 // parseReport is section 3.2's keys and their JSON types; check judges the values.

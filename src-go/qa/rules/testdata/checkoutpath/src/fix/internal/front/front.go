@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"testing"
 
 	"fix/internal/fsx"
 )
@@ -71,3 +72,19 @@ func Home(home string) error {
 
 // Message only names the path.
 func Message() string { return "write " + gitignoreRel }
+
+// PlantSeat is a test helper outside a _test.go file (a fake machine's package): it takes a
+// *testing.T, so it is test scaffolding that plants a test's own world, not host code.
+func PlantSeat(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.RemoveAll(seats(dir)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// PlantWith takes a testing.TB, which is a test helper too.
+func PlantWith(tb testing.TB, dir string) {
+	if err := os.MkdirAll(seats(dir), 0o700); err != nil {
+		tb.Fatal(err)
+	}
+}

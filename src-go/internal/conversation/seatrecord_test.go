@@ -412,6 +412,25 @@ func TestATeamAloneIsItsOneRecordedSeat(t *testing.T) {
 	}
 }
 
+// Plan 00266 review finding 10 (project_checkout_path_seam): a team's seat-record directory is
+// listed through an os.Root of the checkout, so a link a container put there to a directory
+// outside it is refused, never listed.
+func TestATeamsSeatRecordsAreNotListedThroughALinkOut(t *testing.T) {
+	w := newWorld(t)
+	outside := t.TempDir()
+	write(t, filepath.Join(outside, "1.json"), "{}")
+	dir := filepath.Join(w.checkout, seatRecordDir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "alpha")); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := SeatsOfTeams(w.checkout, "alpha"); err == nil || strings.Contains(got, "1@alpha") {
+		t.Fatalf("a team directory linked out of the checkout: %q, %v, want a refusal", got, err)
+	}
+}
+
 func TestTranscriptOfAnIDInTheCheckout(t *testing.T) {
 	w := newWorld(t)
 	if _, err := TranscriptOf(w.checkout, id); err == nil || !strings.Contains(err.Error(), id+".jsonl") {

@@ -16,6 +16,10 @@
 //     a file it cannot open (fedora-desktop#293). An entry that cannot be looked at (a symlink
 //     loop) is another error: the bash's `-f` test is false for it, so the launch goes ahead.
 //   - H6. A pattern matches as bash's case statement matches an unquoted pattern (Match).
+//   - H7. The file is read through an os.Root of the checkout (Plan 00266 review finding 10): a
+//     link at its name is an error naming it, never followed, and a directory on the way that
+//     leads out of the checkout is an error. The bash follows a link; restore --check refusing
+//     what a launch would start is the safe side of that difference.
 package allowedhosts
 
 import (
@@ -49,20 +53,9 @@ type Verdict struct {
 
 // Read is the checkout's patterns, and whether the file is there (H1, H2, H5).
 func Read(dir string) ([]string, bool, error) {
-	path := filepath.Join(dir, Rel)
-	info, err := os.Stat(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, fmt.Errorf("%s could not be looked at: %w", path, err)
-	}
-	if !info.Mode().IsRegular() {
-		return nil, false, nil
-	}
-	raw, err := os.ReadFile(filepath.Clean(path))
-	if err != nil {
-		return nil, false, fmt.Errorf("%w: %s: %w", ErrUnreadable, path, err)
+	raw, present, err := readRule(dir)
+	if err != nil || !present {
+		return nil, false, err
 	}
 	var patterns []string
 	for line := range strings.SplitSeq(string(raw), "\n") {
@@ -80,6 +73,35 @@ func Read(dir string) ([]string, bool, error) {
 		}
 	}
 	return patterns, true, nil
+}
+
+// readRule is the rule file's bytes, read through an os.Root of the checkout (H1, H5, H7).
+func readRule(dir string) (raw []byte, present bool, err error) {
+	path := filepath.Join(dir, Rel)
+	root, err := os.OpenRoot(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("%s could not be looked at: %w", path, err)
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	info, err := root.Lstat(Rel)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil, false, nil
+	case err != nil:
+		return nil, false, fmt.Errorf("%s could not be looked at: %w", path, err)
+	case info.Mode()&fs.ModeSymlink != 0:
+		return nil, false, fmt.Errorf("%s is a link, which a container session can put there; ccy reads it only as a plain file, so remove the link", path)
+	case !info.Mode().IsRegular():
+		return nil, false, nil
+	}
+	raw, err = root.ReadFile(Rel)
+	if err != nil {
+		return nil, false, fmt.Errorf("%w: %s: %w", ErrUnreadable, path, err)
+	}
+	return raw, true, nil
 }
 
 // Judge is the rule of the checkout at dir for host (H1-H5).

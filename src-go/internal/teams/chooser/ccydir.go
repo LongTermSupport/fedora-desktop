@@ -3,6 +3,7 @@ package chooser
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -28,25 +29,48 @@ func (c *Chooser) hostReady(ctx context.Context) term.ExitCode {
 		c.say("ccy-teams: cc --teams and cc --bus run in a git checkout: the seats live there.")
 		return exitConfig
 	}
-	dir := filepath.Join(here.Top, ".claude", "ccy")
-	info, err := os.Lstat(dir)
-	switch {
-	case err == nil && info.IsDir():
-		return term.ExitOK
-	case err == nil:
-		c.say("ccy-teams: " + dir + " is not a real directory; remove it and start cc again.")
-		return exitConfig
-	case !errors.Is(err, fs.ErrNotExist):
-		c.say("ccy-teams: " + dir + " could not be read: " + err.Error())
-		return exitConfig
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		c.say("ccy-teams: could not make " + dir + ": " + err.Error())
-		return exitConfig
-	}
-	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(ccyDirIgnore), 0o600); err != nil {
-		c.say("ccy-teams: could not write " + dir + "/.gitignore: " + err.Error())
+	if err := makeCcyDir(here.Top); err != nil {
+		c.say("ccy-teams: " + err.Error() + ".")
 		return exitConfig
 	}
 	return term.ExitOK
+}
+
+// ccyDirRel is the checkout's ccy directory, from its top.
+const ccyDirRel = ".claude/ccy"
+
+// makeCcyDir makes top's .claude/ccy/ (0700) and its .gitignore through an os.Root of the
+// checkout, so a link a container put on the way (or at the .gitignore's name) is never followed
+// out of it: the .gitignore is created exclusively, which never writes through a link. An
+// existing real directory is left as it is; anything else at the name is refused.
+func makeCcyDir(top string) (err error) {
+	dir := filepath.Join(top, ccyDirRel)
+	root, err := os.OpenRoot(top)
+	if err != nil {
+		return fmt.Errorf("could not open %s: %w", top, err)
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	info, err := root.Lstat(ccyDirRel)
+	switch {
+	case err == nil && info.IsDir():
+		return nil
+	case err == nil:
+		return fmt.Errorf("%s is not a real directory; remove it and start cc again", dir)
+	case !errors.Is(err, fs.ErrNotExist):
+		return fmt.Errorf("%s could not be read: %w", dir, err)
+	}
+	if err := root.MkdirAll(ccyDirRel, 0o700); err != nil {
+		return fmt.Errorf("could not make %s: %w", dir, err)
+	}
+	f, err := root.OpenFile(ccyDirRel+"/.gitignore", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("could not write %s/.gitignore: %w", dir, err)
+	}
+	if _, err := f.WriteString(ccyDirIgnore); err != nil {
+		return errors.Join(fmt.Errorf("could not write %s/.gitignore: %w", dir, err), f.Close())
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("could not write %s/.gitignore: %w", dir, err)
+	}
+	return nil
 }

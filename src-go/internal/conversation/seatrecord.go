@@ -320,8 +320,8 @@ func SeatsOfTeams(checkout, list string) (string, error) {
 
 // recordedSeatOf is the one seat of team with a seat record in checkout.
 func recordedSeatOf(checkout, team string) (string, error) {
-	entries, err := os.ReadDir(filepath.Join(checkout, seatRecordDir, team))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+	entries, err := teamRecordEntries(checkout, team)
+	if err != nil {
 		return "", fmt.Errorf("the seat records of team %s: %w", team, err)
 	}
 	var seats []string
@@ -337,6 +337,29 @@ func recordedSeatOf(checkout, team string) (string, error) {
 		return seats[0], nil
 	}
 	return "", fmt.Errorf("team %s has %d seats with a conversation recorded in this checkout; resume the one you mean with ccy --teams %s --resume <id> --rebind, which asks which seat", team, len(seats), team)
+}
+
+// teamRecordEntries is the entries of team's seat-record directory in checkout, none when it is
+// not there, read through an os.Root of the checkout so a link a container planted on the way
+// cannot list a directory outside it.
+func teamRecordEntries(checkout, team string) (entries []fs.DirEntry, err error) {
+	root, err := os.OpenRoot(checkout)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	dir, err := root.Open(filepath.Join(seatRecordDir, team))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, dir.Close()) }()
+	return dir.ReadDir(-1)
 }
 
 // NeverUsed is whether the seats of list were never used in checkout: no named seat has a record

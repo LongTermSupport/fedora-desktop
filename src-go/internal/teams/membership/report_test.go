@@ -43,6 +43,25 @@ func TestReadReportOfNoReportIsNotExist(t *testing.T) {
 	}
 }
 
+// Plan 00266 review finding 10 (project_checkout_path_seam): the report is opened through an
+// os.Root of the checkout, so a link a container put at its name to a file outside the checkout
+// is refused, never read.
+func TestReadReportRefusesALinkOutOfTheCheckout(t *testing.T) {
+	checkout := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "applied.json")
+	teamtest.MustWrite(t, outside, `{"v":1,"generation":4,"inbound":false,"seats":[],"refused":[],"told":{"generation":4,"roles":[]}}`)
+	path := ReportPath(checkout, "s")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadReport(checkout, "s"); err == nil {
+		t.Fatal("a report linked out of the checkout was read")
+	}
+}
+
 func TestReadReportRefusesAnUnknownKey(t *testing.T) {
 	checkout := t.TempDir()
 	teamtest.MustWrite(t, ReportPath(checkout, "s"), `{"v":1,"generation":1,"seats":[],"refused":[],"extra":1}`)

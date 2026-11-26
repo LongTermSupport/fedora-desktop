@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -67,6 +68,10 @@ func newRig(t *testing.T, entries string) *rig {
 	w := teamtest.New(t)
 	console := teamtest.Interactive(t, w)
 	w.On("git rev-parse --is-inside-work-tree", "true\n", 0)
+	// The top git names is a real directory, as a checkout's is.
+	if err := os.MkdirAll(w.Checkout(), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	w.On("git rev-parse --show-toplevel", w.Checkout()+"\n", 0)
 	w.On("git remote get-url origin", "git@github.com:Example-Org/proj.git\n", 0)
 	w.WriteHostVars(t, teamsVars(entries))

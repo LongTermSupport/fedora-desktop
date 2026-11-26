@@ -107,6 +107,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_checkout_config_pin` | a constant naming a checkout file the host launcher applies (`.claude/ccy/mounts`, `.claude/ccy/.last-launch.conf`, a compose file or override) outside `internal/checkoutpin`, so a container session's write to its checkout reaches the host unapproved | `sessions` restore's own compose file list (Plan 00266 Task A.1; its bash half is the semgrep rule `ccy-host-applies-checkout-config`) |
 | `project_record_launcher_exec` | a read of a session record's `Launcher` field (its `launcher=` path) outside `internal/registry`, other than in a comparison, so a planted record line is a program the next boot or a team restart runs | `sessions` restore's start of a recorded session and `teams/restart`'s start of a stopped one (Plan 00266 Task A.4) |
 | `project_pin_record_unconfirmed`   | a `checkoutpin.Store.Record` with no `Confirm` or `YesNo` asked before it in the same function, so a container's write to its checkout is recorded as a person's approval                                                                                  | the attended compose check's record of whatever the files held (Plan 00266 security review, finding 3)                                                                                                                  |
+| `project_checkout_path_seam` | a call that opens, reads, writes, makes, removes or walks a path under a checkout's `.claude/ccy` by its name (`os.ReadFile`/`WriteFile`/`Open`/`MkdirAll`/`ReadDir`/..., `filepath.Walk`, `fsx.WriteAtomic`) outside an `os.Root` of the checkout and `internal/checkoutpin`, so it follows a link a container put there | the launcher's `.gitignore` write through a planted link, and ccy-teams' twin of it (Plan 00266 security review, findings 6 and 10; its bash half is the semgrep rule `ccy-host-applies-checkout-config`) |
 | `project_memory_ahead_of_store` | teamchat engine memory written inside a store write's change function, which runs before the write, so a refused write leaves memory ahead of the disk | teamchat `engine`: recv's settle forgot each delivered item's content inside its write, so a refused ack left the items pending with nothing to render (issue #443's sweep) |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
@@ -4499,3 +4500,45 @@ before this one is called, and a digest written to the store by other means.
 
 **How to fix.** Show the content (`Shown`, `showFiles`), ask with `Confirm` or `YesNo` defaulting
 to no, and record only on a yes.
+
+### project_checkout_path_seam
+
+**What it is about.** A ccy container writes its checkout, `.claude/ccy` included, so it can put
+a link at any name there, or make `.claude/ccy` itself a link. Host code that opens such a path by
+name follows the link: it reads, binds, truncates, creates or deletes a host file the container
+chose (Plan 00266 security review, findings 1, 6 and 7: the `ccy.env.local` bind, the
+`.gitignore` and `ccy.env.local.dist` writes, the custom Dockerfile build; finding 10 named the
+class too narrow, by file name). The class is "host code acts on a path in a container-writable
+checkout without the `checkoutpin` or `os.Root` seam".
+
+**What it flags**, in src-go's `internal/` and `cmd/` trees (not the nested `qa` module, not
+`internal/checkoutpin`, not test files, not a function that takes a `*testing.T`, `*B`, `*F` or a
+`testing.TB`, which is a fake machine's helper such as `teamtest`'s), a call of `os.ReadFile`,
+`WriteFile`, `Open`, `OpenFile`, `Create`, `Mkdir`, `MkdirAll`, `Remove`, `RemoveAll`, `Rename`,
+`ReadDir`, `Chmod`, `Chown`, `Lchown`, `Truncate`, `Symlink`, `Link`, `Chtimes`, `DirFS` or
+`OpenRoot`, `filepath.Walk` or `WalkDir`, or `fsx.WriteAtomic` whose path argument names
+`.claude/ccy` (one piece, or `.claude` then `ccy`), followed through constants, joins,
+concatenation, a local, a package function's result and a helper's arguments.
+
+**Red.** `go vet -vettool=<driver> -project_checkout_path_seam ./internal/... ./cmd/...` (and the
+tagged builds of `qa/go-qa.toml`, and the `qa` module) on the tree before the sweep flagged:
+`internal/allowedhosts/allowedhosts.go:63` (the `allowed-hostnames` read, which followed a
+link), `internal/conversation/seatrecord.go:323` (a team's seat-record directory listed by
+name), `internal/teams/membership/report.go:82` (the keeper's report opened by name),
+`internal/teams/chooser/ccydir.go:43,47` (finding 6's twin: ccy-teams made `.claude/ccy` and
+wrote its `.gitignore` by name after an `Lstat`, so a linked `.claude` sent both outside the
+checkout), and `internal/teams/teamtest/world.go:366,406` (test helpers, which are not host
+code: the `*testing.T` exemption). Before them, `internal/ccylaunch/inrepo.go`'s four calls
+(fixed with findings 1 and 6). The fixture `qa/rules/testdata/checkoutpath` holds the
+`.gitignore` defect, the path reached through a constant, a local, a package function, a join's
+pieces, the atomic writer and a walk, and the clean forms (an `os.Root`, the home `~/.claude`,
+a message, two test helpers, the seam's own package, a test file, the qa module). Green: each
+site reads, lists or writes through an `os.Root` of the checkout (`allowedhosts` also refuses a
+link at the rule's name, H7), each with a test that plants the link.
+
+**Not caught.** A path built at run time from words that are each not a piece of the name, one
+held in a field or a parameter, and a call through a wrapper of another package.
+
+**How to fix.** Open the checkout with `os.OpenRoot` and act through the `*os.Root` (`Lstat` to
+refuse a link at the name, an exclusive create, a temporary renamed into place for a write), or
+use `internal/checkoutpin`'s `ReadFile`, `WriteFile` and `CopyOut`.

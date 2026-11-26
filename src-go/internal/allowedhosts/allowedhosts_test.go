@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -113,6 +114,41 @@ func TestAnUnstattableFileIsAnError(t *testing.T) {
 	}
 	if _, _, err := Read(dir); err == nil || errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrUnreadable) {
 		t.Fatalf("a symlink loop: %v, want a stat error that is not ErrUnreadable", err)
+	}
+}
+
+// H7 (Plan 00266 review finding 10, project_checkout_path_seam): a link at the rule's name is
+// refused and named, never followed, so a container cannot have the host read a file of its
+// choosing as patterns; a directory on the way linked out of the checkout is refused too.
+func TestALinkAtTheRuleIsRefusedNotFollowed(t *testing.T) {
+	dir := writeRule(t, "box\n")
+	outside := filepath.Join(t.TempDir(), "elsewhere")
+	if err := os.WriteFile(outside, []byte("box\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, Rel)
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, path); err != nil {
+		t.Fatal(err)
+	}
+	if patterns, _, err := Read(dir); err == nil || !strings.Contains(err.Error(), "is a link") || patterns != nil {
+		t.Fatalf("a link at the rule: %q, %v, want a refusal naming the link", patterns, err)
+	}
+	outsideCcy := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outsideCcy, "allowed-hostnames"), []byte("box\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkedDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(linkedDir, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideCcy, filepath.Join(linkedDir, ".claude", "ccy")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Read(linkedDir); err == nil {
+		t.Fatal("a .claude/ccy linked out of the checkout was read through")
 	}
 }
 

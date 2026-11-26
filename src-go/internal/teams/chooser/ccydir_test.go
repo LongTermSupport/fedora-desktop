@@ -66,6 +66,22 @@ func TestACcyDirectoryThatIsASymlinkIsRefusedAndNothingIsPrinted(t *testing.T) {
 	contains(t, "stderr", r.stderr(), "is not a real directory; remove it and start cc again.")
 }
 
+// Plan 00266 review finding 6's twin (project_checkout_path_seam): a .claude a container linked
+// out of the checkout is refused, and no ccy directory or .gitignore is made where it points.
+func TestAClaudeDirectoryLinkedOutIsRefusedAndNothingIsMadeThere(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	r.accept(t)
+	elsewhere := t.TempDir()
+	if err := os.Symlink(elsewhere, filepath.Join(r.Checkout(), ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	exit(t, r.run("--type=host", "1@alpha"), exitConfig, r)
+	r.lacksOutput(t)
+	if _, err := os.Lstat(filepath.Join(elsewhere, "ccy")); !os.IsNotExist(err) {
+		t.Fatalf("a ccy directory was made through the link: %v", err)
+	}
+}
+
 func TestBusMakesTheCcyDirectoryWhereTheKeeperReports(t *testing.T) {
 	r := newRig(t, alphaCovers)
 	r.accept(t)
