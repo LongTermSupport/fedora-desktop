@@ -491,7 +491,7 @@ so the 25 Nov stall would have logged nothing. Two additions to 7.3:
   objects being allocated but holds message content: only with the owner's consent, kept
   untracked.
   - **As built (Task 1.7):** `agent-bus-lightning watch` (`src-go/internal/lightning/watch`,
-    W1-W11), run by the user service `agent-bus-lightning-watch` only while a team has
+    W1-W12), run by the user service `agent-bus-lightning-watch` only while a team has
     `lightning_diagnostics: true`. Every 15 s it reads `/proc`; a Lightning process of this user
     logging under the teams folder whose log has been silent 60 s while its RSS rose 256 MiB
     since the log last moved is recorded once, in `lightning-watchdog.log` beside the log
