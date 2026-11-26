@@ -1,4 +1,5 @@
 teamchat delivery 3f9c2a71: 1 message on myteam (0 from humans, 0 from agents, 0 pings, 1 notices, 0 timeouts): admin (NOTICE)
+== 3f9c2a71 NOTICE, 1 entry: facts about the team ==
 <<teamchat 3f9c2a71 1/1>>
 kind: NOTICE (a fact about the team, from the admin or from a member about itself)
 from: admin

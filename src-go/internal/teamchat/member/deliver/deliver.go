@@ -150,8 +150,9 @@ func Build(t paths.TeamID, self string, items []Item, f Facts, from Namer, nonce
 }
 
 // MaxFold is the most notices one entry folds (Plan 00267 Task 7.3): a member that flaps fills
-// entries of its own past it, so no one entry grows without bound.
-const MaxFold = proto.MaxDeliveryEntries
+// entries of its own past it, so no one entry grows without bound. It bounds one entry only;
+// a delivery holds as many entries as its bytes allow (Task 7.6).
+const MaxFold = 8
 
 // ranked is one entry and the items it shows: one, or several notices folded into it.
 type ranked struct {
