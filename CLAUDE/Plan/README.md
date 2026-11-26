@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00270-go-repo-split](00270-go-repo-split/) - Not Started (design; owner questions Q1 to Q9 open, repository creation waits on the owner). Split the Go code into standalone public repositories (kit, teamchat, ccy), leaves first, each with full CI and signed releases that fedora-desktop pins; includes issue #441's "already contained" ccy mode for LXC seats.
+
 - [00269-add-a-seat-from-its-own-checkout](00269-add-a-seat-from-its-own-checkout/) - Not Started (design; owner questions Q1 and Q2 open). Adding a seat is one owner step in the team's own checkout on the machine where it runs, even when the team is served elsewhere: issued over the owner's ssh and sudo, placed from memory, no seat number; an enrolled seat whose credential this machine lost is recovered by a reissue on the owner's word. Replaces another repository's two seat scripts.
 
 - [00268-lightning-memory-leak](00268-lightning-memory-leak/) - In Progress (research done; laptop evidence next). Find and fix, upstream where it lives, the memory growth that took a busy team's Lightning to 84.7G and an oomd kill.
