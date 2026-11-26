@@ -161,6 +161,7 @@ class ContractTests(PluginTestCase):
                         "pathlib",
                         "re",
                         "stat",
+                        "tempfile",
                         "time",
                         "typing",
                     },
