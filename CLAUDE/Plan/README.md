@@ -34,7 +34,9 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00266-seat-restart-after-reboot](00266-seat-restart-after-reboot/) - Not Started (design for the owner). Containers and seats back after a reboot, rebuilt from validated records; first closes checkout config the host applies unasked.
+- [00267-teamchat-lossless-delivery](00267-teamchat-lossless-delivery/) - Not Started (design for the owner). Every addressed teamchat message ends delivered or bounced, visibly to its sender.
+
+- [00266-seat-restart-after-reboot](00266-seat-restart-after-reboot/) - In Progress (design for the owner). Containers and seats back after a reboot, rebuilt from validated records; first closes checkout config the host applies unasked.
 
 - [00265-teamchat-v2-smoke-test-register](00265-teamchat-v2-smoke-test-register/) - In Progress. The running register of every v2 agent-team fault found while smoke testing it for real work (teamchat, `ccy --teams`, `ccy-teams`, `ccy-sessions`), each fixed in its own unit and merged on the integration branch `v2-smoke`.
 
