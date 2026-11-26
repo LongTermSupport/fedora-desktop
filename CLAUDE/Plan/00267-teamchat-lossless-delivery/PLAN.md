@@ -143,7 +143,7 @@ file and line.
   (`team.Team.FlushOwed` posts its bounces and the receipts owed beside the floor marker, before
   the store goes); recorded for an ack or late answer not shown as an item. A terminal receipt
   replaces a held one still queued; a refused receipt refuses its write whole (#443: an ack or
-  proof stays unsettled until the queue has room). Tests: `owe_test.go` (16), teamsync
+  proof stays unsettled until the queue has room). Tests: `owe_test.go` (14), teamsync
   `TestHeldWhy`, `TestFlushOwedPostsEachReceipt`. Not built: held(absent) for items already
   pending when a live session goes down (only items added while it is down owe it).
 
