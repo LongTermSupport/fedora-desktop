@@ -88,8 +88,9 @@ the coordinator's worker restarts.
 
 - [x] ✅ **Task 4.1**: R78 (the owner's Q18): run.bash refuses a dirty checkout, or one behind or
   ahead of its upstream after a fetch, and `--force` runs anyway. The batch after 24. Built in Go, since
-  run.bash may not grow (bash-limits ratchet). Built: `src-go/cmd/checkout-gate` (G1-G15), run by
-  `--changed` and `--rerun`; decisions in R78. Report:
+  run.bash may not grow (bash-limits ratchet). Built: `src-go/cmd/checkout-gate` (G1-G15), run
+  before every play run.bash runs (a single play, `--changed`, `--rerun`, `--optional-only`, an
+  install's main playbook; not the self-update cycle or `--consumer`); decisions in R78. Report:
   [subagent-reports/261126-task-4-1.md](subagent-reports/261126-task-4-1.md).
 
 - [x] ✅ **Task 4.2**: R90 and R89 (the owner, 26 Nov 10:44Z): a human never needs a seat

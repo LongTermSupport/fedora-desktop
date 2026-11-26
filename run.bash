@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.39.0"
+RUN_BASH_VERSION="1.40.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -991,8 +991,9 @@ CHANGED_PLAYS=false
 ASSUME_YES=false
 # --rerun (Plan 00141): list the checkout's plays as judged here and run the ones the operator picks.
 RERUN_PLAYS=false
-# --force (R78): --changed and --rerun run from a dirty checkout, or one not level with its upstream.
+# --force (R78): a play runs from a dirty checkout, or one not level with its upstream.
 FORCE_ARGS=()
+RUN_ARGV=("$@")  # the words run.bash was run with, which the gate's refusal repeats
 while (( $# > 0 )); do
   _arg="$1"
   shift
@@ -1017,8 +1018,9 @@ Options:
   --yes                With --changed: run the list without asking, and do not
                        offer an issue if a play fails, skip a missing optional
                        secret and fail a required one. For meta-deploy and such.
-  --force              With --changed or --rerun: run from a checkout that is dirty or,
-                       after a fetch, not level with its upstream (else refused).
+  --force              Run plays from a checkout that is dirty or, after a fetch, not
+                       level with its upstream (else every play run is refused). Put it
+                       before a playbook path: words after the path go to Ansible.
   --rerun              List the checkout's plays as a numbered menu, the ones that
                        have to run again marked * (as --changed judges them), and
                        those with no record here unmarked. Pick one or more ("3", "1 4"), "a" for
@@ -2059,31 +2061,35 @@ optional_summary() {
 # --rerun (Plan 00141) shares the preflight, the judge call, the checkout gate and
 # the run loop below; it differs only in who picks the plays (the operator, from a menu).
 
-# play_batch_preflight <flag> — the refusals --changed and --rerun share.
-play_batch_preflight(){
-  local _flag="$1"
-  if [[ -n "$PLAY_PATH" || "$OPTIONAL_ONLY" == "true" ]]; then
-    fatal "${_flag#--} plays" "${_flag} takes no playbook path and no --optional-only" \
+# play_preflight <flag or playbook path> — the refusals --changed, --rerun and a single play
+# share. Each runs from run.bash's own checkout (_play_repo), which a streamed run.bash (the
+# README curl install) does not have.
+play_preflight(){
+  local _flag="$1" _what="${1#--} plays"
+  [[ "$_flag" == --* ]] || _what="single play"
+  if [[ "$_flag" == --* && (-n "$PLAY_PATH" || "$OPTIONAL_ONLY" == "true") ]]; then
+    fatal "$_what" "${_flag} takes no playbook path and no --optional-only" \
       "run ./run.bash ${_flag} on its own"
   fi
   if [[ -z "${BASH_SOURCE[0]:-}" || ! -f "${BASH_SOURCE[0]}" ]]; then
-    fatal "${_flag#--} plays" "run.bash is being streamed, not run from a checkout" \
+    fatal "$_what" "run.bash is being streamed, not run from a checkout" \
       "cd into the fedora-desktop checkout and run ./run.bash ${_flag}"
   fi
   _play_repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-  cd "$_play_repo" || fatal "${_flag#--} plays" "cannot cd into ${_play_repo}" "check the checkout"
+  cd "$_play_repo" || fatal "$_what" "cannot cd into ${_play_repo}" "check the checkout"
   if ! command -v ansible-playbook >/dev/null; then
-    fatal "${_flag#--} plays" "ansible-playbook not found on PATH" \
+    fatal "$_what" "ansible-playbook not found on PATH" \
       "run ./run.bash once (it installs ansible via pipx), and do not run it under sudo"
   fi
 }
 
-# play_batch_gate <flag> — plays deployed from a checkout that is dirty, or not level with its
-# upstream after a fetch, deploy code the remote does not hold (R78): refused unless --force.
-# The judgement, and the message naming the cause and its fix, is src-go/cmd/checkout-gate;
-# its refusal ends run.bash with its status under set -e (go-tool execs it in this subshell).
-play_batch_gate(){
-  (source "$_play_repo/scripts/lib/go-tool.bash" && run_go_command checkout-gate "${FORCE_ARGS[@]}" "$_play_repo" "$1")
+# checkout_gate <checkout> — every path that runs a play calls it first: a play deployed from a
+# checkout that is dirty, or not level with its upstream after a fetch, deploys code the remote
+# does not hold (R78), so it is refused unless --force. The judgement, and the message naming
+# the cause and its fix, is src-go/cmd/checkout-gate; its refusal ends run.bash with its status
+# under set -e (go-tool execs it in this subshell).
+checkout_gate(){
+  (source "$1/scripts/lib/go-tool.bash" && run_go_command checkout-gate "${FORCE_ARGS[@]}" "$1" "${RUN_ARGV[@]}")
 }
 
 # play_batch_run <what> <adjective> <play>… — under one play lock, each play through the
@@ -2116,8 +2122,6 @@ play_batch_run(){
   exit 0
 }
 
-[[ ${#FORCE_ARGS[@]} -eq 0 || "$CHANGED_PLAYS" == "true" || "$RERUN_PLAYS" == "true" ]] ||
-  fatal "--force" "--force only overrides the checkout gate of --changed and --rerun" "run ./run.bash --changed --force, or ./run.bash --rerun --force"
 if [[ "$ASSUME_YES" == "true" && "$CHANGED_PLAYS" != "true" ]]; then
   fatal "--yes" "--yes only answers the question --changed asks" \
     "run ./run.bash --changed --yes; --rerun's pick is its own answer"
@@ -2128,7 +2132,7 @@ if [[ "$CHANGED_PLAYS" == "true" ]]; then
     fatal "changed plays" "--changed and --rerun are mutually exclusive" \
       "--rerun lists every play and lets you pick; --changed runs the changed ones"
   fi
-  play_batch_preflight --changed
+  play_preflight --changed
   if ! _changed_out="$(python3 -m helpers.play_ledger.changed_plays --repo-root "$_play_repo")"; then
     fatal "changed plays" "could not work out which plays changed, so none is run (see above)" \
       "fix what the message above names, then run ./run.bash --changed again"
@@ -2158,7 +2162,7 @@ if [[ "$CHANGED_PLAYS" == "true" ]]; then
     exit 0
   fi
   printf '%b\n' "\n${CYAN}${ARROW}${NC} ${#_changed_run[@]} play(s) changed since they last ran here:" "${_changed_run[@]/#/     }"
-  play_batch_gate --changed
+  checkout_gate "$_play_repo"
   if [[ "$ASSUME_YES" != "true" ]] && ! confirm "Run them now, in this order?" n; then
     exit 0
   fi
@@ -2171,8 +2175,8 @@ fi
 # is the confirmation: nothing runs until the operator names it, and the plays run in menu
 # order (playbook-main.yml order, optional plays last), stopping at the first failure.
 if [[ "$RERUN_PLAYS" == "true" ]]; then
-  play_batch_preflight --rerun
-  play_batch_gate --rerun
+  play_preflight --rerun
+  checkout_gate "$_play_repo"
   if ! _rerun_out="$(python3 -m helpers.play_ledger.changed_plays --repo-root "$_play_repo" --all)"; then
     fatal "rerun plays" "could not read which plays have run here, so none is offered (see above)" \
       "fix what the message above names, then run ./run.bash --rerun again"
@@ -2293,20 +2297,6 @@ if [[ -n "$PLAY_PATH" ]]; then
   if [[ "$OPTIONAL_ONLY" == "true" ]]; then
     fatal "single play" "a playbook path and --optional-only are mutually exclusive" "pass one or the other"
   fi
-  # The play must resolve against THIS checkout's ansible.cfg and inventory, so the repo
-  # root is the script's own directory. A streamed run.bash (README curl install) has no
-  # file to resolve from and no checkout yet.
-  if [[ -z "${BASH_SOURCE[0]:-}" || ! -f "${BASH_SOURCE[0]}" ]]; then
-    fatal "single play" "run.bash is being streamed, not run from a checkout" \
-      "cd into the fedora-desktop checkout and run ./run.bash <playbook>.yml"
-  fi
-  _play_repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-  cd "$_play_repo" || fatal "single play" "cannot cd into ${_play_repo}" "check the checkout"
-  _play_abs="$(realpath -m -- "$PLAY_PATH")"
-  if [[ "$_play_abs" != "$_play_repo/playbooks/"*.yml || ! -f "$_play_abs" ]]; then
-    fatal "single play" "'${PLAY_PATH}' is not a playbook under ${_play_repo}/playbooks/" \
-      "name one like playbooks/imports/play-podman.yml (see docs/playbooks.md)"
-  fi
   # Unattended, PATH is whatever a timer or a root caller's runuser left, which need not
   # include the pipx shim directory ansible lives in. Put it first rather than hope —
   # unless the caller pinned the ansible it trusts (the self-update cycle pins a root-owned
@@ -2324,10 +2314,16 @@ if [[ -n "$PLAY_PATH" ]]; then
   elif [[ "$HEADLESS" == "true" ]]; then
     export PATH="${HOME}/.local/bin:${PATH}"
   fi
-  if ! command -v ansible-playbook >/dev/null; then
-    fatal "single play" "ansible-playbook not found on PATH" \
-      "run ./run.bash once (it installs ansible via pipx), and do not run a play under sudo"
+  # The play must resolve against THIS checkout's ansible.cfg and inventory: the script's own.
+  play_preflight "$PLAY_PATH"
+  _play_abs="$(realpath -m -- "$PLAY_PATH")"
+  if [[ "$_play_abs" != "$_play_repo/playbooks/"*.yml || ! -f "$_play_abs" ]]; then
+    fatal "single play" "'${PLAY_PATH}' is not a playbook under ${_play_repo}/playbooks/" \
+      "name one like playbooks/imports/play-podman.yml (see docs/playbooks.md)"
   fi
+  # Not for the self-update cycle, the one caller that pins its ansible: its clone is on a signed
+  # release, behind the branch tip by design, and helpers/self_update/update.py judged it first.
+  [[ -n "${RUN_BASH_ANSIBLE_PLAYBOOK:-}" ]] || checkout_gate "$_play_repo"
   play_lock_take "run.bash ${PLAY_PATH#"${_play_repo}/"}"
   _play_rc=0
   if [[ "$HEADLESS" == "true" ]]; then
@@ -3506,6 +3502,7 @@ title "Running Ansible Playbooks"
 # repository step set it: HTTPS with no GitHub identity, SSH otherwise.
 fd_checkout ~/Projects/fedora-desktop "$(command git -C ~/Projects/fedora-desktop remote get-url origin)" pull
 success "Repository ready for the plays"
+checkout_gate "$HOME/Projects/fedora-desktop"  # before the agent goes: an SSH fetch may need it
 
 # V3.12: this pull is the LAST git op needing the login SSH key. Kill the ssh-agent
 # NOW (not at EXIT) so the unlocked key is not reachable via $SSH_AUTH_SOCK across
@@ -3808,6 +3805,9 @@ check_hardware() {
 echo -e "\n${MAGENTA}${BOLD}Optional Configurations${NC}"
 echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
+# --optional-only runs plays with no install before them, so it meets the gate here; a missing
+# checkout is left to the "run the full install first" refusals below.
+[[ "$OPTIONAL_ONLY" != "true" || ! -d ~/Projects/fedora-desktop ]] || checkout_gate "$HOME/Projects/fedora-desktop"
 if [[ "$HEADLESS" == "true" ]]; then
   hl_run_optional_playbooks
 elif [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install optional components?" y; then

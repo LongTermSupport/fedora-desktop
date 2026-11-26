@@ -356,7 +356,7 @@ checkout (before any play, and to edit its `host_vars`), so `scripts/gh-account-
 `scripts/setup-rclone.bash`, `scripts/vault-list.bash` and `scripts/consumer-install.bash` build them there (`run_go_command` in
 `scripts/lib/go-tool.bash`, the same flags) and execs it, so a signal sent to a wrapper reaches its command.
 `checkout-gate` is not deployed either: `run.bash` builds and runs it the same way, in a subshell,
-before `--changed` and `--rerun` run plays.
+before any play it runs.
 `nvidia-status` is not deployed either: `play-nvidia.yml` tells the person to run
 `scripts/nvidia-status.bash` from the checkout, which builds it the same way. Never
 install a binary by hand: the play is the only route

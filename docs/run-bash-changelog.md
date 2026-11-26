@@ -15,6 +15,18 @@ the index, not the record.
 
 ---
 
+## 1.40.0 — every play run meets the checkout gate (Plan 00265 R78)
+
+A single play (`./run.bash <play>.yml`, or the play file through its shebang),
+`--optional-only` and an install's main playbook (after its pull, before the SSH agent goes)
+now run `checkout-gate` too, as `--changed` and `--rerun` do. `--force` is accepted with any of
+them; put it before a playbook path, because words after the path go to Ansible. The refusal
+repeats the command line run.bash was given, with `--force` first. Not gated: the self-update
+cycle's plays (`RUN_BASH_ANSIBLE_PLAYBOOK`; its clone is a signed release that
+`helpers/self_update/update.py` judges, behind the branch tip by design) and `--consumer`,
+whose `git pull --ff-only` refuses a dirty or diverged checkout. A single play shares
+`--changed`'s preflight (`play_preflight`).
+
 ## 1.39.0 — `--changed` and `--rerun` refuse a checkout the remote does not hold (Plan 00265 R78)
 
 Before running plays, `--changed` and `--rerun` run the Go `checkout-gate`: after a fetch,

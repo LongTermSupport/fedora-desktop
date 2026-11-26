@@ -1,6 +1,6 @@
 // Command checkout-gate refuses a run of plays from a checkout that is dirty, or not level with
-// its upstream after a fetch; --force runs anyway. run.bash runs it before --changed and
-// --rerun. The judgement is internal/checkoutgate's.
+// its upstream after a fetch; --force runs anyway. run.bash runs it before any play it runs.
+// The judgement is internal/checkoutgate's.
 package main
 
 import (

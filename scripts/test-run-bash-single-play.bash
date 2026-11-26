@@ -30,7 +30,7 @@ check() {
 }
 yes_if() { if "$@"; then echo yes; else echo no; fi; }
 
-for tool in flock python3; do
+for tool in flock python3 git go; do
     if ! command -v "$tool" >/dev/null; then
         echo "FAIL: $tool is required by the code under test and is not installed" >&2
         exit 1
@@ -50,6 +50,19 @@ cp "$REPO_ROOT/run.bash" "$CHECKOUT/run.bash"
 cp "$REPO_ROOT/helpers/play_lock/lock.py" "$CHECKOUT/helpers/play_lock/lock.py"
 printf -- '- hosts: localhost\n  tasks: []\n' >"$CHECKOUT/playbooks/imports/play-fixture.yml"
 PLAY="playbooks/imports/play-fixture.yml"
+# The checkout gate (R78) runs for real: the checkout is a git repository level with a bare
+# upstream, and run.bash builds src-go/cmd/checkout-gate from this repository's own src-go.
+mkdir -p "$CHECKOUT/scripts/lib"
+cp "$REPO_ROOT/scripts/lib/go-tool.bash" "$CHECKOUT/scripts/lib/go-tool.bash"
+ln -s "$REPO_ROOT/src-go" "$CHECKOUT/src-go"
+g() { git -C "$CHECKOUT" -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false "$@"; }
+git init -q --bare -b F44 "$SCRATCH/upstream.git"
+g init -q -b F44
+printf 'src-go\n__pycache__/\n' >>"$CHECKOUT/.git/info/exclude"
+g add -A
+g commit -q -m fixture
+g remote add origin "$SCRATCH/upstream.git"
+g push -q -u origin F44
 
 RUNTIME="$SCRATCH/runtime"
 mkdir -m 700 "$RUNTIME"
@@ -64,6 +77,7 @@ mkdir -p "$TEST_TMP"
 # ── the fakes ────────────────────────────────────────────────────────────────────────
 BIN="$SCRATCH/bin"
 mkdir -p "$BIN"
+ln -s "$(command -v go)" "$BIN/go"
 # ansible-playbook lives ONLY in ~/.local/bin, as pipx puts it, so a headless run that did
 # not add that directory to PATH cannot find it.
 cat >"$FAKE_HOME/.local/bin/ansible-playbook" <<'EOF'
@@ -140,12 +154,13 @@ run_play() {
     : >"$LOG"
     out="$(printf '' | env -u RUN_BASH_HEADLESS -u FEDORA_DESKTOP_PLAY_LOCK_FD \
         HOME="$FAKE_HOME" PATH="$BIN:/usr/bin:/bin" XDG_RUNTIME_DIR="$RUNTIME" TMPDIR="$TEST_TMP" \
-        TEST_LOG="$LOG" TEST_LOCK="$LOCK" "${assigns[@]}" \
+        TEST_LOG="$LOG" TEST_LOCK="$LOCK" GOCACHE="$GO_BUILD_CACHE" "${assigns[@]}" \
         bash "$CHECKOUT/run.bash" "$@" 2>&1)"
     rc=$?
 }
 calls() { if [ -f "$LOG" ]; then cat "$LOG"; fi; }
 ran() { calls | grep -c '^argv:'; }
+GO_BUILD_CACHE="$(go env GOCACHE)"
 
 echo "=== --headless <play>: an unattended play on a NOPASSWD box ==="
 run_play FAKE_NOPASSWD=1 -- --headless "$PLAY" -e some=var
@@ -272,6 +287,68 @@ run_play FAKE_NOPASSWD=1 PATH="$FAKE_HOME/.local/bin:$BIN:/usr/bin:/bin" \
     RUN_BASH_ANSIBLE_PLAYBOOK="$SYSTEM_BIN/ansible-playbook" -- --interactive "$PLAY"
 check "a pin outside an unattended single play is refused, not ignored" "1" "$rc"
 check "and runs nothing" "0" "$(ran)"
+
+echo "=== the checkout gate (R78): a single play runs only what the remote holds ==="
+run_play FAKE_NOPASSWD=1 -- --headless "$PLAY"
+check "level with its upstream: the play runs" "1" "$(ran)"
+check "and the gate says so" "yes" "$(yes_if grep -q 'clean and level with origin/F44' <<<"$out")"
+INTERACTIVE_PATH="$FAKE_HOME/.local/bin:$BIN:/usr/bin:/bin"
+# gated <what> <the cause as the refusal names it>: refused in both modes, run with --force.
+gated() {
+    run_play FAKE_NOPASSWD=1 -- --headless "$PLAY"
+    check "$1: refused" "1" "$rc"
+    check "$1: and runs nothing" "0" "$(ran)"
+    check "$1: naming the cause" "yes" "$(yes_if grep -qF -- "$2" <<<"$out")"
+    check "$1: and the command that runs it anyway" "yes" \
+        "$(yes_if grep -qF -- "To run anyway: ./run.bash --force --headless $PLAY" <<<"$out")"
+    run_play FAKE_NOPASSWD=1 PATH="$INTERACTIVE_PATH" -- --interactive "$PLAY"
+    check "$1: the interactive play is refused too" "1:0" "$rc:$(ran)"
+    run_play FAKE_NOPASSWD=1 -- --force --headless "$PLAY"
+    check "$1: --force runs it" "0:1" "$rc:$(ran)"
+    check "$1: saying what it overrode" "yes" "$(yes_if grep -q -- '--force: running anyway' <<<"$out")"
+}
+printf 'notes\n' >"$CHECKOUT/notes.txt"
+gated "an uncommitted file" "1 uncommitted path(s): notes.txt"
+run_play FAKE_NOPASSWD=1 PATH="$SYSTEM_BIN:$BIN:/usr/bin:/bin" \
+    RUN_BASH_ANSIBLE_PLAYBOOK="$SYSTEM_BIN/ansible-playbook" -- --headless "$PLAY"
+check "the self-update cycle's pinned play is not gated (update.py judged its clone)" "0:1" "$rc:$(ran)"
+rm "$CHECKOUT/notes.txt"
+g commit -q --allow-empty -m "local only"
+gated "a commit no remote holds" "1 commit(s) ahead of origin/F44"
+g push -q origin F44
+git clone -q -b F44 "$SCRATCH/upstream.git" "$SCRATCH/elsewhere"
+git -C "$SCRATCH/elsewhere" -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false \
+    commit -q --allow-empty -m "pushed from elsewhere"
+git -C "$SCRATCH/elsewhere" push -q origin F44
+gated "behind its upstream" "1 commit(s) behind origin/F44"
+g pull -q --ff-only
+run_play FAKE_NOPASSWD=1 -- --headless "$PLAY"
+check "level again: the play runs" "0:1" "$rc:$(ran)"
+
+echo "=== --optional-only and the install meet the same gate ==="
+mkdir -p "$FAKE_HOME/Projects"
+ln -s "$CHECKOUT" "$FAKE_HOME/Projects/fedora-desktop"
+printf 'notes\n' >"$CHECKOUT/notes.txt"
+run_play FAKE_NOPASSWD=1 RUN_BASH_OPTIONAL_PLAYBOOKS=none -- --headless --optional-only
+check "--optional-only from a dirty checkout: refused" "1" "$rc"
+check "with the command that runs it anyway" "yes" \
+    "$(yes_if grep -qF -- 'To run anyway: ./run.bash --force --headless --optional-only' <<<"$out")"
+run_play FAKE_NOPASSWD=1 RUN_BASH_OPTIONAL_PLAYBOOKS=none -- --force --headless --optional-only
+check "and with --force it runs" "0" "$rc"
+check "saying what it overrode" "yes" "$(yes_if grep -q -- '--force: running anyway' <<<"$out")"
+rm "$CHECKOUT/notes.txt" "$FAKE_HOME/Projects/fedora-desktop"
+# The install's main playbook cannot run here (it provisions the machine), so where the gate
+# sits is checked in the text: run.bash's top level, after the last pull of the checkout, before
+# the SSH agent that fetch may need is stopped, and before every Ansible step.
+first_line() { awk -v re="$1" '$0 ~ re {print NR; found=1; exit} END {if (!found) print 0}' "$REPO_ROOT/run.bash"; }
+last_line() { awk -v re="$1" '$0 ~ re {n=NR} END {print n+0}' "$REPO_ROOT/run.bash"; }
+gate_at="$(first_line '^checkout_gate ".HOME/Projects/fedora-desktop"')"
+pull_at="$(last_line '^fd_checkout .* pull$')"
+check "the install's gate is at the top level" "yes" "$(yes_if [ "$gate_at" -gt 0 ])"
+check "after the last pull" "yes" "$(yes_if [ "$gate_at" -gt "$pull_at" ])"
+for step in '^  hl_ssh_agent_stop$' '^if ! ansible-galaxy install ' '^  ansible-playbook playbooks/playbook-main.yml '; do
+    check "before: ${step}" "yes" "$(yes_if [ "$gate_at" -lt "$(first_line "$step")" ])"
+done
 
 echo "=== refusals ==="
 run_play FAKE_NOPASSWD=1 -- --headless /etc/passwd.yml

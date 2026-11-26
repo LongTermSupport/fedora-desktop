@@ -1501,22 +1501,37 @@ before the move to v2. Filled in as causes are found.
     `scripts/test-run-bash-*` drives the wiring.
 - **Built (Task 4.1):** `src-go/cmd/checkout-gate` over `internal/checkoutgate` (G1-G15 in its
   package doc), with the git questions in `internal/gitx/upstream.go`. run.bash's
-  `play_batch_gate` builds and runs it (`run_go_command`) where `play_batch_warn_dirty` was;
-  run.bash shrank (2771 to 2769 code lines). Decisions:
+  `checkout_gate <checkout>` builds and runs it (`run_go_command`), handing it the words run.bash
+  was run with, so the refusal repeats that command with `--force` first. run.bash shrank (2771
+  to 2764 code lines: the single play now shares `--changed`'s preflight). Decisions:
   - Untracked files outside `.gitignore` count as uncommitted: a play can read a new file.
   - A failed fetch is refused, and `--force` is the way past it: an offline machine must still
     be able to run a play. Forced, nothing is compared, and it says so.
   - A branch with no upstream is refused (fix `git push -u`); a git fault is exit 1 even with
     `--force`, as the gate cannot say what it would override.
   - `--changed` is gated only when it has plays to run; `--rerun` before its menu.
-  - Not gated: a single play (`./run.bash <play>.yml`), which meta-deploy's playbook entries,
-    plan deploy scripts and the self-update cycle run; meta-deploy's `changed-plays` entry is
-    gated. Whether single plays are gated too is the owner's call. `--force` with neither
-    `--changed` nor `--rerun` is refused.
+  - Gated, as the fix says ("before any play"): a single play (`./run.bash <play>.yml` and a
+    play's shebang, so meta-deploy's playbook entries and plan deploy scripts too),
+    `--changed`, `--rerun`, `--optional-only` (before its menu or its headless list), and an
+    install's main playbook, after the last pull and before the SSH agent the fetch may need
+    is stopped. A fresh install meets it too: its clone is level. `--force` goes first, as
+    words after a playbook path go to Ansible.
+  - Not gated, decided from the code: the self-update cycle's plays (the one caller of
+    `RUN_BASH_ANSIBLE_PLAYBOOK`). Its clone is put on a signed release, which on the release
+    channel is behind the branch tip by design, so the gate would refuse every cycle; and
+    `helpers/self_update/update.py` already refuses a dirty tree, strays, ahead and diverged.
+    And `--consumer`: `fd_checkout ... pull --ff-only` refuses a dirty tree and a diverged
+    branch and brings it level; ahead needs a commit a consumer, with no GitHub identity and
+    an HTTPS origin, does not make and could not push.
   - Tests: Go unit tests over `execx` fakes, gitx against real repositories with a bare
-    upstream, and the `scripts/test-run-bash-{changed,rerun}.bash` suites driving the wiring.
+    upstream, the `scripts/test-run-bash-{changed,rerun}.bash` suites driving the wiring over a
+    stand-in, and `test-run-bash-single-play.bash` over the real gate: a single play dirty,
+    ahead and behind is refused (headless and interactive) and runs with `--force`, a pinned
+    self-update play is not gated, `--optional-only` is refused and forced the same way, and
+    the install's gate sits after the last pull and before every Ansible step.
 - **Severity:** medium (a play deployed from code that is not on the remote). **Issue:** TBF.
-  **State:** fixed in the container; live proof owed (a `--changed` run on the host).
+  **State:** fixed in the container; live proof owed (a `--changed` run and a single play on
+  the host).
 
 ## R79: the private-name guard learns only this session's own teams
 

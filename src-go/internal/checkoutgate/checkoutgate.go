@@ -1,6 +1,7 @@
 // Package checkoutgate is the checkout-gate command (Plan 00265 Task 4.1, register R78, the
-// owner's Q18): run.bash runs it before `--changed` and `--rerun` run plays, and refuses the
-// run when the checkout holds work no commit does, or is not level with its upstream after a
+// owner's Q18): run.bash runs it before it runs any play (a single play, `--changed`,
+// `--rerun`, `--optional-only` and the main playbook of an install), and refuses the run
+// when the checkout holds work no commit does, or is not level with its upstream after a
 // fetch, because a play deployed from such a checkout deploys code that is not on the remote
 // (the remote is this repository's backup). `--force` runs anyway. It is a gate, so it
 // refuses and never prompts. run.bash is on the bash-limits ratchet, so the judgement lives
@@ -31,14 +32,15 @@
 //   - G9 diverged: refused with both counts. Fix: git pull --rebase, then git push.
 //   - G10 an upstream that is set but cannot be read after the fetch (its branch deleted on
 //     the remote) is refused with git's words. Fix: push the branch again with -u.
-//   - G11 a refusal is exit 1; its first line names the run.bash option refused, each cause is
-//     a line with its fix under it, and the last line is the same command with --force.
+//   - G11 a refusal is exit 1; its first line names the run.bash command line refused, each
+//     cause is a line with its fix under it, and the last line is the same command with
+//     --force first, where a single play's ansible-playbook arguments cannot swallow it.
 //   - G12 `--force` reports each cause it overrode on stderr and exits 0.
 //   - G13 a git that cannot answer (status, the branch, its config, the counts) is a fault:
 //     exit 1 with git's words, --force or not, as the gate cannot say what it would override.
-//   - G14 the command line is `[--force] <checkout> <run.bash option>`, the checkout an
-//     absolute path and the option one starting with "--"; anything else is exit 64 and runs
-//     no git.
+//   - G14 the command line is `[--force] <checkout> [run.bash argument...]`, the checkout an
+//     absolute path and the arguments the words run.bash was run with (none for a plain
+//     install), shown quoted for a shell; anything else is exit 64 and runs no git.
 //   - G15 the gate has no payload, so it is given no stdout: every line is a diagnostic, on
 //     stderr, and a line that cannot be written is exit 1.
 package checkoutgate
@@ -51,10 +53,11 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/shellword"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-const usage = "usage: checkout-gate [--force] <checkout> <run.bash option>"
+const usage = "usage: checkout-gate [--force] <checkout> [run.bash argument...]"
 
 // namedPaths is how many uncommitted paths a refusal names before it counts the rest.
 const namedPaths = 10
@@ -76,7 +79,7 @@ type cause struct {
 
 // Run judges the checkout the arguments name and returns the exit code.
 func (a App) Run(ctx context.Context, args []string) term.ExitCode {
-	force, dir, option, ok := parse(args)
+	force, dir, words, ok := parse(args)
 	if !ok {
 		return a.say(term.ExitUsage, usage)
 	}
@@ -94,24 +97,29 @@ func (a App) Run(ctx context.Context, args []string) term.ExitCode {
 		}
 		return a.say(term.ExitOK, lines...)
 	}
-	lines := []string{"✗ run.bash " + option + " refused: the checkout at " + dir + " is not what the remote holds."}
+	lines := []string{"✗ " + runBash(nil, words) + " refused: the checkout at " + dir + " is not what the remote holds."}
 	for _, c := range causes {
 		lines = append(lines, "  • "+c.what, "    fix: "+c.fix)
 	}
-	lines = append(lines, "  To run anyway: ./run.bash "+option+" --force")
+	lines = append(lines, "  To run anyway: "+runBash([]string{"--force"}, words))
 	return a.say(term.ExitFailure, lines...)
 }
 
-func parse(args []string) (force bool, dir, option string, ok bool) {
+func parse(args []string) (force bool, dir string, words []string, ok bool) {
 	if len(args) > 0 && args[0] == "--force" {
 		force = true
 		args = args[1:]
 	}
-	const want = 2
-	if len(args) != want || !filepath.IsAbs(args[0]) || !strings.HasPrefix(args[1], "--") {
-		return false, "", "", false
+	if len(args) == 0 || !filepath.IsAbs(args[0]) {
+		return false, "", nil, false
 	}
-	return force, args[0], args[1], true
+	return force, args[0], args[1:], true
+}
+
+// runBash is run.bash's command line as a person types it again: the options given first,
+// then the words it was run with, each quoted for a shell.
+func runBash(first, words []string) string {
+	return shellword.Join(append(append([]string{"./run.bash"}, first...), words...))
 }
 
 // judge is every cause found in the checkout at dir, or the line a pass prints.

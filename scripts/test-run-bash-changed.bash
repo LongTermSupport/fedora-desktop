@@ -163,12 +163,8 @@ check "and runs nothing" "" "$(plays_run)"
 check "nor asks to" "no" "$(yes_if grep -q 'Run them now' <<<"$out")"
 check "and passes on the gate's words" "yes" "$(yes_if grep -q 'stand-in gate' <<<"$out")"
 run_changed 'y\n' -- --changed --force
-check "--force reaches the gate" "gate: checkout-gate --force $CHECKOUT --changed" "$(calls | grep '^gate: ')"
+check "--force reaches the gate, with the words run.bash was given" "gate: checkout-gate --force $CHECKOUT --changed --force" "$(calls | grep '^gate: ')"
 check "and the plays run" "play-a.yml play-b.yml " "$(plays_run)"
-run_changed '' -- --force
-check "--force without --changed or --rerun: refused" "1" "$rc"
-check "and says what it is for" "yes" "$(yes_if grep -q -- '--force only overrides the checkout gate' <<<"$out")"
-check "asking no gate" "" "$(calls | grep '^gate: ')"
 
 echo "=== declined ==="
 run_changed 'n\n' -- --changed

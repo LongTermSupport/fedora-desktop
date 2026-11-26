@@ -42,6 +42,7 @@ func (w world) fake() *execx.Fake {
 	} else {
 		f.On([]string{"git", "config"}, execx.Result{Stdout: []byte("refs/heads/F44\n")})
 	}
+	f.On([]string{"git", "config", "--list"}, execx.Result{})
 	if w.fetchFails {
 		f.On([]string{"git", "fetch"}, execx.Result{ExitCode: 128, Stderr: []byte("fatal: Could not resolve host: github.com")})
 	} else {
@@ -111,7 +112,7 @@ func TestG2DirtyIsRefusedNamingThePaths(t *testing.T) {
 		t.Fatalf("exit %d", r.code)
 	}
 	r.says(t, "run.bash --changed refused", "2 uncommitted path(s)", "run.bash", "notes.txt",
-		"git commit", "git stash", "./run.bash --changed --force")
+		"git commit", "git stash", "./run.bash --force --changed")
 }
 
 // G2: a long list names the first ten and counts the rest.
@@ -192,7 +193,7 @@ func TestG7G8G9BehindAheadDiverged(t *testing.T) {
 				t.Fatalf("exit %d", r.code)
 			}
 			r.says(t, c.says...)
-			r.says(t, "./run.bash --changed --force")
+			r.says(t, "./run.bash --force --changed")
 		})
 	}
 }
@@ -251,25 +252,53 @@ func TestG13AGitFaultIsNotForceable(t *testing.T) {
 	}
 }
 
-// G14: the command line is [--force] <checkout> <run.bash option>; anything else is usage.
+// G14: the command line is [--force] <checkout> [run.bash argument...]; anything else is usage.
 func TestG14Usage(t *testing.T) {
 	for _, args := range [][]string{
 		nil,
-		{checkout},
-		{checkout, "changed"},
 		{"--force"},
 		{"--forse", checkout, "--changed"},
-		{checkout, "--changed", "extra"},
 		{"relative", "--changed"},
+		{"--force", "relative"},
 	} {
 		r := run(t, world{}, args...)
 		if r.code != term.ExitUsage {
 			t.Fatalf("%v: exit %d", args, r.code)
 		}
-		r.says(t, "usage: checkout-gate [--force] <checkout> <run.bash option>")
+		r.says(t, "usage: checkout-gate [--force] <checkout> [run.bash argument...]")
 		if len(r.git.Calls()) != 0 {
 			t.Fatalf("%v: ran git", args)
 		}
+	}
+}
+
+// G11, G14: the refusal names run.bash as it was run, each word quoted for a shell, and the
+// command to run anyway puts --force first, where a single play's arguments cannot swallow it.
+func TestG14TheRefusalRepeatsTheCommandLine(t *testing.T) {
+	for name, c := range map[string]struct {
+		words   []string
+		refused string
+		anyway  string
+	}{
+		"plain install": {nil, "✗ ./run.bash refused", "To run anyway: ./run.bash --force\n"},
+		"single play": {
+			[]string{"playbooks/imports/play-a.yml", "-e", "a b"},
+			"✗ ./run.bash playbooks/imports/play-a.yml -e 'a b' refused",
+			"To run anyway: ./run.bash --force playbooks/imports/play-a.yml -e 'a b'\n",
+		},
+		"two options": {
+			[]string{"--headless", "--optional-only"},
+			"✗ ./run.bash --headless --optional-only refused",
+			"To run anyway: ./run.bash --force --headless --optional-only\n",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := run(t, world{behind: 1}, append([]string{checkout}, c.words...)...)
+			if r.code != term.ExitFailure {
+				t.Fatalf("exit %d: %s", r.code, r.stderr)
+			}
+			r.says(t, c.refused, c.anyway)
+		})
 	}
 }
 

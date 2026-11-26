@@ -100,16 +100,22 @@ as `--changed`, and stops at the first failure. It uses the ledger and the judge
 `--changed` uses, and the same refusals (no playbook path, no `--optional-only`, no
 `--headless`). The panel's "Re-run a play…" row opens it.
 
-**Both refuse a checkout the remote does not hold.** Before `--changed` asks (when it has
-plays to run) and before `--rerun` shows its menu, `run.bash` fetches and refuses when the
+**Every play run refuses a checkout the remote does not hold.** Before a single play
+(`./run.bash <play>.yml`, or the play file itself), before `--changed` asks (when it has plays
+to run), before `--rerun` shows its menu, before `--optional-only`'s plays and before an
+install's main playbook (after its pull), `run.bash` fetches and refuses when the
 checkout has uncommitted changes (tracked, or untracked and not ignored), when its branch has
 no upstream, is behind it, ahead of it or diverged from it, or when the fetch fails. The
 refusal names each cause and its fix (commit or stash, `git pull --ff-only`, `git push`,
-`git push -u`) and ends with the same command plus `--force`, which runs anyway and says on
-stderr what it overrode. A detached checkout (a `RUN_BASH_GIT_REF` pin) is checked for
-uncommitted changes only. The check is `src-go/cmd/checkout-gate`; its package doc,
-`src-go/internal/checkoutgate`, lists every case. A single play (`./run.bash <play>.yml`,
-which meta-deploy's playbook entries and plan deploy scripts use) is not gated.
+`git push -u`) and ends with the same command with `--force` first (before a playbook path,
+as words after it go to Ansible), which runs anyway and says on stderr what it overrode. A
+detached checkout (a `RUN_BASH_GIT_REF` pin) is checked for uncommitted changes only. The
+check is `src-go/cmd/checkout-gate`; its package doc, `src-go/internal/checkoutgate`, lists
+every case. Two runs are not gated: the self-update cycle's plays (it pins
+`RUN_BASH_ANSIBLE_PLAYBOOK`; its clone sits on a signed release behind the branch tip by
+design, and `helpers/self_update/update.py` judges it), and `--consumer`, whose
+`git pull --ff-only` already refuses a dirty or diverged checkout and brings it level, and
+whose user commits nothing.
 
 ```bash
 # Zero-flag default — auto-detects desktop vs. server:

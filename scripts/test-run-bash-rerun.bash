@@ -261,7 +261,7 @@ check "and runs nothing" "" "$(plays_run)"
 check "before the menu, so no pick is thrown away" "no" "$(yes_if grep -q 'Your choice' <<<"$out")"
 check "nor the judge asked" "no" "$(yes_if grep -q '^judge: ' <<<"$(calls)")"
 run_rerun '1\n' -- --rerun --force
-check "--force reaches the gate" "gate: checkout-gate --force $CHECKOUT --rerun" "$(calls | grep '^gate: ')"
+check "--force reaches the gate, with the words run.bash was given" "gate: checkout-gate --force $CHECKOUT --rerun --force" "$(calls | grep '^gate: ')"
 check "and the pick runs" "play-a.yml " "$(plays_run)"
 
 echo "=== nothing has run here ==="
