@@ -450,6 +450,59 @@ func TestW9AProcessGoneMidScanIsSkipped(t *testing.T) {
 	w.assertNothing()
 }
 
+// TestW13OnlyRegularProcFilesAreRead holds that a /proc file that is not a regular file (a named
+// pipe, which would block the read for ever) is refused naming it, and that a thread entry that
+// is not a directory is skipped.
+func TestW13OnlyRegularProcFilesAreRead(t *testing.T) {
+	for _, file := range []string{"comm", "cmdline", "status", "stat"} {
+		t.Run(file, func(t *testing.T) {
+			w := newWorld(t)
+			w.lightning(w.argv(), uid)
+			name := strconv.Itoa(pid) + "/" + file
+			w.proc[name].Mode = fs.ModeNamedPipe
+			w.writeLog(base)
+			err := w.w.Tick(context.Background(), base.Add(5*time.Second))
+			if err == nil || !strings.Contains(err.Error(), name) || !strings.Contains(err.Error(), "not a regular file") {
+				t.Fatalf("a pipe at %s: %v", name, err)
+			}
+		})
+	}
+	t.Run("thread files", func(t *testing.T) {
+		for _, file := range []string{"stat", "wchan"} {
+			w := newWorld(t)
+			w.lightning(w.argv(), uid)
+			name := strconv.Itoa(pid) + "/task/" + strconv.Itoa(pid+1) + "/" + file
+			w.proc[name].Mode = fs.ModeNamedPipe
+			w.writeLog(base)
+			w.tick(base.Add(5 * time.Second))
+			w.grow(2 * gibInKiB)
+			err := w.w.Tick(context.Background(), base.Add(75*time.Second))
+			if err == nil || !strings.Contains(err.Error(), name) {
+				t.Fatalf("a pipe at %s: %v", name, err)
+			}
+		}
+	})
+	t.Run("a task entry that is a file", func(t *testing.T) {
+		w := newWorld(t)
+		w.lightning(w.argv(), uid)
+		w.proc[strconv.Itoa(pid)+"/task/notes"] = &fstest.MapFile{Data: []byte("x")}
+		w.writeLog(base)
+		w.tick(base.Add(5 * time.Second))
+		w.grow(2 * gibInKiB)
+		w.tick(base.Add(75 * time.Second))
+		if text := w.recordText(); !strings.Contains(text, "4243 QSGRenderThread") || strings.Contains(text, "notes") {
+			t.Fatalf("the record:\n%s", text)
+		}
+	})
+	t.Run("a /proc entry that is a file", func(t *testing.T) {
+		w := newWorld(t)
+		w.lightning(w.argv(), uid)
+		w.proc["7"] = &fstest.MapFile{Data: []byte("x")}
+		w.writeLog(base)
+		w.tick(base.Add(5 * time.Second))
+	})
+}
+
 // TestW10ARestartDoesNotRecordAgain holds once per process across a restart of the watchdog: the
 // record's own header says the process was recorded.
 func TestW10ARestartDoesNotRecordAgain(t *testing.T) {

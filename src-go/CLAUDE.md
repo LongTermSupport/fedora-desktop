@@ -183,7 +183,7 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   doc): one Lightning instance (its own XDG data, config and cache), a homeserver settings file
   and a launcher per team the human watches in Lightning; a stale launcher of its own removed, an
   instance never; a team's `lightning_diagnostics` adds traces and a log file to its launcher.
-  Its `watch` verb (`internal/lightning/watch`, W1-W12, Plan 00268) is the diagnostics watchdog
+  Its `watch` verb (`internal/lightning/watch`, W1-W13, Plan 00268) is the diagnostics watchdog
   the `agent-bus-lightning-watch` user service runs: it reads only `/proc` and the logs'
   modification times, and records a stalled instance's threads once beside its log. Built and
   run by `play-agent-bus-element.yml`.

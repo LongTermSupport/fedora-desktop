@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -32,7 +33,7 @@ func clients(t *testing.T) []matrixclients.Client {
 func newApp(t *testing.T, runner execx.Runner) (*App, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
 	var out, errOut bytes.Buffer
-	return &App{Runner: runner, Clients: clients(t), Home: "/home/someone", UID: 1000, Stdout: &out, Stderr: &errOut}, &out, &errOut
+	return &App{Runner: runner, Clients: clients(t), Home: "/home/<user>", UID: 1000, Stdout: &out, Stderr: &errOut}, &out, &errOut
 }
 
 func TestEveryCallRunsTheFixedFlatpakInAFixedEnvironment(t *testing.T) {
@@ -41,7 +42,7 @@ func TestEveryCallRunsTheFixedFlatpakInAFixedEnvironment(t *testing.T) {
 	if code := app.Run(context.Background(), nil); code != term.ExitOK {
 		t.Fatalf("exit %d, stderr %q", code, errOut.String())
 	}
-	want := []string{"PATH=/usr/bin:/bin", "LC_ALL=C", "HOME=/home/someone", "XDG_RUNTIME_DIR=/run/user/1000"}
+	want := []string{"PATH=/usr/bin:/bin", "LC_ALL=C", "HOME=/home/<user>", "XDG_RUNTIME_DIR=/run/user/1000"}
 	for _, c := range fake.Calls() {
 		if c.Name != "/usr/bin/flatpak" {
 			t.Errorf("%s: runs %q, not the full path: the caller's PATH would choose it", c.Line(), c.Name)
@@ -247,19 +248,19 @@ func TestAFlatpakFailureFails(t *testing.T) {
 	}
 }
 
-// deadlines records whether every call it passes on had a deadline, and how far off it was.
+// deadlines records whether every call it passes on had a deadline, and the latest one.
 type deadlines struct {
 	inner   execx.Runner
 	missing int
-	longest time.Duration
+	latest  time.Time
 }
 
 func (d *deadlines) Run(ctx context.Context, c execx.Cmd) (execx.Result, error) {
 	when, ok := ctx.Deadline()
 	if !ok {
 		d.missing++
-	} else if left := time.Until(when); left > d.longest {
-		d.longest = left
+	} else if when.After(d.latest) {
+		d.latest = when
 	}
 	res, err := d.inner.Run(ctx, c)
 	if err != nil {
@@ -268,18 +269,23 @@ func (d *deadlines) Run(ctx context.Context, c execx.Cmd) (execx.Result, error) 
 	return res, nil
 }
 
+// TestEveryCallHasATimeBound runs on synctest's clock, which starts at midnight UTC, 2000-01-01
+// and stands still while the fake answers, so a deadline's distance is exact.
 func TestEveryCallHasATimeBound(t *testing.T) {
-	rec := &deadlines{inner: healthy(t)}
-	app, _, errOut := newApp(t, rec)
-	if code := app.Run(context.Background(), nil); code != term.ExitOK {
-		t.Fatalf("exit %d, stderr %q", code, errOut)
-	}
-	if rec.missing != 0 {
-		t.Errorf("%d calls ran with no deadline", rec.missing)
-	}
-	if rec.longest > CallBound {
-		t.Errorf("a call's deadline was %s away, past the bound %s", rec.longest, CallBound)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		start := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+		rec := &deadlines{inner: healthy(t)}
+		app, _, errOut := newApp(t, rec)
+		if code := app.Run(context.Background(), nil); code != term.ExitOK {
+			t.Fatalf("exit %d, stderr %q", code, errOut)
+		}
+		if rec.missing != 0 {
+			t.Errorf("%d calls ran with no deadline", rec.missing)
+		}
+		if away := rec.latest.Sub(start); rec.latest.IsZero() || away > CallBound {
+			t.Errorf("a call's deadline was %s away, past the bound %s", away, CallBound)
+		}
+	})
 }
 
 func TestAnErrorFromTheRunnerIsNotSwallowed(t *testing.T) {
