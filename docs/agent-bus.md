@@ -146,7 +146,9 @@ launch does not start.
 9. **Take a team down.** `ccy-teams remove <team>` (or Take `<team>` down on the team's menu), on a terminal
    only, one team at a time. It says what is lost, offers a backup first, and by default
    keeps the team's data (its whole room history); deleting the data as well needs the
-   team's name typed. A team watched in Element loses its launcher and Element profile too
+   team's name typed. Once the team is down, its seats' conversation records
+   (`.claude/ccy/seat-conversations/<team>/`) are removed from every checkout that holds seats,
+   so a team made again under the name resumes nothing of the old one. A team watched in Element loses its launcher and Element profile too
    (`play-agent-bus-element.yml` runs after the team's play); one watched in Lightning loses its
    launcher and keeps its Lightning instance, named for you to delete. Its
    `agent_bus_element_teams` entry (the teams this desktop's human watches, whatever the

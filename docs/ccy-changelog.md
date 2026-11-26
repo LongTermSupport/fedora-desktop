@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.71 — container 2.84.88
+
+- **Forgetting a team's seats never leaves the checkout.** `ccy-teams remove` removed a team's
+  seat records through any link above them, so a link at `.claude`, `.claude/ccy` or
+  `seat-conversations` (which a container may write) could make it delete outside the checkout.
+  The removal now goes through a root on the checkout, and any link on the way is refused,
+  naming it (Plan 00265 R36, review).
+
 ## 3.124.70 — container 2.84.88
 
 - **Start a ccy session starts a new seat.** ccy-teams' Start a ccy session (a team's New

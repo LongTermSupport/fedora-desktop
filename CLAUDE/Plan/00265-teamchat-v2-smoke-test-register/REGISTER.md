@@ -540,10 +540,25 @@ filled in as each cause is known.
   `declare.py` and `queries.go`, the chooser's two "name it" lines and Plan 00232's advice give a
   team name or a bare `--teams`, whose picked never-used seat already starts fresh (#423,
   `--given`); a `--fresh` there would drop a picked seat's recorded conversation.
+- **Independent review of the R36 commits (26 Nov 01:37Z), FIX-BEFORE-MERGE; its findings:**
+  (2) `ForgetTeam` followed a link above the team's directory (`.claude`, `.claude/ccy` or
+  `seat-conversations`), so `ccy-teams remove` could delete outside the checkout: fixed, the
+  removal goes through an `os.Root` on the checkout and every directory from `.claude` down must
+  be a real one (red on all three links, green after); ccy 3.124.71. (4) the wiring was untested:
+  a test now holds that `Wire` sets `Ops.ForgetTeam` and that it removes a record. (5) Plan
+  00232's and Plan 00161 U20's named-seat acceptance launches pass `--fresh` (a sweep of the
+  active plan scripts finds no other). (6) docs/agent-bus.md's take-down step names the removal.
+  **Open:** (1) the class `project_temp_not_exclusive` names is fixed in Go only: Python
+  (`supervisor-plugins/ccy_lifecycle.py`, which ships in the image, and `.claude/ccy/claude-supervise.py`)
+  and the launcher's bash (`lib/*.bash` writes to `.tmp.$$`) still create pid-named temporaries
+  without an exclusive create and rename them; Defence Before Fix owes a semgrep rule for Python
+  and bash, its sweep and the fixes. (3) unchecked: whether a session record that outlives the
+  team's removal can still lead `ForSeats` (which falls back to session records when a seat has
+  none) to resume the old team's conversation.
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
-  open: the owner's call on the old branch's lock on seat-record writes (4001e4789); the
-  branches stay until a human deletes them (after the carry-over they are covered by behaviour,
-  not by git history).
+  open: review findings (1) and (3); the owner's call on the old branch's lock on seat-record
+  writes (4001e4789); the branches stay until a human deletes them (after the carry-over they
+  are covered by behaviour, not by git history).
 
 ## R49: a worker's failed questions join was reported as "event not found"
 
