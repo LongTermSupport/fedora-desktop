@@ -206,14 +206,14 @@ func TestComposePin(t *testing.T) {
 // reads the bytes recorded, not a list of names.
 func TestApproveComposeShowsTheContent(t *testing.T) {
 	r := newRig(t)
-	write(t, r.dir, "compose.yml", "include: [base.yml]\nservices:\n  app:\n    volumes: [\"${DATA}:/d\"]\n")
+	write(t, r.dir, "compose.yml", "include: [base.yml]\nservices:\n  app:\n    volumes: [\"./data:/d\"]\n")
 	write(t, r.dir, "base.yml", "services:\n  db:\n    image: postgres\n")
 	write(t, r.dir, ".env", "DATA=/srv/data\n")
 	r.answer = no()
 	if code := r.cmd().Approve(context.Background(), []string{"compose"}); code != term.ExitFailure {
 		t.Fatalf("approve: %v", code)
 	}
-	for _, want := range []string{"── compose.yml ──", `volumes: ["${DATA}:/d"]`, "── base.yml ──", "image: postgres", "── .env ──", "DATA=/srv/data"} {
+	for _, want := range []string{"── compose.yml ──", `volumes: ["./data:/d"]`, "── base.yml ──", "image: postgres", "── .env ──", "DATA=/srv/data"} {
 		if !strings.Contains(r.err.String(), want) {
 			t.Errorf("approval screen lacks %q:\n%s", want, r.err.String())
 		}

@@ -29,6 +29,20 @@
 //     every line Command prints goes through Shown, which escapes each control and format
 //     character (a bidi override would reorder a path or value on screen), and the values ccy
 //     writes or binds (the saved launch choices, the mounts paths) refuse them outright.
+//   - K7. The compose digest covers everything compose reads from the checkout, not only the
+//     compose files: each build's Dockerfile, each env_file and label_file (a service's or an
+//     include's), and each config's and secret's file, by name, presence and content. A path
+//     compose hands the engine by name (a bind source, a build context or additional context,
+//     a config or secret file, a bind volume's device) is refused when any part of it in the
+//     checkout is a link, since a container could point it anywhere without changing a byte
+//     hashed. A build context's other files are not hashed: they are the project's source,
+//     which a session edits by design, and what the image's code can reach on this machine is
+//     fixed by the compose text approved. What the walk cannot judge is refused, by name: a key
+//     it does not know (but an x- extension), a path interpolated from any variable but
+//     ${PWD}, a credential_spec file, a file read from outside the checkout. Every path is
+//     checked again at each use, so a link made after the approval is refused too; a link made
+//     between the check and the engine's own read is not (a live container of the same
+//     checkout could race it).
 package checkoutpin
 
 import (
@@ -38,7 +52,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -47,8 +60,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"go.yaml.in/yaml/v3"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
@@ -245,7 +256,7 @@ func ComposeRead(checkout string) (files []PinnedFile, digest string, present bo
 	defer closeRoot(root, &err)
 	w := composeWalk{root: root, checkout: checkout, seen: map[string]bool{}}
 	for _, name := range ComposeFiles {
-		if err := w.add(name, false); err != nil {
+		if err := w.add(name, true); err != nil {
 			return nil, "", false, err
 		}
 	}
@@ -274,20 +285,19 @@ type composeWalk struct {
 	text     bytes.Buffer
 }
 
-// add puts one file into the digest, present or not; a referenced one must be present.
-func (w *composeWalk) add(name string, referenced bool) error {
+// add puts one file into the digest, present or not. A compose file a compose file includes
+// must be present, and is walked in turn (files); another is hashed only.
+func (w *composeWalk) add(name string, compose bool) error {
 	content, here, err := readPinned(w.root, name)
 	if err != nil {
 		return err
 	}
-	if referenced && !here {
-		return fmt.Errorf("%s/%s is included by a compose file and is not there", w.checkout, name)
-	}
+	w.seen[name] = true
 	w.entry(name, here, content)
-	if here {
-		w.seen[name] = true
-		w.files = append(w.files, name)
+	if !compose || !here {
+		return nil
 	}
+	w.files = append(w.files, name)
 	return nil
 }
 
@@ -314,102 +324,125 @@ func (w *composeWalk) entry(name string, here bool, content []byte) {
 	}
 }
 
-// follow adds the files one compose file includes or extends.
+// follow adds what one compose file makes compose read (K7): the compose files it includes or
+// extends, and the other files it reads, each hashed; and it refuses a link in any checkout path
+// compose hands the engine by name.
 func (w *composeWalk) follow(name string) error {
 	content, _, err := readPinned(w.root, name)
 	if err != nil {
 		return err
 	}
-	refs, err := composeRefs(content)
+	use, err := composeUses(content)
 	if err != nil {
 		return fmt.Errorf("%s/%s: %w", w.checkout, name, err)
 	}
-	for _, ref := range refs {
-		rel := path.Clean(path.Join(path.Dir(name), ref))
-		if path.IsAbs(ref) || rel == ".." || strings.HasPrefix(rel, "../") {
-			return fmt.Errorf("%s/%s includes %s, outside the checkout, which no approval can cover", w.checkout, name, ref)
-		}
-		if w.seen[rel] {
-			continue
-		}
-		if len(w.seen) >= maxComposeFiles {
-			return fmt.Errorf("%s: the compose files reach more than %d files", w.checkout, maxComposeFiles)
-		}
-		if err := w.add(rel, true); err != nil {
+	for _, ref := range use.linkFree {
+		if err := w.linkFree(name, ref, use.outsideOK[ref]); err != nil {
 			return err
+		}
+	}
+	if err := w.take(name, use.follow, true); err != nil {
+		return err
+	}
+	return w.take(name, use.pinned, false)
+}
+
+// take adds each file name makes compose read, none of them outside the checkout; an included
+// compose file must be there.
+func (w *composeWalk) take(name string, refs []string, compose bool) error {
+	for _, ref := range refs {
+		rel, outside, err := w.resolve(name, ref)
+		if err != nil {
+			return err
+		}
+		if outside {
+			return fmt.Errorf("%s/%s makes compose read %s, outside the checkout, which no approval can cover", w.checkout, name, ref)
+		}
+		if err := w.addOnce(rel, compose); err != nil {
+			return err
+		}
+		if compose && !slices.Contains(w.files, rel) {
+			return fmt.Errorf("%s/%s is included by a compose file and is not there", w.checkout, rel)
+		}
+	}
+	return nil
+}
+
+// addOnce adds a file the walk has not seen: a compose file must be there, another file is
+// hashed as there or not.
+func (w *composeWalk) addOnce(rel string, compose bool) error {
+	if w.seen[rel] {
+		return nil
+	}
+	if len(w.seen) >= maxComposeFiles {
+		return fmt.Errorf("%s: the compose files reach more than %d files", w.checkout, maxComposeFiles)
+	}
+	return w.add(rel, compose)
+}
+
+// resolve is a path compose reads, as name writes it, relative to the checkout, or outside it.
+// Only ${PWD} (the checkout, where the launcher runs compose) and a leading ~ are expanded: any
+// other interpolation is refused, since the walk cannot tell what compose would make of it.
+func (w *composeWalk) resolve(name, ref string) (rel string, outside bool, err error) {
+	p := strings.NewReplacer("${PWD}", w.checkout, "$PWD", w.checkout).Replace(ref)
+	if strings.Contains(p, "$") {
+		return "", false, fmt.Errorf("%s/%s names %s, interpolated from a variable, so ccy cannot tell which path compose reads; write the path out (only ${PWD}, the checkout, is read)", w.checkout, name, ref)
+	}
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", false, fmt.Errorf("%s/%s names %s, and the home directory is not known: %w", w.checkout, name, ref, err)
+		}
+		p = home + p[1:]
+	}
+	if path.IsAbs(p) {
+		p = path.Clean(p)
+		if p != w.checkout && !strings.HasPrefix(p, w.checkout+"/") {
+			return "", true, nil
+		}
+		return strings.TrimPrefix(strings.TrimPrefix(p, w.checkout), "/"), false, nil
+	}
+	rel = path.Clean(path.Join(path.Dir(name), p))
+	if rel == ".." || strings.HasPrefix(rel, "../") {
+		return "", true, nil
+	}
+	return rel, false, nil
+}
+
+// linkFree refuses a link in any part of a checkout path compose hands the engine by name. A
+// part not there yet is no link; a path outside the checkout is refused unless outsideOK.
+func (w *composeWalk) linkFree(name, ref string, outsideOK bool) error {
+	rel, outside, err := w.resolve(name, ref)
+	if err != nil {
+		return err
+	}
+	if outside {
+		if outsideOK {
+			return nil
+		}
+		return fmt.Errorf("%s/%s builds from %s, outside the checkout, which no approval can cover", w.checkout, name, ref)
+	}
+	if rel == "" || rel == "." {
+		return nil
+	}
+	parts := strings.Split(rel, "/")
+	for i := range parts {
+		part := path.Join(parts[:i+1]...)
+		info, err := w.root.Lstat(part)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("%s/%s hands the engine %s, and %s/%s is a link: a container session could point it anywhere on this machine without changing a byte approved; put the directory or file itself there", w.checkout, name, ref, w.checkout, part)
 		}
 	}
 	return nil
 }
 
 var composeFileSet = regexp.MustCompile(`(?m)^[ \t]*(?:export[ \t]+)?COMPOSE_FILE[ \t]*=`)
-
-// composeRefs are the other files a compose file reads: each include (a path, or a map's path,
-// one or a list) and each service's extends file.
-func composeRefs(content []byte) ([]string, error) {
-	var doc struct {
-		Include  []yaml.Node `yaml:"include"`
-		Services map[string]struct {
-			Extends yaml.Node `yaml:"extends"`
-		} `yaml:"services"`
-	}
-	if err := yaml.Unmarshal(content, &doc); err != nil {
-		return nil, fmt.Errorf("not readable as compose YAML: %w", err)
-	}
-	var refs []string
-	for _, n := range doc.Include {
-		switch n.Kind {
-		case yaml.ScalarNode:
-			refs = append(refs, n.Value)
-		case yaml.MappingNode:
-			var entry struct {
-				Path yaml.Node `yaml:"path"`
-			}
-			if err := n.Decode(&entry); err != nil {
-				return nil, err
-			}
-			paths, err := scalars(entry.Path)
-			if err != nil {
-				return nil, err
-			}
-			refs = append(refs, paths...)
-		case yaml.DocumentNode, yaml.SequenceNode, yaml.AliasNode:
-			return nil, errors.New("an include entry is neither a path nor a map")
-		}
-	}
-	for _, name := range slices.Sorted(maps.Keys(doc.Services)) {
-		svc := doc.Services[name]
-		if svc.Extends.Kind != yaml.MappingNode {
-			continue
-		}
-		var ext struct {
-			File string `yaml:"file"`
-		}
-		if err := svc.Extends.Decode(&ext); err != nil {
-			return nil, err
-		}
-		if ext.File != "" {
-			refs = append(refs, ext.File)
-		}
-	}
-	return refs, nil
-}
-
-// scalars is a node that is one string or a list of strings.
-func scalars(n yaml.Node) ([]string, error) {
-	switch n.Kind {
-	case yaml.ScalarNode:
-		return []string{n.Value}, nil
-	case yaml.SequenceNode:
-		var out []string
-		if err := n.Decode(&out); err != nil {
-			return nil, err
-		}
-		return out, nil
-	case yaml.DocumentNode, yaml.MappingNode, yaml.AliasNode:
-	}
-	return nil, errors.New("an include path is neither a string nor a list")
-}
 
 // readPinned reads a regular file of the checkout; absent is not present, and a link or anything
 // else in its place is refused.

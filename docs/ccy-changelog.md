@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.120 — container 2.84.110
+
+- The compose approval covers everything compose reads from the checkout: each build's
+  Dockerfile, each `env_file` and `label_file`, and each config's and secret's file. A bind
+  source, build context, config or secret file in the checkout is refused when any part of
+  its path is a link, and a compose key ccy does not know, a path interpolated from a variable
+  other than `${PWD}`, or a file read from outside the checkout is refused by name. Existing
+  compose approvals change digest and are asked about again (Plan 00266 security review,
+  finding 5).
+
 ## 3.124.119 — container 2.84.110
 
 - An attended launch whose compose files are not the approved content no longer starts and
