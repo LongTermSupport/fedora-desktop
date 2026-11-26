@@ -14,22 +14,11 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-// The texts the prelude writes are the bash library's, byte for byte: the bash still writes
-// them under CCY_LEGACY and on every launch, so a change to one that is not made to the other
-// fails here.
+// The prelude's .gitignore and dist are the front's alone (the bash asks F25 for them): the dist
+// names its own version. The export body is still the bash library's, byte for byte.
 func TestPreludeTextsAreTheLibrarysText(t *testing.T) {
-	lib := checkoutFile(t, "files/var/local/claude-yolo/lib/common.bash")
-	gitignore := between(t, lib, "local expected_gitignore=\"", "\"\n")
-	if gitignoreText != gitignore+"\n" {
-		t.Fatalf("ccy-gitignore.txt differs from common.bash:\n%s", firstDifference(gitignore+"\n", gitignoreText))
-	}
-	version := between(t, lib, "\nCCY_ENV_LOCAL_DIST_VERSION=", "\n")
-	if version != strconv.Itoa(distVersion) {
-		t.Fatalf("common.bash's dist is version %s, the front's %d", version, distVersion)
-	}
-	dist := strings.ReplaceAll(between(t, lib, "ccy_env_local_dist_text() {\n    cat <<EOF\n", "\nEOF\n"), "${CCY_ENV_LOCAL_DIST_VERSION}", version)
-	if distText != dist+"\n" {
-		t.Fatalf("ccy-env-local-dist.txt differs from common.bash:\n%s", firstDifference(dist+"\n", distText))
+	if first := strings.SplitN(distText, "\n", 2)[0]; first != "# ccy.env.local.dist version "+strconv.Itoa(distVersion) {
+		t.Fatalf("ccy-env-local-dist.txt's first line %q does not name version %d", first, distVersion)
 	}
 	tokens := checkoutFile(t, "files/var/local/claude-yolo/lib/token-management.bash")
 	body := between(t, tokens, "token='${token_content}'\nOUTER\n", "BODY\n}\n")

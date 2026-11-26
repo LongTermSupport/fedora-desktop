@@ -394,6 +394,8 @@ var bashQuestions = map[string]func(Front, context.Context) term.ExitCode{
 	removeNetworkFlag:  Front.removeNetwork,
 	writeConfigFlag:    func(f Front, _ context.Context) term.ExitCode { return f.writeLaunchConfig() },
 	launchNetworkFlag:  func(f Front, _ context.Context) term.ExitCode { return f.launchNetwork() },
+	envLocalCopyFlag:   func(f Front, _ context.Context) term.ExitCode { return f.envLocalCopy() },
+	checkoutFilesFlag:  func(f Front, _ context.Context) term.ExitCode { return f.checkoutFiles() },
 }
 
 // flagKind is the run the front answers itself, or flagNone.

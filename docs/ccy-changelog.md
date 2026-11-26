@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.121 — container 2.84.110
+
+- A launch no longer binds, reads or writes `.claude/ccy/ccy.env.local`,
+  `.claude/ccy/ccy.env.local.dist` or `.claude/ccy/.gitignore` by its path. A container can
+  put a link at any of them, and the launch used to bind the link's target into the next
+  container read-only (any host file the user can read) and write the other two through it
+  (truncating or creating any host file). The claude-yolo front now does all three through the
+  checkout's `os.Root`: `ccy.env.local` is copied into the launch's private temporary directory
+  and the copy is bound, and a link at any of the three, or a `.claude/ccy` linked out of the
+  checkout, stops the launch naming the file (Plan 00266 security review, findings 1 and 6).
+
 ## 3.124.120 — container 2.84.110
 
 - The compose approval covers everything compose reads from the checkout: each build's

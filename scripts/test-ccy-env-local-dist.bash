@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Unit-test ccy_env_local_dist_sync (files/var/local/claude-yolo/lib/common.bash).
+# Unit-test ccy_env_local_dist_sync and ccy_env_local_mount_args
+# (files/var/local/claude-yolo/lib/common.bash), which ask the Go front (F25), built here.
 #
 # WHY THIS TEST EXISTS. ccy owns .claude/ccy/, so ccy writes the tracked template
 # ccy.env.local.dist on every launch: commented placeholders for one install's overrides,
@@ -23,6 +24,13 @@ printf '#!/usr/bin/env bash\nexit 0\n' >"$work/bin/podman"
 chmod 755 "$work/bin/podman"
 export PATH="$work/bin:$PATH" CCY_CONTAINER_ENGINE=podman
 
+# The library asks the Go front beside the launcher ($SCRIPT_DIR/claude-yolo) for these files.
+front="$work/front"
+if ! go -C "$SCRIPT_DIR/../src-go" build -o "$front/claude-yolo" ./cmd/claude-yolo; then
+    echo "FAIL: could not build the Go front (src-go/cmd/claude-yolo)" >&2
+    exit 1
+fi
+
 passed=0
 failed=0
 check() {
@@ -40,13 +48,16 @@ check() {
 # run_sync <dir>: run the real function there; prints its exit code. Its stdout and
 # stderr go to sync.log.
 run_sync() {
-    (cd "$1" && bash -c '. "$1"; ccy_env_local_dist_sync' _ "$LIB" >"$work/sync.log" 2>&1)
+    (cd "$1" && SCRIPT_DIR="$front" bash -c '. "$1"; ccy_env_local_dist_sync' _ "$LIB" >"$work/sync.log" 2>&1)
     echo "$?"
 }
 
-# current_version: the version the library writes, read from the library itself.
+# current_version: the version the front writes, read from the dist it writes.
 current_version() {
-    bash -c '. "$1"; echo "$CCY_ENV_LOCAL_DIST_VERSION"' _ "$LIB"
+    local probe="$work/probe"
+    mkdir -p "$probe/.claude/ccy"
+    run_sync "$probe" >/dev/null
+    awk 'NR == 1 { print $NF }' "$probe/.claude/ccy/ccy.env.local.dist"
 }
 
 log_has() {
@@ -54,7 +65,7 @@ log_has() {
 }
 
 version=$(current_version)
-check "the library declares a whole-number dist version" "yes" \
+check "the front writes a whole-number dist version" "yes" \
     "$([[ "$version" =~ ^[0-9]+$ ]] && echo yes || echo no)"
 
 proj="$work/proj"
@@ -102,14 +113,14 @@ rm "$proj/.claude/ccy/ccy.env.local"
 printf '%s\n' "$before" >"$dist"
 
 rm "$dist"
-(cd "$proj" && bash -c '. "$1"; ccy_env_local_dist_sync' _ "$LIB" 2>/dev/null) >"$work/stdout.log"
+(cd "$proj" && SCRIPT_DIR="$front" bash -c '. "$1"; ccy_env_local_dist_sync' _ "$LIB" 2>/dev/null) >"$work/stdout.log"
 check "the sync prints nothing on stdout" "" "$(cat "$work/stdout.log")"
 
 # A directory where the dist goes makes the write fail even for root.
 rm "$dist"
 mkdir "$dist"
 check "a dist that cannot be written: the sync fails" "1" "$(run_sync "$proj")"
-check "a dist that cannot be written: the launch says so" "yes" "$(log_has "Could not write")"
+check "a dist that cannot be written: the launch says so" "yes" "$(log_has "$proj/.claude/ccy/ccy.env.local.dist is not a regular file")"
 rmdir "$dist"
 run_sync "$proj" >"$work/rewrite.code"
 
@@ -130,27 +141,47 @@ check "the local file is never written by ccy" \
     "# based on ccy.env.local.dist version ${version}" "$(awk 'NR==1' "$local_file")"
 
 # mount_args <dir> [relabel]: the tokens ccy_env_local_mount_args builds there, one per
-# line, or "exit N" when it fails.
+# line, or "exit N" when it fails. CONFIG_TEMP is a fresh private directory, $work/cfg.
 mount_args() {
+    rm -rf "$work/cfg"
+    mkdir -m 700 "$work/cfg"
     # The library resets CCY_MOUNT_RELABEL when sourced, so it is set after.
-    (cd "$1" && bash -c '
+    (cd "$1" && SCRIPT_DIR="$front" CONFIG_TEMP="$work/cfg" bash -c '
         . "$1"
         CCY_MOUNT_RELABEL="$2"
         ccy_env_local_mount_args || { echo "exit $?"; exit 0; }
         printf "%s\n" "${CCY_ENV_LOCAL_MOUNT[@]}"' _ "$LIB" "${2:-}" 2>"$work/sync.log")
 }
 
-check "the read-only mount binds an existing ccy.env.local" \
+check "the read-only mount binds a private copy of ccy.env.local, never the checkout path" \
     "-v
-$proj/.claude/ccy/ccy.env.local:/workspace/.claude/ccy/ccy.env.local:ro" "$(mount_args "$proj")"
+$work/cfg/ccy.env.local:/workspace/.claude/ccy/ccy.env.local:ro" "$(mount_args "$proj")"
+check "the copy holds the checkout's file" "$(cat "$local_file")" "$(cat "$work/cfg/ccy.env.local")"
 check "the read-only mount carries the SELinux relabel when there is one" \
     "-v
-$proj/.claude/ccy/ccy.env.local:/workspace/.claude/ccy/ccy.env.local:ro,z" "$(mount_args "$proj" z)"
+$work/cfg/ccy.env.local:/workspace/.claude/ccy/ccy.env.local:ro,z" "$(mount_args "$proj" z)"
 rm "$local_file"
 check "no ccy.env.local: no mount" "" "$(mount_args "$proj")"
 mkdir "$local_file"
 check "a ccy.env.local that is not a file stops the launch" "exit 1" "$(mount_args "$proj")"
 rmdir "$local_file"
+
+# Plan 00266 review finding 1: a container plants a link at ccy.env.local to a host file. The
+# launch stops naming the file, binds nothing and copies nothing.
+printf 'HOST ONLY\n' >"$work/host-only"
+ln -s "$work/host-only" "$local_file"
+check "a linked ccy.env.local stops the launch" "exit 1" "$(mount_args "$proj")"
+check "a linked ccy.env.local: the launch names it" "yes" "$(log_has "$proj/.claude/ccy/ccy.env.local")"
+check "a linked ccy.env.local: nothing is copied" "" "$(ls -A "$work/cfg")"
+rm "$local_file"
+
+# Plan 00266 review finding 6: a link at the dist is refused, never written through.
+rm "$dist"
+ln -s "$work/host-only" "$dist"
+check "a linked dist: the sync fails" "1" "$(run_sync "$proj")"
+check "a linked dist: the launch names it" "yes" "$(log_has "$proj/.claude/ccy/ccy.env.local.dist is a link")"
+check "a linked dist: the host file is untouched" "HOST ONLY" "$(cat "$work/host-only")"
+rm "$dist"
 
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"

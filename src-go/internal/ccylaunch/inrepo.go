@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/checkoutpin"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -73,6 +74,14 @@ type inRepo struct {
 	basedOn                int64 // the local file's based-on version, -1 when it has none
 }
 
+// root is the directory the run starts in, as the checkout's os.Root opens it.
+func (f Front) root() string {
+	if f.Dir == "" {
+		return "."
+	}
+	return f.Dir
+}
+
 // at is a path in the directory the run starts in.
 func (f Front) at(rel string) string {
 	return filepath.Join(f.Dir, filepath.FromSlash(rel))
@@ -84,19 +93,8 @@ func (f Front) readInRepo(ctx context.Context) (inRepo, string) {
 	if why := f.inRepoShape(); why != "" {
 		return repo, why
 	}
-	var why string
-	for _, text := range []struct {
-		rel string
-		to  **string
-	}{{gitignoreRel, &repo.gitignore}, {distRel, &repo.dist}, {localRel, &repo.local}} {
-		if *text.to, why = readText(f.at(text.rel)); why != "" {
-			return repo, why
-		}
-	}
-	if repo.distAt, why = versionOf(repo.dist, distVersionLine, true); why != "" {
-		return repo, why
-	}
-	if repo.basedOn, why = versionOf(repo.local, basedOnLine, false); why != "" {
+	repo, why := f.readCheckoutFiles()
+	if why != "" {
 		return repo, why
 	}
 	if why := f.trackedSafely(ctx); why != "" {
@@ -106,6 +104,28 @@ func (f Front) readInRepo(ctx context.Context) (inRepo, string) {
 		if why := notADir(dir); why != "" {
 			return repo, why
 		}
+	}
+	return repo, ""
+}
+
+// readCheckoutFiles reads the .gitignore, the dist and ccy.env.local, each through the
+// checkout's os.Root, and their version lines: the texts, or why they cannot be taken as read.
+func (f Front) readCheckoutFiles() (inRepo, string) {
+	repo := inRepo{f: f, basedOn: -1}
+	var why string
+	for _, text := range []struct {
+		rel string
+		to  **string
+	}{{gitignoreRel, &repo.gitignore}, {distRel, &repo.dist}, {localRel, &repo.local}} {
+		if *text.to, why = readText(f.root(), text.rel); why != "" {
+			return repo, why
+		}
+	}
+	if repo.distAt, why = versionOf(repo.dist, distVersionLine, true); why != "" {
+		return repo, why
+	}
+	if repo.basedOn, why = versionOf(repo.local, basedOnLine, false); why != "" {
+		return repo, why
 	}
 	return repo, ""
 }
@@ -186,22 +206,18 @@ func notADir(path string) string {
 	return ""
 }
 
-// readText is a file's text, nil when there is none, or why the bash could read it otherwise:
-// not a regular file, unreadable, or holding a NUL.
-func readText(path string) (*string, string) {
-	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+// readText is a checkout file's text, read through the checkout's os.Root, nil when there is
+// none, or why it cannot be taken: a link, not a regular file, unreadable, or holding a NUL.
+func readText(dir, rel string) (*string, string) {
+	raw, present, err := checkoutpin.ReadFile(dir, rel)
+	if err != nil {
+		return nil, err.Error()
+	}
+	if !present {
 		return nil, ""
 	}
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		return nil, path + " is not a regular file"
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, path + " cannot be read"
-	}
 	if bytes.IndexByte(raw, 0) >= 0 {
-		return nil, path + " holds a NUL"
+		return nil, filepath.Join(dir, rel) + " holds a NUL"
 	}
 	text := string(raw)
 	return &text, ""
@@ -237,23 +253,8 @@ func versionOf(text *string, line *regexp.Regexp, firstOnly bool) (int64, string
 func (r inRepo) apply() error {
 	var p term.Printer
 	f := r.f
-	if err := os.MkdirAll(f.at(ccyDir), openDirMode); err != nil {
+	if err := r.writeGitignore(&p); err != nil {
 		return err
-	}
-	if r.gitignore == nil || !hasLine(strings.TrimRight(*r.gitignore, "\n"), "*") {
-		if r.gitignore == nil {
-			p.Print(f.Stdout, "✓ Creating .claude/ccy/.gitignore for security\n")
-		} else {
-			p.Print(f.Stdout, f.yellow(f.Stdout, inRepoWarning+"Updating .claude/ccy/.gitignore (was missing protection rules)")+"\n")
-		}
-		if err := os.WriteFile(f.at(gitignoreRel), []byte(gitignoreText), openFileMode); err != nil {
-			return err
-		}
-	}
-	for _, exception := range []string{"mounts", "ccy.env.local.dist"} {
-		if err := f.gitignoreException(&p, exception); err != nil {
-			return err
-		}
 	}
 	if err := r.syncDist(&p); err != nil {
 		return err
@@ -269,17 +270,36 @@ func (r inRepo) apply() error {
 	return p.Err()
 }
 
-// gitignoreException appends !exception to the .gitignore when no line is exactly that.
-func (f Front) gitignoreException(p *term.Printer, exception string) error {
-	raw, err := os.ReadFile(f.at(gitignoreRel))
-	if err != nil {
-		return err
+// writeGitignore is the prelude's .gitignore: written whole without its ignore-everything line,
+// then each missing exception appended, every write through the checkout's os.Root.
+func (r inRepo) writeGitignore(p *term.Printer) error {
+	f := r.f
+	text := ""
+	if r.gitignore != nil {
+		text = *r.gitignore
 	}
-	if hasLine(string(raw), "!"+exception) {
-		return nil
+	if r.gitignore == nil || !hasLine(strings.TrimRight(text, "\n"), "*") {
+		if r.gitignore == nil {
+			p.Print(f.Stdout, "✓ Creating .claude/ccy/.gitignore for security\n")
+		} else {
+			p.Print(f.Stdout, f.yellow(f.Stdout, inRepoWarning+"Updating .claude/ccy/.gitignore (was missing protection rules)")+"\n")
+		}
+		text = gitignoreText
+		if err := checkoutpin.WriteFile(f.root(), gitignoreRel, []byte(text)); err != nil {
+			return err
+		}
 	}
-	p.Print(f.Stdout, "✓ Adding the "+exception+" exception to .claude/ccy/.gitignore\n")
-	return appendLine(f.at(gitignoreRel), "!"+exception)
+	for _, exception := range []string{"mounts", "ccy.env.local.dist"} {
+		if hasLine(text, "!"+exception) {
+			continue
+		}
+		p.Print(f.Stdout, "✓ Adding the "+exception+" exception to .claude/ccy/.gitignore\n")
+		text += "!" + exception + "\n"
+		if err := checkoutpin.WriteFile(f.root(), gitignoreRel, []byte(text)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // syncDist is ccy_env_local_dist_sync: the dist written when absent or not this version's
@@ -301,7 +321,7 @@ func (r inRepo) syncDist(p *term.Printer) error {
 		write = true
 	}
 	if write {
-		if err := os.WriteFile(f.at(distRel), []byte(distText), openFileMode); err != nil {
+		if err := checkoutpin.WriteFile(f.root(), distRel, []byte(distText)); err != nil {
 			return err
 		}
 	}
@@ -324,14 +344,14 @@ func hasLine(text, want string) bool {
 	return slices.Contains(strings.Split(text, "\n"), want)
 }
 
-// appendLine is echo LINE >> path.
-func appendLine(path, line string) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, openFileMode)
+// appendLine is echo LINE >> rel, the file read and written whole through the checkout's
+// os.Root, so a link at rel is refused rather than appended through.
+func (f Front) appendLine(rel, line string) error {
+	raw, _, err := checkoutpin.ReadFile(f.root(), rel)
 	if err != nil {
 		return err
 	}
-	_, err = io.WriteString(file, line+"\n")
-	return errors.Join(err, file.Close())
+	return checkoutpin.WriteFile(f.root(), rel, append(raw, line+"\n"...))
 }
 
 // colourOnFor is D2 and D10: colour only when w is a terminal, and never with NO_COLOR.
@@ -383,7 +403,7 @@ func (f Front) inRepoFlag(ctx context.Context, check func() string, act func(p *
 // prevent is --prevent: never, appended to allowed-hostnames (absent, or the bash answers).
 func (f Front) prevent(ctx context.Context) (term.ExitCode, string) {
 	return f.inRepoFlag(ctx, func() string { return "" }, func(p *term.Printer) (term.ExitCode, error) {
-		if err := appendLine(f.at(allowedRel), "never"); err != nil {
+		if err := f.appendLine(allowedRel, "never"); err != nil {
 			return term.ExitFailure, err
 		}
 		p.Print(f.Stdout, "✓ CCY disabled for this project.\n  Written 'never' to "+allowedRel+"\n\n"+

@@ -435,60 +435,12 @@ load_project_mounts() {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 check_ccy_gitignore_safety() {
-    local ccy_dir=".claude/ccy"
-    local ccy_gitignore="$ccy_dir/.gitignore"
-    local ccy_dockerfile="$ccy_dir/Dockerfile"
-
-    # Expected .gitignore content
-    local expected_gitignore="# CCY session data - NEVER commit sensitive files
-# Only .gitignore, Dockerfile, allowed-hostnames, ccy.env, ccy.env.local.dist,
-# mounts and the claude-supervise* supervisor (any extension or none) are safe
-# to track. ccy.env.local is this checkout's own and is never tracked.
-*
-!.gitignore
-!Dockerfile
-!allowed-hostnames
-!ccy.env
-!ccy.env.local.dist
-!mounts
-!claude-supervise*"
-
     # ═══════════════════════════════════════════════════════════════════════════
-    # STEP 1: Force .claude/ccy/.gitignore to exist with correct content
+    # STEP 1: Force .claude/ccy/.gitignore to exist with correct content, written by
+    # the Go front through the checkout's os.Root: a container can put a link there,
+    # and a shell redirection would write the host file it points at (F25).
     # ═══════════════════════════════════════════════════════════════════════════
-
-    # Create directory if needed
-    if [ ! -d "$ccy_dir" ]; then
-        mkdir -p "$ccy_dir"
-    fi
-
-    # Check if .gitignore needs to be created or updated
-    local current_content=""
-    if [ -f "$ccy_gitignore" ]; then
-        current_content=$(cat "$ccy_gitignore")
-    fi
-
-    # Check if file is missing the critical "ignore all" rule
-    if ! echo "$current_content" | grep -q "^\*$"; then
-        if [ -f "$ccy_gitignore" ]; then
-            echo -e "${COLOR_YELLOW}⚠  Updating .claude/ccy/.gitignore (was missing protection rules)${COLOR_RESET}"
-        else
-            echo "✓ Creating .claude/ccy/.gitignore for security"
-        fi
-        echo "$expected_gitignore" > "$ccy_gitignore"
-    fi
-
-    # A .gitignore written before the tracked mounts file existed lacks its
-    # exception, so `git add .claude/ccy/mounts` would be refused. Append it.
-    if ! grep -qx '!mounts' "$ccy_gitignore"; then
-        echo "✓ Adding the mounts exception to .claude/ccy/.gitignore"
-        echo '!mounts' >> "$ccy_gitignore"
-    fi
-    # Likewise the tracked template for this checkout's untracked ccy.env.local.
-    if ! grep -qx '!ccy.env.local.dist' "$ccy_gitignore"; then
-        echo "✓ Adding the ccy.env.local.dist exception to .claude/ccy/.gitignore"
-        echo '!ccy.env.local.dist' >> "$ccy_gitignore"
-    fi
+    "$SCRIPT_DIR/claude-yolo" --checkout-files "$PWD" gitignore || return 1
 
     # ═══════════════════════════════════════════════════════════════════════════
     # STEP 2: CRITICAL - Check for dangerous tracked files
@@ -504,8 +456,8 @@ check_ccy_gitignore_safety() {
     # and .last-launch.conf possibly tracked. A gate that cannot run must never
     # report a pass; that is the whole point of it existing.
     local tracked_files
-    if ! tracked_files=$(git ls-files "$ccy_dir" 2>&1); then
-        print_error "Could not check for tracked files in $ccy_dir"
+    if ! tracked_files=$(git ls-files .claude/ccy 2>&1); then
+        print_error "Could not check for tracked files in .claude/ccy"
         echo "" >&2
         echo "git said: ${tracked_files:-"(no output)"}" >&2
         echo "" >&2
@@ -605,108 +557,28 @@ check_ccy_gitignore_safety() {
 # ccy_env_local_dist_sync: keep .claude/ccy/ccy.env.local.dist current
 #
 # The dist is ccy's tracked template for the untracked ccy.env.local: commented
-# placeholders for one install's own settings, never secrets, never sourced. ccy
-# rewrites it whenever its text differs from this version's. A real ccy.env.local is
-# placed by the install's own IaC and starts with "# based on ccy.env.local.dist
-# version N"; when N is older than the dist, the launch says so. ccy never writes
-# ccy.env.local. Raise CCY_ENV_LOCAL_DIST_VERSION whenever the template text changes.
+# placeholders for one install's own settings, never secrets, never sourced. A real
+# ccy.env.local is placed by the install's own IaC and names the dist version it was
+# based on; when that is older than the dist, the launch says so. ccy never writes
+# ccy.env.local. The Go front writes the dist and reads both through the checkout's
+# os.Root (F25; its text is src-go/internal/ccylaunch/ccy-env-local-dist.txt), so a
+# link a container put at either is refused rather than written through or read.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-CCY_ENV_LOCAL_DIST_VERSION=3
-
-ccy_env_local_dist_text() {
-    cat <<EOF
-# ccy.env.local.dist version ${CCY_ENV_LOCAL_DIST_VERSION}
-#
-# Written by ccy on every launch: commit it, never edit it (ccy rewrites it).
-#
-# The template for ccy.env.local, this checkout's own settings: the role one install
-# plays, never secrets and never anything every clone should share (that goes in
-# ccy.env). ccy.env.local is never committed. It is placed by the install's own
-# infrastructure-as-code, not by hand and not by an agent working in the checkout.
-# ccy sources it inside the container, after ccy.env, so its values win.
-#
-# To make one: copy this file to ccy.env.local, change the line below to
-# "# based on ccy.env.local.dist version ${CCY_ENV_LOCAL_DIST_VERSION}", and uncomment what this install needs.
-# When this dist's version moves on, ccy says so at launch: compare the two files.
-#
-# based on ccy.env.local.dist version ${CCY_ENV_LOCAL_DIST_VERSION}
-
-# ── Hooks daemon host role ────────────────────────────────────────────────────
-# The name the hooks daemon matches this session's host against: persistent_crons
-# "hosts:" lists and the top-level "hosts:" block in .claude/hooks-daemon.yaml.
-# Order: HOOKS_DAEMON_HOSTNAME, then CCY_HOST_HOSTNAME (ccy sets it to the host
-# machine's name), then the container's hostname. Set it to give this install a
-# role, e.g. the one install that runs a role-scoped cron job. Only matters in a
-# project that uses the hooks daemon.
-# It also names the host part of the handle of an agent team bus seat that
-# "ccy --teams <team>" creates in this checkout; unset, that part is "local".
-# A team is chosen by each launch, never here: the container refuses to start when
-# this file sets a bus variable.
-#export HOOKS_DAEMON_HOSTNAME=<role-name>
-EOF
-}
-
-# ccy_env_local_mount_args: fills CCY_ENV_LOCAL_MOUNT with the -v tokens that bind an
-# existing .claude/ccy/ccy.env.local read-only over the writable workspace, so a session
-# cannot rewrite the install's own settings (its role among them). Empty when there is no
-# file: a bind needs a source, and an empty stand-in would be left behind on the host.
+# ccy_env_local_mount_args: fills CCY_ENV_LOCAL_MOUNT with the -v tokens that bind the
+# checkout's ccy.env.local read-only over the writable workspace, so a session cannot
+# rewrite the install's own settings (its role among them). The source is the front's
+# private copy in CONFIG_TEMP (F25), never the checkout path: a link there would bind the
+# host file it points at. Empty when there is no file.
 ccy_env_local_mount_args() {
     CCY_ENV_LOCAL_MOUNT=()
-    local local_file=".claude/ccy/ccy.env.local"
-    [ -e "$local_file" ] || return 0
-    if [ ! -f "$local_file" ]; then
-        print_error "$local_file exists but is not a regular file"
-        return 1
-    fi
-    CCY_ENV_LOCAL_MOUNT+=(-v "$PWD/$local_file:/workspace/$local_file:ro${CCY_MOUNT_RELABEL:+,$CCY_MOUNT_RELABEL}")
+    local copy
+    copy=$("$SCRIPT_DIR/claude-yolo" --env-local-copy "$PWD" "${CONFIG_TEMP:?}") || return 1
+    [ -z "$copy" ] || CCY_ENV_LOCAL_MOUNT+=(-v "$copy:/workspace/.claude/ccy/ccy.env.local:ro${CCY_MOUNT_RELABEL:+,$CCY_MOUNT_RELABEL}")
 }
 
 ccy_env_local_dist_sync() {
-    local ccy_dir=".claude/ccy"
-    local dist="$ccy_dir/ccy.env.local.dist"
-    local local_file="$ccy_dir/ccy.env.local"
-    local expected
-    expected=$(ccy_env_local_dist_text)
-
-    local dist_version=""
-    if [ -f "$dist" ]; then
-        dist_version=$(awk 'NR == 1 && /^# ccy\.env\.local\.dist version [0-9]+$/ { print $NF }' "$dist")
-    fi
-
-    # The version a local file is judged against: a newer ccy's dist, left in place, counts.
-    local current_version="$CCY_ENV_LOCAL_DIST_VERSION"
-
-    if [ ! -f "$dist" ]; then
-        echo "✓ Writing .claude/ccy/ccy.env.local.dist (version ${CCY_ENV_LOCAL_DIST_VERSION}); commit it" >&2
-        printf '%s\n' "$expected" >"$dist" || {
-            print_error "Could not write $dist"
-            return 1
-        }
-    elif [ -n "$dist_version" ] && [ "$dist_version" -gt "$CCY_ENV_LOCAL_DIST_VERSION" ]; then
-        # Another machine's newer ccy wrote it; rewriting it down would flip it on every launch.
-        echo -e "${COLOR_YELLOW}⚠  .claude/ccy/ccy.env.local.dist (version ${dist_version}) was written by a newer ccy than this one (version ${CCY_ENV_LOCAL_DIST_VERSION}); left as it is. Update ccy here.${COLOR_RESET}" >&2
-        current_version="$dist_version"
-    elif [ "$(cat "$dist")" != "$expected" ]; then
-        echo -e "${COLOR_YELLOW}⚠  Updating .claude/ccy/ccy.env.local.dist to version ${CCY_ENV_LOCAL_DIST_VERSION}; commit it${COLOR_RESET}" >&2
-        printf '%s\n' "$expected" >"$dist" || {
-            print_error "Could not write $dist"
-            return 1
-        }
-    fi
-
-    [ -f "$local_file" ] || return 0
-
-    local based_on
-    based_on=$(awk '/^# based on ccy\.env\.local\.dist version [0-9]+$/ { print $NF; exit }' "$local_file")
-    if [ -z "$based_on" ]; then
-        echo -e "${COLOR_YELLOW}⚠  .claude/ccy/ccy.env.local has no '# based on ccy.env.local.dist version N' line.${COLOR_RESET}" >&2
-        echo "   Compare it with ccy.env.local.dist and add the line where it is placed (its IaC)." >&2
-    elif [ "$based_on" -lt "$current_version" ]; then
-        echo -e "${COLOR_YELLOW}⚠  .claude/ccy/ccy.env.local is based on ccy.env.local.dist version ${based_on}; the dist is now version ${current_version}.${COLOR_RESET}" >&2
-        echo "   Review: diff .claude/ccy/ccy.env.local.dist .claude/ccy/ccy.env.local" >&2
-        echo "   Update it where it is placed (its IaC), not in the checkout." >&2
-    fi
+    "$SCRIPT_DIR/claude-yolo" --checkout-files "$PWD" dist
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -794,21 +666,19 @@ check_allowed_hostname() {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 check_dockerfile_gitignored() {
-    local ccy_dockerfile=".claude/ccy/Dockerfile"
-
     # If Dockerfile doesn't exist, nothing to check
-    if [ ! -f "$ccy_dockerfile" ]; then
+    if [ ! -f .claude/ccy/Dockerfile ]; then
         return 0
     fi
 
     # Check if Dockerfile is tracked
-    if git ls-files --error-unmatch "$ccy_dockerfile" >/dev/null 2>&1; then
+    if git ls-files --error-unmatch .claude/ccy/Dockerfile >/dev/null 2>&1; then
         # Dockerfile is tracked - all good!
         return 0
     fi
 
     # Check if Dockerfile is gitignored
-    if git check-ignore -q "$ccy_dockerfile" 2>/dev/null; then
+    if git check-ignore -q .claude/ccy/Dockerfile 2>/dev/null; then
         # Dockerfile exists but is gitignored - WARN but don't fail
         echo "" >&2
         echo -e "${COLOR_YELLOW}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}" >&2
@@ -816,7 +686,7 @@ check_dockerfile_gitignored() {
         echo -e "${COLOR_YELLOW}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}" >&2
         echo "" >&2
         echo "Your custom Dockerfile won't be shared with your team:" >&2
-        echo "  ${COLOR_RED}✗${COLOR_RESET} $ccy_dockerfile (exists but gitignored)" >&2
+        echo "  ${COLOR_RED}✗${COLOR_RESET} .claude/ccy/Dockerfile (exists but gitignored)" >&2
         echo "" >&2
         echo -e "${COLOR_YELLOW}Why this matters:${COLOR_RESET}" >&2
         echo "  • Team members won't get your container configuration" >&2
@@ -826,16 +696,16 @@ check_dockerfile_gitignored() {
         echo -e "${COLOR_GREEN}To fix (recommended):${COLOR_RESET}" >&2
         echo "" >&2
         echo "  # Check what's ignoring it" >&2
-        echo "  git check-ignore -v $ccy_dockerfile" >&2
+        echo "  git check-ignore -v .claude/ccy/Dockerfile" >&2
         echo "" >&2
         echo "  # Option 1: Add exception to project .gitignore" >&2
         echo "  echo '!.claude/ccy/Dockerfile' >> .gitignore" >&2
         echo "" >&2
         echo "  # Option 2: Track it explicitly (overrides gitignore)" >&2
-        echo "  git add -f $ccy_dockerfile" >&2
+        echo "  git add -f .claude/ccy/Dockerfile" >&2
         echo "" >&2
         echo "  # Verify it will be tracked" >&2
-        echo "  git ls-files $ccy_dockerfile" >&2
+        echo "  git ls-files .claude/ccy/Dockerfile" >&2
         echo "" >&2
         echo -e "${COLOR_BLUE}Safe to track:${COLOR_RESET}" >&2
         echo "  ✓ .claude/ccy/Dockerfile     (container configuration)" >&2

@@ -334,3 +334,8 @@ changed-plays
 # one ccy did not write (a container can), naming it and `ccy-teams approve last-launch
 # <checkout>`. A file saved before the run has no record: before the next reboot, launch each
 # restored checkout once at a terminal (its save records it) or run that approve verb there.
+# Plan 00266 review findings 1 and 6 (ccy 3.124.121): the same play-claude-yolo.yml run installs
+# the launcher's libraries and rebuilds the claude-yolo front, which now copies a checkout's
+# ccy.env.local into the launch's private directory before binding it, and writes the
+# .gitignore and ccy.env.local.dist through the checkout's os.Root. A link at any of them stops
+# the launch naming the file; nothing for the owner to do unless a launch names one.

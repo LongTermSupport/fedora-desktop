@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Unit-test check_ccy_gitignore_safety (files/var/local/claude-yolo/lib/common.bash).
+# Unit-test check_ccy_gitignore_safety (files/var/local/claude-yolo/lib/common.bash), whose
+# .gitignore the Go front writes (F25), built here.
 #
 # WHY THIS TEST EXISTS. .claude/ccy/ holds session data and tokens, so its generated
 # .gitignore ignores everything and lets through only the files a project may track. The
@@ -22,6 +23,13 @@ mkdir -p "$work/bin"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$work/bin/podman"
 chmod 755 "$work/bin/podman"
 export PATH="$work/bin:$PATH" CCY_CONTAINER_ENGINE=podman
+
+# The library asks the Go front beside the launcher ($SCRIPT_DIR/claude-yolo) to write it.
+front="$work/front"
+if ! go -C "$SCRIPT_DIR/../src-go" build -o "$front/claude-yolo" ./cmd/claude-yolo; then
+    echo "FAIL: could not build the Go front (src-go/cmd/claude-yolo)" >&2
+    exit 1
+fi
 
 passed=0
 failed=0
@@ -48,7 +56,7 @@ new_repo() {
 # run_check <dir>: run the real check there; prints its exit code. Its own output goes
 # to check.log, which a failing case prints.
 run_check() {
-    (cd "$1" && bash -c '. "$1"; check_ccy_gitignore_safety' _ "$LIB" >"$work/check.log" 2>&1)
+    (cd "$1" && SCRIPT_DIR="$front" bash -c '. "$1"; check_ccy_gitignore_safety' _ "$LIB" >"$work/check.log" 2>&1)
     echo "$?"
 }
 
@@ -84,6 +92,17 @@ printf 'export X=1\n' >"$tracked/.claude/ccy/ccy.env.local"
 git -C "$tracked" add -f .claude/ccy/ccy.env.local
 git -C "$tracked" commit -q -m local
 check "a tracked ccy.env.local is flagged" "1" "$(run_check "$tracked")"
+
+# Plan 00266 review finding 6: a container plants a link at the .gitignore to a host file. The
+# launch stops naming the file, and the host file is neither truncated nor rewritten.
+linked="$work/linked"
+new_repo "$linked"
+printf 'HOST ONLY\n' >"$work/host-only"
+ln -s "$work/host-only" "$linked/.claude/ccy/.gitignore"
+check "a linked .gitignore stops the launch" "1" "$(run_check "$linked")"
+check "a linked .gitignore: the launch names it" "yes" \
+    "$(grep -qF "$linked/.claude/ccy/.gitignore is a link" "$work/check.log" && echo yes || echo no)"
+check "a linked .gitignore: the host file is untouched" "HOST ONLY" "$(cat "$work/host-only")"
 
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"
