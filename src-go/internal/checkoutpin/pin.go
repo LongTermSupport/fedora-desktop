@@ -82,11 +82,12 @@ import (
 const Mounts = ".claude/ccy/mounts"
 
 // ComposeFiles are the compose files and overrides podman-compose and docker compose read from a
-// project's directory.
+// project's directory; container-compose is podman-compose's own name too.
 var ComposeFiles = []string{
 	"compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml", "podman-compose.yaml", "podman-compose.yml",
+	"container-compose.yaml", "container-compose.yml",
 	"compose.override.yaml", "compose.override.yml", "docker-compose.override.yaml", "docker-compose.override.yml",
-	"podman-compose.override.yaml", "podman-compose.override.yml",
+	"podman-compose.override.yaml", "podman-compose.override.yml", "container-compose.override.yaml", "container-compose.override.yml",
 }
 
 // composeEnv is the file compose interpolates its files from.

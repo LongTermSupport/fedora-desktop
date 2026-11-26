@@ -596,9 +596,10 @@ rules:
   #        the Go front, which pins the saved launch choices (ccy-teams approve last-launch)
   #
   # The mounts path is caught on any line that is not a comment. A compose `up`, `run` or
-  # `create` (the command "$@", podman-compose, docker-compose, docker compose, or a variable
-  # whose name holds "compose", at a command position) is caught in a function with no
-  # checkout-pin line above it. The saved launch choices (.last-launch.conf) are caught on any
+  # `create` (the command "$@", podman-compose, docker-compose, docker compose, podman compose,
+  # or a variable whose name holds "compose", at a command position, with any options such as
+  # -f FILE or -p NAME before the verb) is caught in a function with no checkout-pin line
+  # above it. The saved launch choices (.last-launch.conf) are caught on any
   # line that is not a comment or a message (echo, printf, print_*), except cc's own file in
   # the host's ~/.claude, which no checkout holds. Not caught: such a command outside a
   # function, a compose run through a variable named otherwise, and a path built from pieces.
@@ -606,7 +607,7 @@ rules:
     pattern-either:
       - pattern-regex: '(?m)^(?![ \t]*#)[^\n#]*\.claude/ccy/mounts\b'
       - pattern-regex: '(?m)^(?![ \t]*(?:#|echo[ \t]|printf[ \t]|print_\w+[ \t]))[^\n#]*(?<!HOME/\.claude/)(?<!~/\.claude/)\.last-launch\.conf\b'
-      - pattern-regex: '(?sm)^[A-Za-z_][A-Za-z0-9_]*\(\)[ \t]*\{[ \t]*\n(?:(?!^\}[ \t]*$)(?!^[^\n#]*\bcheckout-pin\b).)*?^(?![ \t]*#)[^\n#]*?(?:^[ \t]*|[;&|(!][ \t]*|\b(?:then|do|else|if|while|until|exec|command|time)[ \t]+)(?:"\$@"|podman-compose|docker-compose|docker[ \t]+compose|"?\$\{?\w*[Cc][Oo][Mm][Pp][Oo][Ss][Ee]\w*(?:\[@\])?\}?"?)[ \t]+(?:up|run|create)\b'
+      - pattern-regex: '(?sm)^[A-Za-z_][A-Za-z0-9_]*\(\)[ \t]*\{[ \t]*\n(?:(?!^\}[ \t]*$)(?!^[^\n#]*\bcheckout-pin\b).)*?^(?![ \t]*#)[^\n#]*?(?:^[ \t]*|[;&|(!][ \t]*|\b(?:then|do|else|if|while|until|exec|command|time)[ \t]+)(?:"\$@"|podman-compose|docker-compose|(?:docker|podman)[ \t]+compose|"?\$\{?\w*[Cc][Oo][Mm][Pp][Oo][Ss][Ee]\w*(?:\[@\])?\}?"?)(?:[ \t]+--?[\w-]+(?:[ \t=]+(?!(?:up|run|create)\b)[^\s;&|-][^\s;&|]*)?)*[ \t]+(?:up|run|create)\b'
     paths:
       include:
         - 'files/var/local/claude-yolo/**'

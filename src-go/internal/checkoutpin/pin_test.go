@@ -173,6 +173,8 @@ func TestComposeDigest(t *testing.T) {
 		{"other/base.yml", "services:\n  evil:\n    image: x\n"},
 		{"ext.yml", "services:\n  b:\n    volumes: [/:/host]\n"},
 		{"compose.override.yml", "services: {}\n"},
+		{"container-compose.yml", "services: {}\n"},
+		{"container-compose.override.yaml", "services:\n  a:\n    volumes: [/:/host]\n"},
 		{".env", "X=1\n"},
 	} {
 		write(t, dir, change.name, change.content)

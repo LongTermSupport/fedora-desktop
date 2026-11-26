@@ -782,6 +782,16 @@ fixture_compose_variable() {
     $compose_cmd up -d
 }
 
+# ruleid: ccy-host-applies-checkout-config
+fixture_compose_podman_subcommand() {
+    podman compose up -d
+}
+
+# ruleid: ccy-host-applies-checkout-config
+fixture_compose_options_before_verb() {
+    docker compose -f compose.yaml --project-name proj up -d
+}
+
 # ok: ccy-host-applies-checkout-config
 fixture_compose_pinned() {
     local restore_start=false
@@ -797,4 +807,5 @@ fixture_compose_words() {
     printf '%s\n' "Then run: podman-compose up -d"
     ccy_compose_up podman-compose podman-compose
     podman-compose ps -q
+    podman compose -f compose.yaml ps
 }

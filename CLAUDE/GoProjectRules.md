@@ -4426,8 +4426,8 @@ approve mounts|compose`), whose SHA-256 it keeps outside every checkout.
 **What it flags**, in src-go's `internal/` and `cmd/` trees (not the nested `qa` module, whose
 gates scan these files and never apply them; not test files, which plant them), every constant
 string expression, judged whole, whose value is `.claude/ccy/mounts` or a compose file or override
-name (`compose`, `docker-compose`, `podman-compose`, `.yml` or `.yaml`, with or without
-`.override`), outside `internal/checkoutpin`.
+name (`compose`, `docker-compose`, `podman-compose`, `container-compose`, `.yml` or `.yaml`,
+with or without `.override`), outside `internal/checkoutpin`.
 
 **Red.** `go vet -vettool=<driver> -project_checkout_config_pin ./internal/... ./cmd/...` on the
 tree before the fix flagged `internal/sessions/restore.go:220` six times (restore's own compose
@@ -4442,6 +4442,13 @@ so the red is the fixture: `testdata/checkoutpin/.../sessions/restore.go` spells
 `TestCheckoutConfigPin` failed on the two new `want` lines until the names joined the list.
 Green: the claude-yolo front reads and writes it only through `checkoutpin.LastLaunchDigest`,
 `WriteLastLaunch` and `LastLaunchPath`.
+
+**Extended (Plan 00266 review finding 10, `container-compose`).** podman-compose also reads
+`container-compose.yml`/`.yaml` and their overrides, which neither `checkoutpin.ComposeFiles` nor
+this rule named, so a container could add an override the compose digest did not cover. No Go
+named them, so the red is the fixture (`ContainerCompose` in `testdata/checkoutpin/.../restore.go`,
+two `want` lines) and `checkoutpin`'s `TestComposeDigest` (both files changed and the digest did
+not). Green: both lists hold the four names.
 
 **Not caught.** A name built at run time, a path joined from pieces each only part of a name
 (`".claude", "ccy", "mounts"`), a file found by listing a directory.

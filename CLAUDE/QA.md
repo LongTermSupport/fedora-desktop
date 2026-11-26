@@ -1925,9 +1925,14 @@ restart, pass the session id as a third argument and it names the manual `ccy --
 **What it is.** In `.semgrep/bash-conventions.yml` (the `qa-patterns` gate), under
 `files/var/local/claude-yolo/` and `files/var/local/claude-code/`: a non-comment line naming
 `.claude/ccy/mounts`, and a compose `up`, `run` or `create` (the command `"$@"`,
-`podman-compose`, `docker-compose`, `docker compose`, or a variable whose name holds `compose`, at
-a command position) in a function with no `checkout-pin` line above it. The Go half is
-`project_checkout_config_pin` ([GoProjectRules.md](GoProjectRules.md#project_checkout_config_pin)).
+`podman-compose`, `docker-compose`, `docker compose`, `podman compose`, or a variable whose name
+holds `compose`, at a command position, with any options such as `-f FILE` before the verb) in a
+function with no `checkout-pin` line above it. The Go halves are `project_checkout_config_pin`
+([GoProjectRules.md](GoProjectRules.md#project_checkout_config_pin)), whose compose names include
+podman-compose's `container-compose` files and overrides, and `project_checkout_path_seam`
+([GoProjectRules.md](GoProjectRules.md#project_checkout_path_seam)), any host open of a
+`.claude/ccy` path by name. Plan 00266 review finding 10 found `podman compose` and options
+before the verb missed; the broadened rule was red on its fixture only, nothing in the tree.
 
 **Why.** Class "host launcher applies container-writable checkout config" (Plan 00266 Task A.1). A
 ccy session writes its checkout, and the launcher bound what `.claude/ccy/mounts` named and ran

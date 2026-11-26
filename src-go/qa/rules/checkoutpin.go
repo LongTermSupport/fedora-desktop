@@ -22,6 +22,7 @@ var checkoutPinNames = []string{
 	"docker-compose.yml", "docker-compose.yaml", "podman-compose.yml", "podman-compose.yaml", "compose.yml", "compose.yaml",
 	"docker-compose.override.yml", "docker-compose.override.yaml", "podman-compose.override.yml",
 	"podman-compose.override.yaml", "compose.override.yml", "compose.override.yaml",
+	"container-compose.yml", "container-compose.yaml", "container-compose.override.yml", "container-compose.override.yaml",
 }
 
 const checkoutPinFix = " (project_checkout_config_pin): a container session can write this file, and the host applies it; read it only through internal/checkoutpin, which refuses a file no person approved"
@@ -37,8 +38,8 @@ internal/checkoutpin:
   container;
 - .claude/ccy/.last-launch.conf (or its own name, .last-launch.conf), the saved launch choices,
   whose token, SSH keys and network a restore or a headless launch takes unasked;
-- the compose files (docker-compose, podman-compose and compose, .yml and .yaml) and their
-  .override files, which the launcher runs ` + "`up -d`" + ` on, as the host user.
+- the compose files (docker-compose, podman-compose, container-compose and compose, .yml and
+  .yaml) and their .override files, which the launcher runs ` + "`up -d`" + ` on, as the host user.
 
 A container session writes its checkout, so it writes these files, and a host that applies them
 unasked lets the session widen its own next launch: bind a host path it could not reach, or run a

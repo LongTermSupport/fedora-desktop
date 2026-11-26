@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.124 — container 2.84.110
+
+- The compose approval also covers `container-compose.yml`/`.yaml` and their `.override` files,
+  which podman-compose reads too: a container adding one changes the digest, so an unattended
+  restore refuses it (Plan 00266 review finding 10).
+
 ## 3.124.123 — container 2.84.110
 
 - ccy-teams and ccy-sessions open every path under a checkout's `.claude/ccy` through an

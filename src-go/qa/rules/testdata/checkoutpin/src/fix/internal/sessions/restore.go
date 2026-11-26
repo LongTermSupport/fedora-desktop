@@ -29,6 +29,10 @@ func Override(dir string) string {
 	return filepath.Join(dir, "docker-compose"+".override.yml") // want `"docker-compose.override.yml", a checkout file the host applies, named outside internal/checkoutpin`
 }
 
+// ContainerCompose is podman-compose's own file name, and its override.
+var ContainerCompose = []string{"container-compose.yml", // want `"container-compose.yml", a checkout file the host applies, named outside internal/checkoutpin`
+	"container-compose.override.yaml"} // want `"container-compose.override.yaml", a checkout file the host applies, named outside internal/checkoutpin`
+
 // Mounts reads it.
 func Mounts(dir string) ([]byte, error) { return os.ReadFile(filepath.Join(dir, mountsFile)) }
 
