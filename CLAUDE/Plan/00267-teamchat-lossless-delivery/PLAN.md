@@ -131,12 +131,13 @@ So a delivery is designed for an agent's turn, not as an API call: one delivery 
 kind of information pending for the session at once, each kind in its own section, and is
 limited by volume only.
 
-Today (checked): one delivery carries up to 8 entries in 12 KiB (`proto/delivery.go:16-17`,
-`Fit` at :129-157), one team's pending at a time (`member/deliver/deliver.go:112-150`). The
-deliver loop sends as soon as something is pending and then waits `paceWait` 2 s
-(`member/engine/deliverloop.go:21-26`); that is a pace, not a window, so a burst is split across
-the first delivery and the next. Delivery debouncing (Plan 00209 Task 3.5, issue #129) is
-planned, not built; this phase builds it here and closes that task.
+Before this phase: one delivery carried up to 8 entries in 12 KiB, one team's pending at a
+time (`member/deliver/deliver.go:112-150`). The deliver loop sent as soon as something was
+pending and then waited `paceWait` 2 s (`member/engine/deliverloop.go:21-26`); that is a pace,
+not a window, so a burst was split across the first delivery and the next. Now the entry cap is
+gone (Task 7.6): a delivery holds as many entries as fit `MaxDeliveryBytes`, 12 KiB
+(`proto/delivery.go:17`, `Fit` at :160). Delivery debouncing (Plan 00209 Task 3.5, issue #129)
+is built here, in `member/engine/coalesce.go` (Tasks 7.1 and 7.5), which closes that task.
 
 - [x] ✅ **Task 7.1**: A coalesce window before a delivery: items for one session are held for a
   short quiet bound with a ceiling, then delivered as one. A HUMAN item and a halt ping skip the
