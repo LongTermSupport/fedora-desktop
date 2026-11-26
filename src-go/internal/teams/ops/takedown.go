@@ -156,7 +156,11 @@ func (o *Ops) sessionsOff(ctx context.Context, team string) (term.ExitCode, bool
 		}
 	}
 	left, err := o.SessionsIn(ctx, team)
-	if err != nil || len(left) > 0 {
+	if err != nil {
+		o.Term.PrintError("the sessions in " + team + " could not be found again (" + err.Error() + "), so it was not taken down.")
+		return term.ExitFailure, false
+	}
+	if len(left) > 0 {
 		o.Term.PrintError(strings.Join(left, ", ") + " still in " + team + ", so it was not taken down.")
 		return term.ExitFailure, false
 	}

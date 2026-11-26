@@ -584,6 +584,10 @@ filled in as each cause is known.
   exclusively created temporary renamed into place, so a linked seat-records or team directory
   is refused. The test (both links) was red, records written outside, and is green now (ccy
   3.124.76).
+- **Re-reviewed (qa-reviewer, the five fixes):** pass with one should-fix. When `remove` read
+  the team's sessions again after taking them off and the read failed, the error was dropped,
+  so the person saw no session and no cause. The error is now printed. The test was red and is
+  green now (ccy 3.124.77).
 - **(3) fixed (on v2-smoke, after batch 13):** `remove` asks, while the team is still up and
   once its running sessions are off it, which stopped sessions name it on the agent bus (each
   record's system read as a restore reads it, `conversation.SystemOfRecord`). Once the team is

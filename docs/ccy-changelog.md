@@ -17,6 +17,11 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.77 — container 2.84.89
+
+- When `ccy-teams remove` has taken a team's sessions off it and cannot read them again, it
+  says why, instead of an error with no session named.
+
 ## 3.124.76 — container 2.84.89
 
 - A launch writes its seats' conversation records, and takes their lock, inside its checkout
