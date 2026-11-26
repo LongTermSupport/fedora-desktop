@@ -558,7 +558,7 @@ filled in as each cause is known.
   container 2.84.89. Fixed: commits 6633dc113, 4bb754029, 94a6dd0b2 and the wiring commit after
   them. **OPEN for the owner:** (a) widening the shell rule to fixed suffixes (`"$f.tmp"` then
   `mv`): a trial found 11 more lines, mostly test and plan scripts; (b) the daemon-deployed
-  `.claude/ccy/claude-supervise.py` (7 sites) and `.claude/provision.sh` (2), which every gate
+  `.claude/ccy/claude-supervise.py` (6 pid-named temporaries and 1 with a fixed suffix) and `.claude/provision.sh` (2), which every gate
   excludes, to report upstream. (3) checked in the code, not yet run: when none of the named
   seats has a seat record (teamchat only), `ForSeats` falls back to the teamchat sessions' desired membership
   (`conversation/seats.go`, `v2Sessions`). `remove` takes only the team's running sessions off
