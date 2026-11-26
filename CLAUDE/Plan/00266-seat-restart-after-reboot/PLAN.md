@@ -115,6 +115,33 @@ Decision for C.2 (and the fix for today's start):
 
 - Nothing is guessed from a version number or a directory pattern.
 
+- **How it is built** (settled 26 Nov by this plan's builder, from the R77 sub-agent's
+  questions, report `subagent-reports/261126-r77-c2.md`):
+
+  - **The lookup is a new fixed operation of the in-container `teamchat` binary**, run as the
+    seat's user, so the host still runs only its own binary there (TB3 holds; no raw
+    `lxc-attach` shell).
+  - **It asks the account's own shell** (the login shell named for that user in the
+    container's passwd database), as `<shell> -l -i -c`, because nvm is loaded only by an
+    interactive rc file. That runs the user's own rc files, as that user, in that user's
+    container: what an interactive login there does anyway. It is bounded in time, and the
+    two answers are read between markers, so anything an rc file prints is ignored.
+  - **Each answer must be one clean absolute path** to an executable file, with no newline or
+    control character. Anything else is a refusal naming what was found.
+  - **The answer reaches the start through a runtime file, not the unit.** `lxc apply` writes,
+    once, a fixed `EnvironmentFile=` line in the unit naming a file under the container's
+    `/run`. Each start rewrites that file with the PATH it just found, then starts the unit.
+    `/run` is emptied at every boot, so nothing survives to be stale. systemd's manager-wide
+    environment is not used: it would reach every unit in the container.
+  - **Who writes it, and where** (the fact-check, `subagent-reports/261126-plan-fact-checker-r89.md`
+    claim 10, found the unit's own `RuntimeDirectory` cannot hold it: it is made at unit start,
+    after the lookup, and removed at stop): the in-container operation runs as root, as the
+    host's attach does. Only the shell lookup drops to the seat's user. The operation then
+    writes the file as root into a directory of its own under `/run` (root-owned, 0755, the
+    file 0644: it holds only a PATH). systemd reads `EnvironmentFile=` as the manager, so the
+    seat's user needs no write access. The line has no `-` prefix: a start without a lookup
+    fails loudly instead of running with the fixed PATH.
+
 - [x] ✅ **Task C.0**: How an LXC seat starts and signs in: answered above.
 
 - [ ] ⬜ **Task C.1**: Owner ruling, given 26 Nov: seats in LXC come back after a reboot, which

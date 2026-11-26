@@ -50,6 +50,9 @@ const (
 	rootEnv      = "VAULT_LIST_ROOT"
 	hostVarsPath = "environment/localhost/host_vars/localhost.yml"
 	itemKey      = "item"
+	// vaultHelper is the checkout's vault helper, run with Dir set to the checkout: a name with
+	// a slash is started relative to Cmd.Dir, never looked up on PATH.
+	vaultHelper = "./vault.bash"
 	// maxAsked bounds the values one run asks for.
 	maxAsked     = 100
 	headingWidth = 80
@@ -364,7 +367,7 @@ func (r *run) encryptAll(ctx context.Context, names []string) ([]*yaml.Node, err
 	out := make([]*yaml.Node, 0, len(names))
 	for i, name := range names {
 		res, err := r.env.Runner.Run(ctx, execx.Cmd{
-			Name:  filepath.Join(r.root, "vault.bash"),
+			Name:  vaultHelper,
 			Args:  []string{"encrypt", itemKey},
 			Dir:   r.root,
 			Stdin: strings.NewReader(name),

@@ -90,6 +90,21 @@ the coordinator's worker restarts.
   ahead of its upstream after a fetch, and `--force` runs anyway. The batch after 24. Built in Go, since
   run.bash may not grow (bash-limits ratchet).
 
+- [ ] ⬜ **Task 4.2**: R90 and R89 (the owner, 26 Nov 10:44Z): a human never needs a seat
+  number. A standing rule, built in this order:
+
+  1. A detector first (Defence Before Fix): no human-facing text (a message, an error, a
+     prompt, a doc, restore output) asks for or shows a seat number as the thing to type.
+     Prove it red on today's tree, and sweep.
+  2. `ccy --teams <team>`, a bare `ccy --teams`, and `cc` in a checkout pick the seat this
+     checkout already holds and resume its recorded conversation. They ask only when there is
+     a genuine choice, in words (what each seat is for, when it last ran).
+  3. R89's one restore command for every seat on a machine, with a dry run, speaking the same
+     way.
+  4. Docs and errors rewritten without seat numbers.
+     The design goes here before the build; it touches `ccy-teams` and the launch, so it follows
+     batch 24.
+
 ## Success Criteria
 
 - [ ] Every register entry is proven fixed or deferred by the owner.

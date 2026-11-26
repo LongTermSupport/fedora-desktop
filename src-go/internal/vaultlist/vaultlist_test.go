@@ -63,7 +63,7 @@ func newWorld(t *testing.T, vars string) *world {
 		t.Fatal(err)
 	}
 	w.write(vars)
-	w.fake.OnFunc([]string{filepath.Join(w.root, "vault.bash"), "encrypt"}, func(c execx.Cmd) (execx.Result, error) {
+	w.fake.OnFunc([]string{"./vault.bash", "encrypt"}, func(c execx.Cmd) (execx.Result, error) {
 		plain, err := io.ReadAll(c.Stdin)
 		if err != nil {
 			return execx.Result{}, err
@@ -259,7 +259,7 @@ func TestNothingToAddLeavesTheFileAlone(t *testing.T) {
 	if w.out.String() != "private_name_terms: 1 items, 0 added\n" {
 		t.Errorf("stdout = %q", w.out.String())
 	}
-	if w.fake.Called(filepath.Join(w.root, "vault.bash")) {
+	if w.fake.Called("./vault.bash") {
 		t.Error("something was encrypted")
 	}
 }
@@ -393,7 +393,7 @@ func TestAWrittenListThatDoesNotDecryptBackFails(t *testing.T) {
 
 func TestEncryptionFailureChangesNothing(t *testing.T) {
 	w := newWorld(t, head+tail)
-	w.fake.On([]string{filepath.Join(w.root, "vault.bash"), "encrypt"}, execx.Result{ExitCode: 1, Stderr: []byte("ERROR: vault-pass.secret not found")})
+	w.fake.On([]string{"./vault.bash", "encrypt"}, execx.Result{ExitCode: 1, Stderr: []byte("ERROR: vault-pass.secret not found")})
 	if code := w.run(nameA+"\n\n", "add", "private_name_terms"); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
@@ -456,6 +456,23 @@ func TestCheckName(t *testing.T) {
 		if err := checkName(bad); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
+	}
+}
+
+// The helper is named relative to the checkout, and the real runner starts it from Cmd.Dir,
+// not from the working directory the command was started in.
+func TestTheVaultHelperRunsFromTheCheckoutNotTheWorkingDirectory(t *testing.T) {
+	t.Chdir(t.TempDir())
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "vault.bash"), []byte("#!/bin/sh\necho in-checkout\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (execx.OS{}).Run(context.Background(), execx.Cmd{Name: vaultHelper, Dir: root})
+	if err != nil {
+		t.Fatalf("%s did not run from the checkout: %v", vaultHelper, err)
+	}
+	if string(res.Stdout) != "in-checkout\n" {
+		t.Errorf("stdout = %q", res.Stdout)
 	}
 }
 

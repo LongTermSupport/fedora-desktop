@@ -1758,3 +1758,77 @@ before the move to v2. Filled in as causes are found.
   "Not shown" blocks (`routes.go:167`, `:171`) twice.
 - **Fix:** print them once per countdown, with a test for a countdown over one minute.
 - **Severity:** low (noise). **Issue:** TBF. **State:** open.
+
+## R89: no one command restores a machine's teamchat seats after a reboot, and the docs point at one that does not
+
+- **Seen:** the owner, 26 Nov 10:41Z, after the laptop's shutdown-with-update, relayed by the
+  coordinator. `ccy-sessions restore` found one stale record (an old team's), started 0, and
+  had no record of any of the three teamchat seats that ran before the shutdown. The owner
+  (verbatim): "so this was a total fail then!".
+- **What (checked on F44):**
+  - `ccy-sessions restore` starts the sessions in `~/.local/state/ccy/sessions/`, each with its
+    recorded `--resume <id>` (`docs/ccy.md`, "Restore is opt-in per machine").
+  - A teamchat seat resumes by `ccy --teams <key>@<team>` in its checkout, from
+    `.claude/ccy/seat-conversations/` (`docs/ccy.md`, "Team seats resume their conversation";
+    `ccy-teams seats conversation` prints the id).
+  - `ccy-teams restart` acts on v1 teams only (`docs/agent-bus.md`).
+  - So nothing restores every seat on a machine. This seat, asked at 10:12Z, named
+    `ccy-sessions restore` from the first section. That was wrong for these seats, and the
+    coordinator and the owner followed it.
+- **Why no record (read in code, fact-check report r89; which case hit the laptop is
+  unchecked):**
+  - The record is written in bash by `ccy_registry_write` (`files/var/local/claude-yolo/lib/tmux-session.bash:423`,
+    in `ccy_tmux_insulate`). Go only reads records.
+  - No record is written when stdin or stdout is not a terminal, or when the launch is the
+    re-exec landing inside ccy's own tmux. `--no-restore` writes one with restore off.
+  - The pane trampoline removes the record when the launcher returns, whatever its status,
+    except 88, an unattended stop (`session-registry.bash:591-613`). Only a kill or a reboot
+    leaves it.
+- **Fix (owner requirement, relayed):**
+  - One command that brings every seat on a machine back on its recorded conversation, with a
+    dry run first. It reads the seat records (`seat-checkouts` and each checkout's
+    `seat-conversations`), not only the session registry, and names any seat it cannot start
+    and why.
+  - The docs say which command restores what. The reboot section names this command first,
+    and `ccy-sessions restore` says that teamchat seats are restored by it.
+  - Find and fix why the session records were missing.
+- **Severity:** high (a reboot loses every seat's session, and the documented route restores
+  none). **Issue:** TBF. **State:** open; planned with R90 as PLAN Task 4.2.
+
+## R90: owner standing rule — a human never needs a seat number
+
+- **Seen:** the owner, the team's questions room, 26 Nov 10:44Z, relayed by the coordinator
+  (verbatim): "we need to stop this expecation that im going to know exactly what seat number
+  to run a session on - it does not make sense and its not human".
+- **Rule:**
+  - `cc`, `ccy --teams <team>` or a bare `ccy --teams` in a checkout picks the right seat by
+    itself: the seat the checkout already holds, resuming its recorded conversation.
+  - It asks only when there is a genuine choice, and then in words (what each seat is for,
+    when it last ran), never numbers.
+  - Seat numbers leave every human-facing message, doc and error, restore output included.
+  - R89's one restore command follows the same rule.
+- **Fix:** PLAN Task 4.2, detector first.
+- **Severity:** high (an owner rule; today's restore asks for exactly what it forbids).
+  **Issue:** TBF. **State:** open.
+
+## R91: an update leaves a host cc seat unstartable, with no migration
+
+- **Seen:** the owner's laptop, 26 Nov 10:44Z, relayed by the coordinator. After `run.bash --changed` to F44, `cc` in another team's checkout, which ran before the shutdown, exits 78:
+  the checkout has no host seat of that team, a new one cannot be added because the team is
+  not served on this machine, and it prints a cross-machine issue-and-place pipe that names a
+  seat handle.
+- **What (checked in F44 code):** on teamchat, `cc` needs a host seat in the checkout's own
+  pool. With none it runs `ccy-teams seats add <team> --host`, which issues on this machine's
+  bus and refuses (78) a team with no status record here (`internal/teams/seatadd`, package
+  doc). The team is served on another machine. Its declared laptop member was never present,
+  so the seat was never placed in this checkout.
+- **Unchecked:** that the session before the update ran on the v1 bus, and which commit ended
+  `cc`'s v1 path for a team on teamchat.
+- **Hazard:** the lossless rule and R90. A running seat becomes unstartable after an update,
+  and the way back is a command line naming a seat, run across two machines.
+- **Fix:**
+  - The update carries a v1 seat over itself.
+  - Or `cc` offers to fetch the seat from the machine that serves the team, in words, with no
+    number, asking for the owner's password once.
+  - To design with R90 (PLAN Task 4.2).
+- **Severity:** high. **Issue:** TBF. **State:** open.
