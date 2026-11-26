@@ -7,8 +7,11 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
+
+	"github.com/godbus/dbus/v5"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/admin"
@@ -16,10 +19,12 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/hostnet"
 	v1 "github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/migrate/v1"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore/drill"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/units"
 )
 
@@ -39,10 +44,57 @@ type fakeMachine struct {
 	n                          counts
 	owner                      uint32 // the uid the state's root-owned files are given
 	noCtl                      bool
-	proven                     bool
+	proven                     bool   // a proof record that enables restore is written under root
+	tuwunel                    string // the pin's Tuwunel version; "" is pinnedTuwunel
+	systemd                    string // the Manager's Version property; "" is pinnedSystemd
+}
+
+// pinnedSystemd is the fake bus's systemd version unless a test names another.
+const pinnedSystemd = "256.7-1.fc41"
+
+// versionConn is the bus a fakeMachine has when a test gives it none: systemd answers its
+// Version property and nothing else, so a unit question fails as "no bus here".
+type versionConn struct {
+	version string
+	mu      sync.Mutex
+	signals chan<- *dbus.Signal
+}
+
+func (v *versionConn) Call(_ context.Context, _ string, _ dbus.ObjectPath, method string, args ...any) ([]any, error) {
+	switch method {
+	case "org.freedesktop.DBus.AddMatch", "org.freedesktop.systemd1.Manager.Subscribe":
+		return nil, nil
+	case "org.freedesktop.DBus.GetNameOwner":
+		return []any{":1.1"}, nil
+	case "org.freedesktop.DBus.Properties.Get":
+		if len(args) == 2 && args[0] == "org.freedesktop.systemd1.Manager" && args[1] == "Version" {
+			return []any{dbus.MakeVariant(v.version)}, nil
+		}
+	}
+	return nil, errors.New("no bus here")
+}
+
+func (v *versionConn) Signal(ch chan<- *dbus.Signal) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.signals = ch
+}
+
+func (v *versionConn) Close() error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.signals != nil {
+		close(v.signals)
+		v.signals = nil
+	}
+	return nil
 }
 
 func (f *fakeMachine) machine() machine {
+	systemd := f.systemd
+	if systemd == "" {
+		systemd = pinnedSystemd
+	}
 	return machine{
 		root: f.root, proc: f.root + "/proc",
 		self: func() (string, error) { return "/usr/libexec/teamchat-admin", f.selfErr },
@@ -54,16 +106,18 @@ func (f *fakeMachine) machine() machine {
 			return admin.User{UID: 990, GID: 985}, true, f.userErr
 		},
 		ownerGroup: func() (int, error) { f.n.groups++; return 1000, f.groupErr },
-		readPin:    func() (host.Pin, error) { f.n.pins++; return host.Pin{MemoryHigh: "512M"}, f.pinErr },
-		runner:     &execx.Fake{}, kernel: guestroot.LinuxKernel{}, kitOwner: f.kitOwner,
+		readPin: func() (host.Pin, error) {
+			f.n.pins++
+			return host.Pin{MemoryHigh: "512M", Version: pinVersion(f.tuwunel)}, f.pinErr
+		},
+		runner: &execx.Fake{}, kernel: guestroot.LinuxKernel{}, kitOwner: f.kitOwner,
 		dial: func(context.Context) (units.Conn, error) {
 			f.n.dials++
 			if f.conn != nil {
 				return f.conn, nil
 			}
-			return nil, errors.New("no bus here")
+			return &versionConn{version: systemd}, nil
 		},
-		restoreProven: f.proven,
 		stateOwnerUID: f.owner,
 	}
 }
@@ -83,8 +137,51 @@ func ownerOf(t *testing.T, dir string) uint32 {
 	return st.Uid
 }
 
+// pinnedTuwunel is the fake pin's Tuwunel version unless a test names another.
+const pinnedTuwunel = "v1.2.3"
+
+func pinVersion(s string) paths.ServerVersion {
+	if s == "" {
+		s = pinnedTuwunel
+	}
+	v, err := paths.ParseServerVersion(s)
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+// proofOf is a record of every clause passed on this test build and the pinned Tuwunel.
+func proofOf(t *testing.T) restore.Proof {
+	t.Helper()
+	d, err := paths.ParseDigest(digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checks := map[restore.Clause]restore.Verdict{}
+	for _, c := range restore.Clauses {
+		checks[c] = restore.VerdictPass
+	}
+	return restore.Proof{Key: restore.Key{Software: d, Tuwunel: pinVersion(""), Systemd: pinnedSystemd}, Checks: checks, PassedMS: 1, Where: restore.WhereVMLab}
+}
+
+// writeProof puts p under the machine's root, owned by the uid the wiring trusts there.
+func writeProof(t *testing.T, f *fakeMachine, p restore.Proof) {
+	t.Helper()
+	if err := os.MkdirAll(f.root+paths.AdminStateRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f.owner = ownerOf(t, f.root)
+	if err := restore.WriteProof(f.root, p); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func build(t *testing.T, f *fakeMachine) *admin.System {
 	t.Helper()
+	if f.proven {
+		writeProof(t, f, proofOf(t))
+	}
 	sys, err := f.machine().system(digest)
 	if err != nil {
 		t.Fatalf("system: %v", err)
@@ -105,11 +202,91 @@ func nilFields(v reflect.Value, skip ...string) []string {
 	return out
 }
 
-// RW2, n2g-D8: production refuses the restore engine until H-C5 and H-C15 pass.
+// RW2, n2g-D8: production refuses the restore engine with no proof record, and with one that is
+// not of this build, not of the pinned Tuwunel or has a clause not passed; each names it (70).
 func TestRestoreIsUnproven(t *testing.T) {
 	sys := build(t, &fakeMachine{root: t.TempDir()})
-	if engine, err := sys.Restore(); engine != nil || !errors.Is(err, restore.ErrUnproven) {
+	if engine, err := sys.Restore(t.Context()); engine != nil || !errors.Is(err, restore.ErrUnproven) || admin.ExitCodeOf(err) != admin.ExitRefused ||
+		!strings.Contains(err.Error(), "no restore drill has passed") {
 		t.Fatalf("Restore = %v, %v", engine, err)
+	}
+	for name, tc := range map[string]struct {
+		edit    func(*restore.Proof)
+		tuwunel string
+		systemd string
+		want    string
+	}{
+		"another tuwunel":  {func(*restore.Proof) {}, "v2.0.0", "", "for Tuwunel v1.2.3, not v2.0.0"},
+		"another systemd":  {func(*restore.Proof) {}, "", "257.1-1.fc42", "for systemd 256.7-1.fc41, not 257.1-1.fc42"},
+		"a skipped clause": {func(p *restore.Proof) { p.Checks[restore.ClauseHeldSession] = restore.VerdictSkipped }, "", "", "not passed: H-C15.held-session"},
+		"another build": {func(p *restore.Proof) {
+			d, err := paths.ParseDigest(strings.Repeat("f", 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.Software = d
+		}, "", "", "for another build"},
+	} {
+		f := &fakeMachine{root: t.TempDir(), tuwunel: tc.tuwunel, systemd: tc.systemd}
+		p := proofOf(t)
+		tc.edit(&p)
+		writeProof(t, f, p)
+		if engine, err := build(t, f).Restore(t.Context()); engine != nil || !errors.Is(err, restore.ErrUnproven) || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: Restore = %v, %v", name, engine, err)
+		}
+	}
+}
+
+// The drill is the host's, and needs no proof record (it makes one): drill.Run over the rig,
+// the TCP dial hostnet.Answers, the restore engine's Deps without the proof gate and with its
+// hooks unset, and the proof's key read as Restore reads it.
+func TestTheDrillIsTheHostsAndNeedsNoProof(t *testing.T) {
+	sys := build(t, &fakeMachine{root: t.TempDir()})
+	d, err := sys.Drill(t.Context())
+	if err != nil {
+		t.Fatalf("Drill: %v", err)
+	}
+	hd, ok := d.(admin.HostDrill)
+	if !ok || hd.Sys != sys {
+		t.Fatalf("Drill = %#v", d)
+	}
+	if missing := nilFields(reflect.ValueOf(hd)); len(missing) != 0 {
+		t.Fatalf("the drill leaves %q unset", missing)
+	}
+	if reflect.ValueOf(hd.Drill).Pointer() != reflect.ValueOf(drill.Run).Pointer() ||
+		reflect.ValueOf(hd.Dial).Pointer() != reflect.ValueOf(hostnet.Answers).Pointer() {
+		t.Errorf("the drill is not drill.Run, or its dial not hostnet.Answers")
+	}
+	drillSeams(t, hd)
+}
+
+// drillSeams holds the drill's Deps (hooks unset), its key (Restore's) and its clean-up engine.
+func drillSeams(t *testing.T, hd admin.HostDrill) {
+	t.Helper()
+	deps, err := hd.Deps(t.Context())
+	if err != nil || deps.OnStaged != nil || deps.AfterSwap != nil || deps.Child == nil || deps.FS == nil {
+		t.Fatalf("Deps = %+v, %v", deps, err)
+	}
+	key, err := hd.Key(t.Context())
+	if want := proofOf(t).Key; err != nil || key != want {
+		t.Fatalf("Key = %+v, %v, want %+v", key, err, want)
+	}
+	engine, err := hd.Engine(t.Context())
+	if err != nil || engine == nil {
+		t.Fatalf("Engine = %v, %v", engine, err)
+	}
+}
+
+// The proof's key is read when the seam is called: a pin or a systemd version that cannot be read
+// fails the seam.
+func TestRestoreNeedsThePinAndTheSystemdVersion(t *testing.T) {
+	f := &fakeMachine{root: t.TempDir(), pinErr: errors.New("no pin")}
+	if engine, err := build(t, f).Restore(t.Context()); engine != nil || err == nil || err.Error() != "no pin" {
+		t.Fatalf("Restore with no pin = %v, %v", engine, err)
+	}
+	f = &fakeMachine{root: t.TempDir(), proven: true, systemd: "not systemd"}
+	if engine, err := build(t, f).Restore(t.Context()); engine != nil || err == nil || !strings.Contains(err.Error(), "Version is not a systemd version") {
+		t.Fatalf("Restore with no systemd version = %v, %v", engine, err)
 	}
 }
 

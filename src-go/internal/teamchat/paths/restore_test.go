@@ -14,6 +14,7 @@ func restoreNames(t *testing.T) map[string][]string {
 		team := mustTeam(t, s)
 		for name, value := range map[string]string{
 			"RestoreRecord":                    RestoreRecord(team),
+			"RestoreDrillMarker":               RestoreDrillMarker(team),
 			"RestoreEpochFile":                 RestoreEpochFile(team),
 			"RestoreConfig":                    RestoreConfig(team),
 			"BackupDir":                        BackupDir(team),
@@ -41,6 +42,7 @@ func restoreZeroDerivations() map[string]func() string {
 	var team TeamID
 	return map[string]func() string{
 		"RestoreRecord":                    func() string { return RestoreRecord(team) },
+		"RestoreDrillMarker":               func() string { return RestoreDrillMarker(team) },
 		"RestoreEpochFile":                 func() string { return RestoreEpochFile(team) },
 		"RestoreConfig":                    func() string { return RestoreConfig(team) },
 		"BackupDir":                        func() string { return BackupDir(team) },
@@ -63,6 +65,7 @@ func TestRestoreNames(t *testing.T) {
 	team := mustTeam(t, "ops")
 	for got, want := range map[string]string{
 		RestoreRecord(team):                       "/var/lib/teamchat-admin/ops/restore.json",
+		RestoreDrillMarker(team):                  "/var/lib/teamchat-admin/ops/restore-drill.json",
 		RestoreEpochFile(team):                    "/var/lib/teamchat-admin/ops/restore-epoch.json",
 		RestoreConfig(team):                       "/var/lib/teamchat-admin/ops/config.restore.toml",
 		BackupDir(team):                           "/var/lib/teamchat-admin/ops/backups",

@@ -195,6 +195,8 @@ func teamRefusals() []refusal {
 		{"null coordinator", "teamchat_teams[0].coordinator", "", func(d map[string]any) { team0(d)["coordinator"] = nil }},
 		{"bad team id", "teamchat_teams[0].team", "Alpha", func(d map[string]any) { team0(d)["team"] = "Alpha" }},
 		{"reserved team id", "teamchat_teams[0].team", "", func(d map[string]any) { team0(d)["team"] = "ctl" }},
+		{"restore drill team id", "teamchat_teams[0].team", "", func(d map[string]any) { team0(d)["team"] = "rd-0123456789ab" }},
+		{"restore drill prefix", "teamchat_teams[0].team", "", func(d map[string]any) { team0(d)["team"] = "rd-ops" }},
 		{"duplicate team", "teamchat_teams[1].team", "", func(d map[string]any) { team1(d)["team"] = "alpha" }},
 		{"duplicate port", "teamchat_teams[1].port", "", func(d map[string]any) { team1(d)["port"] = 8448 }},
 		{"bad state", "teamchat_teams[0].state", "", func(d map[string]any) { team0(d)["state"] = "gone" }},
@@ -494,6 +496,21 @@ func TestInputs(t *testing.T) {
 	}
 	if string(back.Encode()) != string(raw) {
 		t.Fatalf("round trip:\n%s\n%s", back.Encode(), raw)
+	}
+}
+
+// The rd- refusal is the declaration's alone (host_vars): the restore drill's own scratch team is
+// an rd- input it hands team apply and the child in process, and its team.json is read back by
+// every member verb and by the restore, so neither decoder refuses one.
+func TestTheDrillsScratchInputAndTeamFileDecode(t *testing.T) {
+	team := teamEntry("rd-0123456789ab", 8470)
+	in, err := DecodeInput(encode(t, map[string]any{"team": team, "address": "192.0.2.10"}))
+	if err != nil {
+		t.Fatalf("DecodeInput of the scratch team: %v", err)
+	}
+	back, err := DecodeTeamFile(in.Team.Canonical())
+	if err != nil || back.ID.String() != "rd-0123456789ab" {
+		t.Fatalf("DecodeTeamFile of the scratch team = %+v, %v", back, err)
 	}
 }
 

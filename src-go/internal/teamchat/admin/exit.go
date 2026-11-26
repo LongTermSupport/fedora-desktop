@@ -12,6 +12,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore/drill"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/rooms"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -19,8 +20,8 @@ import (
 
 // ExitCodeOf is C 3.3's exit code for a failure (RE9, AP11, CV3): a team lock held is 75; a
 // child's failure is its class's code; drift the rooms engine, apply or the host steps refused,
-// a verb's own refusal, a restore under way (RG2) or refused (RS15), a backup of a server not
-// running, and an approve the gate refused, is 70, a homeserver that did not answer usably or
+// a verb's own refusal, a restore under way (RG2) or refused (RS15), a restore drill refused, a
+// backup of a server not running, and an approve the gate refused, is 70, a homeserver that did not answer usably or
 // kept rate-limiting, or was lost during a backup or a restore (RS15), is 69, anything else 1. The
 // matrix client's own ExitCode is the member side's table and is not used (n2a-D13). An LXC
 // member offline that the run targeted is 69, but only when every joined error is one: else the
@@ -76,9 +77,9 @@ func verbExit(err error) (term.ExitCode, bool) {
 }
 
 // refusedSentinels are the other layers' refusals that are 70: a restore under way (RG2) or
-// refused (RS15), a backup of a server not running, a carry record present (SG1, SG3) and a
-// carry verb's refusal.
-var refusedSentinels = []error{restore.ErrPending, restore.ErrRefused, backup.ErrNotRunning, carry.ErrSealed, carry.ErrRefused}
+// refused (RS15), a restore drill refused, a backup of a server not running, a carry record
+// present (SG1, SG3) and a carry verb's refusal.
+var refusedSentinels = []error{restore.ErrPending, restore.ErrRefused, drill.ErrRefused, backup.ErrNotRunning, carry.ErrSealed, carry.ErrRefused}
 
 func offline(err error) bool {
 	e, ok := errors.AsType[*lxc.OfflineError](err)

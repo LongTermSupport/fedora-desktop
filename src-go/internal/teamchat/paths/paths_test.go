@@ -121,6 +121,7 @@ func TestFixedNames(t *testing.T) {
 		{AdminLXCDir, "/var/lib/teamchat-admin/_lxc"},
 		{LXCStartedFile, "/var/lib/teamchat-admin/_lxc-started.json"},
 		{LXCRunningFile, "/var/lib/teamchat-admin/_lxc-running.json"},
+		{RestoreProofFile, "/var/lib/teamchat-admin/restore-proof.json"},
 		{OwnerGroupFile, "/etc/teamchat/owner-group"},
 		{StatusInstalledFile, "/var/lib/teamchat-status/installed.json"},
 		{AdminRunDir, "/run/teamchat-admin"},

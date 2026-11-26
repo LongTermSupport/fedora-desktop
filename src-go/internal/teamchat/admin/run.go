@@ -162,6 +162,7 @@ func buildTable() []verb {
 	group(ClassRoot, "backup")
 	group(ClassRoot, "backups")
 	group(ClassRoot, "restore")
+	group(ClassRoot, "restore-drill")
 	group(ClassRoot, "health")
 	group(ClassRoot, "lxc", "apply", "restart", "start", "stop", "reconcile", "record-running", "boot", "record-started")
 	group(ClassRoot, "check")

@@ -50,7 +50,9 @@ type System struct {
 	LXC    func() (*lxc.Deps, error)
 	Backup func() (backup.Deps, error)
 	// Restore is the restore engine; production answers restore's refusal until DC8 (RW2).
-	Restore func() (Restorer, error)
+	Restore func(ctx context.Context) (Restorer, error)
+	// Drill is the restore drill, which writes the proof record Restore needs (issue #324).
+	Drill func(ctx context.Context) (Driller, error)
 	// Carry is the carry verbs' engine (SPEC-carry), built when a carry verb runs.
 	Carry func() (Carrier, error)
 	// RotateWrite replaces each file `team rotate-ca` replaces: state.WriteFile on a host.
@@ -114,7 +116,7 @@ func rootRuns() map[string]func(context.Context, Env, []string) term.ExitCode {
 		"lxc apply": lxcApply, "lxc restart": lxcRestart, "lxc start": lxcStart,
 		"lxc stop": lxcStop, "lxc reconcile": lxcReconcile,
 		"lxc record-running": lxcRecordRunning, "lxc boot": lxcBoot, "lxc record-started": lxcRecordStarted,
-		"backup": backupVerb, "backups": backupsVerb, "restore": restoreVerb,
+		"backup": backupVerb, "backups": backupsVerb, "restore": restoreVerb, "restore-drill": restoreDrill,
 		"units list": unitsList, "units print": unitsPrint,
 		"human password": humanVerb(apply.OpHumanPassword), "human logout": humanVerb(apply.OpHumanLogout),
 		"human devices":   humanVerb(apply.OpHumanDevices),

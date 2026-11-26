@@ -133,6 +133,9 @@
 # counted as pending) and in sections, one per kind of message, then teamchat's own facts.
 # Sessions started after the rebuild get it; play-teamchat below does the same for the host's
 # teamchat kit.
+# Issue #324: the image's teamchat is built from the paths package, which gains the restore
+# drill's names (container 2.84.97); the rebuild is the same single one, and nothing in the
+# image reads the new names.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC
@@ -156,6 +159,13 @@ playbooks/imports/play-claude-yolo.yml
 # Plan 00267 Tasks 7.6, 7.7: the host kit and the LXC members' copies carry the same teamchat as
 # the image above (deliveries limited by size only, in sections); member sessions started after
 # the run get it.
+# Issue #324 (the restore drill): teamchat-admin's restore now reads a restore proof record and
+# stays refused without one, and it gains `restore-drill`. The play gains
+# teamchat_restore_drill (default false) and, only where it is true, the drill port's SELinux
+# label. This host does not set it, so no drill port is labelled, no port is opened and NO
+# drill runs here. Expected: changed for the teamchat-admin copy and its link; the SELinux tasks
+# unchanged. Afterwards: `sudo teamchat-admin restore --team T --backup N` exits 70 naming the
+# missing restore proof, as it refused before.
 playbooks/imports/play-teamchat.yml
 
 # Plan 00265 R79: finishes the private-name guard's setup. It ASKS at the terminal for each

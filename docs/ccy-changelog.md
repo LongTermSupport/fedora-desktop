@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.95 — container 2.84.97
+
+- **`teamchat`'s path names gain the restore drill's two files** (issue #324):
+  `/var/lib/teamchat-admin/restore-proof.json`, which `teamchat-admin` reads before it allows a
+  restore, and a scratch team's `restore-drill.json` marker, the only teams the drill's
+  clean-up removes (not the carry's `drill.json`). The image's `teamchat` is built from the
+  same names package, so it is rebuilt once; nothing in it reads the new names. The launcher
+  itself is unchanged apart from the versions.
+
 ## 3.124.94 — container 2.84.96
 
 - `ccy --teams <team>` and `cc --teams <team>` with nobody to ask (a restore, a restart,

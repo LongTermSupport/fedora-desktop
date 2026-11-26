@@ -83,7 +83,11 @@ type Tar struct {
 // validates root/<team>/backups/<n>.tar (backup.Decode); Backup is backup.Take under the held
 // lock; Serve is host.Serve; Bootstrap is host.Deps.Bootstrap and RegKey the registration key
 // a config holds. Sandbox is host.BaseSandbox for the team and Version the server version
-// units.json names. Self is teamchat-admin's own copy, which the secure unit runs.
+// units.json names. Self is teamchat-admin's own copy, which the secure unit runs. OnStaged and
+// AfterSwap are the restore drill's hooks (issue #324), nil in a real restore: OnStaged runs
+// with the staged copy up, before the swap, and its error leaves the restore staged; AfterSwap
+// runs once the databases are swapped and the child has secured the swap, before the record
+// reaches start, and its error is reverted as any failure of the swap is (RS11).
 type Deps struct {
 	Root                  string
 	CtlUID, StateOwnerUID uint32
@@ -105,6 +109,8 @@ type Deps struct {
 	Sandbox               func(team paths.TeamID) []string
 	Version               func(team paths.TeamID) (paths.ServerVersion, error)
 	Self                  string
+	OnStaged              func(ctx context.Context, team paths.TeamID) error
+	AfterSwap             func(ctx context.Context, team paths.TeamID) error
 }
 
 // Request is a fresh restore of backup Backup: offline (RO), or with the backup's roster as

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/netip"
 	"strconv"
+	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/duty"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -51,6 +52,12 @@ const (
 	keyColour, keyCarriedFrom                  = "colour", "carried_from"
 	keyConnectionsPerSource                    = "connections_per_source"
 )
+
+// DrillPrefix starts every restore drill scratch team's id (issue #324). No team in host_vars may
+// use it, so a real team never collides with a drill's, and the drill's clean-up, which removes
+// only a marked team of this prefix, can never reach a declared one. The drill's own input and
+// its team.json carry it, so only the declaration refuses it.
+const DrillPrefix = "rd-"
 
 // HostVarSite is the machine's site, the host_vars key beside paths' HostVar names (paths is
 // another slice's file; the name moves there with them).
@@ -208,6 +215,9 @@ func readTeams(f fields, key, address string) ([]Team, error) {
 		t, err := readTeam(item, address)
 		if err != nil {
 			return nil, err
+		}
+		if strings.HasPrefix(t.ID.String(), DrillPrefix) {
+			return nil, item.key(keyTeam).fail("starts with " + DrillPrefix + ", which only the restore drill's scratch teams use")
 		}
 		if ids[t.ID.String()] {
 			return nil, item.key(keyTeam).fail("is declared twice")

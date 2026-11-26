@@ -765,9 +765,15 @@ cannot be made). `--offline` gives up those two, and nothing else.
 - **RW1.** `wire` builds `backup.Deps` from the units `Manager` (with `Kill`), `hostnet.Readiness`,
   the clock and the ctl uid. `host.Deps.Backup` is `backup.Take`, and health gets
   `backup.States` and `restore.Records`.
-- **RW2.** `System.Restore` is a seam. In production it answers `restore.ErrUnproven` ("restore
-  is not enabled: host checks H-C5 and H-C15 have not passed (DC8)"), so the verb exits 70
-  before it takes the lock (n2g-D8). Tests build the engine over fakes.
+- **RW2.** `System.Restore` is a seam. In production it reads the restore drill's proof record
+  (`paths.RestoreProofFile`, root's own, read by the trust rule; issue #324) and answers a
+  `restore.UnprovenError` (`restore.ErrUnproven`, a `RefusedError`) unless the record is of the
+  running build's source digest, the pinned Tuwunel version and the running systemd's major
+  version (recorded whole, the systemd Manager's `Version` property over D-Bus), and every clause of H-C5 and H-C15
+  (`restore.Clauses`) is `pass`. It has no expiry and is never copied between machines. The
+  error names what is missing: no record, another build, another Tuwunel, another systemd
+  major, or the clauses not passed. So the verb exits 70 before it takes the
+  lock (n2g-D8). Tests build the engine over fakes and a written record.
 
 ## 12. Real Tuwunel (RT, `-tags tuwunel`, `FAKEHS_TUWUNEL_BIN`)
 

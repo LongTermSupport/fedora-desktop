@@ -191,3 +191,67 @@ RapidRAW task is gated on the probe's answer.
   unit's basename, so the second run of a listed play overwrites the first run's log
   (`untracked/plan-runs/_meta-deploy/<stamp>/play-photography.yml.log`). The second run is the
   one to keep here, but a repeated entry loses evidence. Filed as #442.
+
+## Port: restore-drill
+
+Ported as one commit on v2-smoke (the commit that adds this section), from the 11 commits
+`330a5e31e 94a96a7c7 b2b34eab4 4d64684dd 367354a1e 99bc86d7b 84d756555 b3415c570 04a498413 5311a2699 9b210f7f4`. The branch's net diff was three-way merged onto v2-smoke's tree (merge
+base `c0744c43c`) and the conflicts resolved against today's code; the stale CCY bumps and
+meta-deploy entry were dropped and written fresh. Restore stays refused in production: the
+drill always records `H-C15.pool-seat` and `H-C15.held-session` as skipped, so no proof
+record passes until Gate B.
+
+- **Conflicts resolved.** `admin/exit.go`: the drill's refusal joins `refusedSentinels`.
+  `admin/verbs.go`: `System` keeps `Carry` beside the new `Restore(ctx)` and `Drill`, and the
+  verb table keeps the LXC verbs. `admin/wire/wire.go`: `restoreSeams` replaces the
+  `restoreProven` seam, and the carry engine stays. `wire_test.go`, `paths_test.go` and
+  `separation_test.go`: both sides' fields and names kept. `play-teamchat.yml`: the drill's
+  inputs and port label sit beside the LXC members' checks, and the assert keeps the LXC
+  wording. Code moved since the base: `restore.readApplied` is now `ReadApplied`,
+  `memberWork` and `Bundles.Bundle` take a `Reach` (the drill's seats are `ReachURL`), and
+  the carry's `restoreverb_test.go` seam takes the context.
+- **The marker collision (rework 1).** The branch's `paths.DrillMarker`,
+  `AdminState(t)/drill.json`, was the carry's `paths.DrillRecord`. It is now
+  `paths.RestoreDrillMarker`, `AdminState(t)/restore-drill.json`.
+  `TestTheMarkerPassesTheCarryGuards` (restore/drill) writes a marker and holds that
+  `carry.Recorded` finds nothing and `carry.Guard`, `RemoveGuard` and `DrillImportGuard`
+  pass the team. It was seen red with the marker on the old path ("the marker reads as carry
+  records [drill]"), then green.
+- **Defence Before Fix.** The class: two `paths` functions that give one team the same path,
+  so each owner's reader takes the other's file for its own. A `qa/rules` analyzer cannot
+  express it well, because it would have to evaluate each function's string building. The
+  `paths` package already lists every `func(TeamID) string` (`teamFuncs`), held complete
+  against the source's syntax tree by `TestTeamFuncsAreEveryOne`. The new
+  `TestNoTwoTeamFuncsNameTheSamePath` calls each one and refuses any two that give the same
+  absolute path. `TestTheSharedPathCheckDiscriminates` proves it can fail. It was red on the
+  defect (`DrillMarker=DrillRecord`, for every sample team). The sweep found no other
+  instance. `ElementProfile` and `HomeserverUser` give the same string, but one is an Element
+  profile and the other a user name, so the rule compares paths only. It blocks through the
+  Go gate's `go test`.
+- **A project rule the branch now breaks.** The branch's `units.SystemdVersion` ran
+  `systemctl --version`. On today's tree the owned-programs rule refuses that: systemctl
+  belongs to `internal/systemd` and `lxcfreeze`, and `teamchat/units` reaches systemd over
+  D-Bus only. It now reads the Manager's `Version` property, which is the same package version
+  (`256.7-1.fc41`) that `systemctl --version` prints in parentheses. The test was seen red
+  first. SPEC-n2g RW2 says so.
+- **The carry records in `CheckStart` (triage item).** A team with a seal, a drill record or
+  a carried record has its state directory, so the drill already refuses to start beside it.
+  A carry import under way has only its import record in `_carry/` until placement, so
+  `CheckStart` now also refuses on any `<team>.import.json` there
+  (`TestCheckStartRefusesACarryImport`, seen red first). An archive alone in the inbox is no
+  team. `Clean` removes only marked teams, and its purge runs under `RemoveGuard`, which the
+  marker no longer trips.
+- **The backup doc (rework 4).** `docs/agent-bus-backups.md` and DESIGN C 3.12.1 now name the
+  sealed carry as the only way a team moves to another machine. Its sole input is the sealed
+  export, never a nightly `N.tar` (SI5).
+- **CCY (rework 3).** One fresh bump over HEAD's 3.124.94: 3.124.95, with container 2.84.97,
+  because `internal/teamchat/paths` is an image input (`image-source-paths`).
+- **Host run.** No new entry. The queued `play-teamchat.yml` and `play-claude-yolo.yml`
+  entries in `meta-deploy.list` gain the #324 expectations. The host does not set
+  `teamchat_restore_drill`, so no drill runs there.
+- **Tests.** `go test` passes on `teamchat/admin/...`, `restore/...`, `paths`, `declare`,
+  `hostnet`, `units` and `carry`. `go vet`, the project rules (`qa/driver`, untagged and
+  `busfailpoints`) and golangci-lint report nothing on the same packages, and gofmt is clean. `qa-ansible.bash` passes. The edit-time syntax check of the
+  play fails on the known container fault (no vault password file: #332, #215).
+- **Still owed by #324.** Step 4 (the VM-lab scenario `teamchat-restore-drill`) and the host
+  run, which #324 Q1 holds until the owner answers.

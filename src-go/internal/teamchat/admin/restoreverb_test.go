@@ -101,7 +101,7 @@ func newRestoreWorld(t *testing.T) *restoreWorld {
 		CtlIDs: func() (User, error) { return User{UID: os.Getuid(), GID: os.Getgid()}, nil },
 	}
 	w.engine = &fakeRestorer{t: t, sys: w.sys, out: []byte(`{"v":1,"team":"alpha"}`)}
-	w.sys.Restore = func() (Restorer, error) {
+	w.sys.Restore = func(context.Context) (Restorer, error) {
 		w.engines++
 		if w.seamErr != nil {
 			return nil, w.seamErr
@@ -250,14 +250,14 @@ func TestRestoreLockGuardRefusesASealThatLandsLate(t *testing.T) {
 			w.record()
 		}
 		seam := w.sys.Restore
-		w.sys.Restore = func() (Restorer, error) {
+		w.sys.Restore = func(ctx context.Context) (Restorer, error) {
 			if err := os.MkdirAll(w.root+paths.AdminState(alpha(t)), 0o700); err != nil {
 				t.Fatal(err)
 			}
 			if err := os.WriteFile(w.root+paths.SealRecord(alpha(t)), []byte("{}"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			return seam()
+			return seam(ctx)
 		}
 		got := w.verb(append([]string{"--team", "alpha"}, args...)...)
 		if got.code != ExitRefused || !strings.Contains(got.stderr, "team alpha is sealed") || len(w.engine.calls) != 0 {
