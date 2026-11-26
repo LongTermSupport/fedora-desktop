@@ -135,10 +135,11 @@ playbooks/imports/play-teamchat.yml
 # shown as you type, until an empty line; a name already listed is skipped. Each is vault-encrypted into
 # private_name_terms in host_vars (nothing else there changes), and the names in the pinned list
 # you wrote by hand (<git dir>/private-terms-pinned) are imported the same way; the list is
-# decrypted again to check it, and only then is the hand-written file deleted. It then runs
+# decrypted again to check it, and only then is the hand-written file moved aside. It then runs
 # play-git-hooks-security.yml (one sudo, to list /var/lib/teamchat-ctl), which writes the pinned
 # list again (mode 0600) from host_vars' team, member and container names, the teams this bus
 # host serves and private_name_terms, and prints how many names are pinned, never the names.
+# The moved-aside file is deleted once the new list is written, or put back if the play fails.
 # A second run is safe: press Enter at the first question to add nothing.
 00265-teamchat-v2-smoke-test-register/r79-private-names.bash
 

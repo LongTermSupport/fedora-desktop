@@ -1519,8 +1519,9 @@ before the move to v2. Filled in as causes are found.
     line.
   - It imports the names of the hand-written pinned list, adds each one vault-encrypted to
     `private_name_terms`, and checks the list by decrypting it again.
-  - Only then does it delete the hand-written file. It then runs the play and prints the
-    pinned count, never a name.
+  - Only then does it move the hand-written file aside. It then runs the play and prints the
+    pinned count, never a name. The moved-aside file is deleted once the new list is written,
+    or put back if the play fails (`r79-private-names.bash:104-120`).
   - The list edit is the lasting tool `scripts/vault-list.bash add VARIABLE [--import FILE]`
     (Go, `src-go/internal/vaultlist`; V1-V6 in its package doc). It edits only the list's
     block, encrypts through `./vault.bash encrypt`, and never shows a value.
