@@ -105,16 +105,19 @@ func (c *storeAdds) visit(n ast.Node) {
 }
 
 // assigned records each store add of x whose result goes into a named variable.
+// A call with several results assigned to as many names puts its error, the last result, in the
+// last name.
 func (c *storeAdds) assigned(x *ast.AssignStmt) {
-	if len(x.Lhs) != len(x.Rhs) {
-		return
-	}
 	for i, rhs := range x.Rhs {
 		call, isCall := ast.Unparen(rhs).(*ast.CallExpr)
 		if !isCall || !isStoreAdd(c.pass, call) {
 			continue
 		}
-		if id, isID := x.Lhs[i].(*ast.Ident); isID && id.Name != "_" {
+		lhs := i
+		if len(x.Rhs) == 1 {
+			lhs = len(x.Lhs) - 1
+		}
+		if id, isID := x.Lhs[lhs].(*ast.Ident); isID && id.Name != "_" {
 			c.held = append(c.held, heldAdd{call: call, obj: identObj(c.pass, id)})
 		}
 	}

@@ -78,5 +78,18 @@ func refused(s *state.Store, r state.Receipt) error {
 	return s.AddReceipt(r)
 }
 
+// twoResults holds the error in the last of two names: returned, not flagged; swallowed, flagged.
+func twoResults(s *state.Store) (bool, error) {
+	added, err := s.AddDropped("$a")
+	if err != nil {
+		return false, err
+	}
+	again, lost := s.AddDropped("$b") // want `a seat-store add's refusal that reaches no return \(project_store_refusal_lost\)`
+	if lost != nil {
+		log.Print(lost)
+	}
+	return added && again, nil
+}
+
 // rolled adds to a list whose add has no refusal: not flagged.
 func rolled(s *state.Store) { s.AddLedger("$a") }

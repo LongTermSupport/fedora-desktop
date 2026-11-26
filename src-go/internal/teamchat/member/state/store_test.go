@@ -45,6 +45,8 @@ func sampleStore(t *testing.T) Store {
 		{ID: eventID(9), Room: proto.PurposeMain, Item: records.KindPing, From: otherID, AtMS: 15, Verb: new(proto.VerbDone)},
 	}
 	s.Receipts = []Receipt{{ID: eventID(5), Room: proto.PurposeMain}}
+	s.Dropped = []Dropped{{ID: eventID(11), Room: proto.PurposeMain, From: otherID, SentMS: 21, AtMS: 22, Reason: proto.ReasonVerb}}
+	s.Owed = []Owed{{Of: eventID(11), To: otherID, State: proto.ReceiptBounced, Reason: proto.ReasonVerb, AtMS: 22}}
 	s.Outbox.Pings = []Ping{{ID: eventID(7), Verb: "review", Ref: new("commit:owner/repo@" + sha), To: []string{otherID, aliceID}, SentMS: 16, DueMS: 17, Answered: []int{1}, Reported: []int{}}}
 	s.Outbox.Sending = []Sending{
 		{Txn: txn, Room: proto.PurposeMain, Kind: SendText, SinceMS: 18, Type: proto.MessageType, Content: json.RawMessage(`{"body":"hi","msgtype":"m.text"}`)},
@@ -119,53 +121,65 @@ func TestStoreRules(t *testing.T) {
 			delete(s.Sync.FloorMS, proto.PurposeQuestions)
 			s.Sync.FloorIDs = map[string][]string{proto.PurposeQuestions: {}}
 		},
-		"a floor id not an event id": func(s *Store) { s.Sync.FloorIDs = map[string][]string{proto.PurposeMain: {"x"}} },
-		"null floor ids":             func(s *Store) { s.Sync.FloorIDs = map[string][]string{proto.PurposeMain: nil} },
-		"null pending":               func(s *Store) { s.Pending = nil },
-		"pending bad id":             func(s *Store) { s.Pending[0].ID = "$short" },
-		"pending timeout key":        func(s *Store) { s.Pending[0].ID = eventID(9) + "~alice" },
-		"pending bad room":           func(s *Store) { s.Pending[0].Room = "lobby" },
-		"pending bad item":           func(s *Store) { s.Pending[0].Item = "fact" },
-		"pending bad from":           func(s *Store) { s.Pending[0].From = "@alice:other" },
-		"pending bad handed":         func(s *Store) { s.Pending[0].Handed = new("XYZ") },
-		"pending bad time":           func(s *Store) { s.Pending[0].SentMS = -1 },
-		"pending same id twice":      func(s *Store) { s.Pending[1].ID = s.Pending[0].ID },
-		"awaiting bad nonce":         func(s *Store) { s.Awaiting[0].Nonce = "3f9c2a7" },
-		"awaiting no ids":            func(s *Store) { s.Awaiting[0].IDs = []string{} },
-		"awaiting repeated id":       func(s *Store) { s.Awaiting[0].IDs = []string{eventID(3), eventID(3)} },
-		"awaiting relative path":     func(s *Store) { s.Awaiting[0].Transcript.Path = "x.jsonl" },
-		"awaiting unclean path":      func(s *Store) { s.Awaiting[0].Transcript.Path = "/a/../x.jsonl" },
-		"awaiting not a transcript":  func(s *Store) { s.Awaiting[0].Transcript.Path = "/a/x.json" },
-		"awaiting negative offset":   func(s *Store) { s.Awaiting[0].Transcript.Offset = -1 },
-		"awaiting bad written":       func(s *Store) { s.Awaiting[0].Written = "no" },
-		"awaiting bad stop":          func(s *Store) { s.Awaiting[0].StopMS = new(int64(-1)) },
-		"missed bad nonce":           func(s *Store) { s.Missed[0].Nonce = "" },
-		"missed negative offset":     func(s *Store) { s.Missed[0].Offset = -1 },
-		"ledger bad thread":          func(s *Store) { s.Ledger[0].Thread = new("t") },
-		"ledger bad item":            func(s *Store) { s.Ledger[0].Item = "more" },
-		"receipt bad id":             func(s *Store) { s.Receipts[0].ID = eventID(1) + "~alice" },
-		"ping unknown verb":          func(s *Store) { s.Outbox.Pings[0].Verb = "poke" },
-		"ping answer verb":           func(s *Store) { s.Outbox.Pings[0].Verb = proto.VerbAck },
-		"ping no ref":                func(s *Store) { s.Outbox.Pings[0].Ref = nil },
-		"ping ref on halt":           func(s *Store) { s.Outbox.Pings[0].Verb = proto.VerbHalt },
-		"ping bad ref":               func(s *Store) { s.Outbox.Pings[0].Ref = new("nothing") },
-		"ping no target":             func(s *Store) { s.Outbox.Pings[0].To = []string{} },
-		"ping repeated target":       func(s *Store) { s.Outbox.Pings[0].To = []string{otherID, otherID} },
-		"ping due before sent":       func(s *Store) { s.Outbox.Pings[0].DueMS = 1 },
-		"ping index out of range":    func(s *Store) { s.Outbox.Pings[0].Answered = []int{2} },
-		"ping indexes not sorted":    func(s *Store) { s.Outbox.Pings[0].Reported = []int{1, 0} },
-		"ping null reported":         func(s *Store) { s.Outbox.Pings[0].Reported = nil },
-		"ping same id twice":         func(s *Store) { s.Outbox.Pings = append(s.Outbox.Pings, s.Outbox.Pings[0]) },
-		"last sent bad id":           func(s *Store) { s.Outbox.LastSent = new("$short") },
-		"sending bad txn":            func(s *Store) { s.Outbox.Sending[0].Txn = "tc1" },
-		"sending bad kind":           func(s *Store) { s.Outbox.Sending[0].Kind = "file" },
-		"gate negative credit":       func(s *Store) { s.Outbox.Gate.Credit = -1 },
-		"gate bad key":               func(s *Store) { s.Outbox.Gate.Recent[0].Key = "AB" },
-		"gate null recent":           func(s *Store) { s.Outbox.Gate.Recent = nil },
-		"run ended bad notice":       func(s *Store) { s.Run.Ended.Notice = "bye" },
-		"run ended bad reason":       func(s *Store) { s.Run.Ended.Reason = new("restart") },
-		"run ended bad state":        func(s *Store) { s.Run.Ended.State = StateSkipped },
-		"run ended no txn":           func(s *Store) { s.Run.Ended.Txn = nil },
+		"a floor id not an event id":  func(s *Store) { s.Sync.FloorIDs = map[string][]string{proto.PurposeMain: {"x"}} },
+		"null floor ids":              func(s *Store) { s.Sync.FloorIDs = map[string][]string{proto.PurposeMain: nil} },
+		"null pending":                func(s *Store) { s.Pending = nil },
+		"pending bad id":              func(s *Store) { s.Pending[0].ID = "$short" },
+		"pending timeout key":         func(s *Store) { s.Pending[0].ID = eventID(9) + "~alice" },
+		"pending bad room":            func(s *Store) { s.Pending[0].Room = "lobby" },
+		"pending bad item":            func(s *Store) { s.Pending[0].Item = "fact" },
+		"pending bad from":            func(s *Store) { s.Pending[0].From = "@alice:other" },
+		"pending bad handed":          func(s *Store) { s.Pending[0].Handed = new("XYZ") },
+		"pending bad time":            func(s *Store) { s.Pending[0].SentMS = -1 },
+		"pending same id twice":       func(s *Store) { s.Pending[1].ID = s.Pending[0].ID },
+		"awaiting bad nonce":          func(s *Store) { s.Awaiting[0].Nonce = "3f9c2a7" },
+		"awaiting no ids":             func(s *Store) { s.Awaiting[0].IDs = []string{} },
+		"awaiting repeated id":        func(s *Store) { s.Awaiting[0].IDs = []string{eventID(3), eventID(3)} },
+		"awaiting relative path":      func(s *Store) { s.Awaiting[0].Transcript.Path = "x.jsonl" },
+		"awaiting unclean path":       func(s *Store) { s.Awaiting[0].Transcript.Path = "/a/../x.jsonl" },
+		"awaiting not a transcript":   func(s *Store) { s.Awaiting[0].Transcript.Path = "/a/x.json" },
+		"awaiting negative offset":    func(s *Store) { s.Awaiting[0].Transcript.Offset = -1 },
+		"awaiting bad written":        func(s *Store) { s.Awaiting[0].Written = "no" },
+		"awaiting bad stop":           func(s *Store) { s.Awaiting[0].StopMS = new(int64(-1)) },
+		"missed bad nonce":            func(s *Store) { s.Missed[0].Nonce = "" },
+		"missed negative offset":      func(s *Store) { s.Missed[0].Offset = -1 },
+		"ledger bad thread":           func(s *Store) { s.Ledger[0].Thread = new("t") },
+		"ledger bad item":             func(s *Store) { s.Ledger[0].Item = "more" },
+		"receipt bad id":              func(s *Store) { s.Receipts[0].ID = eventID(1) + "~alice" },
+		"dropped bad id":              func(s *Store) { s.Dropped[0].ID = eventID(1) + "~alice" },
+		"dropped bad room":            func(s *Store) { s.Dropped[0].Room = "lobby" },
+		"dropped bad from":            func(s *Store) { s.Dropped[0].From = "@alice:other" },
+		"dropped bad reason":          func(s *Store) { s.Dropped[0].Reason = proto.ReasonAbsent },
+		"dropped bad time":            func(s *Store) { s.Dropped[0].AtMS = -1 },
+		"dropped same id twice":       func(s *Store) { s.Dropped = append(s.Dropped, s.Dropped[0]) },
+		"owed bad of":                 func(s *Store) { s.Owed[0].Of = "$short" },
+		"owed bad to":                 func(s *Store) { s.Owed[0].To = "@alice:other" },
+		"owed bad state":              func(s *Store) { s.Owed[0].State = "lost" },
+		"owed reason not its state's": func(s *Store) { s.Owed[0].Reason = proto.ReasonAbsent },
+		"owed delivered with reason":  func(s *Store) { s.Owed[0].State = proto.ReceiptDelivered },
+		"owed twice":                  func(s *Store) { s.Owed = append(s.Owed, s.Owed[0]) },
+		"ping unknown verb":           func(s *Store) { s.Outbox.Pings[0].Verb = "poke" },
+		"ping answer verb":            func(s *Store) { s.Outbox.Pings[0].Verb = proto.VerbAck },
+		"ping no ref":                 func(s *Store) { s.Outbox.Pings[0].Ref = nil },
+		"ping ref on halt":            func(s *Store) { s.Outbox.Pings[0].Verb = proto.VerbHalt },
+		"ping bad ref":                func(s *Store) { s.Outbox.Pings[0].Ref = new("nothing") },
+		"ping no target":              func(s *Store) { s.Outbox.Pings[0].To = []string{} },
+		"ping repeated target":        func(s *Store) { s.Outbox.Pings[0].To = []string{otherID, otherID} },
+		"ping due before sent":        func(s *Store) { s.Outbox.Pings[0].DueMS = 1 },
+		"ping index out of range":     func(s *Store) { s.Outbox.Pings[0].Answered = []int{2} },
+		"ping indexes not sorted":     func(s *Store) { s.Outbox.Pings[0].Reported = []int{1, 0} },
+		"ping null reported":          func(s *Store) { s.Outbox.Pings[0].Reported = nil },
+		"ping same id twice":          func(s *Store) { s.Outbox.Pings = append(s.Outbox.Pings, s.Outbox.Pings[0]) },
+		"last sent bad id":            func(s *Store) { s.Outbox.LastSent = new("$short") },
+		"sending bad txn":             func(s *Store) { s.Outbox.Sending[0].Txn = "tc1" },
+		"sending bad kind":            func(s *Store) { s.Outbox.Sending[0].Kind = "file" },
+		"gate negative credit":        func(s *Store) { s.Outbox.Gate.Credit = -1 },
+		"gate bad key":                func(s *Store) { s.Outbox.Gate.Recent[0].Key = "AB" },
+		"gate null recent":            func(s *Store) { s.Outbox.Gate.Recent = nil },
+		"run ended bad notice":        func(s *Store) { s.Run.Ended.Notice = "bye" },
+		"run ended bad reason":        func(s *Store) { s.Run.Ended.Reason = new("restart") },
+		"run ended bad state":         func(s *Store) { s.Run.Ended.State = StateSkipped },
+		"run ended no txn":            func(s *Store) { s.Run.Ended.Txn = nil },
 		"run none with a txn": func(s *Store) {
 			s.Run.Ended = &RunEnd{Notice: NoticeNone, Reason: new(ReasonRestart), State: StateSkipped, Txn: new(txn)}
 		},
@@ -291,6 +305,14 @@ func fullStore(t *testing.T) Store {
 	}
 	for i := range capReceipts {
 		s.Receipts = append(s.Receipts, Receipt{ID: eventID(i), Room: proto.PurposeQuestions, SentMS: farMS})
+	}
+	s.Dropped = []Dropped{}
+	for i := range capDropped {
+		s.Dropped = append(s.Dropped, Dropped{ID: eventID(i), Room: proto.PurposeQuestions, From: longID, SentMS: farMS, AtMS: farMS, Reason: proto.ReasonRoleChanged})
+	}
+	s.Owed = []Owed{}
+	for i := range capOwed {
+		s.Owed = append(s.Owed, Owed{Of: eventID(i), To: longID, State: proto.ReceiptBounced, Reason: proto.ReasonRoleChanged, AtMS: farMS})
 	}
 	s.Outbox.Pings = []Ping{}
 	for i := range MaxPings {
@@ -664,6 +686,63 @@ func TestAFullReceiptQueueKeepsEachRoomsLatest(t *testing.T) {
 	want = append(want, Receipt{ID: eventID(5001), Room: proto.PurposeMain, SentMS: 9000})
 	if !slices.Equal(s.Receipts, want) {
 		t.Fatalf("a later receipt: the queue is %+v, want %+v", s.Receipts, want)
+	}
+}
+
+// The drop ledger (Plan 00267 C6) holds each dropped event once, refuses loudly when full and
+// never drops an entry to make room; only an entry past its keep is pruned.
+func TestTheDropLedgerRefusesWhenFullAndNeverDrops(t *testing.T) {
+	s := NewStore(teamID(t), agentID, StoreRun{ID: runID(t)}, Gate{})
+	d := func(i int, at int64) Dropped {
+		return Dropped{ID: eventID(i), Room: proto.PurposeMain, From: otherID, SentMS: 1, AtMS: at, Reason: proto.ReasonVerb}
+	}
+	for i := range capDropped {
+		added, err := s.AddDropped(d(i, int64(1000+i)))
+		check(t, err)
+		if !added {
+			t.Fatalf("entry %d was not added", i)
+		}
+	}
+	if added, err := s.AddDropped(d(3, 5000)); err != nil || added {
+		t.Fatalf("an event listed already: added %t, %v; want nothing added and no refusal", added, err)
+	}
+	_, err := s.AddDropped(d(capDropped, 5000))
+	var full *FullError
+	if !errors.As(err, &full) || full.List != "dropped" {
+		t.Fatalf("past the cap = %v, want the dropped list's refusal", err)
+	}
+	if len(s.Dropped) != capDropped || s.Dropped[0].ID != eventID(0) {
+		t.Fatalf("the refusal changed the ledger: %d entries from %s", len(s.Dropped), s.Dropped[0].ID)
+	}
+	s.PruneDropped(1002)
+	if len(s.Dropped) != capDropped-2 || s.Dropped[0].ID != eventID(2) {
+		t.Fatalf("pruned before 1002: %d entries from %s, want the two older gone", len(s.Dropped), s.Dropped[0].ID)
+	}
+	if added, err := s.AddDropped(d(capDropped, 5000)); err != nil || !added {
+		t.Fatalf("after the prune: added %t, %v", added, err)
+	}
+}
+
+// The owed receipts (Plan 00267 C2) hold one receipt per item, addressee, state and reason,
+// and refuse loudly when full.
+func TestOwedReceiptsAreOncePerItemAndRefuseWhenFull(t *testing.T) {
+	s := NewStore(teamID(t), agentID, StoreRun{ID: runID(t)}, Gate{})
+	o := func(i int) Owed {
+		return Owed{Of: eventID(i), To: otherID, State: proto.ReceiptBounced, Reason: proto.ReasonVerb, AtMS: 1}
+	}
+	for i := range capOwed {
+		check(t, s.AddOwed(o(i)))
+	}
+	again := o(7)
+	again.AtMS = 99
+	check(t, s.AddOwed(again))
+	if len(s.Owed) != capOwed || s.Owed[7].AtMS != 1 {
+		t.Fatalf("a receipt owed already was queued again: %d entries, the 8th %+v", len(s.Owed), s.Owed[7])
+	}
+	err := s.AddOwed(o(capOwed))
+	var full *FullError
+	if !errors.As(err, &full) || full.List != "owed" {
+		t.Fatalf("past the cap = %v, want the owed list's refusal", err)
 	}
 }
 

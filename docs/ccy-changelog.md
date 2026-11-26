@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.96 — container 2.84.98
+
+- teamchat: a member lists each event it drops that was addressed to it (its drop ledger, kept
+  a week) and owes the sender a `bounced` receipt with the reason, once per event. Only the
+  addressees bounce; the coordinator bounces what has no readable addressee and a human's post
+  that reached no agent. Outsiders, the admin and receipts are never bounced (Plan 00267 Tasks
+  2.1 and 2.2). The receipts are queued in the seat store; their sender follows.
+
 ## 3.124.95 — container 2.84.97
 
 - **`teamchat`'s path names gain the restore drill's two files** (issue #324):

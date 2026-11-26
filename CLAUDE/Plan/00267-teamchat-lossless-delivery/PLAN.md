@@ -66,10 +66,17 @@ file and line.
 
 ### Phase 2: receiver bookkeeping (C2, C6)
 
-- [ ] ⬜ **Task 2.1**: A bounded drop ledger in the store that refuses loudly when full, never
-  drops.
-- [ ] ⬜ **Task 2.2**: Bounce selection: addressees only, with the coordinator as bouncer for
-  undecodable content and for unheard human posts.
+- [x] ✅ **Task 2.1**: A bounded drop ledger in the store that refuses loudly when full, never
+  drops. Built: the store's `dropped` (512 entries, each event once, kept a week by
+  `PruneDropped`) and `owed` (256 receipts, once per item, addressee, state and reason), both
+  refusing when full (`TestTheDropLedgerRefusesWhenFullAndNeverDrops`,
+  `TestOwedReceiptsAreOncePerItemAndRefuseWhenFull`); a batch's bounces are written there or the
+  batch is refused (`TestABouncedDropIsLedgeredAndOwedOnce`). The ledger lists only the drops
+  this member bounces, so an outsider's flood cannot fill it.
+- [x] ✅ **Task 2.2**: Bounce selection: addressees only, with the coordinator as bouncer for
+  undecodable content and for unheard human posts. Built: `proto.Judge.Bounce` and
+  `proto.RawAddressees` (`TestBounceSelection`, 20 cases), called by teamsync's `take`
+  (`TestADropAddressedHereIsBounced`).
 - [ ] 🔄 **Task 2.3**: A durable receipt queue and its sender loop. The existing `m.read` queue
   stops losing when full. Built: the `m.read` queue, full, keeps each room's latest receipt
   (`TestAFullReceiptQueueKeepsEachRoomsLatest`), and the rule `project_store_refusal_lost`

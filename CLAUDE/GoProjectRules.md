@@ -4304,9 +4304,11 @@ room's latest).
 
 - Red, fixture: `testdata/src/storeadd/internal/teamchat/member/engine` (the if-init form with a
   log line, the error held first, a discarded result as a statement and into `_`, `ErrFull`
-  matched and swallowed, `return false, nil`, a loss inside a function literal: 7 findings;
-  returned, wrapped, held then returned and translated: clean; an add with no error: clean; the
-  test file and `member/state`: not judged).
+  matched and swallowed, `return false, nil`, a loss inside a function literal, the error of a
+  two-result add (`added, err :=`) swallowed: 8 findings; returned, wrapped, held then returned,
+  translated and a two-result add returned: clean; an add with no error: clean; the test file
+  and `member/state`: not judged). The two-result form was added with `AddDropped`: the first
+  draft took every multi-name assignment for a loss, a false finding on `engine.applyBounces`.
 - Red, real tree (the driver as `go vet -vettool` over `./internal/teamchat/...`): one finding,
   `engine/proof.go` (`receipt`). `engine/send.go`'s `AddSending`, which answers with its own
   refusal, was a finding of the first draft and is not one now.

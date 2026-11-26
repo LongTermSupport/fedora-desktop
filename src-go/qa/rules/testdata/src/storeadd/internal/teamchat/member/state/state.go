@@ -25,6 +25,15 @@ func (s *Store) AddReceipt(r Receipt) error {
 	return nil
 }
 
+// AddDropped refuses when full, and says whether it added.
+func (s *Store) AddDropped(id string) (bool, error) {
+	if len(s.Ledger) >= 2 {
+		return false, ErrFull
+	}
+	s.Ledger = append(s.Ledger, id)
+	return true, nil
+}
+
 // AddLedger rolls: it has no refusal to lose.
 func (s *Store) AddLedger(id string) { s.Ledger = append(s.Ledger, id) }
 

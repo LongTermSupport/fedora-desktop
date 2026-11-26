@@ -62,6 +62,10 @@ type Batch struct {
 	// Handover sets `outbox.questions_handover`, the ready line owed (QX1): the first page write of
 	// a build begun with no `questions` key.
 	Handover bool
+	// Bounces are the events this batch dropped that this member bounces (Plan 00267 C2,
+	// proto.Judge.Bounce): the write lists each in the drop ledger and owes its sender a
+	// bounced receipt, or refuses the whole batch when either list is full.
+	Bounces []Bounce
 	// Relays are the coordinator's relays this batch owes (A 10.6): one per human post the sync
 	// folded onto a question with `asked_by` and per asking seat. The write queues each in
 	// `sending`, under its derived transaction ID, unless that ID is there already.
@@ -80,6 +84,13 @@ type Relay struct {
 type Answer struct {
 	Ping, From, Verb, ID string
 	OriginMS             int64
+}
+
+// Bounce is a dropped event this member bounces: the event, the room purpose it was judged in,
+// its sender and origin time, and the reason.
+type Bounce struct {
+	ID, Room, From, Reason string
+	SentMS                 int64
 }
 
 // Echo is an own ping come back in sync, with the origin_server_ts its deadline is counted from

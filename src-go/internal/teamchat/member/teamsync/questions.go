@@ -579,7 +579,7 @@ func (s *sess) qtake(j *judged, jr roomJudged, idx *proto.QuestionIndex, floor s
 		if !owes(e.id) || v.Outcome == proto.Deliver && floor.Covers(v.Event.OriginTs, e.id) {
 			continue
 		}
-		s.take(j, v, e.id, nil, jr.lk, counted, proto.PurposeQuestions)
+		s.take(j, v, e.id, nil, jr, counted, proto.PurposeQuestions)
 	}
 	for _, d := range idx.TakeDropped() {
 		s.t.log.Printf("the questions post sent as %s was not counted: another question holds its number", d.Txn)

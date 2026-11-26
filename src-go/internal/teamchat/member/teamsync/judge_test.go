@@ -3,6 +3,7 @@ package teamsync
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -97,6 +98,27 @@ func TestAnUnheardIDIsCountedOnce(t *testing.T) {
 	r.poll(t)
 	if n := w.log.count("unheard "); n != 1 {
 		t.Errorf("said %d times", n)
+	}
+}
+
+// Plan 00267 C2: a drop of an event addressed to this worker is bounced by it, with the drop's
+// reason, read from the raw `to` when the content does not decode; an agent's drop with no
+// addressee readable is the coordinator's to bounce, not this worker's.
+func TestADropAddressedHereIsBounced(t *testing.T) {
+	w := newWorld(t)
+	r := w.start()
+	w.batch()
+	r.poll(t)
+	id := w.say(peer, map[string]any{"msgtype": "m.text", "body": "x", "teamchat.text": map[string]any{"v": 2, "to": []string{user(me)}, "text": "x"}})
+	b := w.batch()
+	want := []team.Bounce{{ID: id, Room: proto.PurposeMain, From: user(peer), Reason: proto.ReasonVersion, SentMS: b.Bounces[0].SentMS}}
+	if !slices.Equal(b.Bounces, want) || b.Counts.DroppedBy[proto.ReasonVersion] != 1 {
+		t.Fatalf("batch bounces %+v, counts %+v; want %+v", b.Bounces, b.Counts, want)
+	}
+	r.poll(t)
+	w.say(peer, human("plain text from an agent", user(me)))
+	if b := w.batch(); len(b.Bounces) != 0 || b.Counts.Dropped != 1 {
+		t.Fatalf("a drop with no addressee readable, by a worker: bounces %+v, counts %+v", b.Bounces, b.Counts)
 	}
 }
 
