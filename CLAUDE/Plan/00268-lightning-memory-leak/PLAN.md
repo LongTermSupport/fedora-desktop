@@ -97,9 +97,17 @@ another batch; this plan decides at the end whether it stays.
     watch captures into one dated folder: `smaps_rollup`, the map count with the memfd and
     QtQml mapping counts, the fd list, `/proc/<pid>/status`, each thread's state and CPU,
     Lightning's own log tail, and the last minutes of the sync and read-receipt trace lines.
-  - **Then the kill:** SIGABRT, so systemd-coredump keeps a core and a backtrace. No ptrace is
+  - **Then the kill, of the one pid the watch found:** SIGABRT, so systemd-coredump keeps a core
+    and a backtrace, then SIGKILL after a short grace if the pid still lives. No ptrace is
     needed, so ptrace_scope stays 1 (D3). Whether the core is symbolised depends on Lightning's
     Flatpak debug extension being installed; check that and record the answer.
+    - Never `flatpak kill`: it stops every instance of the app, the other team's included.
+    - Never rely on SIGTERM: in the 26 Nov runaway (coordinator's host-seat report, 11:18Z) the
+      spinning main thread ignored it at 27.6 GB, and only SIGKILL stopped it. A busy event
+      loop never runs a graceful-quit handler, and a crash handler the app installs for
+      SIGABRT could stall too, so the grace is bounded.
+    - The trip line must sit well below `MemoryMax`, or the kernel's OOM kill (SIGKILL, no core)
+      comes first and the capture is lost.
   - **Tell the team:** a teamchat notice to the team that the instance was caught, naming the
     folder.
   - **Acceptance:** a test trips it on a stand-in process and shows the folder and the
