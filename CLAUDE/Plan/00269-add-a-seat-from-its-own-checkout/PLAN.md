@@ -123,7 +123,7 @@ teamchat_teams:
   for it, and it takes no install field (`port`, `networks`, `humans`, `coordinator`, ...); the
   strict reader refuses one beside `served_by`. `state: absent` keeps its meaning (removed: its
   seats refused).
-- `system.Life` gains a fourth answer, declared served elsewhere: its seats can be taken, and
+- `system.Life` gains a fifth answer (it has four today, `lifecycle.go:25-36`), declared served elsewhere: its seats can be taken, and
   `seats add` takes the route from the entry. The verb checks the route with
   `ssh -T <route> /usr/local/sbin/teamchat-admin version` (`ClassAny`, no sudo) before issuing.
 - An undeclared team with no status record here is refused by `seats add`, in words naming the
@@ -195,7 +195,7 @@ document. The local-team path uses the same, so `freeHandle` has one home on the
   in `apply` and `admin`; `seatadd`'s local path uses it.
 - [ ] ⬜ **Task 2.2**: `served_by` on a `teamchat_teams` entry (D2), test first: the strict reader
   (`teamchat/declare`) accepts it alone with `team` and `state`, refuses it beside an install field;
-  the play installs nothing for it; `system.Life`'s fourth answer; the alias in the private-names
+  the play installs nothing for it; `system.Life`'s fifth answer; the alias in the private-names
   pin; `localhost.yml.dist` and the docs' example.
 - [ ] ⬜ **Task 2.3**: `teamchat-admin member serve` (D1), test first: no arguments accepted, one
   strict capped JSON request on stdin, `add`/`reissue`/`list` only, `<type>` podman or host only,
