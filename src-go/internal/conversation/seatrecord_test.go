@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -418,6 +419,104 @@ func TestRecordSeatsWritesUnderTheCheckoutsLock(t *testing.T) {
 	})
 	if !slices.Equal(seen, []string{"locked"}) {
 		t.Fatalf("RecordSeats under the lock: %v, want the lock taken once and held", seen)
+	}
+}
+
+// fakeLockClock is a clock whose Sleep only moves its time on, so a wait on the lock is measured
+// without real time passing.
+type fakeLockClock struct {
+	now   time.Time
+	slept time.Duration
+}
+
+func (c *fakeLockClock) Now() time.Time { return c.now }
+
+func (c *fakeLockClock) Sleep(d time.Duration) {
+	c.slept += d
+	c.now = c.now.Add(d)
+}
+
+// holdSeatRecordLock takes the checkout's seat-record lock through another open file description
+// for the rest of the test.
+func holdSeatRecordLock(t *testing.T, checkout string) string {
+	t.Helper()
+	path := filepath.Join(checkout, seatRecordDir, seatRecordLock)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := f.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// R36 batch review: a writer that cannot take the lock (another launch or remove holds it, or a
+// container left it held) waits a bounded time, then fails naming the lock, never hangs.
+func TestSeatRecordWritersFailNamingALockHeldTooLong(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		write func(checkout string) error
+	}{
+		{"RecordSeats", func(checkout string) error {
+			return RecordSeats(checkout, "1@alpha", id, SourceLaunch, recordMS)
+		}},
+		{"ForgetTeam", func(checkout string) error { return ForgetTeam([]string{checkout}, "alpha") }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w := newWorld(t)
+			w.record("1@beta", id, SourceLaunch)
+			if err := os.MkdirAll(filepath.Join(w.checkout, seatRecordDir, "alpha"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			lock := holdSeatRecordLock(t, w.checkout)
+			clock := &fakeLockClock{now: time.Unix(1_700_000_000, 0)}
+			lockClock = clock
+			t.Cleanup(func() { lockClock = realLockClock{} })
+			err := c.write(w.checkout)
+			if err == nil || !strings.Contains(err.Error(), lock+" is still held after 30s") {
+				t.Fatalf("%s with the lock held: %v", c.name, err)
+			}
+			if clock.slept < seatRecordLockWait {
+				t.Fatalf("waited %s, want %s", clock.slept, seatRecordLockWait)
+			}
+			if _, err := os.Stat(filepath.Join(w.checkout, seatRecordDir, "alpha")); err != nil {
+				t.Fatalf("alpha's records changed while the lock was held: %v", err)
+			}
+		})
+	}
+}
+
+// R36 batch review nit: removing a team's records opens the lock as the launch does, never
+// through a link planted at its name.
+func TestForgetTeamRefusesALinkedLock(t *testing.T) {
+	w := newWorld(t)
+	w.record("1@alpha", id, SourceLaunch)
+	lock := filepath.Join(w.checkout, seatRecordDir, seatRecordLock)
+	other := filepath.Join(w.checkout, "elsewhere")
+	if err := os.WriteFile(other, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	// Relative, so it stays inside the checkout: an os.Root follows such a link unless told not to.
+	if err := os.Symlink("../../../elsewhere", lock); err != nil {
+		t.Fatal(err)
+	}
+	if err := ForgetTeam([]string{w.checkout}, "alpha"); err == nil || !strings.Contains(err.Error(), "could not open the seat-record lock") {
+		t.Errorf("ForgetTeam with the lock a link: %v, want the lock refused", err)
+	}
+	if err := RecordSeats(w.checkout, "2@beta", id, SourceLaunch, recordMS); err == nil || !strings.Contains(err.Error(), "could not open the seat-record lock") {
+		t.Errorf("RecordSeats with the lock a link: %v, want the lock refused", err)
 	}
 }
 

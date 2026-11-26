@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -310,6 +311,35 @@ func (o *Ops) takeDownHeld(ctx context.Context, team string, purge bool) (term.E
 	return term.ExitOK, true
 }
 
+// stillStopped is stopped less the sessions running in team now: they were found before the
+// backup and fate questions and the play, so one may have been restored meanwhile, and a running
+// session's record and keeper report are its own. Each such session is named, with the command
+// that takes it off, and ok is false; so is a failure to read which sessions run, which leaves
+// every one as it is.
+func (o *Ops) stillStopped(ctx context.Context, team string, stopped []string) ([]string, bool) {
+	if o.SessionsIn == nil || len(stopped) == 0 {
+		return stopped, true
+	}
+	running, err := o.SessionsIn(ctx, team)
+	if err != nil {
+		o.Term.PrintError("Team " + team + " is down, but which of its stopped sessions " + strings.Join(stopped, ", ") +
+			" started meanwhile could not be read (" + err.Error() + "), so none was taken off it.")
+		return nil, false
+	}
+	ok := true
+	var still []string
+	for _, name := range stopped {
+		if slices.Contains(running, name) {
+			o.Term.PrintError(name + " started while " + team + " was taken down, so it was left as it is: take it off with ccy-teams session remove " +
+				name + " " + team + ".")
+			ok = false
+			continue
+		}
+		still = append(still, name)
+	}
+	return still, ok
+}
+
 // confirmDown reads the stamps back: the team must now be removed, or gone altogether.
 func (o *Ops) confirmDown(ctx context.Context, team string, purge bool, stopped []string) term.ExitCode {
 	status, err := o.Refresh(ctx)
@@ -328,6 +358,10 @@ func (o *Ops) confirmDown(ctx context.Context, team string, purge bool, stopped 
 	// Both steps run whatever the other does: the team is down, and a second remove is refused as
 	// a team not built here, so nothing later would finish either.
 	code := term.ExitOK
+	stopped, ok := o.stillStopped(ctx, team, stopped)
+	if !ok {
+		code = term.ExitFailure
+	}
 	if o.TakeStoppedOff != nil && len(stopped) > 0 {
 		if err := o.TakeStoppedOff(team, stopped); err != nil {
 			o.Term.PrintError("Team " + team + " is down, but its stopped sessions could not all be taken off it: " + err.Error() +

@@ -66,6 +66,38 @@ func TestRemoveTakesTheTeamsStoppedSessionsOffItOnceItIsDown(t *testing.T) {
 	}
 }
 
+// R36 batch 22 review: the stopped sessions are found before the backup and fate questions and the
+// play, so one may be restored meanwhile. A session running again when they are taken off is left
+// as it is (its record is its launch's, its keeper report live), named, and the remove fails.
+func TestRemoveLeavesAStoppedSessionThatStartedMeanwhile(t *testing.T) {
+	r := removeRig(t)
+	asked := 0
+	r.ops.SessionsIn = func(context.Context, string) ([]string, error) {
+		asked++
+		if asked == 1 {
+			return nil, nil
+		}
+		return []string{"ccy-x"}, nil
+	}
+	r.ops.StoppedIn = func(string) ([]string, error) { return []string{"ccy-x", "cc-y"}, nil }
+	var off []string
+	r.ops.TakeStoppedOff = func(_ string, names []string) error { off = names; return nil }
+	forgot := false
+	r.ops.ForgetTeam = func(string) error { forgot = true; return nil }
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 1 {
+		t.Fatalf("code %d: %s", code, r.said())
+	}
+	if !slices.Equal(off, []string{"cc-y"}) {
+		t.Errorf("taken off %q, want only the session still stopped", off)
+	}
+	if !forgot {
+		t.Error("the seat records were not forgotten")
+	}
+	if want := "ccy-x started while alpha was taken down, so it was left as it is: take it off with ccy-teams session remove ccy-x alpha."; !strings.Contains(r.said(), want) {
+		t.Errorf("said %q, want %q", r.said(), want)
+	}
+}
+
 func TestRemoveThatCannotTellTheStoppedSessionsTakesNothingDown(t *testing.T) {
 	r := removeRig(t)
 	r.ops.StoppedIn = func(string) ([]string, error) { return nil, errors.New("session record ccy-x: unreadable") }
