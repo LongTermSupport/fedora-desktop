@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.108 — container 2.84.106
+
+- The image's teamchat no longer drops a referenced ping at once when its forge check fails
+  for a passing reason (`unresolved`, `forge-rate`) (Plan 00267 Task 3.2). It holds the ping
+  and checks it again every 30 seconds. Once the forge proves it, the ping is delivered. If
+  the check still fails after 10 minutes, the ping is dropped and bounced to its sender with
+  the reason. A `provenance` failure is still bounced at once. A held ping lives only in the
+  running link: a link restart while one is held still loses it (Plan 00267 Task 3.2a).
+
 ## 3.124.107 — container 2.84.105
 
 - The saved Quick Launch choices (`.claude/ccy/.last-launch.conf`) are pinned (Plan 00266

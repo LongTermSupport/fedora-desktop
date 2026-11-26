@@ -41,6 +41,9 @@ type sess struct {
 	epoch int64
 	// floor is main's floor as persisted.
 	floor state.Floor
+	// high is main's floor as judged, which the store's is kept below each of the team's held
+	// pings (Team.forgeHeld).
+	high state.Floor
 	// dropOwed is QS9's drop of the questions room, owed by the next write.
 	dropOwed bool
 	// qinvited is an invite to the questions room seen in this answer, QS2's signal to join.
@@ -72,6 +75,7 @@ func (t *Team) session(ctx context.Context, wg *sync.WaitGroup) error {
 	}
 	s.epoch = s.roster.RestoreEpoch
 	s.floor, _ = store.Sync.Floor(proto.PurposeMain)
+	s.high = s.floor
 	qfloor, _ := store.Sync.Floor(proto.PurposeQuestions)
 	t.knowFloor(proto.PurposeMain, s.floor, s.epoch)
 	t.knowFloor(proto.PurposeQuestions, qfloor, s.epoch)
@@ -644,6 +648,7 @@ func (s *sess) eventsOf(ctx context.Context, since string, a answer, main matrix
 // keeps, which the marker carries (B 2.3.2).
 func (s *sess) commit(j judged, f state.Floor) {
 	s.commitJudged(j)
+	s.high, s.t.forgeHeld = j.high, j.held
 	if f.MS > 0 && !f.Equal(s.floor) {
 		s.floor = f
 		s.t.floorMoved(proto.PurposeMain, f, s.epoch)
@@ -768,37 +773,118 @@ type judged struct {
 	now    int64
 	// q is the questions room's fold, nil when the answer did not hold the room.
 	q *qfold
+	// held and high are the team's held pings and main's floor as judged, with this answer's
+	// changes, committed as flood is.
+	held []forgeHeld
+	high state.Floor
 }
 
-// judgeAll is SY4 with SY4a's resolve first: main's events judged oldest first over a Lookup
-// that answers from memory; a transient failure of a related fetch is the error, before any
-// verdict.
+// judgeAll is SY4 with SY4a's resolve first: the held pings due a check checked again, then
+// main's events judged oldest first over a Lookup that answers from memory; a transient failure
+// of a related fetch is the error, before any verdict. Main's floor is raised to what was judged,
+// but never past a ping still held.
 func (s *sess) judgeAll(ctx context.Context, events []json.RawMessage, restored func(int64) bool, replayed func(int64, string) bool) (judged, error) {
 	t := s.t
-	j := judged{flood: copyWindow(t.flood), budget: copyWindow(t.budget), now: t.cfg.Clock.WallMS()}
-	jr, err := s.judgeRoom(ctx, &j, roomJudge{room: s.a.MainRoom, purpose: proto.PurposeMain, events: events, res: t.res, floor: s.floor, replayed: replayed})
-	if err != nil || len(jr.evs) == 0 {
-		return j, err
-	}
-	j.forge = t.forgeCheck(ctx, s.roster.Forge, jr.vs)
-	if err := ctx.Err(); err != nil {
-		return judged{}, err
+	j := judged{
+		flood: copyWindow(t.flood), budget: copyWindow(t.budget), now: t.cfg.Clock.WallMS(),
+		held: slices.Clone(t.forgeHeld), high: s.high,
 	}
 	counted := map[string]bool{}
-	for i, e := range jr.evs {
-		v, room := jr.vs[i], proto.PurposeMain
-		if isRelay(v) {
-			if v, err = s.relayed(ctx, &j, v); err != nil {
-				return judged{}, err
-			}
-			room = proto.PurposeQuestions
-		}
-		s.take(&j, v, e.id, restored, jr, counted, room)
+	if err := s.retryForge(ctx, &j, restored, counted); err != nil {
+		return judged{}, err
 	}
-	if s.floor.Below(jr.floor) {
-		j.batch.Floors = map[string]state.Floor{proto.PurposeMain: jr.floor}
+	jr, err := s.judgeRoom(ctx, &j, roomJudge{room: s.a.MainRoom, purpose: proto.PurposeMain, events: events, res: t.res, floor: s.floor, replayed: replayed})
+	if err != nil {
+		return j, err
+	}
+	if len(jr.evs) > 0 {
+		if err := s.judgeMain(ctx, &j, jr, restored, counted); err != nil {
+			return judged{}, err
+		}
+	}
+	j.high = j.high.Max(jr.floor)
+	if f := heldFloor(j.high, j.held); s.floor.Below(f) {
+		j.batch.Floors = map[string]state.Floor{proto.PurposeMain: f}
 	}
 	return j, nil
+}
+
+// judgeMain is main's verdicts forge checked and taken; a transient failure of the check is
+// held instead (Plan 00267 Task 3.2), and a ping held already is the held entry's to take.
+func (s *sess) judgeMain(ctx context.Context, j *judged, jr roomJudged, restored func(int64) bool, counted map[string]bool) error {
+	unchecked := slices.Clone(jr.vs)
+	j.forge = j.forge.or(s.t.forgeCheck(ctx, s.roster.Forge, jr.vs))
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	kept := roomJudged{lk: jr.lk, floor: jr.floor, judge: jr.judge}
+	for i, e := range jr.evs {
+		v := jr.vs[i]
+		switch {
+		case isHeld(j.held, e.id):
+		case holds(j.held, e.id, v):
+			deadline := j.now + forgeRetryLimit.Milliseconds()
+			j.held = append(j.held, forgeHeld{id: e.id, v: unchecked[i], jr: kept, next: j.now + forgeRetryEvery.Milliseconds(), deadline: deadline})
+			j.lines = append(j.lines, fmt.Sprintf("held %s: its forge check gave %s; it is checked again until %s",
+				e.id, v.Reason, time.UnixMilli(deadline).UTC().Format(time.RFC3339)))
+		default:
+			if err := s.takeMain(ctx, j, v, e.id, restored, jr, counted); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// retryForge checks again each held ping whose next check is due. One that proves is taken, as
+// are a provenance drop and a failure at its deadline, which are dropped and bounced; the rest
+// are held to their next check.
+func (s *sess) retryForge(ctx context.Context, j *judged, restored func(int64) bool, counted map[string]bool) error {
+	var due, rest []forgeHeld
+	for _, h := range j.held {
+		if h.next <= j.now {
+			due = append(due, h)
+		} else {
+			rest = append(rest, h)
+		}
+	}
+	if len(due) == 0 {
+		return nil
+	}
+	vs := make([]proto.Verdict, 0, len(due))
+	for _, h := range due {
+		vs = append(vs, h.v)
+	}
+	j.forge = j.forge.or(s.t.forgeCheck(ctx, s.roster.Forge, vs))
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	j.held = rest
+	for i, h := range due {
+		if j.now < h.deadline && holds(nil, h.id, vs[i]) {
+			h.next = j.now + forgeRetryEvery.Milliseconds()
+			j.held = append(j.held, h)
+			continue
+		}
+		if err := s.takeMain(ctx, j, vs[i], h.id, restored, h.jr, counted); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// takeMain is take for a verdict of main, a relay's in the questions room.
+func (s *sess) takeMain(ctx context.Context, j *judged, v proto.Verdict, id string, restored func(int64) bool, jr roomJudged, counted map[string]bool) error {
+	room := proto.PurposeMain
+	if isRelay(v) {
+		var err error
+		if v, err = s.relayed(ctx, j, v); err != nil {
+			return err
+		}
+		room = proto.PurposeQuestions
+	}
+	s.take(j, v, id, restored, jr, counted, room)
+	return nil
 }
 
 // roomJudge is one room's events to judge: the room, its purpose, and the resolver of its

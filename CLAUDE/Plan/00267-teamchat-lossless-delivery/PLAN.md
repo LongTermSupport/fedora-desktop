@@ -107,7 +107,24 @@ file and line.
   line (`TestVerdictStaleOnReplay`, `TestAStaleMentionReadAtTheStartIsDeliveredLate`,
   `TestARefetchedItemPastItsAgeIsDeliveredLate`, golden `late.txt`); a stale `halt` or `sync`
   (`proto.WaitsOnSender`) there is dropped and bounced `expired`. Off replay, stale is still a
-  bounced drop. The forge retry is not built yet; its design is in HANDOFF-phase3.md.
+  bounced drop. Built, the forge half: a check that gives `unresolved` or `forge-rate` holds
+  the ping on the team (`Team.forgeHeld`, at most `forgeHeldCap` 256; past it, dropped and
+  bounced at once), logged `held <id>: its forge check gave <reason>; it is checked again until <time>`. Each answer checks the held pings again every `forgeRetryEvery` (30 s): a proven one
+  is delivered, and a `provenance` drop, or a failure at `forgeRetryLimit` (10 min from the first
+  judging), is dropped and bounced with its reason. Main's floor stays just below each held
+  ping (`heldFloor`). Tests: `TestATransientForgeFailureIsHeldUntilItProves`,
+  `TestATransientForgeFailureIsBouncedAtItsDeadline`, `TestAProvenanceFailureIsBouncedAtOnce`,
+  `TestPastTheHeldCapAFailureIsDroppedAtOnce`, `TestTheFloorStaysBelowAHeldPing`, SD5-r1/r2/r4/r8/
+  r11/r12 changed to hold (r8 also shows a hold outliving a session restart). It stays open
+  until the coordinator rules whether Task 3.2a must land with it.
+- [ ] ⬜ **Task 3.2a**: Make the forge hold durable. A held ping lives in the link's memory, and
+  the link resumes from the stored `next_batch` whenever one is stored, not from the floor.
+  So a link that restarts while a ping is held never reads it again, and the ping is lost
+  with no bounce. The floor below it helps only a resume with no position (a first run or a
+  restore-epoch reset). The likely fix is a store change: keep the held ping as a pending
+  entry marked unproven, with `not_before` set to its next check, and check it again before
+  delivery. `Team.Refetch` (an item read again from pending) still turns a transient
+  failure into a drop at once. It needs the same hold, which that pending mark would give.
 
 ### Phase 4: receipts at each point (C2)
 
