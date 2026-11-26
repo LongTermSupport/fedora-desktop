@@ -166,7 +166,7 @@ func TestBusDisconnectedRecordsTheSeatsConversationFirst(t *testing.T) {
 		} else {
 			code = w.disconnect("0")
 		}
-		if code != term.ExitOK || !slices.Equal(w.synced, []string{"s1"}) || !strings.Contains(w.err.String(), "ccy --teams 1@alpha") {
+		if code != term.ExitOK || !slices.Equal(w.synced, []string{"s1"}) || !strings.Contains(w.err.String(), "on their next launch: ccy --teams alpha\n") {
 			t.Fatalf("v1 %v: exit %d, synced %q: %s", v1, code, w.synced, w.err)
 		}
 	}
@@ -343,7 +343,7 @@ func TestLaunchArgsRefusesAHostSeat(t *testing.T) {
 	if code != term.ExitUsage || w.out.Len() != 0 || len(w.taker.took) != 0 {
 		t.Fatalf("exit %d, out %q, took %+v", code, w.out, w.taker.took)
 	}
-	for _, want := range []string{"1@alpha is a host seat (repo.1+site.host)", "cc --teams 1@alpha", "has no podman seat of alpha", "a new seat: ccy-teams seats add alpha, then ccy"} {
+	for _, want := range []string{"1@alpha is a host seat (repo.1+site.host)", "launch it with cc --teams alpha", "has no podman seat of alpha", "a new seat: ccy-teams seats add alpha, then ccy"} {
 		if !strings.Contains(w.err.String(), want) {
 			t.Errorf("stderr lacks %q:\n%s", want, w.err)
 		}
@@ -423,7 +423,7 @@ func TestSeatCheckOnTeamchatPrintsTheCanonicalList(t *testing.T) {
 	if code := w.run("seat-check", " 1@alpha ", "--resolved"); code != term.ExitOK || w.out.String() != "1@alpha\n" {
 		t.Fatalf("exit %d, %q: %s", code, w.out, w.err)
 	}
-	if code := w.run("seat-check", "alpha"); code != term.ExitUsage || !strings.Contains(w.err.String(), "<seat>@<team>") {
+	if code := w.run("seat-check", "alpha"); code != term.ExitUsage || !strings.Contains(w.err.String(), "chosen by the launch at a terminal") {
 		t.Fatalf("a team alone: exit %d, %s", code, w.err)
 	}
 	if code := w.run("seat-take", "1@alpha", "--no-prompt"); code != term.ExitOK || w.out.Len() != 0 {
@@ -483,8 +483,8 @@ func TestARefusalOnTeamchatNamesTheSeatsAndEachWayOn(t *testing.T) {
 		t.Fatalf("a team alone: exit %d, out %q", code, w.out)
 	}
 	for _, want := range []string{
-		"<seat>@<team>", "held by session ccy-repo", "take free seat 2: ccy --teams 2@alpha",
-		"re-attach session ccy-repo (seat 1): ccy-sessions", "ccy-teams seats add alpha",
+		"chosen by the launch at a terminal", "Running now in session ccy-repo", "take a free seat: run ccy --teams alpha at a terminal",
+		"re-attach session ccy-repo: ccy-sessions", "ccy-teams seats add alpha",
 	} {
 		if !strings.Contains(w.err.String(), want) {
 			t.Errorf("a team alone: stderr lacks %q:\n%s", want, w.err)
@@ -495,7 +495,7 @@ func TestARefusalOnTeamchatNamesTheSeatsAndEachWayOn(t *testing.T) {
 	if code := w.run("launch-args", "s1", w.checkout, "1@alpha", "", "--"); code != term.ExitBusy || w.out.Len() != 0 {
 		t.Fatalf("a held seat: exit %d, out %q", code, w.out)
 	}
-	for _, want := range []string{"the seat is held", "take free seat 2: ccy --teams 2@alpha", "re-attach session ccy-repo"} {
+	for _, want := range []string{"the seat is held", "take a free seat: run ccy --teams alpha", "re-attach session ccy-repo"} {
 		if !strings.Contains(w.err.String(), want) {
 			t.Errorf("a held seat: stderr lacks %q:\n%s", want, w.err)
 		}

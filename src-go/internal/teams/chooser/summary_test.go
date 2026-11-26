@@ -15,7 +15,7 @@ const (
 	betaCovers = "  - team: beta\n    description: Reviews the docs\n    repos:\n      - repo: example-org/proj\n"
 
 	launchAnswer = "CHOOSE:Launch with these choices"
-	changeAlpha  = "CHOOSE:Change team alpha (seat 1, worker)"
+	changeAlpha  = "CHOOSE:Change team alpha (worker)"
 )
 
 // summaryRig is a rig whose probe reads taken and roles; a seat of a team is taken when
@@ -65,7 +65,7 @@ func TestAcceptingTheSummaryAsksNothingMore(t *testing.T) {
 		t.Fatalf("screens %d, seat questions %v", len(s.Script.GumLog), s.seatsAsked)
 	}
 	contains(t, "screen", s.screen(0), "Change token (main)", "Change SSH key (/k/a)", "Change network (net)",
-		"Change team alpha (seat 1, worker)", "Change team beta (seat 1, worker)")
+		"Change team alpha (worker)", "Change team beta (worker)")
 	if strings.Contains(s.screen(0), " - NEEDS AN ANSWER") {
 		t.Fatalf("a line is marked though nothing is wrong: %s", s.screen(0))
 	}
@@ -87,7 +87,7 @@ func (s *summaryRig) lacksStdout(t *testing.T) {
 func TestATakenSeatIsMarkedAndOnlyThatLineIsAnswered(t *testing.T) {
 	s := newSummaryRig(t, alphaCovers+betaCovers)
 	s.taken["2@beta"] = true
-	taken := "Change team beta (seat 2, worker) - NEEDS AN ANSWER: seat 2 is held by a running session"
+	taken := "Change team beta (worker) - NEEDS AN ANSWER: seat 2 is held by a running session"
 	s.Script.Gum = []string{"CHOOSE:" + taken, launchAnswer}
 	exit(t, s.summary("--type=podman", "--token=main", "--ssh=", "--network=", "--teams=1@alpha,2@beta"), term.ExitOK, s.rig)
 	contains(t, "first screen", s.screen(0), taken, "--selected "+taken)
@@ -106,7 +106,7 @@ func TestATakenSeatIsMarkedAndOnlyThatLineIsAnswered(t *testing.T) {
 func TestLaunchingWithAMarkedLineIsRefusedAndShownAgain(t *testing.T) {
 	s := newSummaryRig(t, alphaCovers)
 	s.taken["1@alpha"] = true
-	s.Script.Gum = []string{launchAnswer, "CHOOSE:Change team alpha (seat 1, worker) - NEEDS AN ANSWER: seat 1 is held by a running session", launchAnswer}
+	s.Script.Gum = []string{launchAnswer, "CHOOSE:Change team alpha (worker) - NEEDS AN ANSWER: seat 1 is held by a running session", launchAnswer}
 	s.taken["1@alpha"] = true
 	s.c.Seat = func(context.Context, ui.Heading, string, string) (string, term.ExitCode) {
 		return "2@alpha", term.ExitOK
@@ -122,7 +122,7 @@ func TestLaunchingWithAMarkedLineIsRefusedAndShownAgain(t *testing.T) {
 // seat; the owner's answer is not asked again in the same launch.
 func TestAScopeNoLongerCoveringTheRepoIsMarkedAndAnswered(t *testing.T) {
 	s := newSummaryRig(t, alphaCovers+betaWiden)
-	marked := "Change team beta (seat 1, worker) - NEEDS AN ANSWER: beta does not cover " + repo
+	marked := "Change team beta (worker) - NEEDS AN ANSWER: beta does not cover " + repo
 	s.Script.Gum = []string{"CHOOSE:" + marked, joinBeta, launchAnswer}
 	exit(t, s.summary("--type=podman", "--token=t", "--ssh=", "--network=", "--teams=1@alpha,1@beta"), term.ExitOK, s.rig)
 	contains(t, "first screen", s.screen(0), marked)
@@ -137,7 +137,7 @@ func TestAScopeNoLongerCoveringTheRepoIsMarkedAndAnswered(t *testing.T) {
 // Leaving a team out at the scope question drops it from the launch.
 func TestLeavingATeamOutAtTheScopeQuestionDropsIt(t *testing.T) {
 	s := newSummaryRig(t, alphaCovers+betaWiden)
-	s.Script.Gum = []string{"CHOOSE:Change team beta (seat 1, worker) - NEEDS AN ANSWER: beta does not cover " + repo, "CHOOSE:Leave beta out", launchAnswer}
+	s.Script.Gum = []string{"CHOOSE:Change team beta (worker) - NEEDS AN ANSWER: beta does not cover " + repo, "CHOOSE:Leave beta out", launchAnswer}
 	exit(t, s.summary("--type=podman", "--token=t", "--ssh=", "--network=", "--teams=1@alpha,1@beta"), term.ExitOK, s.rig)
 	if !strings.HasPrefix(s.payload.String(), "TEAMS\t1@alpha\nROLES\talpha=worker\n") || len(s.seatsAsked) != 0 {
 		t.Fatalf("payload %q seats %v", s.payload.String(), s.seatsAsked)
@@ -148,7 +148,7 @@ func TestLeavingATeamOutAtTheScopeQuestionDropsIt(t *testing.T) {
 func TestARoleThatChangedSinceIsMarked(t *testing.T) {
 	s := newSummaryRig(t, alphaCovers)
 	s.roles["alpha"] = "worker"
-	s.Script.Gum = []string{"CHOOSE:Change team alpha (seat 1, worker) - NEEDS AN ANSWER: its role is now worker (was coordinator)", launchAnswer}
+	s.Script.Gum = []string{"CHOOSE:Change team alpha (worker) - NEEDS AN ANSWER: its role is now worker (was coordinator)", launchAnswer}
 	exit(t, s.summary("--type=podman", "--token=t", "--ssh=", "--network=", "--teams=1@alpha", "--roles=alpha=coordinator"), term.ExitOK, s.rig)
 	if !slices.Equal(s.seatsAsked, []string{"alpha/podman"}) || !strings.Contains(s.payload.String(), "ROLES\talpha=worker\n") {
 		t.Fatalf("seats %v payload %q", s.seatsAsked, s.payload.String())
@@ -158,7 +158,7 @@ func TestARoleThatChangedSinceIsMarked(t *testing.T) {
 // A team that excludes the repo is left out and said.
 func TestATeamThatExcludesTheRepoIsLeftOutAndSaid(t *testing.T) {
 	s := newSummaryRig(t, alphaCovers+gammaExclude)
-	s.Script.Gum = []string{"CHOOSE:Change team gamma (seat 1, role unknown) - NEEDS AN ANSWER: gamma excludes " + repo + " on purpose", launchAnswer}
+	s.Script.Gum = []string{"CHOOSE:Change team gamma (role unknown) - NEEDS AN ANSWER: gamma excludes " + repo + " on purpose", launchAnswer}
 	exit(t, s.summary("--type=podman", "--token=t", "--ssh=", "--network=", "--teams=1@alpha,1@gamma"), term.ExitOK, s.rig)
 	contains(t, "stderr", s.stderr(), "gamma excludes "+repo+" on purpose", "left out of this launch")
 	if !strings.HasPrefix(s.payload.String(), "TEAMS\t1@alpha\n") {
@@ -175,7 +175,7 @@ func TestASeatThatCannotBeCheckedIsMarkedWithTheReason(t *testing.T) {
 		s.seatsAsked = append(s.seatsAsked, "alpha/podman")
 		return "1@alpha", term.ExitOK
 	}
-	s.Script.Gum = []string{"CHOOSE:Change team alpha (seat 1, role unknown) - NEEDS AN ANSWER: seat 1 could not be checked: the bus said no", launchAnswer}
+	s.Script.Gum = []string{"CHOOSE:Change team alpha (role unknown) - NEEDS AN ANSWER: seat 1 could not be checked: the bus said no", launchAnswer}
 	exit(t, s.summary("--type=podman", "--token=t", "--ssh=", "--network=", "--teams=1@alpha"), term.ExitOK, s.rig)
 	if !slices.Equal(s.seatsAsked, []string{"alpha/podman"}) {
 		t.Fatalf("seats %v", s.seatsAsked)

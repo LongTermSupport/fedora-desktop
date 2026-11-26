@@ -309,10 +309,10 @@ func (x *Hot) leaveRole(ctx context.Context, r request, team, handle string, up 
 	if choice == "" {
 		if !x.interactive() {
 			return nil, "", x.usageError(who + " is " + team + "'s coordinator: say what becomes of the role with " +
-				"--coordinator=demote (no one has it) or --coordinator=hand-to=<seat>."), false
+				"--coordinator=demote (no one has it), or hand it to another member from ccy-teams (the session's Change role)."), false
 		}
 		code, yes := x.ask(ctx, who+" is "+team+"'s coordinator. Make it a worker as it leaves (the role goes to no one)? "+
-			"To hand the role to another seat instead, say no and use --coordinator=hand-to=<seat>.", false)
+			"To hand the role to another member instead, say no and hand it on from ccy-teams (the session's Change role).", false)
 		if !yes {
 			return nil, "", code, false
 		}

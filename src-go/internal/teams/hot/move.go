@@ -69,7 +69,7 @@ func (x *Hot) coordinatorSaid(ctx context.Context, t *target, r request) (term.E
 	}
 	if !handingTo {
 		return x.usageError("seat " + seat + " is " + r.team + "'s coordinator: say what becomes of the role with " +
-			"--coordinator=demote (no one has it) or --coordinator=hand-to=<seat>; nothing was changed."), false
+			"--coordinator=demote (no one has it), or hand it to another member from ccy-teams (the session's Change role); nothing was changed."), false
 	}
 	if _, why := handTo(roster, strings.TrimPrefix(r.coordinator, coordHandTo), handle); why != "" {
 		return x.usageError(why + " Nothing was changed."), false

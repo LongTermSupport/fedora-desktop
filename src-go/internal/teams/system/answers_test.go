@@ -127,7 +127,9 @@ func TestAnswersThatCannotJudgeAreErrors(t *testing.T) {
 	if why, err := w.cmd.Answers(t.Context(), "bare"); err == nil || !strings.Contains(err.Error(), "seat.json") {
 		t.Fatalf("a seat with no seat.json: %q %v", why, err)
 	}
-	if why, err := w.cmd.Answers(t.Context(), "none"); err != nil || !strings.Contains(why, "no pool seat") {
+	// No seat is no probe: the words say no seat was found, never that the bus did not answer.
+	if why, err := w.cmd.Answers(t.Context(), "none"); err != nil || !strings.Contains(why, "no pool seat of it was found") ||
+		strings.Contains(why, "does not answer") {
 		t.Fatalf("a team with no seat here: %q %v", why, err)
 	}
 	if _, err := w.cmd.Answers(t.Context(), "not a team"); err == nil {

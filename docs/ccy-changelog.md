@@ -17,6 +17,20 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.89 — container 2.84.94
+
+- `ccy --teams <team>` and `cc --teams <team>` take the seat this checkout last worked in: the
+  one free seat whose recorded conversation is still here is taken and resumed without a
+  question, and a free seat is taken when none has run here. Only two seats with a conversation,
+  or a seat a running session holds, are asked, in words ("A seat of <team>: last ran 2 hours
+  ago", "Running now in session <name>: re-attach it"), the newest the default (Plan 00265 R90).
+- No message, row or help line tells a person to type a seat number: the ways on, the repair
+  lines and `ccy-teams seats conversation` name teams (`seats conversation <team> --set <id>`
+  finds the team's one recorded seat), and the new-session picker's rows are words. A new rule,
+  `project_seat_number_text`, holds this in the Go code.
+- The team list names a team with no pool seat in the checkout as having none, no longer as a
+  team whose bus does not answer (#430 review).
+
 ## 3.124.88 — container 2.84.94
 
 - A restore that refuses a session because its checkout records a conversation under another

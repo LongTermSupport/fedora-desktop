@@ -38,6 +38,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/system"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -320,7 +321,7 @@ func (c *Cmd) run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	c.note("Launch it here: " + added.Launcher + " --teams " + added.List)
+	c.note("Launch it here: " + membership.Launch(added.Launcher, added.List))
 	if _, err = io.WriteString(c.Stdout, added.List+"\n"); err != nil {
 		return fmt.Errorf("could not print the seat: %w", err)
 	}

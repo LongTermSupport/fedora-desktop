@@ -158,7 +158,7 @@ func (v *Verbs) withWays(err error, checkout, list, kind string) error {
 			lines = append(lines, "  The seats could not be read, so no way on is named: "+perr.Error()+".")
 			continue
 		}
-		lines = append(lines, seatchoice.WaysOn(kind, team, term.AbbrevHome(checkout, v.Getenv("HOME")), pool)...)
+		lines = append(lines, seatchoice.WaysOn(kind, team, term.AbbrevHome(checkout, v.Getenv("HOME")), pool, v.NowMS())...)
 	}
 	return &waysError{err: err, lines: lines}
 }
@@ -345,7 +345,7 @@ func (v *Verbs) seat(ctx context.Context, verb string, args []string) error {
 	}
 	seats, err := membership.ParseSeats(strings.Join(strings.Fields(args[0]), ""))
 	if err != nil {
-		return v.withWays(fmt.Errorf("%w: a teamchat team is named with its seat, <seat>@<team> (%w)", ErrSeat, err), wd, args[0], seatchoice.KindPodman)
+		return v.withWays(fmt.Errorf("%w: a teamchat team named alone has its seat chosen by the launch at a terminal, and none chose one here (%w)", ErrSeat, err), wd, args[0], seatchoice.KindPodman)
 	}
 	items := make([]string, 0, len(seats))
 	for _, s := range seats {
@@ -403,7 +403,7 @@ func (v *Verbs) syncSeats(checkout string, session paths.SessionName) error {
 		_, werr := fmt.Fprintf(v.Stderr, "ccy-teams: internal bus-disconnected: the seats' conversation records of session %s are left as they were: %s.\n", session, got.Nothing)
 		return werr
 	}
-	_, err = fmt.Fprintf(v.Stderr, "ccy-teams: the seats %s resume conversation %s on their next launch: ccy --teams %s\n", got.List, got.ID, got.List)
+	_, err = fmt.Fprintf(v.Stderr, "ccy-teams: the seats %s resume conversation %s on their next launch: %s\n", got.List, got.ID, membership.Launch("ccy", got.List))
 	return err
 }
 

@@ -1831,8 +1831,16 @@ before the move to v2. Filled in as causes are found.
   - Seat numbers leave every human-facing message, doc and error, restore output included.
   - R89's one restore command follows the same rule.
 - **Fix:** PLAN Task 4.2, detector first.
+  - Built, part one: the Go rule `project_seat_number_text` (blocking; red 35 on the tree, then
+    green), every Go instance rewritten. `ccy --teams <team>` and `cc --teams <team>` take the
+    seat this checkout last worked in (`seatchoice.Pick` over the seat records), say it in
+    words, and ask only between two seats with a conversation, rows in words. Ways on, repairs
+    and `seats conversation` name teams.
+  - Still to build: the text check over docs, help and the launchers' bash; the docs rewrite; a
+    bare `ccy --teams` taking the one team; plain `cc` joining its seat; the unattended pick;
+    R89's restore seat pass and its dry run; session names by role.
 - **Severity:** high (an owner rule; today's restore asks for exactly what it forbids).
-  **Issue:** TBF. **State:** open.
+  **Issue:** TBF. **State:** in progress (part one built).
 
 ## R91: an update leaves a host cc seat unstartable, with no migration
 

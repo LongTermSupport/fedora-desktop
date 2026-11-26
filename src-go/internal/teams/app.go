@@ -199,6 +199,9 @@ func Wire(h *host.Host) *App {
 	chosen.Teamchat = &chooser.Teamchat{
 		Live: sys.Live, SeatCount: sys.SeatCount, Handles: sys.Handles, Teams: sys.PoolTeams, Answers: sys.Answers,
 		Pool: sys.PoolState, Reattach: chooser.TmuxReattach(h.Tmux, h.Getenv),
+		LastRan: func(checkout, team, seat string) (int64, error) {
+			return conversation.SeatLastRan(checkout, membership.Seat{Team: team, Seat: seat})
+		},
 		NewSeat: adder.NewSeat(sys.Getwd, func(msg string) { h.Print(h.Stderr, msg+"\n") }),
 	}
 	pick.Teamchat = sys.Live

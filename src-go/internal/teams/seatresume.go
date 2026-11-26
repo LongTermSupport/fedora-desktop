@@ -180,7 +180,7 @@ func (req seatLaunch) chosen() bool {
 
 // decide is the launch's conversation, as claude arguments to add.
 func (r *SeatResume) decide(wd string, req seatLaunch) ([]string, error) {
-	plain := "ccy --teams " + req.list
+	plain := membership.Launch("ccy", req.list)
 	switch {
 	case req.sel.Continue:
 		return nil, usageErr("refuses --continue in a team seat: it resumes this checkout's newest conversation, which may be another seat's.\n"+

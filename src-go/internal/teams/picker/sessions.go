@@ -457,13 +457,13 @@ func (r *run) roleInTeam(ctx context.Context, s hot.Session, cell hot.Cell) (flo
 	return r.session(ctx, args)
 }
 
-// seatLabel is a seat of checkout as a person is shown it: its full handle, or "seat N" only
-// while the board has no row for it (ccy has not made the seat's member yet).
+// seatLabel is a seat of checkout as a person is shown it: its full handle, or, while the board
+// has no row for it (ccy has not made the seat's member yet), that it is not made yet.
 func (r *run) seatLabel(checkout string, cell hot.Cell) string {
 	if handle := r.seatHandle(checkout, cell); handle != "" {
 		return agentbus.Label(handle, "")
 	}
-	return "seat " + cell.Seat
+	return "a seat whose member is made at its first launch"
 }
 
 // seatHandle is the handle of a seat of checkout, as the board's seat rows have it.

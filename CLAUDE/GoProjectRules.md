@@ -100,6 +100,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_question_unresolved`      | which question a questions-room event is in shown by a path that does not ask the one resolver (`proto.QuestionIndex.QuestionIn`, through `team.InQuestion`), so two paths derive the same fact differently, or one not at all | teamchat delivery and `recv`: a human's in-thread reply delivered `question: none` while `verify` named its question (Plan 00265 R34)                                                                                   |
 | `project_floor_by_time`            | an event-ordering floor in teamchat's member tree held as a millisecond alone, or a wall-clock since bound cut by `<=` or `>`, so the events sharing its millisecond are dropped                                               | `teamsync` qtake and relays: an owner's answer posted in the millisecond of the post before it was skipped as below the questions floor (Plan 00209 R0 step 7)                                                          |
 | `project_temp_not_exclusive`       | a temporary created without O_EXCL and then renamed or linked into place, so a link planted at its predictable name is followed and the write lands where it points                                                            | `fsx.WriteAtomic`: `<path>.tmp.<pid>` written by `os.WriteFile`, in a directory a container shares (fedora-desktop#417 review)                                                                                          |
+| `project_seat_number_text`         | text a person is told to type or pick from that spells out a seat (a launch with the seat, a seat placeholder, a hand-over or a repair naming the seat, a row labelled by its seat or handle), when only the machine knows it  | `ccy --teams <team>`'s chooser rows (`seat 2  <handle>  free`) and its ways on (`ccy --teams 3@<team>`), the owner having to know a seat number (Plan 00265 R90)                                                        |
 | `project_root_create_follows_link` | a create through an `os.Root` without O_EXCL, which follows a link inside the root at the last name, O_NOFOLLOW or not, so a dangling link there gets its target created                                                       | the seat-record lock, opened `O_RDWR\|O_CREATE` through the checkout's `os.Root` (Plan 00265 R36, the batch 22b review)                                                                                                 |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
@@ -4222,3 +4223,51 @@ to open.
   `conversation/seatrecord.go` (`openSeatRecordLock`), `qa/bashlimits/app.go`
   (`writeAllowlist`, the tracked allowlist rewritten in place) and
   `qa/internal/semgrepreport/selftest.go` (`writeIn`, into an `os.MkdirTemp` directory).
+
+### project_seat_number_text
+
+**What it is about.** A teamchat seat is a name only the machine knows: the seat store keys it by
+a hash of the checkout's path, and the seat records say which one this checkout worked in. A
+person names the team (`ccy --teams <team>`, `cc --teams <team>`, `ccy-teams`), and the launch
+finds the seat, asking in words only when there is a genuine choice.
+
+**Why it exists.** Plan 00265 R90 (the owner, 26 Nov): the chooser listed `seat 2  <handle>  free`
+rows with the lowest free seat as the default, and the ways on said `ccy --teams 3@<team>`, so
+the owner had to know which seat number this checkout last worked in.
+
+**What it flags**, in `internal/teams`, `internal/sessions`, `internal/conversation`,
+`internal/ccylaunch`, `internal/registry`, `cmd/ccy-teams` and `cmd/ccy-sessions` and below,
+outside `_test.go`: a string (a literal, a constant, a concatenation, or a `fmt` format with its
+arguments) holding a launch with the seat spelt out (`--teams <seat>@`, `SEAT@`, `2@`, a value
+filled in before the `@`), a seat placeholder (`<seat>`, `SEAT@`, `S@T`), a hand-over told as
+`hand-to=<...>` or a seat repair with a seat before an `@`, a launch or a seat repair whose list
+is filled by a value spelt as a seat, a ref, a list, a handle or a member; and, in a function
+whose name ends in `row`, `rows`, `choices`, `options` or `label`, a row labelled `seat <value>`
+or showing a `.Handle`. The decided scope is what a human must know or is shown: an info,
+progress or error line naming a seat for diagnosis is not flagged, nor are keeper logs and
+agent-facing text (teamchat). The allowance table has one row: `shutdown`'s `v2Label`, the
+not-reached line's name for an LXC seat with no handle yet.
+
+**Not caught:** a seat list joined into an argv and printed whole (restore's replayed command);
+a row built outside a row builder; help text and docs outside Go (embedded `.txt`, markdown,
+the launchers' bash), which the text check of Plan 00265 Task 4.2 is to hold.
+
+**How to fix:** name the command by its team (`membership.Launch` turns a seat list into the
+launch by team), say a seat by when it last ran or its role (`seatchoice.Row`), and let the
+chooser map a row back to its seat.
+
+- Red, fixture: `testdata/src/fix/internal/teams/badseattext` (a launch by concatenation, by a
+  format and by a placeholder, a placeholder constant, a hand-over, a seat repair by format and
+  by a filled list, a filled seat list, a `seat %s` row, a handle row: 10 findings), beside
+  `cleanseattext` (the launch by team, an argv, a seat named for diagnosis, a hand-over echoed
+  back, a record's `--teams`, a row in words: clean) and `outsideseattext` (outside the trees,
+  clean). Each finding is a `want`, so an analyzer reporting nothing fails all 10.
+- Red, real tree (the driver as `go vet -vettool` over the trees above): 41 findings on the
+  first draft, 35 once a record's `--teams`, an echoed hand-over value and the `shutdown` label
+  were judged diagnosis, in `seatchoice`, `chooser`, `choose`, `seats`, `seatadd`, `seatmodel`,
+  `membership`, `teamchatlaunch`, `hot`, `picker`, the `teams` seat verbs and `conversation`;
+  one more (`conversation/elsewhere.go`, `seats conversation <list> --set`) once the filled-list
+  shape took the seat repair.
+- Green, the fix: 0 findings. The chooser takes the seat this checkout worked in
+  (`seatchoice.Pick` over the seat records, `conversation.SeatLastRan`), rows are words, the ways
+  on and repairs name teams (`seats conversation` takes a team and finds its one recorded seat).

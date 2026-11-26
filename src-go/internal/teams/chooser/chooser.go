@@ -102,7 +102,7 @@ func (c *Chooser) Run(ctx context.Context, args []string) term.ExitCode {
 		return c.busOnly(ctx, memberType, list)
 	}
 	if !c.attended() && !allSeats(list) {
-		c.say("ccy-teams: 'choose-teams' asks its questions on a terminal; with none, name the seats: --teams SEAT@TEAM.")
+		c.say("ccy-teams: 'choose-teams' asks its questions on a terminal, and there is none: run the launch at a terminal.")
 		return c.unattendedWays(ctx, memberType, list)
 	}
 	if list != "" {

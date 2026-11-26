@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -173,7 +174,8 @@ func TestSeatResumeRefusesWithNoRecordNamingRepairAndFresh(t *testing.T) {
 		checkout := t.TempDir()
 		c.plant(t, checkout)
 		got := run(t, checkout, term.ExitUsage, c.list, "--")
-		for _, want := range []string{c.says, "ccy-teams seats conversation " + c.list + " --set <id>", "ccy --teams " + c.list + " --fresh"} {
+		launch := membership.Launch("ccy", c.list)
+		for _, want := range []string{c.says, launch + " --resume <id> --rebind", launch + " --fresh"} {
 			if !strings.Contains(got.err, want) {
 				t.Errorf("%s: stderr %q does not say %q", c.name, got.err, want)
 			}
@@ -309,7 +311,7 @@ func TestSeatResumeRefusesContinueNamingThePlainForm(t *testing.T) {
 		if got.out != "" {
 			t.Fatalf("%s: stdout %q", flag, got.out)
 		}
-		for _, want := range []string{"refuses --continue", "ccy --teams 1@team-a\n", "ccy --teams 1@team-a --fresh"} {
+		for _, want := range []string{"refuses --continue", "ccy --teams team-a\n", "ccy --teams team-a --fresh"} {
 			if !strings.Contains(got.err, want) {
 				t.Errorf("%s: stderr %q does not say %q", flag, got.err, want)
 			}
@@ -401,7 +403,7 @@ func TestSeatConversationRefusalNamesTheWaysOn(t *testing.T) {
 	if code := c.Run([]string{"1@team-a"}); code != term.ExitFailure || out.Len() != 0 {
 		t.Fatalf("exit %d, stdout %q", code, out.String())
 	}
-	if !strings.Contains(errOut.String(), "--set <id>") || !strings.Contains(errOut.String(), "--fresh") {
+	if !strings.Contains(errOut.String(), "--resume <id> --rebind") || !strings.Contains(errOut.String(), "--fresh") {
 		t.Fatalf("stderr %q", errOut.String())
 	}
 }

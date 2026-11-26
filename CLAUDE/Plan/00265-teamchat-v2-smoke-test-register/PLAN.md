@@ -90,7 +90,7 @@ the coordinator's worker restarts.
   ahead of its upstream after a fetch, and `--force` runs anyway. The batch after 24. Built in Go, since
   run.bash may not grow (bash-limits ratchet).
 
-- [ ] ⬜ **Task 4.2**: R90 and R89 (the owner, 26 Nov 10:44Z): a human never needs a seat
+- [ ] 🔄 **Task 4.2**: R90 and R89 (the owner, 26 Nov 10:44Z): a human never needs a seat
   number. A standing rule, built in this order:
 
   1. A detector first (Defence Before Fix): no human-facing text (a message, an error, a
@@ -104,6 +104,12 @@ the coordinator's worker restarts.
   4. Docs and errors rewritten without seat numbers.
      The design goes here before the build; it touches `ccy-teams` and the launch, so it follows
      batch 24. Design: [DESIGN-4.2-no-seat-numbers.md](DESIGN-4.2-no-seat-numbers.md).
+
+  Built: step 1's Go rule `project_seat_number_text` (blocking, red then green) with its Go
+  sweep, and step 2 for `ccy --teams <team>` and `cc --teams <team>` at a terminal
+  (`seatchoice.Pick`). Left: step 1's text check (docs, help, launchers), step 2's bare
+  `--teams`, plain `cc` and unattended pick, steps 3 and 4. Report:
+  [subagent-reports/261126-task-4-2-build.md](subagent-reports/261126-task-4-2-build.md).
 
 ## Success Criteria
 

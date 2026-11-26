@@ -127,8 +127,8 @@ func elsewhereError(rec registry.Record, err error, found []elsewhere) error {
 	}
 	list := discover.RecordTeams(rec)
 	resume := fmt.Sprintf("  Resume it as %s's: %s --resume %s in %s, and the session records it under its own name", rec.Name, rec.Prefix, id, rec.Dir)
-	if list != "" {
-		resume = fmt.Sprintf("  Resume it as %s's: ccy-teams seats conversation %s --set %s, then ccy-sessions restore %s", rec.Name, list, id, rec.Name)
+	if teams := membership.Teams(list); teams != "" {
+		resume = fmt.Sprintf("  Resume it as %s's: ccy-teams seats conversation %s --set %s, then ccy-sessions restore %s", rec.Name, teams, id, rec.Name)
 	}
 	return &ElsewhereError{Err: fmt.Errorf("%s: %w; it is not started fresh: this checkout records a conversation under another session name, "+
 		"which a rename (or a move of its teams to teamchat) leaves behind, so it may be this session's:\n%s\n%s\n%s",

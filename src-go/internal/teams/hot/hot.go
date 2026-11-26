@@ -110,9 +110,9 @@ func New(h *host.Host, kit *flow.Kit, r *roles.Setter) *Hot {
 }
 
 const helpText = `Usage: ccy-teams session list
-       ccy-teams session add <session> <team>[/<seat>] [--role=worker|coordinator] [--demote-current] [--yes]
-       ccy-teams session remove <session> <team> [--coordinator=demote|hand-to=<seat>] [--park] [--yes]
-       ccy-teams session move <session> <from-team> <to-team>[/<seat>] [--coordinator=demote|hand-to=<seat>] [--yes]
+       ccy-teams session add <session> <team> [--role=worker|coordinator] [--demote-current] [--yes]
+       ccy-teams session remove <session> <team> [--coordinator=demote] [--park] [--yes]
+       ccy-teams session move <session> <from-team> <to-team> [--coordinator=demote] [--yes]
        ccy-teams session role <session>|<handle> <team> worker|coordinator [--demote-current] [--yes]
        ccy-teams session repair <session> [--yes]
 
@@ -141,7 +141,8 @@ seat and exits 1, saying to end cc and start it again from ccy-sessions.
 remove takes it out: the seat is released, its sync position cleared (nothing posted while it is
 out is delivered on a later add), its listening status expired and its goodbye posted. If the
 seat is the team's coordinator, --coordinator says what becomes of the role: demote (no one has
-it) or hand-to=<seat> (another member of the team, by its seat or its full handle). --park also
+it), or a hand-over to another member of the team, which ccy-teams offers on the session's Change
+role (scripts give it as hand-to= and the member's full handle). --park also
 parks the seat's handle and removes the seat from the checkout. The seat's token stays valid:
 remove stops this session's pingbus, it does not revoke.
 
@@ -152,7 +153,7 @@ finishes it. A move within one team is refused: remove, then add.
 role makes the session's seat in the team a worker or the coordinator (sudo agent-bus
 set-role), and waits for the session to be told. Making it the coordinator of a team that has
 one is the same takeover as add's, with the same --demote-current. Given a member's handle
-(<repo>.<seat>+<host>.<type>) in place of a session, it changes the role of a member of any
+(as ccy-teams lists it) in place of a session, it changes the role of a member of any
 kind, an LXC container's agent, a host, docker or vm member as much as a session, by the same
 question and the same path as the member's row in ccy-teams: a member whose role is declared
 (an agent_bus_lxc_members entry) has its entry changed too, then its team applied. Its running
@@ -338,7 +339,7 @@ func (r *request) option(name, value string) error {
 	case optCoord:
 		seat, hand := strings.CutPrefix(value, coordHandTo)
 		if value != coordDemote && (!hand || !handToValue.MatchString(seat)) {
-			return fmt.Errorf("--coordinator is demote or hand-to=<seat>, not '%s'", value)
+			return fmt.Errorf("--coordinator is demote, or a hand-over to another member of the team, not '%s'", value)
 		}
 		r.coordinator = value
 	}

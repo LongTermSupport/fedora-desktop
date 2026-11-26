@@ -124,7 +124,7 @@ func (c *Chooser) parseSummary(args []string) (summaryOpts, bool) {
 	}
 	teams, bad := parseSeats(list)
 	if bad != "" {
-		c.usage("'launch-summary': '" + bad + "' is not SEAT@TEAM.")
+		c.usage("'launch-summary': '" + bad + "' names no seat of a team (a seat, then @, then its team).")
 		return o, false
 	}
 	o.teams = teams
@@ -253,7 +253,7 @@ func (t launchTeam) row() string {
 	if role == "" {
 		role = "role unknown"
 	}
-	text := fmt.Sprintf("Change team %s (seat %s, %s)", t.team, t.seat, role)
+	text := fmt.Sprintf("Change team %s (%s)", t.team, role)
 	if t.problem != "" {
 		text += problemMark + t.problem
 	}

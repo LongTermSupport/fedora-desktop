@@ -345,10 +345,50 @@ func TestSyncSessionCarriesASessionThatResumedIntoItsSeat(t *testing.T) {
 
 func TestWaysOnNamesTheRepairAndFresh(t *testing.T) {
 	got := WaysOn("1@alpha")
-	for _, want := range []string{"ccy-teams seats conversation 1@alpha --set <id>", "ccy --teams 1@alpha --fresh"} {
+	for _, want := range []string{"ccy --teams alpha --resume <id> --rebind", "ccy --teams alpha --fresh"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("%q does not say %q", got, want)
 		}
+	}
+	if strings.Contains(got, "1@alpha") {
+		t.Errorf("the ways on name a seat to type: %q", got)
+	}
+}
+
+// Plan 00265 R90: when a seat last ran is its record's time, and only while the conversation's
+// transcript is here; no record, or a transcript gone, is a seat with no conversation (0).
+func TestSeatLastRanIsTheRecordWhileItsTranscriptIsHere(t *testing.T) {
+	w := newWorld(t)
+	seat := membership.Seat{Team: "alpha", Seat: "1"}
+	if ms, err := SeatLastRan(w.checkout, seat); err != nil || ms != 0 {
+		t.Fatalf("no record: %d %v", ms, err)
+	}
+	w.record("1@alpha", id, SourceLaunch)
+	if ms, err := SeatLastRan(w.checkout, seat); err != nil || ms != 0 {
+		t.Fatalf("a record whose transcript is gone: %d %v", ms, err)
+	}
+	w.transcriptFor(id)
+	if ms, err := SeatLastRan(w.checkout, seat); err != nil || ms != recordMS {
+		t.Fatalf("a record with its transcript: %d %v, want %d", ms, err, recordMS)
+	}
+}
+
+// Plan 00265 R90: a team named alone in a seat list is the seat of it this checkout recorded; one
+// with none, or with several, is refused in words, the several by when each last ran.
+func TestATeamAloneIsItsOneRecordedSeat(t *testing.T) {
+	w := newWorld(t)
+	w.record("1@alpha,2@beta", id, SourceLaunch)
+	if got, err := SeatsOfTeams(w.checkout, "alpha, 2@beta"); err != nil || got != "1@alpha,2@beta" {
+		t.Fatalf("SeatsOfTeams = %q, %v", got, err)
+	}
+	if _, err := SeatsOfTeams(w.checkout, "gamma"); err == nil || !strings.Contains(err.Error(), "no seat of team gamma has a conversation recorded") {
+		t.Fatalf("a team with no record: %v", err)
+	}
+	w.record("3@alpha", otherID, SourceSet)
+	_, err := SeatsOfTeams(w.checkout, "alpha")
+	if err == nil || !strings.Contains(err.Error(), "2 seats") || strings.Contains(err.Error(), "3@alpha") ||
+		!strings.Contains(err.Error(), "ccy --teams alpha --resume <id> --rebind") {
+		t.Fatalf("a team with two records: %v", err)
 	}
 }
 

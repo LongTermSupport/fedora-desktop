@@ -5,7 +5,9 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatchoice"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -34,6 +36,8 @@ type teamchatRig struct {
 	// Answers is asked from one goroutine per team, so these are only read.
 	dead       map[string]string
 	answersErr error
+	// lastRan is when each seat part last ran in the checkout (Plan 00265 R90); absent is never.
+	lastRan map[string]int64
 }
 
 // ofKind is team's seats of kind, as system.Cmd answers them: a rig seat "N" is of every kind
@@ -59,8 +63,9 @@ func (r *teamchatRig) ofKind(team, kind string) []seatchoice.Seat {
 
 func newTeamchatRig(t *testing.T, entries string, seats map[string][]string) *teamchatRig {
 	t.Helper()
-	r := &teamchatRig{rig: newRig(t, entries), seats: seats, held: map[string]string{}, dead: map[string]string{}}
+	r := &teamchatRig{rig: newRig(t, entries), seats: seats, held: map[string]string{}, dead: map[string]string{}, lastRan: map[string]int64{}}
 	r.c.Teamchat = &Teamchat{
+		LastRan: func(_, _, seat string) (int64, error) { return r.lastRan[seat], nil },
 		Answers: func(_ context.Context, team string) (string, error) { return r.dead[team], r.answersErr },
 		Pool:    func(team, kind string) ([]seatchoice.Seat, error) { return r.ofKind(team, kind), r.poolErr },
 		Reattach: func(_ context.Context, session string) error {
@@ -103,7 +108,41 @@ func TestATeamchatTeamNamedAloneTakesItsOnePoolSeat(t *testing.T) {
 	if r.seatsAsked != nil {
 		t.Fatalf("agent-bus's seat chooser was asked: %v", r.seatsAsked)
 	}
-	contains(t, "stderr", r.stderr(), "Team "+v2Team+" is on teamchat: seat 2, this checkout's one podman seat of it.")
+	contains(t, "stderr", r.stderr(), "Team "+v2Team+" is on teamchat: this checkout's one podman seat of it.")
+}
+
+// Plan 00265 R90: of several free seats, the one this checkout last worked in is taken and
+// resumed without a question, and said in words; with none ever run, one is taken (they are the
+// same); two with a conversation are a genuine choice, asked in words, the newest the default.
+func TestTheSeatThisCheckoutWorkedInIsTakenWithoutAQuestion(t *testing.T) {
+	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2", "3", "4"}})
+	r.lastRan["3"] = r.c.Now().UnixMilli() - 2*60*60*1000
+	exit(t, r.run("--type=podman", v2Team), term.ExitOK, r.rig)
+	if r.payload.String() != "3@"+v2Team+"\n" || len(r.Script.GumLog) != 0 {
+		t.Fatalf("payload %q, questions %v", r.payload.String(), r.Script.GumLog)
+	}
+	contains(t, "stderr", r.stderr(), "resuming this checkout's seat of it that last ran 2 hours ago")
+
+	r = newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2", "3"}})
+	exit(t, r.run("--type=podman", v2Team), term.ExitOK, r.rig)
+	if r.payload.String() != "2@"+v2Team+"\n" || len(r.Script.GumLog) != 0 {
+		t.Fatalf("none ever ran: payload %q, questions %v", r.payload.String(), r.Script.GumLog)
+	}
+
+	r = newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2", "3"}})
+	r.lastRan["2"] = r.c.Now().UnixMilli() - 3*24*60*60*1000
+	r.lastRan["3"] = r.c.Now().UnixMilli() - 2*60*60*1000
+	r.Script.Gum = []string{"CHOOSE:" + r.row("2")}
+	exit(t, r.run("--type=podman", v2Team), term.ExitOK, r.rig)
+	if r.payload.String() != "2@"+v2Team+"\n" {
+		t.Fatalf("a genuine choice: payload %q", r.payload.String())
+	}
+	if got := r.gumDefault(t); !strings.HasPrefix(got, "A seat of "+v2Team+": last ran 2 hours ago") {
+		t.Fatalf("the default is not the newest: %s", got)
+	}
+	if log := r.Script.GumLog[0]; strings.Contains(log, "proj.") || strings.Contains(log, "seat 2") {
+		t.Fatalf("the question names a seat: %s", log)
+	}
 }
 
 // row is the chooser's row of a podman seat of the rig.
@@ -111,7 +150,7 @@ func (r *teamchatRig) row(seat string) string { return r.rowOf(seat, seatchoice.
 
 // rowOf is the chooser's row of a seat of kind of the rig.
 func (r *teamchatRig) rowOf(seat, kind string) string {
-	return seatchoice.Row(seatchoice.Seat{Name: seat, Handle: "proj." + seat + "+local." + kind, HeldBy: r.held[seat]})
+	return seatchoice.Row(seatchoice.Seat{Name: seat, Handle: "proj." + seat + "+local." + kind, HeldBy: r.held[seat], LastRanMS: r.lastRan[seat]}, v2Team, r.c.Now().UnixMilli())
 }
 
 // gumDefault is the default the last gum question offered (its --selected).
@@ -130,6 +169,8 @@ func (r *teamchatRig) gumDefault(t *testing.T) string {
 
 func TestATeamchatTeamWithSeveralSeatsAsksWhichOne(t *testing.T) {
 	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2", "3"}})
+	r.lastRan["2"] = r.c.Now().UnixMilli() - 60*60*1000
+	r.lastRan["3"] = r.c.Now().UnixMilli() - 3*60*60*1000
 	r.Script.Gum = []string{"CHOOSE:" + r.row("3")}
 	exit(t, r.run("--type=podman", v2Team), term.ExitOK, r.rig)
 	if r.payload.String() != "3@"+v2Team+"\n" {
@@ -166,7 +207,7 @@ func TestTheNewSeatRowGoesThroughTheNewSeatSeam(t *testing.T) {
 	exit(t, r.run("--type=podman", v2Team), term.ExitConfig, r.rig)
 	r.lacksOutput(t)
 	contains(t, "stderr", r.stderr(), "a new podman seat of "+v2Team+" is added by ccy-teams seats add "+v2Team,
-		"re-attach session ccy-proj (seat 2): ccy-sessions", "a new seat: ccy-teams seats add "+v2Team)
+		"re-attach session ccy-proj: ccy-sessions", "a new seat: ccy-teams seats add "+v2Team)
 
 	r = newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2"}})
 	r.held["2"] = "ccy-proj"
@@ -182,11 +223,13 @@ func TestTheNewSeatRowGoesThroughTheNewSeatSeam(t *testing.T) {
 	}
 }
 
-// Issue 423, v1's floor: every seat is listed, free and held, and the default is the lowest
-// free seat, whatever order the pool lists them in.
-func TestTheSeatsAreListedWithTheLowestFreeAsDefault(t *testing.T) {
+// Issue 423, v1's floor: every seat is listed, free and held, in seat order whatever order the
+// pool lists them in; the default is the free seat that last ran here (Plan 00265 R90).
+func TestTheSeatsAreListedWithTheLastRunAsDefault(t *testing.T) {
 	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"5", "2", "3"}})
 	r.held["2"] = "ccy-proj"
+	r.lastRan["3"] = r.c.Now().UnixMilli() - 60*60*1000
+	r.lastRan["5"] = r.c.Now().UnixMilli() - 3*60*60*1000
 	r.Script.Gum = []string{"CHOOSE:" + r.row("3")}
 	exit(t, r.run("--type=podman", v2Team), term.ExitOK, r.rig)
 	if r.payload.String() != "3@"+v2Team+"\n" {
@@ -228,7 +271,7 @@ func TestAReattachThatCannotBeMadeNamesTheWaysOn(t *testing.T) {
 	exit(t, r.run("--type=host", v2Team), term.ExitBusy, r.rig)
 	r.lacksOutput(t)
 	contains(t, "stderr", r.stderr(), "'cc-proj' is open in another terminal",
-		"take free seat 3: cc --teams 3@"+v2Team, "re-attach session cc-proj (seat 2): ccy-sessions")
+		"take a free seat: run cc --teams "+v2Team+" at a terminal", "re-attach session cc-proj: ccy-sessions")
 }
 
 // A pool whose holders cannot be read is a failure, never a seat taken blind.
@@ -251,12 +294,14 @@ func TestNoTerminalNamesTheWaysOnForATeamchatTeamAlone(t *testing.T) {
 	if len(r.Script.GumLog) != 0 {
 		t.Fatalf("a question was asked with no terminal: %v", r.Script.GumLog)
 	}
-	contains(t, "stderr", r.stderr(), "name the seats", "take free seat 3: ccy --teams 3@"+v2Team,
-		"re-attach session ccy-proj (seat 2)")
+	contains(t, "stderr", r.stderr(), "asks its questions on a terminal", "take a free seat: run ccy --teams "+v2Team+" at a terminal",
+		"re-attach session ccy-proj")
 }
 
 func TestLeavingTheTeamchatSeatQuestionStartsNothing(t *testing.T) {
 	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2", "3"}})
+	r.lastRan["2"] = r.c.Now().UnixMilli() - 60*60*1000
+	r.lastRan["3"] = r.c.Now().UnixMilli() - 3*60*60*1000
 	r.Script.Gum = []string{"CANCEL"}
 	exit(t, r.run("--type=podman", v2Team), term.ExitOK, r.rig)
 	contains(t, "stderr", r.stderr(), nothingChosen)
@@ -351,7 +396,7 @@ func TestTheListShowsThisCheckoutsTeamchatTeams(t *testing.T) {
 const deadTeam = "lts-retired"
 
 // deadWhy is what the rig's Answers says of deadTeam.
-const deadWhy = "its homeserver at https://127.0.0.1:8448 does not answer: connection refused"
+const deadWhy = "its bus does not answer: its homeserver at https://127.0.0.1:8448 refused the probe (connection refused)"
 
 // Issue 430 (the owner: "when selecting team I'm presented with lists of dead teams - this MUST
 // be fixed"): a teamchat team whose bus does not answer is never a row of the list, so it cannot
@@ -368,8 +413,53 @@ func TestATeamchatTeamWhoseBusDoesNotAnswerIsNotOffered(t *testing.T) {
 	if !slices.ContainsFunc(rows, func(row string) bool { return strings.Contains(row, v2Team) }) {
 		t.Fatalf("the live teamchat team was not offered: %q", rows)
 	}
-	contains(t, "stderr", r.stderr(), "Not offered: team "+deadTeam+" is dead", "its bus does not answer", deadWhy)
+	contains(t, "stderr", r.stderr(), "Not offered: team "+deadTeam+": "+deadWhy+".")
 	r.lacksOutput(t)
+}
+
+// Issue 430 review: the teams' buses are asked at once, so the list waits for the slowest probe,
+// not their sum. Each probe blocks until every team has been asked: probes run one after another
+// would never all start, and the test would hit its bound.
+func TestEveryTeamsBusIsAskedAtOnce(t *testing.T) {
+	teams := map[string][]string{v2Team: {"2"}, deadTeam: {"1"}, "lts-stopped": {"1"}}
+	r := newTeamchatRig(t, "", teams)
+	var started sync.WaitGroup
+	started.Add(len(teams))
+	allAsked := make(chan struct{})
+	go func() {
+		started.Wait()
+		close(allAsked)
+	}()
+	r.c.Teamchat.Answers = func(ctx context.Context, team string) (string, error) {
+		started.Done()
+		select {
+		case <-allAsked:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(10 * time.Second):
+			return "", errors.New("team " + team + " was asked alone: the probes did not run at once")
+		}
+		if team == v2Team {
+			return "", nil
+		}
+		return deadWhy, nil
+	}
+	exit(t, r.run("--type=podman"), term.ExitOK, r.rig)
+	if r.payload.String() != "2@"+v2Team+"\n" {
+		t.Fatalf("payload %q", r.payload.String())
+	}
+}
+
+// Issue 430 review: a team with no pool seat here is named as having none, not as a dead bus.
+func TestATeamWithNoSeatHereIsNotCalledDead(t *testing.T) {
+	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2"}, deadTeam: {"1"}})
+	r.dead[deadTeam] = "no pool seat of it was found in this checkout, so its bus was not asked"
+	r.Script.Fzf = []string{"|ABORT"}
+	exit(t, r.run("--type=podman"), term.ExitOK, r.rig)
+	contains(t, "stderr", r.stderr(), "Not offered: team "+deadTeam+": no pool seat of it was found")
+	if strings.Contains(r.stderr(), "does not answer") {
+		t.Fatalf("a team with no seat was called dead: %s", r.stderr())
+	}
 }
 
 // Issue 430: with the dead teams left out, a checkout whose one live team is a teamchat one takes
@@ -475,7 +565,7 @@ func TestALaunchIsOfferedOnlyItsOwnKindsSeats(t *testing.T) {
 	if r.payload.String() != "3@"+v2Team+"\n" {
 		t.Fatalf("payload %q", r.payload.String())
 	}
-	contains(t, "stderr", r.stderr(), "seat 3, this checkout's one podman seat of it")
+	contains(t, "stderr", r.stderr(), "this checkout's one podman seat of it")
 }
 
 // Register R55: a seat named for cc that is a podman seat is refused naming its kind and ccy,
@@ -485,7 +575,7 @@ func TestAHostLaunchRefusesANamedPodmanSeat(t *testing.T) {
 	r.consentRig()
 	exit(t, r.run("--type=host", "2@"+v2Team), term.ExitConfig, r.rig)
 	r.lacksOutput(t)
-	contains(t, "stderr", r.stderr(), "2@"+v2Team+" is a podman seat (proj.2+local.podman)", "ccy --teams 2@"+v2Team)
+	contains(t, "stderr", r.stderr(), "2@"+v2Team+" is a podman seat (proj.2+local.podman)", "launch it with ccy --teams "+v2Team)
 
 	r = newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2:podman"}})
 	r.consentRig()
@@ -505,7 +595,7 @@ func TestNoTerminalNamesOnlyTheLaunchKindsSeats(t *testing.T) {
 	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2:podman", "3"}})
 	r.Host.IsTerminal = func(any) bool { return false }
 	exit(t, r.run("--type=host", v2Team), term.ExitUsage, r.rig)
-	contains(t, "stderr", r.stderr(), "take free seat 3: cc --teams 3@"+v2Team, "ccy-teams seats add "+v2Team+" --host")
+	contains(t, "stderr", r.stderr(), "take a free seat: run cc --teams "+v2Team, "ccy-teams seats add "+v2Team+" --host")
 	if strings.Contains(r.stderr(), "2@"+v2Team) {
 		t.Fatalf("a podman seat was offered to cc:\n%s", r.stderr())
 	}

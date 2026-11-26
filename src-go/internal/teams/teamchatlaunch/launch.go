@@ -326,7 +326,7 @@ func (l *Launch) choose(list string) ([]Chosen, []seat.Take, error) {
 		return nil, nil, fmt.Errorf("%w: the seats %q: %w", ErrSeat, list, err)
 	}
 	if len(seats) == 0 {
-		return nil, nil, fmt.Errorf("%w: a teamchat launch names its seats (<seat>@<team>)", ErrSeat)
+		return nil, nil, fmt.Errorf("%w: a teamchat launch was given no seat; the launch of a team chooses one (ccy --teams <team>)", ErrSeat)
 	}
 	var chosen []Chosen
 	var takes []seat.Take

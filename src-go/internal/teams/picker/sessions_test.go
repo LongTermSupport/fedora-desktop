@@ -412,8 +412,8 @@ func TestChangeRoleInATeamRunsSessionRole(t *testing.T) {
 }
 
 // A seat the board has no row for (ccy has not made its member yet) has no handle to show, so
-// it is named by its seat.
-func TestTheRoleOfASeatWithNoHandleYetNamesTheSeat(t *testing.T) {
+// it is said in words, never by its seat number (Plan 00265 R90).
+func TestTheRoleOfASeatWithNoHandleYetIsSaidInWords(t *testing.T) {
 	h := newRig(t)
 	s := h.seated()
 	s.Teams = []hot.Cell{{Team: "alpha", Seat: "9", Role: "worker"}}
@@ -422,7 +422,7 @@ func TestTheRoleOfASeatWithNoHandleYetNamesTheSeat(t *testing.T) {
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
-	if !strings.Contains(h.HeaderOf(3), "Role of seat 9 in alpha:") {
+	if !strings.Contains(h.HeaderOf(3), "Role of a seat whose member is made at its first launch in alpha:") || strings.Contains(h.HeaderOf(3), "9") {
 		t.Fatalf("header %q", h.HeaderOf(3))
 	}
 	h.wantRuns(t)

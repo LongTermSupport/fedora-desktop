@@ -6,10 +6,14 @@
 // and the command for each way on. Pure: the caller reads the pool and the holdings.
 //
 //	S1  Order: numbered seats first, by number, then named ones by name (v1's _seat_order).
-//	S2  Default: the lowest free seat; none when every seat is held.
-//	S3  Row: the seat, its handle, and free or the session holding it with the re-attach.
-//	S4  WaysOn: every seat with its state, then a free seat's launch, a held seat's re-attach,
-//	    and a new seat (AddCommand, `ccy-teams seats add <team>`).
+//	S2  Default: the free seat that last ran here (the newest), else the lowest free seat; none
+//	    when every seat is held.
+//	S3  Row: the seat in words (Plan 00265 R90), never its name or handle: when it last ran here,
+//	    free with nothing to resume, or the session holding it with the re-attach.
+//	S4  WaysOn: every seat in words, then the plain launch by team (which finds or asks for the
+//	    seat), a held seat's re-attach, and a new seat (AddCommand, `ccy-teams seats add <team>`).
+//	S9  Pick: the seat a launch takes without asking: the one free seat with a conversation
+//	    here, or a free one when none ever ran and none is held; anything else is asked.
 //	S5  WaysOn with no seat names the way to have one.
 //	S7  A seat's kind is its handle's type (podman for ccy, host for cc); a launch is offered,
 //	    and its ways on name, only the seats of its own kind (OfKind; register R55).
@@ -18,7 +22,6 @@
 package seatchoice
 
 import (
-	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -33,6 +36,9 @@ type Seat struct {
 	Handle string
 	// HeldBy is the session a take would be refused for (live or restorable); "" is free.
 	HeldBy string
+	// LastRanMS is when the seat's conversation last ran in this checkout (its seat record, while
+	// the transcript is here), Unix milliseconds; 0 is a seat with no conversation to resume.
+	LastRanMS int64
 }
 
 // Held is whether a session holds the seat.
@@ -62,23 +68,85 @@ func number(name string) (int, bool) {
 	return n, err == nil && n >= 0 && strconv.Itoa(n) == name
 }
 
-// Default is the lowest free seat, and false when there is none.
+// Used is whether the seat has a conversation here to resume.
+func (s Seat) Used() bool { return s.LastRanMS > 0 }
+
+// Default is the free seat that last ran here (the newest), else the lowest free seat, and false
+// when there is none.
 func Default(seats []Seat) (Seat, bool) {
+	var best Seat
+	found := false
 	for _, s := range Order(seats) {
-		if !s.Held() {
-			return s, true
+		if s.Held() {
+			continue
 		}
+		if !found || s.LastRanMS > best.LastRanMS {
+			best, found = s, true
+		}
+	}
+	return best, found
+}
+
+// Pick is the seat a launch takes without asking, and false for a genuine choice: the one free
+// seat with a conversation here, or, when no seat ever ran and none is held, the lowest free one
+// (they are the same). Two free seats with a conversation, a held seat beside free ones, or no
+// free seat, are asked.
+func Pick(seats []Seat) (Seat, bool) {
+	var free, used []Seat
+	for _, s := range Order(seats) {
+		switch {
+		case s.Held():
+			return Seat{}, false
+		case s.Used():
+			used = append(used, s)
+		}
+		free = append(free, s)
+	}
+	switch {
+	case len(used) == 1:
+		return used[0], true
+	case len(used) == 0 && len(free) > 0:
+		return free[0], true
 	}
 	return Seat{}, false
 }
 
-// Row is the seat as the chooser shows it.
-func Row(s Seat) string {
-	state := "free"
-	if s.Held() {
-		state = "held by session " + s.HeldBy + ": re-attach it"
+// Row is the seat as the chooser shows it, in words: when it last ran here (nowMS is the time
+// now), free with nothing to resume, or the session holding it with the re-attach. It never names the seat
+// or its handle (Plan 00265 R90): the chooser maps the row back to the seat.
+func Row(s Seat, team string, nowMS int64) string {
+	switch {
+	case s.Held():
+		return "Running now in session " + s.HeldBy + ": re-attach it"
+	case s.Used():
+		return "A seat of " + team + ": last ran " + Ago(nowMS, s.LastRanMS)
 	}
-	return fmt.Sprintf("seat %-6s  %-40s  %s", s.Name, s.Handle, state)
+	return "A free seat of " + team
+}
+
+// Ago is how long before nowMS thenMS was, in words.
+func Ago(nowMS, thenMS int64) string {
+	minutes := (nowMS - thenMS) / 60_000
+	hours := minutes / 60
+	days := hours / 24
+	switch {
+	case minutes < 1:
+		return "just now"
+	case hours < 1:
+		return plural(minutes, "minute") + " ago"
+	case days < 1:
+		return plural(hours, "hour") + " ago"
+	case days == 1:
+		return "yesterday"
+	}
+	return plural(days, "day") + " ago"
+}
+
+func plural(n int64, unit string) string {
+	if n == 1 {
+		return "1 " + unit
+	}
+	return strconv.FormatInt(n, 10) + " " + unit + "s"
 }
 
 // The kinds of pool seat: a handle's type, and the --type a launcher gives (ccy podman, cc host).
@@ -129,18 +197,19 @@ func Launcher(kind string) string {
 func WrongKind(seat, team, handle, kind string) string {
 	ref := seat + "@" + team
 	other := KindOf(handle)
-	way := "launch it with " + Launcher(other) + " --teams " + ref + ", or "
+	way := "launch it with " + Launcher(other) + " --teams " + team + ", or "
 	if other != KindPodman && other != KindHost {
 		way = "neither ccy nor cc launches it; "
 	}
 	return ref + " is a " + other + " seat (" + handle + "), and this is a " + Launcher(kind) + " (" + kind +
 		") launch: " + way + "add a " + kind + " seat with " + AddCommand(team, kind) + ", then " +
-		Launcher(kind) + " --teams <seat>@" + team
+		Launcher(kind) + " --teams " + team
 }
 
 // WaysOn are the lines a refusal prints for team in checkout (as shown to a person): the seats
-// of kind and their state, then the command for each way on, through the launcher of kind.
-func WaysOn(kind, team, checkout string, seats []Seat) []string {
+// of kind in words (Row, at nowMS), then the command for each way on, through the launcher of
+// kind and by team: the launch finds the seat, and asks when there is a choice.
+func WaysOn(kind, team, checkout string, seats []Seat, nowMS int64) []string {
 	launcher := Launcher(kind)
 	ordered := Order(seats)
 	var lines []string
@@ -149,19 +218,23 @@ func WaysOn(kind, team, checkout string, seats []Seat) []string {
 	} else {
 		lines = append(lines, "  Seats of "+team+" in this checkout ("+checkout+"):")
 		for _, s := range ordered {
-			lines = append(lines, "    "+Row(s))
+			lines = append(lines, "    "+Row(s, team, nowMS))
 		}
 	}
 	lines = append(lines, "  Ways on:")
+	anyFree := false
 	for _, s := range ordered {
-		if s.Held() {
-			lines = append(lines, "    re-attach session "+s.HeldBy+" (seat "+s.Name+"): ccy-sessions, then choose "+s.HeldBy+
-				" (attach it, or take it over from another terminal); not running, ccy-sessions restore "+s.HeldBy)
+		if !s.Held() {
+			anyFree = true
 			continue
 		}
-		lines = append(lines, "    take free seat "+s.Name+": "+launcher+" --teams "+s.Name+"@"+team)
+		lines = append(lines, "    re-attach session "+s.HeldBy+": ccy-sessions, then choose "+s.HeldBy+
+			" (attach it, or take it over from another terminal); not running, ccy-sessions restore "+s.HeldBy)
 	}
-	return append(lines, "    a new seat: "+AddCommand(team, kind)+", then "+launcher+" --teams <seat>@"+team)
+	if anyFree {
+		lines = append(lines, "    take a free seat: run "+launcher+" --teams "+team+" at a terminal, which asks which when there is a choice")
+	}
+	return append(lines, "    a new seat: "+AddCommand(team, kind)+", then "+launcher+" --teams "+team)
 }
 
 // AddCommand is the command that adds a new seat of kind of team to this checkout (`ccy-teams

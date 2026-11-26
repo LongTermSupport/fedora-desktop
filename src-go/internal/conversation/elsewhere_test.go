@@ -92,7 +92,7 @@ func TestStartPlanRefusesARenamedTeamchatSessionAndResumesItOnceItsSeatsAreSet(t
 	if got.Fresh {
 		t.Fatalf("started fresh: %+v", got)
 	}
-	mustSay(t, err, "ccy-proj", id, "ccy-teams seats conversation 1@team-a --set "+id)
+	mustSay(t, err, "ccy-proj", id, "ccy-teams seats conversation team-a --set "+id)
 	if err := RecordSeats(w.checkout, "1@team-a", id, SourceSet, 1); err != nil {
 		t.Fatal(err)
 	}

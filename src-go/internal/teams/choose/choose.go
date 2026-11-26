@@ -71,8 +71,8 @@ func New(h *host.Host, kit *flow.Kit, s *seats.Seats) *Choose {
 	return &Choose{Host: h, Bus: h.Bus, Gum: h.Gum, Kit: kit, Seats: s}
 }
 
-// row is a seat as the chooser shows it: the seat, its member's full handle, what runs in it,
-// and whether it is free.
+// row is a seat as the chooser shows it, in words (Plan 00265 R90): what runs in it and whether
+// it is free, never its name or handle; the chooser maps the row back to the seat.
 func row(c agentbus.Choice) string {
 	state := c.State
 	switch c.State {
@@ -82,7 +82,11 @@ func row(c agentbus.Choice) string {
 	case stateNew:
 		state = "new seat"
 	}
-	return fmt.Sprintf("seat %-6s  %-40s  %-15s  %s", c.Seat, c.Handle, c.Words, state)
+	words := c.Words
+	if words == "" {
+		words = "A seat"
+	}
+	return fmt.Sprintf("%-40s  %s", words, state)
 }
 
 func keepRole(role string) string { return keepPrefix + role }
@@ -112,7 +116,6 @@ func (c *Choose) PickSeat(ctx context.Context, h ui.Heading, team, memberType st
 	}
 	if !c.Kit.HasTool("gum") {
 		c.say("--teams " + team + " asks which seat to take, and gum is not installed: play-claude-yolo.yml installs it.")
-		c.say("  Or name the seat yourself: --teams " + choices.Default + "@" + team)
 		return "", exitConfig
 	}
 	picked, ok, code := c.pickSeat(ctx, h.AtStep(1, 2, "Seat").About("team "+team), team, choices)
@@ -275,7 +278,7 @@ func (c *Choose) seatItems(mode string, args []string) ([]seatTeam, bool) {
 	for item := range strings.SplitSeq(args[0], ",") {
 		seat, team, ok := strings.Cut(strings.TrimSpace(item), "@")
 		if !ok {
-			c.say("ccy-teams: 'describe-seats " + mode + "' takes SEAT@TEAM items; '" + item + "' is not one. See ccy-teams --help.")
+			c.say("ccy-teams: 'describe-seats " + mode + "' takes seats of teams (a seat, then @, then its team); '" + item + "' is not one. See ccy-teams --help.")
 			return nil, false
 		}
 		seats = append(seats, seatTeam{seat, team})

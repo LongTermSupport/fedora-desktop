@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -124,6 +125,32 @@ func DirOf(runtimeDir, kind, session string) string {
 	return Dir(runtimeDir, session)
 }
 
+// Launch is the launch a person is shown for the seats of list: launcher with the list's teams,
+// in order, never its seats (Plan 00265 R90), which the launch finds itself. An item with no @ is
+// taken as a team.
+func Launch(launcher, list string) string {
+	teams := Teams(list)
+	if teams == "" {
+		return launcher
+	}
+	return launcher + " --teams " + teams
+}
+
+// Teams is the teams of the seats of list, comma-joined in order, each once.
+func Teams(list string) string {
+	var teams []string
+	for item := range strings.SplitSeq(list, ",") {
+		_, team, found := strings.Cut(strings.TrimSpace(item), "@")
+		if !found {
+			team = strings.TrimSpace(item)
+		}
+		if team != "" && !slices.Contains(teams, team) {
+			teams = append(teams, team)
+		}
+	}
+	return strings.Join(teams, ",")
+}
+
 // ParseSeats reads a canonical --teams list (empty: no seat), at most one seat per team.
 func ParseSeats(list string) ([]Seat, error) {
 	seats := []Seat{}
@@ -135,7 +162,7 @@ func ParseSeats(list string) ([]Seat, error) {
 		seat, team, ok := strings.Cut(item, "@")
 		switch {
 		case !ok || strings.Contains(team, "@"):
-			return nil, fmt.Errorf("item %d (%q) is not <seat>@<team>", i+1, item)
+			return nil, fmt.Errorf("item %d (%q) names no seat of a team (a seat, then @, then its team)", i+1, item)
 		case !seatName.MatchString(seat):
 			return nil, fmt.Errorf("item %d (%q): %q is not a seat name", i+1, item, seat)
 		case !teamName.MatchString(team):

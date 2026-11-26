@@ -16,7 +16,8 @@ import (
 const AnswerLimit = 5 * time.Second
 
 // Answers is whether team's bus answers this checkout's pool seats (issue 430): "" when it does,
-// else the words of why not, which the team list shows. It asks the homeserver that the first
+// else the words of why not, which the team list shows: that no pool seat was found here (nothing
+// was asked), or that its bus does not answer, and how. It asks the homeserver that the first
 // pool seat's own seat.json names, with the CA pinned to it, as that seat's member would reach it
 // at its take (seat.VersionsReach: the versions, no token, nothing changed there), bounded by
 // AnswerLimit on Timers. A team retired here whose server is gone, or whose bus is stopped,
@@ -39,7 +40,7 @@ func (c *Cmd) Answers(ctx context.Context, team string) (string, error) {
 		return "", err
 	}
 	if len(names) == 0 {
-		return "this checkout has no pool seat of it to reach the team with", nil
+		return "no pool seat of it was found in this checkout, so its bus was not asked", nil
 	}
 	path := store.PoolSeat(key, id, names[0]).Bundle()
 	data, found, err := state.ReadFile(path, seat.MaxBundle)
@@ -64,7 +65,7 @@ func (c *Cmd) Answers(ctx context.Context, team string) (string, error) {
 	case ctx.Err() != nil:
 		return "", fmt.Errorf("whether team %s's bus answers: %w", team, ctx.Err())
 	case probeCtx.Err() != nil:
-		return "its homeserver at " + b.BaseURL + " gave no answer within " + AnswerLimit.String(), nil
+		return "its bus does not answer: its homeserver at " + b.BaseURL + " gave no answer within " + AnswerLimit.String(), nil
 	}
-	return "its homeserver at " + b.BaseURL + " does not answer: " + err.Error(), nil
+	return "its bus does not answer: its homeserver at " + b.BaseURL + " refused the probe (" + err.Error() + ")", nil
 }

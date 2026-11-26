@@ -165,7 +165,7 @@ func many65() string {
 
 func TestInitRefusesWhatIsNotItsThreeArguments(t *testing.T) {
 	const takes, notSession, notClean = "takes [--kind=cc]", "is not a session name", "is not a clean absolute path"
-	const notItem, notSeat, notTeam = "is not <seat>@<team>", "is not a seat name", "is not a team name"
+	const notItem, notSeat, notTeam = "names no seat of a team", "is not a seat name", "is not a team name"
 	cases := map[string]struct {
 		args []string
 		why  string
@@ -373,5 +373,23 @@ func TestInitRefusesAKindItDoesNotKnow(t *testing.T) {
 		if got := r.ErrOut.String(); !strings.Contains(got, "the kind is --kind=ccy or --kind=cc") || !strings.Contains(got, "Nothing was written") {
 			t.Fatalf("%s: stderr %q", kind, got)
 		}
+	}
+}
+
+// Plan 00265 R90: the launch a person is shown for a seat list names its teams, never its seats;
+// the launch finds each team's seat itself.
+func TestLaunchOfASeatListNamesItsTeams(t *testing.T) {
+	if got := Launch("ccy", "2@alpha,1@beta"); got != "ccy --teams alpha,beta" {
+		t.Errorf("Launch = %q", got)
+	}
+	if got := Launch("cc", "worker@alpha"); got != "cc --teams alpha" {
+		t.Errorf("Launch = %q", got)
+	}
+	if got := Launch("ccy", ""); got != "ccy" {
+		t.Errorf("an empty list: %q", got)
+	}
+	_, err := ParseSeats("alpha")
+	if err == nil || strings.Contains(err.Error(), "<seat>") || !strings.Contains(err.Error(), "names no seat") {
+		t.Errorf("a team alone as a seat: %v", err)
 	}
 }

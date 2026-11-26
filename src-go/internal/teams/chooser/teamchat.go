@@ -42,6 +42,9 @@ type Teamchat struct {
 	// Pool is this checkout's pool seats of team of kind, each with the session a take would be
 	// refused for: the only source a seat is chosen from, so a held seat is never taken (issue 423).
 	Pool func(team, kind string) ([]seatchoice.Seat, error)
+	// LastRan is when seat of team last ran in checkout (conversation.SeatLastRan): 0 for a seat
+	// with no conversation to resume there. Nil is every seat never used (Plan 00265 R90).
+	LastRan func(checkout, team, seat string) (int64, error)
 	// Reattach puts this terminal on the running session that holds a seat; an error says why it
 	// cannot (open in another terminal, not running).
 	Reattach func(ctx context.Context, session string) error
@@ -83,38 +86,47 @@ func (c *Chooser) teamchatTeam(ctx context.Context, memberType, team string) (bo
 }
 
 // teamchatSeat is the SEAT@TEAM of a teamchat team, from this checkout's pool, never a seat a
-// running session holds (issue 423; v1's agent-bus seat choose is the floor). One seat, free, is
-// taken; no seat at all goes to newSeat; otherwise every seat is listed, free and held, then a
-// new seat, the lowest free one the default (the new seat when none is free), and a held one
-// offered as the re-attach of its session, which starts nothing new. Leaving the question, or a
-// re-attach made, is "" and ExitOK; a re-attach that cannot be made is refused as held (75).
+// running session holds (issue 423; v1's agent-bus seat choose is the floor). No seat at all goes
+// to newSeat. The seat this checkout worked in is taken without a question (seatchoice.Pick,
+// Plan 00265 R90): the one free seat with a conversation here, or a free one when none ever ran.
+// Otherwise every seat is listed in words, free and held, then a new seat, the free one that last
+// ran the default (the new seat when none is free), and a held one offered as the re-attach of
+// its session, which starts nothing new. Leaving the question, or a re-attach made, is "" and
+// ExitOK; a re-attach that cannot be made is refused as held (75).
 func (c *Chooser) teamchatSeat(ctx context.Context, h ui.Heading, team, memberType string) (string, term.ExitCode) {
-	pool, err := c.Teamchat.Pool(team, memberType)
-	if err != nil {
-		return "", c.failed(err)
+	seats, code := c.poolOf(ctx, team, memberType)
+	if code != term.ExitOK {
+		return "", code
 	}
-	seats := seatchoice.Order(pool)
 	free, anyFree := seatchoice.Default(seats)
-	switch {
-	case len(seats) == 0:
-		c.say("Team " + team + " is on teamchat, and this checkout has no " + memberType + " seat of it.")
+	if len(seats) == 0 {
+		c.say("Team " + team + " is on teamchat, and this checkout has no " + memberType + " seat of it yet.")
 		return c.newSeat(ctx, team, memberType, seats)
-	case len(seats) == 1 && anyFree:
-		c.say("Team " + team + " is on teamchat: seat " + free.Name + ", this checkout's one " + memberType + " seat of it.")
-		return free.Name + "@" + team, term.ExitOK
 	}
-	rows := make([]string, len(seats), len(seats)+1)
-	held := 0
+	if picked, ok := seatchoice.Pick(seats); ok {
+		c.say(pickedWords(team, memberType, picked, len(seats), c.nowMS()))
+		return picked.Name + "@" + team, term.ExitOK
+	}
+	nowMS := c.nowMS()
+	var rows []string
+	var rowSeat []int
+	held, neverShown := 0, false
 	for i, s := range seats {
-		rows[i] = seatchoice.Row(s)
 		if s.Held() {
 			held++
+		} else if !s.Used() {
+			// Seats never used are the same: one row stands for them.
+			if neverShown {
+				continue
+			}
+			neverShown = true
 		}
+		rows, rowSeat = append(rows, seatchoice.Row(s, team, nowMS)), append(rowSeat, i)
 	}
 	rows = append(rows, seatchoice.NewRow(team, memberType))
 	def := rows[len(rows)-1]
 	if anyFree {
-		def = seatchoice.Row(free)
+		def = seatchoice.Row(free, team, nowMS)
 	} else {
 		c.say("Every seat of " + team + " in this checkout is held by a running session: re-attach one, or start a new seat.")
 	}
@@ -131,13 +143,49 @@ func (c *Chooser) teamchatSeat(ctx context.Context, h ui.Heading, team, memberTy
 	case i < 0:
 		c.say("ccy-teams: gum returned an answer that was not offered: " + answer)
 		return "", term.ExitFailure
-	case i == len(seats):
+	case i == len(rowSeat):
 		return c.newSeat(ctx, team, memberType, seats)
-	case seats[i].Held():
-		return "", c.reattach(ctx, team, memberType, seats[i], seats)
+	case seats[rowSeat[i]].Held():
+		return "", c.reattach(ctx, team, memberType, seats[rowSeat[i]], seats)
 	}
-	return seats[i].Name + "@" + team, term.ExitOK
+	return seats[rowSeat[i]].Name + "@" + team, term.ExitOK
 }
+
+// pickedWords says, in words, the seat a launch took without asking.
+func pickedWords(team, memberType string, s seatchoice.Seat, of int, nowMS int64) string {
+	switch {
+	case of == 1:
+		return "Team " + team + " is on teamchat: this checkout's one " + memberType + " seat of it."
+	case s.Used():
+		return "Team " + team + " is on teamchat: resuming this checkout's seat of it that last ran " + seatchoice.Ago(nowMS, s.LastRanMS) + "."
+	}
+	return "Team " + team + " is on teamchat: a free seat of it in this checkout (none has run here yet)."
+}
+
+// poolOf is team's pool seats of memberType in this checkout, in seat order, each with when it
+// last ran here (Teamchat.LastRan; never, when it is not wired).
+func (c *Chooser) poolOf(ctx context.Context, team, memberType string) ([]seatchoice.Seat, term.ExitCode) {
+	pool, err := c.Teamchat.Pool(team, memberType)
+	if err != nil {
+		return nil, c.failed(err)
+	}
+	seats := seatchoice.Order(pool)
+	if c.Teamchat.LastRan == nil || len(seats) == 0 {
+		return seats, term.ExitOK
+	}
+	here, err := c.Host.Checkouts.Find(ctx, "")
+	if err != nil {
+		return nil, c.failed(err)
+	}
+	for i := range seats {
+		if seats[i].LastRanMS, err = c.Teamchat.LastRan(here.Top, team, seats[i].Name); err != nil {
+			return nil, c.failed(fmt.Errorf("when seat %s of %s last ran here: %w", seats[i].Name, team, err))
+		}
+	}
+	return seats, term.ExitOK
+}
+
+func (c *Chooser) nowMS() int64 { return c.Now().UnixMilli() }
 
 // newSeat is the one place the "no free seat" outcome and the new-seat row go: Teamchat.NewSeat
 // when wired, which adds a seat of the launch's kind and launches it (register R5); otherwise
@@ -158,7 +206,7 @@ func (c *Chooser) newSeat(ctx context.Context, team, memberType string, seats []
 // reattach puts this terminal on the session holding s instead of starting one; when it cannot,
 // the refusal is held (75) and names each way on.
 func (c *Chooser) reattach(ctx context.Context, team, memberType string, s seatchoice.Seat, seats []seatchoice.Seat) term.ExitCode {
-	c.say("Seat " + s.Name + "@" + team + " is held by session " + s.HeldBy + ": re-attaching it; nothing new is started.")
+	c.say("That seat of " + team + " is held by session " + s.HeldBy + ": re-attaching it; nothing new is started.")
 	err := c.Teamchat.Reattach(ctx, s.HeldBy)
 	if err == nil {
 		return term.ExitOK
@@ -177,7 +225,7 @@ func (c *Chooser) waysOn(ctx context.Context, team, memberType string, seats []s
 	if err != nil {
 		return c.failed(err)
 	}
-	for _, line := range seatchoice.WaysOn(memberType, team, term.AbbrevHome(here.Top, c.Host.Home), seats) {
+	for _, line := range seatchoice.WaysOn(memberType, team, term.AbbrevHome(here.Top, c.Host.Home), seats, c.nowMS()) {
 		c.say(line)
 	}
 	return term.ExitOK
@@ -234,7 +282,7 @@ func (c *Chooser) withTeamchat(ctx context.Context, memberType string, entries [
 	var v2 []entry
 	for i, team := range teams {
 		if dead[i] != "" {
-			c.say("Not offered: team " + team + " is dead in this checkout, since its bus does not answer (" + dead[i] + ").")
+			c.say("Not offered: team " + team + ": " + dead[i] + ".")
 			continue
 		}
 		seats, seatsErr := tc.SeatCount(team, memberType)
