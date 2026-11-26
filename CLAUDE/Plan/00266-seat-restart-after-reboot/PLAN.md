@@ -275,7 +275,7 @@ Decision for C.2 (and the fix for today's start):
 
 - [ ] ⬜ **Task C.4**: a restarted LXC seat signs in from its team's own token pool, on the token
   it was on before. Asked for by another team's owner (26 Nov) for their containers, and agreed
-  by the coordinator. Design only until the owner has seen it; built after C.2 ships.
+  by the coordinator. Cleared to build (journal 191831Z); built after C.2 ships.
 
   - **The last-launch record:** the seat's launch writes, beside the record of its conversation,
     the token's pool name (a file's basename, never the secret, a descriptor or an inode) and its
