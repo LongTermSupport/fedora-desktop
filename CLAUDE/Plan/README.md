@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00269-add-a-seat-from-its-own-checkout](00269-add-a-seat-from-its-own-checkout/) - Not Started (design; owner questions Q1 and Q2 open). Adding a seat is one owner step in the team's own checkout on the machine where it runs, even when the team is served elsewhere: issued over the owner's ssh and sudo, placed from memory, no seat number; an enrolled seat whose credential this machine lost is recovered by a reissue on the owner's word. Replaces another repository's two seat scripts.
+
 - [00268-lightning-memory-leak](00268-lightning-memory-leak/) - In Progress (research done; laptop evidence next). Find and fix, upstream where it lives, the memory growth that took a busy team's Lightning to 84.7G and an oomd kill.
 
 - [00267-teamchat-lossless-delivery](00267-teamchat-lossless-delivery/) - In Progress (design's three questions answered; build test-first). Every addressed teamchat message ends delivered or bounced, visibly to its sender.
