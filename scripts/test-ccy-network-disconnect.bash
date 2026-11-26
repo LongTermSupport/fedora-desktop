@@ -542,17 +542,18 @@ check "no container, no name, no saved default: the refusal names the Quick Laun
 check "and changes nothing" "wrong-network" "$(quick_launch_network)"
 
 # The config is rewritten beside itself and moved into place; a rewrite that cannot be made
-# is a failure that says so, never a quiet "done". The temporary name uses $$, which is this
-# shell's pid in the function's subshell too, so a directory there makes the write fail.
+# is a failure that says so, never a quiet "done". The temporary comes from mktemp (an exclusive
+# create under a random name), so a mktemp that fails here stands for a rewrite that cannot be made.
 reset
 save_network_preference wrong-network
 write_quick_launch wrong-network
-mkdir "$QL.tmp.$$"
-run_disconnect "" wrong-network
+mkdir -p "$SCRATCH/failing-mktemp"
+printf '#!/bin/sh\nexit 1\n' >"$SCRATCH/failing-mktemp/mktemp"
+chmod +x "$SCRATCH/failing-mktemp/mktemp"
+PATH="$SCRATCH/failing-mktemp:$PATH" run_disconnect "" wrong-network
 check "a Quick Launch config that cannot be rewritten fails the command" "1" "$RC"
 check "and says which file" "yes" "$(says ".last-launch.conf" "$ERR")"
 check "and the config is unchanged" "wrong-network" "$(quick_launch_network)"
-rmdir "$QL.tmp.$$"
 
 # A hand-edited LAST_NETWORK line (trailing space, a CR from another editor, a comment) still
 # reads as naming the network, but is not the exact line the rewrite replaces. The command must

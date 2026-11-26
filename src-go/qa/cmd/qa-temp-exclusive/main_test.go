@@ -79,7 +79,7 @@ func TestTheRealEngineFindsThePidTemporariesAndPassesTheExclusiveOnes(t *testing
 		"scripts/good.bash": shellMktemp, "helpers/good.py": pyMkstemp,
 	})
 	if code != ghscopes.ExitFailed || !strings.Contains(stdout, "scripts/bad.bash:2  temp-not-exclusive") ||
-		!strings.Contains(stdout, "helpers/bad.py:6  temp-not-exclusive-python") ||
+		!strings.Contains(stdout, "helpers/bad.py:6  temp-not-exclusive") ||
 		strings.Contains(stdout, "good.") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
