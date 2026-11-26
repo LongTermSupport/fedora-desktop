@@ -1456,3 +1456,23 @@ before the move to v2. Filled in as causes are found.
     `scripts/test-run-bash-*` drives the wiring.
 - **Severity:** medium (a play deployed from code that is not on the remote). **Issue:** TBF.
   **State:** open.
+
+## R79: the private-name guard learns only this session's own teams
+
+- **Seen:** the batch 23 qa-reviewer, 26 Nov. Another team's private name, once redacted by
+  Plan 00245, came back into tracked plan files through batch 3 and batch 23. No gate blocked
+  it.
+- **Cause (checked):** `src-go/qa/privatenames` learns its terms from the agent bus status and
+  the machine's own names, kept in `<git dir>/private-terms`. In this container that list holds
+  3 terms. The other team's name is not among them: a session on one team never learns the
+  names of the teams beside it on the same bus host. So the redaction of Plan 00245 had no
+  defender, and the name returned.
+- **Fix (Defence Before Fix):**
+  - The guard learns every team the bus host serves (and each team's members), not only this
+    session's teams.
+  - The owner can pin a known private name in the git-dir list.
+  - Red: a fixture repository with another team's name in a plan file passes today. Green
+    after the fix. Then sweep the tree.
+- **Also owed:** the name's remaining lines on F44 (one append-only journal entry, and
+  history) are the owner's decision, asked through the coordinator 26 Nov.
+- **Severity:** high (a public repository). **Issue:** TBF. **State:** open.
