@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.74 — container 2.84.89
+
+- **`ccy-teams remove` takes the team's stopped sessions off it.** It already took the running
+  ones off. A stopped session's record still listed the team, so restoring it rejoined a team
+  made again under the same name, and its keeper report let a plain `ccy --teams <seat>@<team>`
+  resume the old team's conversation. Now each stopped agent-bus session keeps its other teams,
+  loses this one, and its keeper report is dropped. A teamchat team of the same name is another
+  team and is left alone (Plan 00265 R36, review finding 3).
+
 ## 3.124.73 — container 2.84.89
 
 - **Seat records are written under a lock.** A launch writes all of its seats' conversation

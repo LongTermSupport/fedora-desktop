@@ -184,6 +184,8 @@ func Wire(h *host.Host) *App {
 	session := hot.New(h, kit, s.Roles)
 	o.SessionsIn, o.TakeOut = session.SessionsIn, session.TakeOut
 	o.ForgetTeam = func(team string) error { return forgetTeam(h.Registry, team) }
+	o.StoppedIn = func(team string) ([]string, error) { return stoppedOnBus(h.Registry, h.Getenv, team) }
+	o.TakeStoppedOff = func(team string, names []string) error { return takeStoppedOffIn(h.Registry, team, names) }
 	list.Session = session
 	chosen := chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams, o.Locked)
 	chosen.Probe = pick.Probe

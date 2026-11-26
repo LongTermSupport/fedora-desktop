@@ -41,6 +41,60 @@ func TestRemoveThatCannotForgetTheSeatConversationsFailsNamingWhy(t *testing.T) 
 	}
 }
 
+// R36 review finding 3: a stopped session still in the team is taken off it once the team is
+// down, before its seats' records are forgotten; which sessions are asked while the team is up.
+func TestRemoveTakesTheTeamsStoppedSessionsOffItOnceItIsDown(t *testing.T) {
+	r := removeRig(t)
+	var steps []string
+	r.ops.StoppedIn = func(team string) ([]string, error) {
+		steps = append(steps, "asked "+team)
+		return []string{"ccy-x", "cc-y"}, nil
+	}
+	r.ops.TakeStoppedOff = func(team string, names []string) error {
+		steps = append(steps, "off "+team+" "+strings.Join(names, ","))
+		return nil
+	}
+	r.ops.ForgetTeam = func(team string) error { steps = append(steps, "forgot "+team); return nil }
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 0 {
+		t.Fatalf("code %d: %s", code, r.said())
+	}
+	if want := []string{"asked alpha", "off alpha ccy-x,cc-y", "forgot alpha"}; !slices.Equal(steps, want) {
+		t.Errorf("steps %q, want %q", steps, want)
+	}
+	if !strings.Contains(r.said(), "The stopped sessions ccy-x, cc-y are taken off alpha, so a restore does not rejoin a team made again as alpha.") {
+		t.Errorf("said %q", r.said())
+	}
+}
+
+func TestRemoveThatCannotTellTheStoppedSessionsTakesNothingDown(t *testing.T) {
+	r := removeRig(t)
+	r.ops.StoppedIn = func(string) ([]string, error) { return nil, errors.New("session record ccy-x: unreadable") }
+	r.ops.TakeStoppedOff = func(string, []string) error { t.Fatal("took sessions off a team not taken down"); return nil }
+	r.ops.ForgetTeam = func(string) error { t.Fatal("forgot the seats of a team not taken down"); return nil }
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 1 {
+		t.Fatalf("code %d: %s", code, r.said())
+	}
+	if !strings.Contains(r.said(), "the stopped sessions in alpha could not be found (session record ccy-x: unreadable), so it was not taken down.") {
+		t.Errorf("said %q", r.said())
+	}
+}
+
+func TestRemoveThatCannotTakeAStoppedSessionOffFailsNamingWhy(t *testing.T) {
+	r := removeRig(t)
+	r.ops.StoppedIn = func(string) ([]string, error) { return []string{"ccy-x"}, nil }
+	r.ops.TakeStoppedOff = func(string, []string) error { return errors.New("could not take session ccy-x off alpha: read-only") }
+	r.ops.ForgetTeam = func(string) error {
+		t.Fatal("forgot the seats while a stopped session still names the team")
+		return nil
+	}
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 1 {
+		t.Fatalf("code %d: %s", code, r.said())
+	}
+	if !strings.Contains(r.said(), "Team alpha is down, but its stopped sessions could not all be taken off it: could not take session ccy-x off alpha: read-only") {
+		t.Errorf("said %q", r.said())
+	}
+}
+
 func TestATeamStillThereAfterThePlayForgetsNothing(t *testing.T) {
 	r := removeRig(t)
 	r.onExit("gum confirm", 1, "")

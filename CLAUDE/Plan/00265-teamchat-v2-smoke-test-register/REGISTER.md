@@ -576,8 +576,15 @@ filled in as each cause is known.
   `flock` on `.claude/ccy/seat-conversations/.lock`, and `ForgetTeam` takes the same lock
   through its `os.Root`. The tests were red, because neither took the lock, and are green now
   (ccy 3.124.73).
+- **(3) fixed (on v2-smoke, after batch 13):** `remove` asks, while the team is still up and
+  once its running sessions are off it, which stopped sessions name it on the agent bus (each
+  record's system read as a restore reads it, `conversation.SystemOfRecord`). Once the team is
+  down it takes the team out of those records, keeping their other teams, and drops their
+  keeper reports, before it forgets the seat records. A teamchat team of the same name is left
+  alone. Tests: the choice, the taking off, the order and refusals in `remove`, and the wiring.
+  Each was red first and is green now (ccy 3.124.74).
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
-  open: (3) fix (a) and the fixed-suffix widening, both on v2-smoke for the batch after 13.
+  open: the fixed-suffix widening, on v2-smoke for the batch after 13.
   The six branches (ci/v2-batch3, 3b, 3c and the three old agent branches) wait for the
   owner's yes to delete them, asked by the coordinator once this is green.
 
