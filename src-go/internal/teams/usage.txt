@@ -213,8 +213,9 @@ Usage:
                                    it excludes the repository), one per line on stdout, the
                                    rest on stderr. With none, it fails saying so. For scripts;
                                    ccy chooses with choose-teams
-  ccy-teams choose-teams --type=podman|host [<list>]
-                                   the launcher's team chooser, on a terminal only. With a
+  ccy-teams choose-teams --type=podman|host [--attended=true|false] [<list>]
+                                   the launcher's team chooser (--attended=false: the launcher
+                                   says nobody watches the terminal, so nothing is asked). With a
                                    <list> (teams, or a recorded seat list, comma-separated) it
                                    chooses the seat of each team named alone and prints the
                                    canonical list; a team this machine does not have is
@@ -236,11 +237,19 @@ Usage:
                                    client the record does not name appears; declining ends
                                    the run (exit 1); with no terminal and no valid record
                                    (yours, mode 600, in your closed folder) it exits 78
-                                   before any seat is made. ccy --teams and cc --teams call it
+                                   before any seat is made. With no terminal a team named alone
+                                   is still taken when its seat is clear (the one this checkout
+                                   last worked in); only a genuine choice is refused, in words.
+                                   Once a host launch's consent is given it makes the checkout's
+                                   .claude/ccy/. ccy --teams and cc --teams call it
   ccy-teams choose-teams --type=host --bus
                                    only that once-per-user question, for cc --bus: a session
                                    on no team that you add to teams later (ccy-teams session
                                    add). Prints nothing; declining ends the run (exit 1)
+  ccy-teams choose-teams --type=host --seated
+                                   plain cc's question: prints the one teamchat team this
+                                   checkout holds a host seat of, saying so, or nothing.
+                                   Asks nothing and makes nothing
   ccy-teams launch-summary --type=podman|host --token=T --ssh=K --network=N
                                    [--teams=<seats>] [--roles=<team=role,...>] [--skip-teams]
                                    the launcher's one summary of every default, on a terminal

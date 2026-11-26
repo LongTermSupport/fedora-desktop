@@ -9,8 +9,10 @@
 # owner's once-per-user consent (below), then `ccy-teams internal seat-check` validates the list
 # it prints and, on agent-bus, `internal seat-take --type=host` makes the seats (one sudo
 # agent-bus add-member each); on teamchat (Plan 00209 Task 5.1) `internal cc-run` takes pool
-# seats of the checkout from the owner's seat store. With no terminal a team alone or a bare `--teams` is refused, and so is a full list
-# until the consent is recorded, before any seat is made. cc runs as the owner, with no
+# seats of the checkout from the owner's seat store. With no terminal only a genuine choice of
+# seat, or a bare `--teams`, is refused, and so is any list until the consent is recorded, before
+# any seat is made. A plain `cc` in ccy's tmux joins the one team the checkout holds a host seat
+# of (Plan 00265 R90); `cc --no-teams` starts without it. cc runs as the owner, with no
 # dedicated agent user, by the owner's decision, so it sits beside their Matrix clients'
 # profiles (the one list, helpers/pingbus/matrix_clients.json: Element, Nheko, Lightning). The
 # consent lives in ccy-teams (Go) and is recorded, with the clients it was given for, under the
@@ -42,7 +44,6 @@
 
 CC_TEAMS_CCY_TEAMS="ccy-teams"
 CC_TEAMS_MEMBER_TYPE="host"
-CC_TEAMS_CCY_DIR=".claude/ccy"
 
 # cc_teams_split_args [args...] — CC_TEAMS_GIVEN (true when `--teams` or `--bus` was: the bus is
 # wanted), CC_TEAMS_BUS (true for `--bus` with no `--teams`: a session on no team),
@@ -51,7 +52,7 @@ CC_TEAMS_CCY_DIR=".claude/ccy"
 # Both flags together are refused, here or (--teams first) by the chooser; a record never holds
 # both, since ccy-teams drops --bus from it when it gives the session a team.
 cc_teams_split_args() {
-    CC_TEAMS_GIVEN=false CC_TEAMS_BUS=false CC_TEAMS_LIST="" CC_TEAMS_SEATS=""
+    CC_TEAMS_GIVEN=false CC_TEAMS_BUS=false CC_TEAMS_OFF=false CC_TEAMS_LIST="" CC_TEAMS_SEATS=""
     CC_TEAMS_REST=()
     local expect=false arg
     for arg in "$@"; do
@@ -69,9 +70,15 @@ cc_teams_split_args() {
                 CC_TEAMS_GIVEN=true
                 if [ "$arg" = "--teams" ]; then expect=true; else CC_TEAMS_LIST=${arg#--teams=}; fi
                 ;;
+            --no-teams) CC_TEAMS_OFF=true ;;
             *) CC_TEAMS_REST+=("$arg") ;;
         esac
     done
+    # Plain cc in ccy's tmux joins the one team this checkout holds a host seat of (Plan 00265
+    # R90): `choose-teams --seated` names it, or nothing, and says so.
+    [ "$CC_TEAMS_GIVEN$CC_TEAMS_OFF" = falsefalse ] && [ -n "$(ccy_tmux_current_session)" ] && type -P "$CC_TEAMS_CCY_TEAMS" >/dev/null || return 0
+    CC_TEAMS_LIST=$("$CC_TEAMS_CCY_TEAMS" choose-teams "--type=$CC_TEAMS_MEMBER_TYPE" --seated) || return
+    [ -z "$CC_TEAMS_LIST" ] || CC_TEAMS_GIVEN=true
 }
 
 # cc_teams_choose — CC_TEAMS_SEATS, the canonical list `internal seat-check` prints for the
@@ -96,23 +103,6 @@ cc_teams_take() {
     "$CC_TEAMS_CCY_TEAMS" describe-seats --block "$CC_TEAMS_SEATS" >&2 || { rc=$?; print_error "Not starting: ccy-teams describe-seats --block failed (exit $rc; the reason is above)."; return "$rc"; }
 }
 
-# cc_teams_ccy_dir — the working directory's checkout has the `.claude/ccy/` that `agent-bus
-# seat take` needs, as ccy makes it, so cc --teams works in a repo never used with ccy. A new
-# one (0700) gets a .gitignore for the seats' tree alone, which is all the seats need; ccy
-# replaces it with its own full one the next time it runs there (it has no `*` rule). An
-# existing one is left as it is.
-cc_teams_ccy_dir() {
-    local dir="${1:?cc_teams_ccy_dir requires the checkout}/$CC_TEAMS_CCY_DIR"
-    if [ -L "$dir" ] || { [ -e "$dir" ] && [ ! -d "$dir" ]; }; then
-        print_error "$dir is not a real directory; remove it and start cc again."
-        return 78
-    fi
-    [ -d "$dir" ] && return 0
-    (umask 077 && mkdir -p "$dir" && printf '%s\n' \
-        '# Created by cc --teams: the team seats hold tokens and are never committed.' \
-        'pingbus/' >"$dir/.gitignore") || { print_error "Could not make $dir."; return 78; }
-}
-
 # cc_teams_prepare <tmp> [claude args...] — everything above, in order, in the working
 # directory's checkout; fills CC_TEAMS_CMD, `ccy-teams internal cc-run`, which checks the kit of
 # the list's system, writes the settings and starts the session: on agent-bus it becomes pingbus's
@@ -126,9 +116,8 @@ cc_teams_prepare() {
     type -P "$CC_TEAMS_CCY_TEAMS" >/dev/null || { print_error "--teams and --bus need $CC_TEAMS_CCY_TEAMS on this host, and it is not installed: run play-claude-yolo.yml."; return 78; }
     checkout=$(git rev-parse --show-toplevel) || { print_error "cc --teams and cc --bus run in a git checkout: the seats live there."; return 78; }
     # The owner's consent is asked inside the chooser, so a declined start makes nothing: no
-    # member, and not even the checkout's .claude/ccy/ (S-E4).
+    # member, and not even the checkout's .claude/ccy/ (S-E4), which the chooser makes after it.
     cc_teams_choose || return
-    cc_teams_ccy_dir "$checkout" || return
     [ "$CC_TEAMS_BUS" = true ] || cc_teams_take || return
     session=$(ccy_tmux_current_session) || return 78
     CC_TEAMS_CMD=()

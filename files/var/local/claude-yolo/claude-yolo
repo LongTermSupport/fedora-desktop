@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.124.93"  # Container 2.84.96: teamchat's read receipts are never lost when their queue is full; the history is in docs/ccy-changelog.md.
+CCY_VERSION="3.124.94"  # Container 2.84.96: a team named alone with nobody to ask takes the seat this checkout worked in; the history is in docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -873,8 +873,10 @@ ccy_launch_teams() {
     # shape marks a question's own guard, and this decides between ccy_seats_check's two modes.
     ccy_nobody_to_ask || [ ! -t 2 ] || [ -n "${CCY_SESSION_RESTORE:-}" ] \
         || [ -n "$CCY_RESTART_RELAUNCH_SESSION" ] || attended=true
-    if [ "$attended" = true ] && { [ -z "$TEAMS_LIST" ] || [[ ",$TEAMS_LIST" =~ ,[^@,]+(,|$) ]]; }; then
-        TEAMS_GIVEN_LIST=$TEAMS_LIST TEAMS_LIST=$(ccy-teams choose-teams --type=podman "$TEAMS_LIST") || exit $?
+    # A team named alone goes to the chooser even with nobody to ask: it takes the seat this
+    # checkout worked in, and refuses only a genuine choice (Plan 00265 R90).
+    if { [ "$attended" = true ] && [ -z "$TEAMS_LIST" ]; } || [[ ",$TEAMS_LIST" =~ ,[^@,]+(,|$) ]]; then
+        TEAMS_GIVEN_LIST=$TEAMS_LIST TEAMS_LIST=$(ccy-teams choose-teams --type=podman "--attended=$attended" "$TEAMS_LIST") || exit $?
         # Empty: the owner left the chooser, and said so is already on stderr.
         [ -n "$TEAMS_LIST" ] || exit 0
     fi

@@ -118,3 +118,59 @@ trees after the widening: no finding. No full QA.
 
 Plain `cc`, the unattended pick, R89's restore seat pass, session names by role, and the rows'
 first prompt and role: [HANDOFF-4.2.md](../HANDOFF-4.2.md).
+
+# Part three: the broken picker case, plain cc, the unattended pick, restore's words
+
+## The failing `test-ccy-teams-command.bash` case
+
+Part one (`2af1ca078`) broke it: `seats.seatChoices` now labels the new-session rows
+`A free seat of <team>` and `A new seat of <team>`, and the case still grepped for the old
+`proj.dev+local.podman   free` and `Seat 3@alpha   new`. The case now checks the rows in words;
+the launches after it still prove which seat each row's tag is (the new one numbered after
+every numbered seat). Part two did not touch it.
+
+## Built
+
+- **Plain `cc` (item 3, Q1).** `cc-teams.bash`'s split asks `ccy-teams choose-teams --type=host --seated` when cc was given no `--teams`/`--bus`/`--no-teams` and runs in ccy's tmux (a
+  teamchat seat needs the session name). Go (`chooser/seated.go`) prints the one teamchat team
+  whose bus answers and that this checkout holds a host seat of, said in words; nothing, quietly,
+  with none or outside a host checkout; with several it joins none and says `cc --teams <team>`.
+  cc then runs exactly as `cc --teams <team>`. `cc --no-teams` opts out.
+- **Room for it in bash.** The file was at its ratchet record; `cc_teams_ccy_dir` moved to Go
+  (`chooser/ccydir.go`, `hostReady`): once a host launch's consent is given (a list or `--bus`)
+  the chooser makes the checkout's `.claude/ccy/`, refusing a symlink (78). The record went
+  down: 52 lines, 4 functions, 110 statements (was 61, 5, 123).
+- **Unattended pick (item 4).** `chooser.unattended` replaces `unattendedWays`: with nobody to
+  ask, a teamchat team alone takes `seatchoice.Pick`'s seat, said in words, and the list goes on
+  to the consent; a genuine choice, no seat of the kind, or an agent-bus team alone is refused
+  (64) with the seats in words and the ways on; no seat is added. The launcher now calls the
+  chooser for a team alone with nobody to ask, passing `--attended=false` (a restore or a
+  restart has a terminal nobody watches); a bare `--teams` unattended still goes to the seat
+  check's refusal. `docs/agent-bus.md` (both "seats" paragraphs and "A cc session") and
+  `usage.txt` say so.
+- **Restore's dry run (item 5, part).** `restore --dry-run` prints `would start <name> in <dir>, resuming its conversation, on teams <a> and <b>.` (or `fresh ... (no conversation to resume)`): the replayed argv, whose `--teams` named each seat, is gone (`wouldStart`).
+
+## Red and green
+
+`TestSeated*` (6), `TestAHostLaunchMakesTheCheckoutsCcyDirectory` and its four siblings,
+`TestNoTerminalTakesTheSeatThisCheckoutWorkedIn`, `...RefusesAGenuineChoiceInWords`,
+`...AddsNoSeat`, `TestTheLauncherSaysNobodyIsThereToAsk` and `TestADryRunNamesTheTeamsAndNoSeat`
+were written first; the unattended, attended-flag and dry-run ones were run red (exit 64 for
+`--attended`, the old refusal, the argv line), then green. The `--seated` and `.claude/ccy`
+tests were not run red before their code (they were written first; the flag was an unknown
+option, so they would have failed). Two expectations changed by design:
+`TestNoTerminalNamesOnlyTheLaunchKindsSeats` is now a genuine choice, and the bash headless
+case in `test-ccy-teams.bash` now sees the chooser told `--attended=false`.
+
+## Tests run
+
+`go test` on `internal/teams/chooser`, `internal/teams`, `internal/sessions`, and in the `qa`
+module `rules`, `seattext`, `cmd/qa-seat-text`; `golangci-lint` on the chooser and sessions
+packages: 0 issues; the project rules (`go vet -vettool`) over both: no finding;
+`scripts/qa-seat-text.bash` and `scripts/qa-bash-limits.bash` green;
+`scripts/test-cc-teams.bash`, `test-ccy-teams.bash` and `test-ccy-teams-command.bash`. No full QA.
+
+## Left
+
+R89's seat pass proper, session names by role, and the rows' first prompt and role:
+[HANDOFF-4.2.md](../HANDOFF-4.2.md).

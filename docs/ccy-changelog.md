@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.94 — container 2.84.96
+
+- `ccy --teams <team>` and `cc --teams <team>` with nobody to ask (a restore, a restart,
+  headless) take the seat a launch at a terminal would take without asking, the one this
+  checkout last worked in, and say so; only a genuine choice is refused, in words (Plan 00265
+  R90). The launcher tells the chooser `--attended=false`.
+- A plain `cc` in ccy's tmux, in a checkout holding a host seat of one teamchat team, joins it;
+  `cc --no-teams` starts on no team. The chooser now makes a host launch's `.claude/ccy/` once
+  the consent is given.
+- `ccy-sessions restore --dry-run` says what it would start in words, its teams by name, and no
+  longer prints the replayed command line, whose `--teams` named each seat.
+
 ## 3.124.93 — container 2.84.96
 
 - teamchat: a member's queue of read receipts (`m.read` for a human's message the session was

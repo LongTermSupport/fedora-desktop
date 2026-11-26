@@ -231,12 +231,18 @@ func (c *Chooser) waysOn(ctx context.Context, team, memberType string, seats []s
 	return term.ExitOK
 }
 
-// unattendedWays is the refusal of a list with a team named alone when nobody can be asked: each
-// teamchat team alone gets its seats and the command for each way on; nothing is prompted.
-func (c *Chooser) unattendedWays(ctx context.Context, memberType, list string) term.ExitCode {
+// unattended is a list with a team named alone when nobody can be asked (a restore, a restart):
+// each teamchat team alone takes the seat seatchoice.Pick takes without a question, said in
+// words, and the list goes on to finish (whose consent needs its record). A genuine choice, a
+// team with no seat of the launch's kind here, or an agent-bus team alone is refused (64) with
+// the seats in words and each way on; nothing is prompted and no seat is added (Plan 00265 R90).
+func (c *Chooser) unattended(ctx context.Context, memberType, list string) term.ExitCode {
+	var refs []string
+	refused := false
 	for item := range strings.SplitSeq(list, ",") {
 		item = strings.TrimSpace(item)
 		if item == "" || strings.Contains(item, "@") {
+			refs = append(refs, item)
 			continue
 		}
 		v2, code := c.teamchatTeam(ctx, memberType, item)
@@ -244,18 +250,39 @@ func (c *Chooser) unattendedWays(ctx context.Context, memberType, list string) t
 			return code
 		}
 		if !v2 {
+			c.say(noTerminal)
+			refused = true
 			continue
 		}
-		pool, err := c.Teamchat.Pool(item, memberType)
-		if err != nil {
-			return c.failed(err)
+		seats, code := c.poolOf(ctx, item, memberType)
+		if code != term.ExitOK {
+			return code
 		}
-		if code := c.waysOn(ctx, item, memberType, pool); code != term.ExitOK {
+		if picked, ok := seatchoice.Pick(seats); ok {
+			c.say(pickedWords(item, memberType, picked, len(seats), c.nowMS()))
+			refs = append(refs, picked.Name+"@"+item)
+			continue
+		}
+		if len(seats) > 0 {
+			c.say("ccy-teams: Which seat of " + item + " to take is a choice, and there is no terminal to ask it on: nothing started.")
+		}
+		refused = true
+		if code := c.waysOn(ctx, item, memberType, seats); code != term.ExitOK {
 			return code
 		}
 	}
-	return term.ExitUsage
+	if refused {
+		return term.ExitUsage
+	}
+	if slices.Contains(refs, "") {
+		c.usage("the list '" + list + "' has an empty item.")
+		return term.ExitUsage
+	}
+	return c.finish(ctx, memberType, refs)
 }
+
+// noTerminal is the refusal of a question nobody is at a terminal to answer.
+const noTerminal = "ccy-teams: 'choose-teams' asks its questions on a terminal, and there is none: run the launch at a terminal."
 
 // withTeamchat puts this checkout's teamchat teams first in the list (they cover it: their
 // seats were issued to it), leaving out a name the list already has; that one is refused by the

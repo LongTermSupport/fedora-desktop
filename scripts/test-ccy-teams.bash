@@ -735,9 +735,14 @@ check "  which is the one after the parsing" "yes" "$(has "--headless flag requi
 check "  seat check got the list as given, and take was not called yet" \
     "seat check  dev1@team-a , qa2@team-b --resolved|ccy-teams internal seat-resume --relaunch= dev1@team-a,qa2@team-b --given= dev1@team-a , qa2@team-b" "$(bus_calls)"
 
+# Plan 00265 R90: a team alone with nobody to ask still goes to the chooser, told so; it takes
+# the seat this checkout worked in, and refuses (64) only a genuine choice.
 run_ccy with-bus --headless --prompt go --teams team-a
-check "a team alone with nobody to choose (headless): refused, 64" "64" "$RC"
-check "  nothing but the check ran, and no chooser" "seat check team-a --resolved" "$(bus_calls)"
+check "a team alone with nobody to choose (headless): the chooser is told nobody is there, its seat checked" \
+    "ccy-teams choose-teams --type=podman --attended=false team-a|seat check 2@team-a --resolved" \
+    "$(bus_calls | cut -d'|' -f1-2)"
+FAKE_CHOOSE_TEAMS_RC=64 run_ccy with-bus --headless --prompt go --teams team-a
+check "  the chooser refusing a genuine choice is the launch's 64" "64" "$RC"
 check "  no SSH, engine or token work" "yes" "$(no_session_tools)"
 
 run_ccy with-bus --headless
@@ -1126,7 +1131,7 @@ insulate_line=$(grep -n -F "ccy_token_handoff_insulate \"\$PROJECT_NAME\"" "$LAU
 check "the canonical list replaces the given one before tmux records the session" "yes" \
     "$([ -n "$rewrite_line" ] && [ -n "$insulate_line" ] && [ "$rewrite_line" -lt "$insulate_line" ] \
         && echo yes || echo no)"
-choose_call="ccy-teams choose-teams --type=podman \"\$TEAMS_LIST\""
+choose_call="ccy-teams choose-teams --type=podman \"--attended=\$attended\" \"\$TEAMS_LIST\""
 choose_line=$(grep -n -F "$choose_call" "$LAUNCHER" | cut -d: -f1)
 check "the chooser runs once, before the rewrite (so the chosen seat is what is replayed)" "yes" \
     "$([ "$(grep -c -F "$choose_call" "$LAUNCHER")" = 1 ] && [ -n "$rewrite_line" ] \
@@ -1134,9 +1139,11 @@ check "the chooser runs once, before the rewrite (so the chosen seat is what is 
 check "the launcher keeps no chooser logic of its own: no for-checkout, no resolve loop" "0" \
     "$(cat "$LAUNCHER" "$LIB_DIR/agent-bus-seats.bash" | grep -c -E 'for-checkout|ccy_seats_resolve|choose-seat' || true)"
 # The chooser is asked, attended, for a bare --teams and for a team named alone, never for a
-# list that already names every seat (so a saved Quick Launch list needs no ccy-teams).
+# list that already names every seat (so a saved Quick Launch list needs no ccy-teams). With
+# nobody to ask it is still asked for a team alone, told so, and takes a clear seat (Plan
+# 00265 R90); a bare --teams then goes to the seat check, which refuses it.
 needs_chooser() {
-    local TEAMS_LIST="$1" attended=true cond
+    local TEAMS_LIST="$1" attended="${2:-true}" cond
     cond=$(grep -F 'TEAMS_LIST" =~ ,[^@,]+' "$LAUNCHER")
     [ -n "$cond" ] || { echo missing; return; }
     : "$TEAMS_LIST" "$attended" # read by the condition eval'd below
@@ -1146,6 +1153,8 @@ check "a bare --teams asks the chooser" "yes" "$(needs_chooser '')"
 check "a team alone asks it" "yes" "$(needs_chooser 'team-a')"
 check "  and so does a team alone among seats" "yes" "$(needs_chooser '1@team-a, team-b')"
 check "a list naming every seat does not" "no" "$(needs_chooser '1@team-a,qa2@team-b')"
+check "with nobody to ask a team alone still asks it" "yes" "$(needs_chooser 'team-a' false)"
+check "  but a bare --teams does not" "no" "$(needs_chooser '' false)"
 check "a restore, a restart, headless and no terminal count as nobody to choose" "yes" \
     "$(grep -qF '|| attended=true' <<<"$(grep -A2 '^    ccy_nobody_to_ask || \[ ! -t 2 \]' "$LAUNCHER" | tr '\n' ' ' | grep -F 'ccy_nobody_to_ask' \
         | grep -F 'CCY_SESSION_RESTORE' | grep -F 'CCY_RESTART_RELAUNCH_SESSION')" && echo yes || echo no)"

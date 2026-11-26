@@ -294,7 +294,7 @@ func TestNoTerminalNamesTheWaysOnForATeamchatTeamAlone(t *testing.T) {
 	if len(r.Script.GumLog) != 0 {
 		t.Fatalf("a question was asked with no terminal: %v", r.Script.GumLog)
 	}
-	contains(t, "stderr", r.stderr(), "asks its questions on a terminal", "take a free seat: run ccy --teams "+v2Team+" at a terminal",
+	contains(t, "stderr", r.stderr(), "to take is a choice, and there is no terminal", "take a free seat: run ccy --teams "+v2Team+" at a terminal",
 		"re-attach session ccy-proj")
 }
 
@@ -616,8 +616,67 @@ func TestAHostLaunchRefusesANamedPodmanSeat(t *testing.T) {
 }
 
 // Register R55: with nobody to ask, the ways on name the launch's own kind's seats only.
+// Plan 00265 R90: with no terminal (a restore, a restart) the seat a launch would take without
+// asking is taken; only a genuine choice, or no seat at all, is refused, in words.
+func TestNoTerminalTakesTheSeatThisCheckoutWorkedIn(t *testing.T) {
+	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2", "3"}})
+	r.lastRan["3"] = r.c.Now().UnixMilli() - 2*60*60*1000
+	r.Host.IsTerminal = func(any) bool { return false }
+	exit(t, r.run("--type=podman", "1@alpha,"+v2Team), term.ExitOK, r.rig)
+	if r.payload.String() != "1@alpha,3@"+v2Team+"\n" || len(r.Script.GumLog) != 0 {
+		t.Fatalf("payload %q, questions %v", r.payload.String(), r.Script.GumLog)
+	}
+	contains(t, "stderr", r.stderr(), "resuming this checkout's seat of it that last ran 2 hours ago")
+}
+
+func TestNoTerminalRefusesAGenuineChoiceInWords(t *testing.T) {
+	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2", "3"}})
+	r.lastRan["2"] = r.c.Now().UnixMilli() - 3*24*60*60*1000
+	r.lastRan["3"] = r.c.Now().UnixMilli() - 2*60*60*1000
+	r.Host.IsTerminal = func(any) bool { return false }
+	exit(t, r.run("--type=podman", v2Team), term.ExitUsage, r.rig)
+	r.lacksOutput(t)
+	contains(t, "stderr", r.stderr(), "Which seat of "+v2Team+" to take is a choice", "A seat of "+v2Team+": last ran 2 hours ago",
+		"run ccy --teams "+v2Team+" at a terminal")
+	if strings.Contains(r.stderr(), "2@") || strings.Contains(r.stderr(), "proj.") {
+		t.Fatalf("the refusal names a seat:\n%s", r.stderr())
+	}
+}
+
+// A restore or a restart runs on a terminal nobody watches: the launcher says so with
+// --attended=false, and nothing is asked there either.
+func TestTheLauncherSaysNobodyIsThereToAsk(t *testing.T) {
+	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2", "3"}})
+	r.lastRan["2"] = r.c.Now().UnixMilli() - 3*24*60*60*1000
+	r.lastRan["3"] = r.c.Now().UnixMilli() - 2*60*60*1000
+	exit(t, r.run("--type=podman", "--attended=false", v2Team), term.ExitUsage, r.rig)
+	if len(r.Script.GumLog) != 0 {
+		t.Fatalf("asked on a terminal nobody watches: %v", r.Script.GumLog)
+	}
+	r.lastRan["2"] = 0
+	exit(t, r.run("--type=podman", "--attended=false", v2Team), term.ExitOK, r.rig)
+	if r.payload.String() != "3@"+v2Team+"\n" {
+		t.Fatalf("payload %q", r.payload.String())
+	}
+	exit(t, r.run("--type=podman", "--attended=maybe", v2Team), term.ExitUsage, r.rig)
+}
+
+func TestNoTerminalAddsNoSeat(t *testing.T) {
+	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2:host"}})
+	added := r.wireNewSeat("9", term.ExitOK)
+	r.Host.IsTerminal = func(any) bool { return false }
+	exit(t, r.run("--type=podman", v2Team), term.ExitUsage, r.rig)
+	r.lacksOutput(t)
+	if len(*added) != 0 {
+		t.Fatalf("a seat was added with no terminal: %v", *added)
+	}
+	contains(t, "stderr", r.stderr(), "has no podman seat of "+v2Team, "ccy-teams seats add "+v2Team)
+}
+
 func TestNoTerminalNamesOnlyTheLaunchKindsSeats(t *testing.T) {
-	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2:podman", "3"}})
+	r := newTeamchatRig(t, alphaCovers, map[string][]string{v2Team: {"2:podman", "3", "4"}})
+	r.lastRan["3"] = r.c.Now().UnixMilli() - 2*60*60*1000
+	r.lastRan["4"] = r.c.Now().UnixMilli() - 3*60*60*1000
 	r.Host.IsTerminal = func(any) bool { return false }
 	exit(t, r.run("--type=host", v2Team), term.ExitUsage, r.rig)
 	contains(t, "stderr", r.stderr(), "take a free seat: run cc --teams "+v2Team, "ccy-teams seats add "+v2Team+" --host")

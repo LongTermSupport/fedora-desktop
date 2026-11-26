@@ -13,6 +13,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
@@ -546,11 +547,7 @@ func (r *restoreRun) record(ctx context.Context, rec registry.Record, file strin
 		entry.Going, entry.Detail = restore.GoingNone, detailFresh
 	}
 	if r.dryRun {
-		how, suffix := "", ""
-		if fresh {
-			how, suffix = " fresh", " (no conversation to resume)"
-		}
-		a.sayf("would start %s%s in %s%s: %s %s\n", rec.Name, how, rec.Dir, suffix, rec.Launcher, strings.Join(args, " "))
+		a.sayf("would start %s.\n", wouldStart(rec, fresh))
 		return
 	}
 	command := []string{"env", "CCY_SESSION_RESTORE=1"}
@@ -576,6 +573,42 @@ func (r *restoreRun) record(ctx context.Context, rec registry.Record, file strin
 	}
 	r.started++
 	r.entries = append(r.entries, entry)
+}
+
+// wouldStart is a dry run's words for a record (Plan 00265 R89, R90): the session, where, whether
+// it resumes, and its teams by name. The replayed command line is not shown: its --teams list
+// names each seat, which a person never needs.
+func wouldStart(rec registry.Record, fresh bool) string {
+	words := rec.Name + " in " + rec.Dir + ", resuming its conversation"
+	if fresh {
+		words = rec.Name + " fresh in " + rec.Dir + " (no conversation to resume)"
+	}
+	var teams []string
+	if list := teamsValue(rec.Args); list != "" {
+		teams = strings.Split(membership.Teams(list), ",")
+	}
+	switch len(teams) {
+	case 0:
+		return words
+	case 1:
+		return words + ", on team " + teams[0]
+	}
+	return words + ", on teams " + strings.Join(teams[:len(teams)-1], ", ") + " and " + teams[len(teams)-1]
+}
+
+// teamsValue is the --teams list of a launcher's own words (before `--`), or "".
+func teamsValue(args []string) string {
+	for i, w := range args {
+		switch {
+		case w == "--":
+			return ""
+		case w == "--teams" && i+1 < len(args):
+			return args[i+1]
+		case strings.HasPrefix(w, "--teams="):
+			return strings.TrimPrefix(w, "--teams=")
+		}
+	}
+	return ""
 }
 
 // passphraseProblem is why file is not a usable SSH key passphrase file for a restore, or "": it

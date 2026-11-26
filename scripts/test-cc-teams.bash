@@ -96,6 +96,10 @@ ccy_tmux_current_session() { printf '%s\n' "${FAKE_SESSION-cc-proj}"; }
 
 echo "=== the arguments ==="
 
+# Plain cc asks the chooser which team it holds a seat of; here, none.
+: >"$work/chosen"
+: >"$work/ccy-teams.calls"
+
 cc_teams_split_args --teams long-term-support --resume abc 2>"$work/err"
 check "--teams <team> is taken out" "true|long-term-support|--resume abc" "$CC_TEAMS_GIVEN|$CC_TEAMS_LIST|${CC_TEAMS_REST[*]}"
 cc_teams_split_args --model x --teams=1@dev-team,qa2@other 2>"$work/err"
@@ -119,6 +123,31 @@ rc=0
 cc_teams_split_args --bus --teams 1@a 2>"$work/err" || rc=$?
 check "--bus then --teams is refused 64" "64" "$rc"
 CC_TEAMS_BUS=false
+
+echo "=== plain cc joins the one team its checkout holds a host seat of (Plan 00265 R90) ==="
+
+printf 'lts-v2\n' >"$work/chosen"
+: >"$work/ccy-teams.calls"
+cc_teams_split_args --resume abc 2>"$work/err"
+check "plain cc asks the chooser which team this checkout holds a host seat of" \
+    "choose-teams --type=host --seated" "$(cat "$work/ccy-teams.calls")"
+check "  and joins it, as cc --teams <team>" "true|false|lts-v2|--resume abc" \
+    "$CC_TEAMS_GIVEN|$CC_TEAMS_BUS|$CC_TEAMS_LIST|${CC_TEAMS_REST[*]}"
+: >"$work/chosen"
+cc_teams_split_args --resume abc 2>"$work/err"
+check "with no seat here plain cc joins nothing" "false||--resume abc" "$CC_TEAMS_GIVEN|$CC_TEAMS_LIST|${CC_TEAMS_REST[*]}"
+printf 'lts-v2\n' >"$work/chosen"
+: >"$work/ccy-teams.calls"
+cc_teams_split_args --no-teams --resume abc 2>"$work/err"
+check "cc --no-teams asks nothing and joins nothing; claude never sees the flag" "false||--resume abc|0" \
+    "$CC_TEAMS_GIVEN|$CC_TEAMS_LIST|${CC_TEAMS_REST[*]}|$(grep -c . "$work/ccy-teams.calls")"
+FAKE_SESSION="" cc_teams_split_args --resume abc 2>"$work/err"
+check "outside ccy's tmux plain cc asks nothing (a teamchat seat needs its session name)" "false|0" \
+    "$CC_TEAMS_GIVEN|$(grep -c . "$work/ccy-teams.calls")"
+rc=0
+FAKE_CHOOSE_RC=1 cc_teams_split_args --resume abc 2>"$work/err" || rc=$?
+check "a chooser that fails is cc's exit" "1" "$rc"
+: >"$work/chosen"
 
 echo "=== the chooser: attended only, host type, then the seat check checks the list ==="
 
@@ -240,26 +269,9 @@ echo "=== what the session reads ==="
 check "the plugin's text never mentions the owner's Element session either" "no" \
     "$(yes_no grep -rqiE "owner'?s element|your element|element session|im\.riot" "$KIT_SRC/plugin")"
 
-echo "=== the checkout's .claude/ccy/ ==="
-
-fresh="$work/fresh"
-mkdir -p "$fresh"
-git -C "$fresh" init -q
-cc_teams_ccy_dir "$fresh" >"$work/out" 2>"$work/err"
-check "a repo never used with ccy gets .claude/ccy/ (0700)" "700" "$(stat -c %a "$fresh/.claude/ccy")"
-check "seats' tree is ignored by git, so seat take may place a token there" "0" \
-    "$(cd "$fresh" && git check-ignore -q .claude/ccy/pingbus/ && echo 0 || echo 1)"
-check "creating it says nothing on stdout" "" "$(cat "$work/out")"
-echo marker >"$fresh/.claude/ccy/keep"
-cc_teams_ccy_dir "$fresh" 2>"$work/err"
-check "an existing .claude/ccy/ is left as it is" "marker" "$(cat "$fresh/.claude/ccy/keep")"
-linked="$work/linked"
-mkdir -p "$linked/.claude" "$work/elsewhere-dir"
-git -C "$linked" init -q
-ln -s "$work/elsewhere-dir" "$linked/.claude/ccy"
-rc=0
-cc_teams_ccy_dir "$linked" 2>"$work/err" || rc=$?
-check ".claude/ccy as a symlink is refused 78" "78" "$rc"
+# The checkout's .claude/ccy/ is made by the chooser once the consent is given (Go:
+# chooser/ccydir_test.go), so this library holds no file-system step of its own.
+check "the library makes no .claude/ccy/ itself" "0" "$(grep -c 'mkdir' "$LIB")"
 
 echo "=== the command line ==="
 
@@ -308,15 +320,6 @@ rc=0
 (cd "$untouched_repo" && FAKE_CHOOSE_RC=1 cc_teams_prepare "$work/prep-tmp") >"$work/out" 2>"$work/err" || rc=$?
 check "a declined consent makes nothing in the checkout, not even .claude/ccy/ (S-E4)" "1|no" \
     "$rc|$(yes_no test -e "$untouched_repo/.claude/ccy")"
-untouched_link="$work/prep-untouched-link"
-mkdir -p "$untouched_link/.claude" "$work/prep-elsewhere"
-git -C "$untouched_link" init -q
-ln -s "$work/prep-elsewhere" "$untouched_link/.claude/ccy"
-: >"$work/agent-bus.calls"
-rc=0
-(cd "$untouched_link" && cc_teams_prepare "$work/prep-tmp") >"$work/out" 2>"$work/err" || rc=$?
-check ".claude/ccy as a symlink is refused (78) before any seat is taken" "78|0" \
-    "$rc|$(grep -c 'seat take' "$work/agent-bus.calls")"
 bus_repo="$work/prep-bus"
 mkdir -p "$bus_repo"
 git -C "$bus_repo" init -q
@@ -327,7 +330,6 @@ rc=0
 check "--bus: the consent, no seat (cc-run writes the membership on no team, H32)" \
     "0|choose-teams --type=host --bus |0" \
     "$rc|$(paste -sd'|' "$work/ccy-teams.calls")|$(grep -c . "$work/agent-bus.calls")"
-check "--bus still makes the checkout's .claude/ccy/, where the keeper reports" "yes" "$(yes_no test -d "$bus_repo/.claude/ccy")"
 echo "=== cc and pingbus name the same acceptance record ==="
 
 pb_config="$REPO_ROOT/helpers/pingbus/config.py"
