@@ -1462,17 +1462,33 @@ before the move to v2. Filled in as causes are found.
 - **Seen:** the batch 23 qa-reviewer, 26 Nov. Another team's private name, once redacted by
   Plan 00245, came back into tracked plan files through batch 3 and batch 23. No gate blocked
   it.
-- **Cause (checked):** `src-go/qa/privatenames` learns its terms from the agent bus status and
-  the machine's own names, kept in `<git dir>/private-terms`. In this container that list holds
-  3 terms. The other team's name is not among them: a session on one team never learns the
-  names of the teams beside it on the same bus host. So the redaction of Plan 00245 had no
-  defender, and the name returned.
-- **Fix (Defence Before Fix):**
-  - The guard learns every team the bus host serves (and each team's members), not only this
-    session's teams.
-  - The owner can pin a known private name in the git-dir list.
-  - Red: a fixture repository with another team's name in a plan file passes today. Green
-    after the fix. Then sweep the tree.
+- **Cause (checked, the first wording refuted):** the guard learned no bus name at all here,
+  not even this session's own team. `<git dir>/private-terms` held only `host name` terms (4 on
+  26 Nov). `src-go/qa/privatenames` asked only `pingbus status`, the v1 bus. This session is on
+  teamchat (v2), where pingbus is absent, so the bus taught it nothing. And either bus reports
+  only the session's own teams, so a team beside it on the same bus host was never learnable.
+  Two gaps: (a) teamchat was not asked; (b) neighbouring teams are never learned.
+- **What a container can see (checked):** `teamchat status` gives `team` and `member` records
+  for this session's teams only; the membership mount holds this session's teams only; the
+  host's team list is not mounted. Other teams' names cannot be learned from inside a
+  container, so the owner pins them.
+- **Fix (Defence Before Fix), 81a4f18cd:**
+  - The guard asks both buses through the one process seam: `pingbus status` and
+    `teamchat status` (team and member records; exit 69, not a member session, is an empty
+    answer; any other failure or unreadable output is exit 2).
+  - `<git dir>/private-terms-pinned`, one name per line: always blocked, whatever the length,
+    never printed, never copied into the learned list, carried into the published denylist.
+    The route for a neighbouring team. (`private-terms-export-skip` is the opposite: it only
+    keeps learned terms out of the denylist.)
+  - In a container, a bus that reports a session but teaches no team or member name is exit
+    2 unless a name is pinned.
+  - Red: `teamchat_test.go` (a teamchat session with no pingbus, or pingbus 78, whose team and
+    members must block; the pinned neighbour; the session that teaches no name) failed before
+    the fix and passes after. Real tree: `refresh` learned 4 terms before, 19 after.
+- **Sweep owed (the owner's call):** with the fix, `tree HEAD` finds 23 hits of two newly
+  learned terms (this session's own team and one member handle) in plan 00161, 00209 and 00265
+  files. They were never guarded. Until they are replaced or allowlisted, the local
+  `qa-private-names` gate is red.
 - **Also owed:** the name's remaining lines on F44 (one append-only journal entry, and
   history) are the owner's decision, asked through the coordinator 26 Nov.
 - **Severity:** high (a public repository). **Issue:** TBF. **State:** open.
@@ -1537,7 +1553,15 @@ before the move to v2. Filled in as causes are found.
   3. Narrow the glob to the dangerous verbs (`*flatpak run*Lightning*`, `*flatpak enter*`, and
      the data path). This is weaker: every new route into the sandbox must be thought of in
      advance.
-  - Recommended: 1 now, 2 if version reads recur. Not 3.
+  - The owner (26 Nov, relayed by the laptop seat, unverified): "ah its probably to prevent
+    agents hijacking lightning - maybe we can hole punch for flatpak info?"
+  - Recommended: 2, which is that hole punch in a fail-closed shape. The broad deny stays, and
+    the one command allowed through is fixed by the play: it runs `flatpak info` (and
+    `--show-permissions`) and `flatpak ps` for the chat-client app ids it was built with, and
+    takes no app id, path or flag from its caller. Option 3 is rejected: a deny-list of verbs
+    fails open on any route it misses (`flatpak-spawn`, an alias, a direct path to the binary).
+    Claude Code cannot express "allow only this command, deny the rest of the app id" while
+    the broad deny exists, because a deny beats any matching allow. Until 2 ships, use 1.
   - Any change gets a test that a data-path read and a `flatpak run --command` into the app are
     still refused, and an independent review before it merges.
 - **Severity:** low (the build was read another way). **Issue:** TBF. **State:** open, owner
