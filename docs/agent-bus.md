@@ -83,7 +83,7 @@ launch does not start.
    then logs its memory and its slow events to `<team>/cache/lightning-diagnostic.log`, and the
    user service `agent-bus-lightning-watch` records the instance's threads once if that log
    falls silent while memory climbs (Plan 00268; the key is in `localhost.yml.dist`). Every
-   Lightning instance is capped at 2 GB of memory (`agent_bus_lightning_memory_max`); one killed
+   Lightning instance is capped at 5 GB of memory (`agent_bus_lightning_memory_max`); one killed
    at the cap raises a desktop notification and is reopened by hand. Who
    has signed in is read from the team's homeserver either way. Why, and the alternatives weighed:
    [RESEARCH-one-element-window.md](../CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/RESEARCH-one-element-window.md).

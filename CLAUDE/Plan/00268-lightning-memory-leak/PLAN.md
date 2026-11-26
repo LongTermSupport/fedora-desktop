@@ -124,16 +124,18 @@ another batch; this plan decides at the end whether it stays.
   - **Order:** after batch 23 lands, in the batch with 00266's C.2 (batch 24). Its plain memory
     cap is pulled forward as Task 1.9.
 
-- [ ] 🔄 **Task 1.9**: A plain 2 GB cap now, ahead of 1.8's capture. Owner (Q20, 26 Nov 11:40Z,
+- [ ] 🔄 **Task 1.9**: A plain memory cap now (5 GB), ahead of 1.8's capture. Owner (Q20, 26 Nov 11:40Z,
   verbatim): "but for now lets also mitigate this with flatpak limits etc. I thin there's no
   reason for it to need more than 1GB so a 2GB cap is probably OK. If it could crash and
   restart automtically that would be handy, with some kind of reporting somehow so we know its
   happend. Or jsut crash and I have to restart manually woudl be OK". He also ruled out pinning
   an older Lightning build: the upstream fix is in the hands of the coordinating team's own investigation.
+  The size is the owner's, revised at 11:58Z (verbatim): "on the 2.2 basis id cap at 5GB", the
+  2.2 GB being the busy-day peak of the older builds with no runaway. The default is 5G.
 
   - **The cap:** a user systemd prefix drop-in on the app's Flatpak scopes
     (`app-flatpak-<app id>-.scope.d/`) setting `MemoryMax`, with the value from host_vars
-    (default 2G), installed by the play that installs the Lightning watch. Every instance gets
+    (default 5G), installed by the play that installs the Lightning watch. Every instance gets
     it, whichever team launched it. The host seat checks on the laptop that systemd applies a
     prefix drop-in to these transient scopes.
   - **The notice:** when the kernel kills an instance at the cap, the team is told: a teamchat
@@ -148,7 +150,7 @@ another batch; this plan decides at the end whether it stays.
   - **Built** (report `subagent-reports/261126-task-1-9.md`): the play's `agent-bus-lightning` tag
     places `app-flatpak-<app id>-.scope.d/agent-bus-memory-cap.conf` (`MemoryMax`, `MemorySwapMax=0`
     so zram cannot stretch it, `OnFailure=agent-bus-lightning-capped@%n.service`), the app id read
-    from the Matrix client list; `agent_bus_lightning_memory_max` (home-level, default 2G, `false`
+    from the Matrix client list; `agent_bus_lightning_memory_max` (home-level, default 5G, `false`
     removes it) is checked before anything is installed. On for every host that runs the play,
     not gated like `lightning_diagnostics`. The notice is the oneshot user unit
     `agent-bus-lightning-capped@.service`: a critical desktop notification naming the scope.
