@@ -948,7 +948,7 @@
               # signal and swaps the endpoint to ssh.github.com:443 when set
               # (host export, /etc/profile.d, or `eval "$(github-ssh-443 env)"`),
               # else github.com:22. Unset → identical to the previous behaviour.
-              _gh443_sshcmd() {
+              __gh443_sshcmd() {
                   local key="$1"
                   local host="github.com" port="22"
                   if [ "${GITHUB_SSH_443:-0}" = "1" ]; then
@@ -1053,7 +1053,7 @@
               # without a github.com-<alias> host). With a second argument of
               # "bare", a plain owner/repo is accepted too; a remote's own URL is
               # never read that way, since a bare path there is a local directory.
-              function _gh_repo_path() {
+              function __gh_repo_path() {
                   local url="$1" allow_bare="${2:-}" path
                   if [[ "$url" =~ ^(https://([^@/]+@)?github\.com/|ssh://git@github\.com(-[A-Za-z0-9_.-]+)?/|git@github\.com(-[A-Za-z0-9_.-]+)?:)(.+)$ ]]; then
                       path="${BASH_REMATCH[5]}"
@@ -1070,7 +1070,7 @@
               }
 
               # A URL fit to print: credentials in an https remote are masked.
-              function _gh_redact_url() {
+              function __gh_redact_url() {
                   if [[ "$1" =~ ^(https?://)[^@/]+@(.*)$ ]]; then
                       printf '%s***@%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
                   else
@@ -1081,7 +1081,7 @@
               # Point a remote at the github.com-<alias> SSH host, so ssh and the
               # auto-detecting git() wrapper both use that account from then on.
               # With no repo given it reads the remote's current URL and asks first.
-              function _gh_remote_to_alias() {
+              function __gh_remote_to_alias() {
                   local alias="$1"
                   shift
                   local assume_yes=0 remote="" source="" count=0
@@ -1136,12 +1136,12 @@
                   fi
                   local repo_path
                   if [[ -n "$source" ]]; then
-                      if ! repo_path="$(_gh_repo_path "$source" bare)"; then
-                          echo "remote-$alias: '$(_gh_redact_url "$source")' is not an owner/repo or a github.com URL." >&2
+                      if ! repo_path="$(__gh_repo_path "$source" bare)"; then
+                          echo "remote-$alias: '$(__gh_redact_url "$source")' is not an owner/repo or a github.com URL." >&2
                           return 1
                       fi
-                  elif ! repo_path="$(_gh_repo_path "$current")"; then
-                      echo "remote-$alias: $remote ($(_gh_redact_url "$current")) is not a github.com repository." >&2
+                  elif ! repo_path="$(__gh_repo_path "$current")"; then
+                      echo "remote-$alias: $remote ($(__gh_redact_url "$current")) is not a github.com repository." >&2
                       echo "  Name the repository: remote-$alias $remote owner/repo" >&2
                       return 1
                   fi
@@ -1151,7 +1151,7 @@
                       return 0
                   fi
 
-                  echo "  $remote: $(_gh_redact_url "$current")" >&2
+                  echo "  $remote: $(__gh_redact_url "$current")" >&2
                   echo "  ->  $target" >&2
                   if (( ! assume_yes )); then
                       local reply=""
@@ -1171,21 +1171,21 @@
               }
 
               # The login gh has active now.
-              function _gh_active_account() {
+              function __gh_active_account() {
                   gh auth status --hostname github.com --json hosts --jq '.hosts["github.com"][] | select(.active) | .login'
               }
 
-              # _gh_as_account <login> <command...> runs the command with <login> as gh's
+              # __gh_as_account <login> <command...> runs the command with <login> as gh's
               # active account, then puts back the account that was active before. That is
               # not always the saved default: run.bash makes its primary account active and
               # calls gh-<alias> in between. Messages go to stderr, so $(gh-<alias> ... --json)
               # captures only the command's own output.
-              function _gh_as_account() {
+              function __gh_as_account() {
                   local login="$1" previous exit_code=0
                   shift
                   # Empty with no exit code when nobody is logged in, or when GH_TOKEN is set:
                   # then there is nothing to put back, so refuse rather than switch for good.
-                  if ! previous=$(_gh_active_account) || [[ -z "$previous" ]]; then
+                  if ! previous=$(__gh_active_account) || [[ -z "$previous" ]]; then
                       echo "Error: could not read gh's active account (is GH_TOKEN set, or nobody logged in?)" >&2
                       return 1
                   fi
@@ -1210,7 +1210,7 @@
               # Account-specific aliases
               {% for alias, username in github_accounts.items() %}
               function gh-{{ alias }}() {
-                  _gh_as_account "{{ username }}" gh "$@"
+                  __gh_as_account "{{ username }}" gh "$@"
               }
 
               function gh-{{ alias }}-make-default() {
@@ -1235,7 +1235,7 @@
 
                   # Clone as the right account; gh is put back where it was afterwards
                   local exit_code=0
-                  _gh_as_account "{{ username }}" gh repo clone "$repo_path" -- --config core.sshCommand="$(_gh443_sshcmd ~/.ssh/github_{{ alias }})" || exit_code=$?
+                  __gh_as_account "{{ username }}" gh repo clone "$repo_path" -- --config core.sshCommand="$(__gh443_sshcmd ~/.ssh/github_{{ alias }})" || exit_code=$?
 
                   # Set the remote to use the specific SSH key
                   if [[ -n "$repo_path" ]]; then
@@ -1251,7 +1251,7 @@
               }
 
               function remote-{{ alias }}() {
-                  _gh_remote_to_alias {{ alias }} "$@"
+                  __gh_remote_to_alias {{ alias }} "$@"
               }
               {% endfor %}
 
@@ -1302,13 +1302,13 @@
                   fi
 
                   # The rest runs as that account; gh is put back afterwards.
-                  _gh_as_account "{{ username }}" _gh_phpstorm_token_report "{{ username }}"
+                  __gh_as_account "{{ username }}" __gh_phpstorm_token_report "{{ username }}"
               }
               {% endfor %}
 
               # The scope check, refresh and token for gh-<alias>-token-phpstorm, run while
               # <login> is gh's active account (gh auth refresh acts on the active one).
-              function _gh_phpstorm_token_report() {
+              function __gh_phpstorm_token_report() {
                   local login="$1"
 
                   # Get current token scopes using JSON output for reliable parsing
@@ -1393,11 +1393,10 @@
               # ==================== GIT ACCOUNT AUTO-DETECTION ====================
               # Smart git wrapper that auto-detects account from repository remote
 
-              declare -gA _GH_ACCOUNT_USERS=(
-              {% for alias, username in github_accounts.items() %}
-                  [{{ alias }}]="{{ username }}"
-              {% endfor %}
-              )
+              # Helpers here start with a double underscore and hold no global
+              # data: Claude Code's Bash tool replays a snapshot of this shell that
+              # leaves out single-underscore functions and unexported variables
+              # (CLAUDE/QA.md, shell-snapshot-dropped-name).
 
               # Run git as one account over BOTH transports. core.sshCommand only
               # covers SSH remotes; an HTTPS remote authenticates through the
@@ -1407,22 +1406,26 @@
               # account's token by name, so the active account is never switched.
               # Only `get` is answered: gh owns the token, git must not store it.
               #
-              # The sshCommand from _gh443_sshcmd uses -F /dev/null so ssh cannot
+              # The sshCommand from __gh443_sshcmd uses -F /dev/null so ssh cannot
               # read ~/.ssh/config: this key is then the only one it offers,
               # whatever other blocks there match, and GitHub attributes to
               # whichever key matches first. -o HostName=github.com is required with
               # it, because the github.com-<alias> host alias used by
               # clone-<alias>/remote-<alias> remotes lives only in that config.
-              function _gh_account_git() {
-                  local alias="$1"
+              function __gh_account_git() {
+                  local alias="$1" user
                   shift
-                  local user="${_GH_ACCOUNT_USERS[$alias]-}"
-                  if [[ -z "$user" ]]; then
-                      echo "ERROR: unknown GitHub account alias: $alias" >&2
-                      return 1
-                  fi
+                  case "$alias" in
+                      {% for alias, username in github_accounts.items() %}
+                      {{ alias }}) user="{{ username }}" ;;
+                      {% endfor %}
+                      *)
+                          echo "ERROR: unknown GitHub account alias: $alias" >&2
+                          return 1
+                          ;;
+                  esac
                   command git \
-                      -c "core.sshCommand=$(_gh443_sshcmd ~/.ssh/github_${alias})" \
+                      -c "core.sshCommand=$(__gh443_sshcmd ~/.ssh/github_${alias})" \
                       -c credential.https://github.com.helper= \
                       -c "credential.https://github.com.helper=!f() { test \"\$1\" = get || exit 0; tok=\$(gh auth token --hostname github.com --user ${user}) || exit 1; echo username=${user}; echo \"password=\$tok\"; }; f" \
                       "$@"
@@ -1442,7 +1445,7 @@
                   # Detection reads a github.com-<alias> remote host, so a plain
                   # https://github.com remote is not detected: use git-<alias>.
                   if [[ -n "$detected_alias" ]]; then
-                      _gh_account_git "$detected_alias" "$@"
+                      __gh_account_git "$detected_alias" "$@"
                   else
                       # No account detected, use standard git
                       command git "$@"
@@ -1452,7 +1455,7 @@
               # Account-specific git commands (force specific account, SSH or HTTPS).
               {% for alias in github_accounts.keys() %}
               function git-{{ alias }}() {
-                  _gh_account_git {{ alias }} "$@"
+                  __gh_account_git {{ alias }} "$@"
               }
               {% endfor %}
 
@@ -1462,14 +1465,14 @@
               # Per-account variants (git-<alias>-branch-default / -checkout-default)
               # route through the per-account git wrapper so the alias's account
               # is used for any remote operation (e.g. the ls-remote probe).
-              # The shared implementation lives in _git_branch_default_impl so the
+              # The shared implementation lives in __git_branch_default_impl so the
               # detection logic isn't duplicated across N aliases × 2 commands.
 
               # Resolves the default branch using a cheapest-first cascade:
               #   1. refs/remotes/origin/HEAD if previously cached locally  — no network
               #   2. ls-remote --symref origin HEAD                          — one round-trip
               #   3. init.defaultBranch (or "main")                          — offline fallback
-              function _git_branch_default_impl() {
+              function __git_branch_default_impl() {
                   local -a gcmd=("$@")
                   local ref
 
@@ -1493,7 +1496,7 @@
               }
 
               function git-branch-default() {
-                  _git_branch_default_impl git
+                  __git_branch_default_impl git
               }
 
               function git-checkout-default() {
@@ -1504,7 +1507,7 @@
 
               {% for alias in github_accounts.keys() %}
               function git-{{ alias }}-branch-default() {
-                  _git_branch_default_impl git-{{ alias }}
+                  __git_branch_default_impl git-{{ alias }}
               }
 
               function git-{{ alias }}-checkout-default() {

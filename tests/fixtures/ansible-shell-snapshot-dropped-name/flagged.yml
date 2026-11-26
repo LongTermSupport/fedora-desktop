@@ -1,0 +1,58 @@
+---
+# Fixture for the shell-snapshot-dropped-name rule of src-go/qa/ansible: every line marked
+# EXPECT-FINDING must be reported, and no other. Each is a function of an interactive shell
+# include that, when Claude Code's Bash tool replays its login-shell snapshot, calls a function
+# the snapshot left out (a single-underscore name) or reads a global the snapshot left out (one
+# not exported). The plays are valid for ansible-playbook --syntax-check.
+
+- hosts: localhost
+  vars:
+    accounts:
+      work: work-user
+      home: home-user
+  tasks:
+    - name: Write the aliases include
+      ansible.builtin.blockinfile:
+        path: "/home/{{ user_login }}/.bashrc-includes/aliases.inc.bash"
+        create: true
+        mode: "0644"
+        block: |
+          declare -gA _ACCOUNT_USERS=(
+          {% for alias, user in accounts.items() %}
+              [{{ alias }}]="{{ user }}"
+          {% endfor %}
+          )
+          DEFAULT_REMOTE=origin
+
+          _helper() {
+              printf '%s\n' "$1"
+          }
+
+          function wrapper() {
+              _helper "$@" # EXPECT-FINDING
+          }
+
+          function user_of() {
+              echo "${_ACCOUNT_USERS[$1]-}" # EXPECT-FINDING
+          }
+
+          {% for alias in accounts.keys() %}
+          function git-{{ alias }}() {
+              local remote="$DEFAULT_REMOTE" # EXPECT-FINDING
+              command git push "$remote" "$(_helper {{ alias }})" # EXPECT-FINDING
+          }
+          {% endfor %}
+
+    - name: Install a profile script from a template
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/flagged-include.bash.j2"
+        dest: /etc/profile.d/flagged.sh
+        mode: "0644"
+
+    - name: Install includes from a loop
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/{{ item }}"
+        dest: "/home/{{ user_login }}/.bashrc-includes/{{ item }}"
+        mode: "0644"
+      loop:
+        - flagged-loop.bash

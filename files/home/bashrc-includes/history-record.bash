@@ -15,10 +15,18 @@
 # missing; recording into it would fail at every prompt.
 [[ -O "${HOME}/.local/state/bash" ]] || return 0
 
-__history_search_file="${HOME}/.local/state/bash/context"
-if [[ ! -e "${__history_search_file}" ]]; then
-    (umask 077 && : >>"${__history_search_file}")
+# __history_search_file <name> sets the variable <name> to the record file's path. A function,
+# not a global: Claude Code's shell snapshot keeps functions but leaves out unexported
+# variables (CLAUDE/QA.md, shell-snapshot-dropped-name). printf -v forks nothing.
+__history_search_file() {
+    printf -v "$1" '%s' "${HOME}/.local/state/bash/context"
+}
+__history_search_new=""
+__history_search_file __history_search_new
+if [[ ! -e "${__history_search_new}" ]]; then
+    (umask 077 && : >>"${__history_search_new}")
 fi
+unset __history_search_new
 
 # Kept if already set: a re-source (`source ~/.bashrc`) must not make the next prompt
 # start over and drop the command that did the sourcing.
@@ -28,7 +36,8 @@ __history_search_dir="${__history_search_dir-${PWD}}"
 # bash hands every PROMPT_COMMAND element the command's own $?, whatever the element
 # before it returned, so this reads it first and can sit anywhere in the array.
 __history_search_record() {
-    local status=$? entry number command=""
+    local status=$? entry number command="" file
+    __history_search_file file
     entry="$(HISTTIMEFORMAT='' builtin history 1)"
     if [[ "${entry}" =~ ^[[:space:]]*([0-9]+)[*[:space:]][[:space:]](.*)$ ]]; then
         number="${BASH_REMATCH[1]}"
@@ -40,7 +49,7 @@ __history_search_record() {
     # in this shell.
     if [[ -n "${__history_search_number}" && "${number}" != "${__history_search_number}" && -n "${command}" ]]; then
         printf '%s\t%s\t%s\t%s\0' "${EPOCHSECONDS}" "${status}" \
-            "${__history_search_dir}" "${command}" >>"${__history_search_file}"
+            "${__history_search_dir}" "${command}" >>"${file}"
     fi
     __history_search_number="${number}"
     __history_search_dir="${PWD}"

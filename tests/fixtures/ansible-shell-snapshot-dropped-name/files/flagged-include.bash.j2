@@ -1,0 +1,12 @@
+# Fixture include for shell-snapshot-dropped-name, deployed by flagged.yml as a template.
+PROFILE_ROOT="{{ root_dir }}"
+
+function profile-root() {
+    echo "$PROFILE_ROOT" # EXPECT-FINDING
+}
+
+function profile-tool() {
+    if _profile_ready; then # EXPECT-FINDING
+        "${PROFILE_ROOT}/bin/tool" "$@" # EXPECT-FINDING
+    fi
+}

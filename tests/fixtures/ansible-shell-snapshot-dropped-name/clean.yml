@@ -1,0 +1,56 @@
+---
+# Fixture for the shell-snapshot-dropped-name rule of src-go/qa/ansible: none of these may be
+# reported. Every function here still works after Claude Code's Bash tool replays its login-shell
+# snapshot: it calls only functions the snapshot keeps (a double-underscore name, or no leading
+# underscore), resolves its data when it is called, and reads globals only when exported. The
+# plays are valid for ansible-playbook --syntax-check.
+
+- hosts: localhost
+  vars:
+    accounts:
+      work: work-user
+  tasks:
+    - name: Write the aliases include
+      ansible.builtin.blockinfile:
+        path: "/home/{{ user_login }}/.bashrc-includes/aliases.inc.bash"
+        create: true
+        mode: "0644"
+        block: |
+          export TOOL_HOME="$HOME/.tool"
+          _setup_once() {
+              mkdir -p "$TOOL_HOME"
+          }
+          _setup_once
+          SETUP_DONE=1
+          echo "setup $SETUP_DONE" >&2
+          HISTFILE=/dev/null
+
+          __user_of() {
+              case "$1" in
+          {% for alias, user in accounts.items() %}
+                  {{ alias }}) echo "{{ user }}" ;;
+          {% endfor %}
+                  *) return 1 ;;
+              esac
+          }
+
+          function wrapper() {
+              local SETUP_DONE=0
+              echo "$SETUP_DONE $TOOL_HOME $HOME $HISTFILE $1" >&2
+              __user_of "$@"
+              complete -F _wrapper_complete wrapper
+          }
+
+    - name: A managed block that is not a shell include is not judged
+      ansible.builtin.blockinfile:
+        path: /etc/tool.conf
+        create: true
+        mode: "0644"
+        block: |
+          f() { _not_shell_include; }
+
+    - name: Install a clean include
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/clean-include.bash"
+        dest: "/home/{{ user_login }}/.bashrc-includes/clean-include.bash"
+        mode: "0644"
