@@ -170,6 +170,7 @@
 # image's teamchat rate and budget holds instead of drops. An agent's message past either limit
 # waits for the window's next free slot, then is delivered. Past pending's agent share it is
 # bounced `rate`, with a receipt to its sender. Sessions started after the rebuild get it.
+# Container 2.84.103 (ccy 3.124.104) is the same single rebuild: only teamchat's tests changed.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC

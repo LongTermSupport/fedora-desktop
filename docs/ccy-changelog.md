@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.104 — container 2.84.103
+
+- No change to what the image's teamchat does. Its owed receipt tests (Plan 00267 Task 2.3) now
+  wait for the reports room to be joined before they post. Before this, a join that came late
+  hung a test until `go test` timed out.
+
 ## 3.124.103 — the host applies a checkout's mounts and compose files only as a person approved them
 
 Plan 00266 Phase A (security, Defence Before Fix). A ccy session writes its checkout, so it
