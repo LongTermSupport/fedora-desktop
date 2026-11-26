@@ -241,8 +241,10 @@ cat >"$WHO" <<'EOF'
 source "$1/common-pure.bash"
 source "$1/tmux-session.bash"
 out=$(ccy_tmux_current_session 2>&1)
-printf '%s rc=%s\n' "$out" "$?" >"$2.tmp"
-mv "$2.tmp" "$2"
+rc=$?
+tmp=$(mktemp -- "$2.tmp.XXXXXXXXXX") || exit 1
+printf '%s rc=%s\n' "$out" "$rc" >"$tmp"
+mv "$tmp" "$2"
 EOF
 # The registry's own trampoline, which every ccy session's pane runs the launcher under.
 tramp="$(

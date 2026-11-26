@@ -567,7 +567,8 @@ for variant in "space" "cr" "comment"; do
         cr) suffix=$'\r' ;;
         comment) suffix=" # hand-edited" ;;
     esac
-    awk -v s="$suffix" '/^LAST_NETWORK=/ { print $0 s; next } { print }' "$QL" >"$QL.new" && mv "$QL.new" "$QL"
+    ql_next=$(mktemp -- "$QL.new.XXXXXXXXXX")
+    awk -v s="$suffix" '/^LAST_NETWORK=/ { print $0 s; next } { print }' "$QL" >"$ql_next" && mv "$ql_next" "$QL"
     run_disconnect "" wrong-network
     check "a hand-edited LAST_NETWORK line ($variant) fails the command" "1" "$RC"
     check "and it does not claim Quick Launch was cleared ($variant)" "no" "$(says "Cleared wrong-network from the Quick Launch" "$OUT")"

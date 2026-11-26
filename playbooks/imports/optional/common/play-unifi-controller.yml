@@ -361,8 +361,12 @@
             fi
             # Remove any existing system_ip line, then append current
             if [ -f "$PROPERTIES" ]; then
-              grep -v '^system_ip=' "$PROPERTIES" > "$PROPERTIES.tmp"
-              mv "$PROPERTIES.tmp" "$PROPERTIES"
+              local props_tmp
+              props_tmp=$(mktemp -- "$PROPERTIES.tmp.XXXXXXXXXX")
+              # mktemp creates 0600; the controller reads the file with the mode it had
+              chmod --reference="$PROPERTIES" -- "$props_tmp"
+              grep -v '^system_ip=' "$PROPERTIES" > "$props_tmp"
+              mv "$props_tmp" "$PROPERTIES"
             fi
             echo "system_ip=$lan_ip" >> "$PROPERTIES"
             echo "Controller inform host set to: $lan_ip"

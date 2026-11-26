@@ -556,8 +556,8 @@ filled in as each cause is known.
   blocking in `qa-all` (`qa-gates.tsv` row `temp-not-exclusive`) and `qa-changed` (check
   `temp-exclusive`, SPEC-qa-changed B69), CLAUDE/QA.md "temp-not-exclusive"; ccy 3.124.72,
   container 2.84.89. Fixed: commits 6633dc113, 4bb754029, 94a6dd0b2 and the wiring commit after
-  them. **OPEN for the owner:** (a) widening the shell rule to fixed suffixes (`"$f.tmp"` then
-  `mv`): a trial found 11 more lines, mostly test and plan scripts; (b) the daemon-deployed
+  them. (a) widening the shell rule to fixed suffixes (`"$f.tmp"` then `mv`): decided and
+  done, below; (b) the daemon-deployed
   `.claude/ccy/claude-supervise.py` (6 pid-named temporaries and 1 with a fixed suffix) and `.claude/provision.sh` (2), which every gate
   excludes, to report upstream. (3) checked in the code, not yet run: when none of the named
   seats has a seat record, `ForSeats` falls back to the sessions: on an agent-bus checkout each
@@ -583,8 +583,14 @@ filled in as each cause is known.
   keeper reports, before it forgets the seat records. A teamchat team of the same name is left
   alone. Tests: the choice, the taking off, the order and refusals in `remove`, and the wiring.
   Each was red first and is green now (ccy 3.124.74).
+- **Widened (on v2-smoke, after batch 13):** the shell rule also finds a fixed-suffix temporary
+  (`.tmp`, `.new`, `.part`, `.temp`) that a redirect writes and an `mv` within 40 lines moves,
+  written straight or held in a variable. The fixture's new cases were red on the old rule (5
+  missed lines) and are green now. The sweep found 12 lines in 9 files: plan, test and vmtest
+  scripts, a test's fake clipboard, and the UniFi play, whose temporary takes the properties
+  file's mode. Each now uses `mktemp` beside its target, and the gate is clean.
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
-  open: the fixed-suffix widening, on v2-smoke for the batch after 13.
+  fixed on v2-smoke for the batch after 13 (not yet on F44); (b) is for the daemon's upstream.
   The six branches (ci/v2-batch3, 3b, 3c and the three old agent branches) wait for the
   owner's yes to delete them, asked by the coordinator once this is green.
 

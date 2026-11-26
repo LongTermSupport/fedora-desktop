@@ -55,8 +55,9 @@ case "$mode:$runs" in
     late:*) sleep @LATE_SECONDS@ ;;
 esac
 if [ "$mode" = newline ]; then data="$data"$'\n'; fi
-printf '%s' "$data" > "$FAKE_CLIP/selection.tmp"
-mv "$FAKE_CLIP/selection.tmp" "$FAKE_CLIP/selection"
+tmp=$(mktemp -- "$FAKE_CLIP/selection.tmp.XXXXXXXXXX") || exit 1
+printf '%s' "$data" > "$tmp"
+mv "$tmp" "$FAKE_CLIP/selection"
 """.replace("@LATE_SECONDS@", f"{LATE_SECONDS:g}")
 
 FAKE_WL_PASTE = r"""#!/usr/bin/bash

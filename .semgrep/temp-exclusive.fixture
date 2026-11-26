@@ -41,6 +41,32 @@ other_shapes() {
     mv "/var/tmp/out.${BASHPID}" "$target"
 }
 
+# A temporary under a fixed suffix, written by a redirect and moved into place by mv: the name is
+# as guessable as a pid-named one.
+fixed_suffix() {
+    # ruleid: temp-not-exclusive
+    printf '%s\n' "${status}" >"${status_file}.tmp"
+    mv -f -- "${status_file}.tmp" "${status_file}"
+    # ruleid: temp-not-exclusive
+    jq '. + {a: 1}' "$TF" >"$TF.new" && mv "$TF.new" "$TF"
+    # ruleid: temp-not-exclusive
+    grep -v '^system_ip=' "$PROPERTIES" > "$PROPERTIES.tmp"
+    mv "$PROPERTIES.tmp" "$PROPERTIES"
+    # ruleid: temp-not-exclusive
+    awk 'NF' "$TEST_STATE/clients/$target" >"$TEST_STATE/clients/$target.new"
+    mv "$TEST_STATE/clients/$target.new" "$TEST_STATE/clients/$target"
+    # ruleid: temp-not-exclusive
+    printf '%s' "$data" >>"$out.part"
+    mv "$out.part" "$out"
+    # ruleid: temp-not-exclusive
+    local next="${dest}.new"
+    sort -u "$dest" >"$next"
+    mv -f -- "$next" "$dest"
+    # ok: temp-not-exclusive
+    local log="$dir/run.tmp"
+    printf '%s\n' "$value" >"$log"
+}
+
 # The fixed shapes.
 fixed() {
     local tmp

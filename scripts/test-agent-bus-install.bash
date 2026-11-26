@@ -195,7 +195,7 @@ touch "$file"
 case $op in
     query) if grep -qFx -- "$rule" "$file"; then echo yes; else echo no; exit 1; fi ;;
     add) grep -qFx -- "$rule" "$file" || printf '%s\n' "$rule" >>"$file"; echo success ;;
-    remove) awk -v r="$rule" '$0 != r' "$file" >"$file.new"; mv "$file.new" "$file"; echo success ;;
+    remove) next=$(mktemp -- "$file.new.XXXXXXXXXX") || exit 1; awk -v r="$rule" '$0 != r' "$file" >"$next"; mv "$next" "$file"; echo success ;;
 esac
 EOF
 
@@ -649,7 +649,8 @@ check "and the run says CHANGED" "yes" "$(says $'^CHANGED\t' "$OUT")"
 echo "== team: a description changed (Plan 00201 S-A4)"
 cp "$T/tuwunel.toml" "$SCRATCH/toml.before"
 cp "$DROPIN" "$SCRATCH/dropin.before"
-jq '. + {description: "Builds the example site"}' "$TF" >"$TF.new" && mv "$TF.new" "$TF"
+TF_NEXT=$(mktemp -- "$TF.new.XXXXXXXXXX")
+jq '. + {description: "Builds the example site"}' "$TF" >"$TF_NEXT" && mv "$TF_NEXT" "$TF"
 run team --team-file "$TF"
 check "a team file differing only in description is applied" "0" "$RC"
 check "  and the homeserver is not restarted" "0" "$(count '^systemctl (start|restart|stop)' "$(LOG)")"

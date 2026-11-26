@@ -129,8 +129,9 @@ list-clients)
         if [ "$linger" -gt 0 ]; then
             printf '%s\n' "$((linger - 1))" >"$TEST_STATE/linger"
         else
-            awk '$3 != "exiting"' "$TEST_STATE/clients/$target" >"$TEST_STATE/clients/$target.new"
-            mv "$TEST_STATE/clients/$target.new" "$TEST_STATE/clients/$target"
+            next=$(mktemp -- "$TEST_STATE/clients/$target.new.XXXXXXXXXX") || exit 1
+            awk '$3 != "exiting"' "$TEST_STATE/clients/$target" >"$next"
+            mv "$next" "$TEST_STATE/clients/$target"
         fi
     fi
     ;;
@@ -144,11 +145,13 @@ detach-client)
         echo "no current client" >&2
         exit 1
     fi
-    awk 'NF { print $1, $2, "exiting" }' "$TEST_STATE/clients/$target" >"$TEST_STATE/clients/$target.new"
-    mv "$TEST_STATE/clients/$target.new" "$TEST_STATE/clients/$target"
+    next=$(mktemp -- "$TEST_STATE/clients/$target.new.XXXXXXXXXX") || exit 1
+    awk 'NF { print $1, $2, "exiting" }' "$TEST_STATE/clients/$target" >"$next"
+    mv "$next" "$TEST_STATE/clients/$target"
     if [ -n "${TEST_TMUX_END_ON_DETACH:-}" ]; then
-        awk -v gone="$target" '$1 != gone' "$TEST_STATE/sessions" >"$TEST_STATE/sessions.new"
-        mv "$TEST_STATE/sessions.new" "$TEST_STATE/sessions"
+        next=$(mktemp -- "$TEST_STATE/sessions.new.XXXXXXXXXX") || exit 1
+        awk -v gone="$target" '$1 != gone' "$TEST_STATE/sessions" >"$next"
+        mv "$next" "$TEST_STATE/sessions"
     fi
     if [ -z "${TEST_TMUX_STICKY:-}" ] && [ "$(cat "$TEST_STATE/linger")" -eq 0 ]; then
         : >"$TEST_STATE/clients/$target"

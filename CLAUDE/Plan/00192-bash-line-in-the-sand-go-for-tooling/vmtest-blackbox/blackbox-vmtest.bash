@@ -63,8 +63,9 @@ case "$1" in
     list) cat "$STUB_STATE/domains" ;;
     domstate) cat "$STUB_STATE/domstate" ;;
     undefine)
-        grep -vFx -- "${@: -1}" "$STUB_STATE/domains" >"$STUB_STATE/domains.new"
-        mv "$STUB_STATE/domains.new" "$STUB_STATE/domains"
+        next=$(mktemp -- "$STUB_STATE/domains.new.XXXXXXXXXX") || exit 1
+        grep -vFx -- "${@: -1}" "$STUB_STATE/domains" >"$next"
+        mv "$next" "$STUB_STATE/domains"
         ;;
 esac
 exit 0
