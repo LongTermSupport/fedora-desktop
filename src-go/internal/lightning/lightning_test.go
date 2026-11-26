@@ -2,7 +2,10 @@ package lightning
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -10,7 +13,11 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/fstest"
+	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/lightning/watch"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/matrixclients"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -115,9 +122,9 @@ func list(entries ...string) string { return "[" + strings.Join(entries, ", ") +
 // TestL1TheArgumentsAreOneVerb holds that the command is check or apply and nothing else.
 func TestL1TheArgumentsAreOneVerb(t *testing.T) {
 	w := newWorld(t)
-	for _, args := range [][]string{nil, {"verify"}, {"apply", "check"}, {"--apply"}} {
+	for _, args := range [][]string{nil, {"verify"}, {"apply", "check"}, {"--apply"}, {"watch", "now"}} {
 		r := w.run(args, "[]")
-		if r.code != term.ExitUsage || r.out != "" || !strings.Contains(r.errOut, "usage: agent-bus-lightning check|apply") {
+		if r.code != term.ExitUsage || r.out != "" || !strings.Contains(r.errOut, "usage: agent-bus-lightning check|apply|watch") {
 			t.Errorf("%q: %+v", args, r)
 		}
 	}
@@ -134,6 +141,13 @@ func TestL2RootIsRefused(t *testing.T) {
 	}
 	if exists(w.root()) {
 		t.Fatal("root wrote the Lightning tree")
+	}
+	out.Reset()
+	errOut.Reset()
+	app = w.watchApp(&out, &errOut, newFakeWatch(t, fstest.MapFS{}, nil).env)
+	app.Euid = 0
+	if code := app.Run(); code != term.ExitConfig || out.Len() != 0 || !strings.Contains(errOut.String(), "not root") {
+		t.Fatalf("watch as root: exit %d stdout %q stderr %q", code, out.String(), errOut.String())
 	}
 }
 
@@ -404,7 +418,7 @@ func TestL16DiagnosticsAddTheTracesAndALogFile(t *testing.T) {
 	root := w.root()
 	plain := " SSL_CERT_DIR=" + root + "/teamchat-ca lightning-matrix\n"
 	traced := " SSL_CERT_DIR=" + root + "/teamchat-ca" +
-		" LIGHTNING_SCROLL_MEMORY_TRACE=1 LIGHTNING_SYNC_TRACE=1 QT_LOGGING_RULES=lightning.sync.trace.debug=true" +
+		" LIGHTNING_SCROLL_MEMORY_TRACE=1 LIGHTNING_SYNC_TRACE=100" +
 		" lightning-matrix --log-file " + root + "/teams/team-a/cache/lightning-diagnostic.log\n"
 	if r := w.apply(list(diagnosticTeam("team-a"))); r.code != term.ExitOK {
 		t.Fatalf("%+v", r)
@@ -716,6 +730,173 @@ func TestL15AnInstanceSaysWhetherItHoldsAnAccount(t *testing.T) {
 	w.write(w.account("file_team-a.agent-bus.internal"), "")
 	if _, err := HoldsAccount(w.home, "team-a", "@file:team-a.agent-bus.internal"); err == nil {
 		t.Fatal("a file where the account folder goes is not an answer")
+	}
+}
+
+// watchStart is the fake clock's first reading in the watch tests.
+var watchStart = time.Date(2026, 11, 25, 17, 0, 0, 0, time.UTC)
+
+// fakeWatch is a watch run's world: a clock that moves only when the loop waits, and a step run
+// at each wait. After the last step the next wait stops the run.
+type fakeWatch struct {
+	env    *WatchEnv
+	now    time.Time
+	steps  []func()
+	waits  []time.Duration
+	cancel context.CancelFunc
+}
+
+func newFakeWatch(t *testing.T, proc fs.FS, steps []func()) *fakeWatch {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	f := &fakeWatch{now: watchStart, steps: steps, cancel: cancel}
+	f.env = &WatchEnv{
+		Ctx: ctx, Proc: proc, Run: &execx.Fake{},
+		Now:   func() time.Time { return f.now },
+		After: f.after,
+	}
+	return f
+}
+
+func (f *fakeWatch) after(d time.Duration) <-chan time.Time {
+	f.waits = append(f.waits, d)
+	if len(f.steps) == 0 {
+		f.cancel()
+		return nil
+	}
+	f.now = f.now.Add(d)
+	step := f.steps[0]
+	f.steps = f.steps[1:]
+	step()
+	ready := make(chan time.Time, 1)
+	ready <- f.now
+	return ready
+}
+
+func (w *world) watchApp(stdout, stderr *bytes.Buffer, env *WatchEnv) App {
+	app := w.app([]string{"watch"}, "", stdout, stderr)
+	app.Stdin = unreadable{w.t}
+	app.Watch = env
+	return app
+}
+
+// unreadable is a stdin the watch verb must never read.
+type unreadable struct{ t *testing.T }
+
+func (u unreadable) Read([]byte) (int, error) {
+	u.t.Error("watch read stdin")
+	return 0, io.EOF
+}
+
+// brokenProc is a /proc that cannot be listed.
+type brokenProc struct{}
+
+func (brokenProc) Open(string) (fs.File, error) { return nil, syscall.EACCES }
+
+// lightningProcess puts a Lightning process of uid's into proc, with RSS rssKiB, logging to log.
+func lightningProcess(proc fstest.MapFS, uid int, log string, rssKiB int) {
+	proc["4242/comm"] = &fstest.MapFile{Data: []byte("lightning-matri\n")}
+	proc["4242/cmdline"] = &fstest.MapFile{Data: []byte("lightning-matrix\x00--log-file\x00" + log + "\x00")}
+	// Fields 3 to 22 after the name: the state, then utime (14), stime (15) and starttime (22).
+	stat := "4242 (lightning-matri) R 0 0 0 0 0 0 0 0 0 0 7 3 0 0 0 0 0 0 555\n"
+	proc["4242/stat"] = &fstest.MapFile{Data: []byte(stat)}
+	proc["4242/task/4242/stat"] = &fstest.MapFile{Data: []byte(stat)}
+	proc["4242/task/4242/wchan"] = &fstest.MapFile{Data: []byte("0")}
+	proc["4242/status"] = &fstest.MapFile{Data: []byte(fmt.Sprintf(
+		"Name:\tlightning-matri\nUid:\t%d\t%d\t%d\t%d\nVmRSS:\t%d kB\n", uid, uid, uid, uid, rssKiB))}
+}
+
+// silentLog is team-a's diagnostic log, last written at watchStart.
+func (w *world) silentLog() string {
+	w.t.Helper()
+	log := filepath.Join(w.team("team-a"), "cache", "lightning-diagnostic.log")
+	w.write(log, "scroll-memory rssKiB=1\n")
+	if err := os.Chtimes(log, watchStart, watchStart); err != nil {
+		w.t.Fatal(err)
+	}
+	return log
+}
+
+// growingWatch is a watch over one Lightning process of uid's that grows by watch.GrowthKiB at
+// the first wait, its log silent throughout, run for six ticks.
+func growingWatch(t *testing.T, uid int, log string) *fakeWatch {
+	t.Helper()
+	proc := fstest.MapFS{}
+	lightningProcess(proc, uid, log, 100_000)
+	grow := func() { lightningProcess(proc, uid, log, 100_000+watch.GrowthKiB) }
+	idle := func() {}
+	return newFakeWatch(t, proc, []func(){grow, idle, idle, idle, idle})
+}
+
+// TestL17WatchLooksEachIntervalUntilStopped holds that watch reads no stdin, writes nothing to
+// stdout, waits watch.Interval between ticks and ends with 0 when stopped.
+func TestL17WatchLooksEachIntervalUntilStopped(t *testing.T) {
+	w := newWorld(t)
+	var out, errOut bytes.Buffer
+	f := newFakeWatch(t, fstest.MapFS{}, []func(){func() {}, func() {}})
+	if code := w.watchApp(&out, &errOut, f.env).Run(); code != term.ExitOK || out.Len() != 0 {
+		t.Fatalf("exit %d stdout %q stderr %q", code, out.String(), errOut.String())
+	}
+	if !slices.Equal(f.waits, []time.Duration{watch.Interval, watch.Interval, watch.Interval}) {
+		t.Fatalf("waits %v, want three of %v", f.waits, watch.Interval)
+	}
+	if !strings.Contains(errOut.String(), filepath.Join(w.root(), "teams")) {
+		t.Fatalf("stderr %q names no folder watched", errOut.String())
+	}
+	if exists(w.root()) {
+		t.Fatal("watch wrote the Lightning tree")
+	}
+}
+
+// TestL17WatchRecordsAnInstanceUnderTheTeamsFolder holds that watch watches the instances of
+// this user's teams folder: a process whose log there fell silent while it grew is recorded
+// beside the log, and the log is never written.
+func TestL17WatchRecordsAnInstanceUnderTheTeamsFolder(t *testing.T) {
+	w := newWorld(t)
+	log := w.silentLog()
+	var out, errOut bytes.Buffer
+	if code := w.watchApp(&out, &errOut, growingWatch(t, euid, log).env).Run(); code != term.ExitOK {
+		t.Fatalf("exit %d stderr %q", code, errOut.String())
+	}
+	record := filepath.Join(w.team("team-a"), "cache", watch.RecordName)
+	if got := w.read(record); !strings.Contains(got, "pid=4242 start=555") {
+		t.Fatalf("record %q", got)
+	}
+	if !strings.Contains(errOut.String(), "recorded pid 4242") {
+		t.Fatalf("stderr %q", errOut.String())
+	}
+	if got := w.read(log); got != "scroll-memory rssKiB=1\n" {
+		t.Fatalf("Lightning's log was written: %q", got)
+	}
+}
+
+// TestL17WatchIgnoresAnotherUsersInstance holds that a process of another uid is not watched.
+func TestL17WatchIgnoresAnotherUsersInstance(t *testing.T) {
+	w := newWorld(t)
+	log := w.silentLog()
+	var out, errOut bytes.Buffer
+	if code := w.watchApp(&out, &errOut, growingWatch(t, euid+1, log).env).Run(); code != term.ExitOK {
+		t.Fatalf("exit %d stderr %q", code, errOut.String())
+	}
+	if exists(filepath.Join(w.team("team-a"), "cache", watch.RecordName)) {
+		t.Fatal("another user's instance was recorded")
+	}
+}
+
+// TestL17AFailedLookFails holds that a /proc that cannot be read ends watch with 1, for systemd
+// to restart it, and that watch without its environment fails.
+func TestL17AFailedLookFails(t *testing.T) {
+	w := newWorld(t)
+	var out, errOut bytes.Buffer
+	f := newFakeWatch(t, brokenProc{}, nil)
+	if code := w.watchApp(&out, &errOut, f.env).Run(); code != term.ExitFailure ||
+		!strings.Contains(errOut.String(), "agent-bus-lightning: watch: listing /proc") {
+		t.Fatalf("exit %d stderr %q", code, errOut.String())
+	}
+	errOut.Reset()
+	if code := w.watchApp(&out, &errOut, nil).Run(); code != term.ExitFailure {
+		t.Fatalf("no environment: exit %d stderr %q", code, errOut.String())
 	}
 }
 

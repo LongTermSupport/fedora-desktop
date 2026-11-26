@@ -243,3 +243,13 @@ passwordless_sudo_for_unattended_deploys: false
 #   - team: <team>
 #     base_url: https://<homeserver name>:<port>
 #     ca_file: /etc/teamchat/<team>-ca.pem
+#
+# Diagnostics for a lightning team's instance (Plan 00268): true launches it with a memory line
+# every 5 s and a line for each event slower than 100 ms, mirrored to
+# <team>/cache/lightning-diagnostic.log in its instance (capped at 64 MiB from Lightning 0.10.7),
+# and runs the user service agent-bus-lightning-watch, which records the instance's threads once
+# if that log falls silent while its memory climbs. Off by default; true only with client: lightning.
+#   - team: <team>
+#     base_url: http://<bus_ip>:<port>
+#     client: lightning
+#     lightning_diagnostics: true

@@ -10,36 +10,37 @@ most likely set off by one event or one action at 17:09Z.
 
 - systemd's CPU and peak accounting of the killed scope ([laptop-commands.md](laptop-commands.md)
   section 10).
-- **The busy team's room events, 17:00-17:15Z**: their shapes only, no bodies. Only the bus
-  host's homeserver admin can read them ([bus-host-commands.md](bus-host-commands.md)). The
-  trigger is most likely there.
+- **The busy team's room events, 17:00-17:15Z**: now read by the bus host's admin (shapes only).
+  The first candidates are a questions-room thread event at 17:06:16Z and its read-state
+  marking, or work deferred to the idle trim at 17:09:12Z (RESEARCH.md 8.3).
 
 **Lightning's debug modes.** Each is an environment variable or a flag. None logs message
 content or tokens. Detail and costs: RESEARCH.md 7.1.
 
-| Mode                              | Gives                                       | Cost                       |
-| --------------------------------- | ------------------------------------------- | -------------------------- |
-| `LIGHTNING_SCROLL_MEMORY_TRACE=1` | RSS and timeline rows, every 5 s            | about 2 MiB per 86,400 s   |
-| `LIGHTNING_SYNC_TRACE=1` + rule   | a line per event received (its id)          | one line per event         |
-| `LIGHTNING_SCROLL_TRACE=1`        | why each memory trim ran or not             | a line per check, 120 s+   |
-| `LIGHTNING_GUI_STALL_TRACE=1`     | GUI stalls, logged only when the stall ends | only on stalls             |
-| `--log-file <path>`               | a copy of the log                           | 32 MiB, then one `.1` file |
+| Mode                              | Gives                                        | Cost                       |
+| --------------------------------- | -------------------------------------------- | -------------------------- |
+| `LIGHTNING_SCROLL_MEMORY_TRACE=1` | RSS and timeline rows, every 5 s             | about 2 MiB per 86,400 s   |
+| `LIGHTNING_SYNC_TRACE=100`        | a line per event slower than 100 ms (its id) | only on slow events        |
+| `LIGHTNING_SCROLL_TRACE=1`        | why each memory trim ran or not              | a line per check, 120 s+   |
+| `LIGHTNING_GUI_STALL_TRACE=1`     | GUI stalls, logged only when the stall ends  | only on stalls             |
+| `--log-file <path>`               | a copy of the log                            | 32 MiB, then one `.1` file |
 
 Not for live use: `LIGHTNING_RUST_LOG` at debug level and Qt's garbage-collector statistics.
 Both are heavy. There is no heap dump.
 
 **Recommendation: yes, run the busy team's instance traced from now on.** Use memory tracing and
-a line per event, logged to a file:
+a line for each slow event, logged to a file:
 
 ```text
-LIGHTNING_SCROLL_MEMORY_TRACE=1 LIGHTNING_SYNC_TRACE=1
-QT_LOGGING_RULES=lightning.sync.trace.debug=true
+LIGHTNING_SCROLL_MEMORY_TRACE=1 LIGHTNING_SYNC_TRACE=100
 lightning-matrix --log-file <team>/cache/lightning-diagnostic.log
 ```
 
-- The last event id before the log goes silent names the trigger. The last memory line dates the
-  stall to within 5 s.
-- The log is capped at 64 MiB on 0.10.7 and later.
+- A line for every event is not possible on the Flathub build: it compiles that line out
+  (RESEARCH.md 7.5, read in source, not run). `=100` logs each event slower than 100 ms, the
+  likely mark of a trigger. The last memory line dates the stall to within 5 s.
+- The log is capped at 64 MiB on 0.10.7 and later only. Whether the laptop runs 0.10.7 is
+  unchecked: read it first (laptop-commands.md step 1).
 - Lightning's own stall tracer would have logged nothing on 25 Nov: it reports a stall only once
   it ends. So add a small watchdog outside Lightning (Task 1.7). When the log has been silent for
   60 s while memory climbs, it records the CPU of each thread and a backtrace of every thread,
@@ -52,4 +53,5 @@ lightning-matrix --log-file <team>/cache/lightning-diagnostic.log
   team's launcher. Both ccy-teams and the app grid launch through that launcher.
 - The key is also accepted by `helpers/agent_bus/element.py`.
 - Deployed by `play-agent-bus-element.yml` (tag `agent-bus-lightning`) through
-  `meta-deploy.bash`. It takes effect at the next launch.
+  `meta-deploy.bash`. It takes effect at the next launch. The same run starts the watchdog, the
+  user service `agent-bus-lightning-watch`, while any team has the key true.

@@ -12,7 +12,7 @@
 //
 // Expectations (each has a test whose name starts with its number):
 //
-//	L1 The arguments are exactly check or apply; anything else is a usage error (64).
+//	L1 The arguments are exactly check, apply or watch; anything else is a usage error (64).
 //	L2 Run as root, it refuses (78) before reading anything.
 //	L3 Stdin is a JSON array of objects, a repeated key refused, each entry checked as
 //	   helpers/agent_bus/element.py checks it: the keys team, base_url, server_name, ca_file,
@@ -50,16 +50,20 @@
 //	L15 HoldsAccount says whether a team's instance holds a person's account: the folder
 //	   Lightning keeps it in, named from the user ID as Lightning names it, is a directory.
 //	   ccy-teams asks it for a team that opens in Lightning (Plan 00254 Task 7.1's gap).
-//	L16 A team with lightning_diagnostics true launches with LIGHTNING_SCROLL_MEMORY_TRACE=1,
-//	   LIGHTNING_SYNC_TRACE=1 and QT_LOGGING_RULES=lightning.sync.trace.debug=true, and
-//	   lightning-matrix --log-file <team>/cache/lightning-diagnostic.log (Plan 00268 Task 1.4);
-//	   turning it on or off rewrites the launcher (L8), and either launcher is this command's
-//	   (L9). Lightning writes the log; this command never does.
-//	L17 watch is the diagnostics watchdog (internal/lightning/watch, Plan 00268 Task 1.7): it
-//	   takes no stdin, runs until stopped, and reads only /proc and the instances' diagnostic logs.
+//	L16 A team with lightning_diagnostics true launches with LIGHTNING_SCROLL_MEMORY_TRACE=1 and
+//	   LIGHTNING_SYNC_TRACE=100, and lightning-matrix --log-file
+//	   <team>/cache/lightning-diagnostic.log (Plan 00268 Task 1.4); turning it on or off rewrites
+//	   the launcher (L8), and either launcher is this command's (L9). Lightning writes the log;
+//	   this command never does.
+//	L17 watch is the diagnostics watchdog (internal/lightning/watch, Plan 00268 Task 1.7) over
+//	   the instances under this user's teams folder: it reads no stdin and writes nothing to
+//	   stdout, names the folder on stderr, looks once every watch.Interval until stopped (exit 0),
+//	   and ends with 1 on a look that fails, for systemd to restart it. It watches only this
+//	   user's processes, and reads only /proc and the diagnostic logs' modification times.
 package lightning
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -70,14 +74,17 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/lightning/watch"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/matrixclients"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 const (
-	usage  = "usage: agent-bus-lightning check|apply (the team list as JSON on stdin)"
+	usage  = "usage: agent-bus-lightning check|apply|watch (check and apply read the team list as JSON on stdin)"
 	prefix = "agent-bus-lightning: "
 
 	clientName = "Lightning" // the list's name for the client
@@ -102,12 +109,12 @@ var instanceDirs = []string{"data", "config", "cache"}
 const diagnosticLogName = "lightning-diagnostic.log"
 
 // diagnosticEnv is what a team with diagnostics on launches with (L16; Plan 00268 RESEARCH.md
-// 7.1): a memory line every 5 s, sync latency tracing, and its per-event category. None of them
-// logs message content, keys or tokens.
+// 7.1): a memory line every 5 s, and a line for each event that takes 100 ms or more from the
+// homeserver to the screen (the lowest threshold Lightning takes; the Flathub build compiles the
+// line for every event out). None of them logs message content, keys or tokens.
 var diagnosticEnv = []string{
 	"LIGHTNING_SCROLL_MEMORY_TRACE=1",
-	"LIGHTNING_SYNC_TRACE=1",
-	"QT_LOGGING_RULES=lightning.sync.trace.debug=true",
+	"LIGHTNING_SYNC_TRACE=100",
 }
 
 // launcherName is a launcher this command could have written; the group is its team.
@@ -130,6 +137,17 @@ type App struct {
 	// Clock times the wait for the team list on Stdin, given up on once nothing has arrived for
 	// stdinread.PipedGiveUp (issue 260); the real clock when nil.
 	Clock stdinread.Clock
+	// Watch is what the watch verb runs on (L17); without it the verb fails.
+	Watch *WatchEnv
+}
+
+// WatchEnv is the watch verb's world.
+type WatchEnv struct {
+	Ctx   context.Context // stopping it ends the watch, with 0
+	Proc  fs.FS           // /proc
+	Run   execx.Runner    // the backtrace tools
+	Now   func() time.Time
+	After func(time.Duration) <-chan time.Time
 }
 
 // refusal is a refused run (78), element.py's ElementError.
@@ -143,7 +161,7 @@ func isRefusal(err error) bool { return errors.As(err, new(refusal)) }
 
 // Run is the command; it returns the exit code.
 func (a App) Run() term.ExitCode {
-	if len(a.Args) != 1 || (a.Args[0] != "check" && a.Args[0] != "apply") {
+	if len(a.Args) != 1 || !slices.Contains([]string{"check", "apply", "watch"}, a.Args[0]) {
 		return a.fail(term.ExitUsage, usage)
 	}
 	if a.Euid == 0 {
@@ -156,6 +174,9 @@ func (a App) Run() term.ExitCode {
 	list, err := matrixclients.Load()
 	if err != nil {
 		return a.fail(term.ExitFailure, err.Error())
+	}
+	if a.Args[0] == "watch" {
+		return a.watch(list, home)
 	}
 	data, err := stdinread.Read(a.Stdin, stdinread.Options{
 		Prog: "agent-bus-lightning " + a.Args[0], Err: a.Stderr, GiveUpAfter: stdinread.PipedGiveUp, Clock: a.Clock,
@@ -188,6 +209,40 @@ func (a App) Run() term.ExitCode {
 		return a.report(applyErr)
 	}
 	return term.ExitOK
+}
+
+// watch looks at the instances under home's teams folder every watch.Interval until a.Watch.Ctx
+// stops (L17).
+func (a App) watch(list matrixclients.List, home string) term.ExitCode {
+	env := a.Watch
+	if env == nil {
+		return a.fail(term.ExitFailure, "watch: no watch environment was given")
+	}
+	client, err := lightningClient(list)
+	if err != nil {
+		return a.fail(term.ExitFailure, err.Error())
+	}
+	instances := filepath.Join(home, client.FlatpakDir(), teamsDir)
+	if err := writeAll(a.Stderr, prefix+"watching the instances in "+instances+"\n"); err != nil {
+		return term.ExitFailure
+	}
+	w := &watch.Watcher{
+		Proc: env.Proc, Run: env.Run, Err: a.Stderr, UID: a.Euid,
+		Instances: instances, LogName: diagnosticLogName,
+	}
+	for {
+		if err := w.Tick(env.Ctx, env.Now()); err != nil {
+			if env.Ctx.Err() != nil {
+				return term.ExitOK
+			}
+			return a.fail(term.ExitFailure, "watch: "+err.Error())
+		}
+		select {
+		case <-env.Ctx.Done():
+			return term.ExitOK
+		case <-env.After(watch.Interval):
+		}
+	}
 }
 
 // report is a refusal's 78, or any other error's 1.

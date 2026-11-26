@@ -139,6 +139,18 @@ playbooks/imports/play-teamchat.yml
 # a machine with teams but no name specific enough to block.
 playbooks/imports/play-git-hooks-security.yml
 
+# Plan 00268 Tasks 1.4, 1.7 (Lightning memory leak): rebuilds agent-bus-lightning and rewrites
+# the Lightning launchers. A lightning team whose agent_bus_element_teams entry has
+# lightning_diagnostics: true (set it first, in host_vars, for the busy team) is launched with a
+# memory line every 5 s and a line for each event slower than 100 ms, mirrored to
+# <team>/cache/lightning-diagnostic.log in its instance; it takes effect at that instance's next
+# launch (close it and open it again). The run also places and, while some team has the key
+# true, enables and starts the user service agent-bus-lightning-watch, which records the
+# instance's threads once, beside that log, if the log falls silent for 60 s while memory rises
+# 256 MiB; with no team on it is stopped and disabled. Before setting the key, check the
+# instance runs Lightning 0.10.7 or later (laptop-commands.md step 1): only 0.10.7 caps the log.
+playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-lightning
+
 # Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that
 # is running, the session units are present, not enabled and not linked in
 # multi-user.target.wants. A stopped container is reported offline and skipped. It then ASKS,

@@ -1,0 +1,18 @@
+[Unit]
+Description=Watch the agent teams' Lightning instances for a stalled GUI thread
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+# Plan 00268 Task 1.7. A Lightning instance launched with lightning_diagnostics on writes a
+# memory line to its diagnostic log every 5 s; when that log falls silent while the instance's
+# memory climbs, this records once, beside the log, each thread's CPU and a backtrace of every
+# thread. It only reads Lightning (/proc and the log's modification time) and never signals it.
+# play-agent-bus-element.yml enables it only while a team has lightning_diagnostics true.
+
+[Service]
+ExecStart=%h/.local/libexec/agent-bus-lightning watch
+# A look that fails ends the watch with 1; it starts again.
+Restart=on-failure
+RestartSec=30
+Nice=10
+
+[Install]
+WantedBy=default.target

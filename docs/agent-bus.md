@@ -79,7 +79,10 @@ launch does not start.
    names Lightning, `ccy-teams` opens the team's Lightning launcher in its own window, and
    setting it up writes the team's own Lightning instance instead of an Element profile. For
    one sidebar instead of two (a portrait window), untick *Show spaces rail* in Lightning's
-   settings. Who
+   settings. A lightning team's entry may also set `lightning_diagnostics: true`: its instance
+   then logs its memory and its slow events to `<team>/cache/lightning-diagnostic.log`, and the
+   user service `agent-bus-lightning-watch` records the instance's threads once if that log
+   falls silent while memory climbs (Plan 00268; the key is in `localhost.yml.dist`). Who
    has signed in is read from the team's homeserver either way. Why, and the alternatives weighed:
    [RESEARCH-one-element-window.md](../CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/RESEARCH-one-element-window.md).
 3. **Add ccy sessions.** `ccy --teams` with no value, in a checkout of a GitHub repository,
