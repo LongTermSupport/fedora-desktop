@@ -131,7 +131,7 @@ func (m *Manager) Host() host.Systemd { return hostUnits{m} }
 func (m *Manager) Health() health.Units { return healthUnits{m} }
 
 // Containers is the Manager as the boot unit's container start (Plan 00266 C.2): Start of an
-// instance of LXC's own lxc@.service and nothing else, so `lxc start-recorded` runs a container in
+// instance of LXC's own lxc@.service and nothing else, so `lxc boot` runs a container in
 // the host's mount namespace, never in its own unit's private one.
 func (m *Manager) Containers() ContainerUnits { return ContainerUnits{m} }
 

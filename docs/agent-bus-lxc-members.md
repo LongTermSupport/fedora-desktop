@@ -409,7 +409,8 @@ teamchat_lxc_members:
   file on the host; `teamchat-admin lxc stop --member` stops its session and forgets it, and so
   does a seat leaving its team (`lxc apply --phase absent`). Each play run adds every seat whose
   session is live to that record (`teamchat-admin lxc record-started`), so seats that ran before
-  the record existed come back too.
+  the record existed come back too. A live seat with no session unit (`service: false`) is not
+  added, since no boot could start it; the verb names it on stderr as `SKIPPED`.
   `teamchat-admin lxc reconcile [--container <name>]` starts each recorded seat whose container
   runs and whose session is not live, prints one line a seat (`STARTED`, `LIVE`, `STOPPED`,
   `REFUSED` with its cause), never starts a container, and exits non-zero only when a start was
