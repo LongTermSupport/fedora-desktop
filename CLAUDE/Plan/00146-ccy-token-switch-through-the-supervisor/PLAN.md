@@ -187,8 +187,11 @@ Open (each can be answered in a line; my recommendation follows each):
 - [ ] ⬜ **Task 2.4**: Automatic restart on the next declared token (decision 3): a session
   declares an ordered token set. When its token reaches its usage limit, the session is torn
   down and restarted on the next token in the set with headroom, resuming the same
-  conversation (`ccy --resume <id>`, with `--teams` for a seat, per Q67), at most once per
-  15 minutes plus jitter, and the switch is reported in the team room for a seat. General in
+  conversation (`ccy --resume <id>`, with `--teams` for a seat, per Q67). No human needs to
+  be present. The switch waits a fuzzy cooldown, about 480 s from when the limit is first
+  seen plus a random jitter, and is cancelled if the limit clears first (the owner, Q65,
+  restated 26 Nov 09:04Z via the coordinator). The switch is reported in the team room for a
+  seat. General in
   ccy on every machine that runs it, not only `ccy-teams`. ccy installs the timer itself, as
   an opt-in user unit (as `ccy-sessions` does for restore), so no play is needed on any
   machine. It covers host `cc` seats too, through the shared conversation record: a `cc`

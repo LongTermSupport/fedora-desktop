@@ -97,10 +97,12 @@ filled in as each cause is known.
   bus host, and seats an agent requests.
 - **Owner, 26 Nov (via the coordinator):** typing a seat number is "a dead UX" (they had been
   given `cc --teams 4@<team>`). Checked in the code at ccy 3.124.57 and 3.124.72: no number is
-  needed. A teamchat team named alone takes the checkout's one free seat of the launcher's kind,
-  adds one when there is none, and lists several with the lowest free as the default
-  (`chooser/teamchat.go` `teamchatSeat`). The help said only "a team alone asks the seat", so it
-  is reworded on v2-smoke for batch 23 (ccy 3.124.80; `docs/ccy.md` too). Not built, waiting
+  needed. A teamchat team named alone takes the checkout's only seat of the launcher's kind when
+  that one is free, adds one when there is none, and otherwise lists them with the lowest free
+  (or, all held, a new seat) as the default (`chooser/teamchat.go:92-114` `teamchatSeat`). The
+  help said only "a team alone asks the seat", so it is reworded on v2-smoke (ccy 3.124.80;
+  3.124.81 corrects its "one free seat is taken", which the batch 23 qa-reviewer found looser
+  than the code; `docs/ccy.md` too). Not built, waiting
   for the owner: a plain `cc` with no `--teams` joining the checkout's one team by itself.
 
 ## R6: a `ref` refusal names no cause
@@ -1346,10 +1348,14 @@ before the move to v2. Filled in as causes are found.
   - Nothing moves a running session to another token. Plan 00146 (switching through the
     supervisor) is Not Started.
   - A user unit `ccy-session-token-failover` seen on a dev machine is not in this repository.
-  - ⚠️ Plan 00146's decision 3 records an automatic restart on the next declared token, which
-    contradicts the owner's rule that switching is a hot swap the owner triggers.
-- **Severity:** medium. **Issue:** TBF. **State:** open; decision 3 to be settled before 00146
-  starts.
+  - Plan 00146's decision 3 records an automatic restart on the next declared token. That
+    matches the owner's rule (Q65, restated 26 Nov 09:04Z via the coordinator): a
+    usage-limited session moves to another permitted sign-in automatically, with no human
+    present, after a fuzzy cooldown (about 480 s from first seeing the limit, plus a random
+    jitter), and not if the limit clears first. An earlier line here called it a
+    contradiction of "a hot swap the owner triggers"; that wording was wrong at its source and
+    is withdrawn. 00146 Task 2.4 now carries this timing.
+- **Severity:** medium. **Issue:** TBF. **State:** open (Plan 00146 not started).
 
 ## R74: owner requirement — ccy as its own installable package
 

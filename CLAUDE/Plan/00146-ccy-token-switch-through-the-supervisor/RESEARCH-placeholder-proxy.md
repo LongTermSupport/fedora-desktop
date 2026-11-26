@@ -97,8 +97,9 @@ Three levels of help, in rising order:
 3. **Automatic**: the proxy switches to the next token with room, and retries the rejected request
    once.
 
-The plan's Non-Goals and decision 3 exclude automatic rotation on terms grounds, and that is
-still the owner's decision. claude-unlimited's ADR 0001 records how one project reasoned about
+When this was written, the plan's Non-Goals and decision 3 excluded automatic rotation on terms
+grounds. The owner has since decided (Q65, restated 26 Nov) that a usage-limited session moves
+to another permitted sign-in automatically, after a fuzzy cooldown; see PLAN.md Task 2.4. claude-unlimited's ADR 0001 records how one project reasoned about
 it. The other cost is the prompt cache: it does not carry across accounts, so the first turn after
 any switch re-reads the whole context at full price. Source: `usage-observability.md`, the
 usage-analysis takeaway 3.
