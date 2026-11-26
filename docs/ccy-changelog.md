@@ -25,7 +25,8 @@ Two version numbers move independently — see
   - a burst of agent messages waits a short coalesce window, and a person's messages a short
     settle, so one delivery carries them together (a halt ping still goes at once);
   - the teamchat skill says to answer several entries in one turn.
-- A stopped teamchat link that still holds its lock is reported busy, not down (R76).
+- A teamchat link that is running and holds its lock but does not answer in time is reported
+  busy, not down (R76).
 - `--help` corrects what 3.124.80 said a teamchat team named alone does. The launch takes the
   checkout's only seat without asking when that one seat is free, and adds a seat when there
   is none. Otherwise it asks: Enter takes the lowest free seat, or a new seat when every seat
