@@ -531,9 +531,19 @@ filled in as each cause is known.
   and of the running sessions (`conversation.ForgetTeam`; a link in its place is refused), and
   fails naming what it could not remove; ccy 3.124.69. Unchecked gap: a teamchat checkout whose
   session has ended and that never entered the seat-checkouts list keeps its records.
+- **(b) rewritten for U4's layout, on v2-smoke:** ccy-teams' Start a ccy session
+  (`Seats.StartCcy`) adds `--fresh` when `conversation.NeverUsed` says the seats were never used
+  in the checkout (ForSeats' no-session case: no seat record, no session that held them), and
+  starts nothing on a record it cannot read; Plan 00203's M3 and M4 acceptance launches (new
+  seats of teams the run creates) pass `--fresh`; docs/agent-bus.md and docs/ccy.md say a named
+  seat's first launch says `--fresh`; ccy 3.124.70. Not changed, on purpose: the next steps of
+  `declare.py` and `queries.go`, the chooser's two "name it" lines and Plan 00232's advice give a
+  team name or a bare `--teams`, whose picked never-used seat already starts fresh (#423,
+  `--given`); a `--fresh` there would drop a picked seat's recorded conversation.
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
-  open: (b) to rewrite; the branches stay until a human deletes them (after the
-  carry-over they are covered by behaviour, not by git history).
+  open: the owner's call on the old branch's lock on seat-record writes (4001e4789); the
+  branches stay until a human deletes them (after the carry-over they are covered by behaviour,
+  not by git history).
 
 ## R49: a worker's failed questions join was reported as "event not found"
 
