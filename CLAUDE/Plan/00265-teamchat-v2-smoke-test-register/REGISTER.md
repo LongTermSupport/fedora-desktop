@@ -1835,8 +1835,9 @@ before the move to v2. Filled in as causes are found.
 - **Fix:** PLAN Task 4.2, detector first.
   - Built, part one: the Go rule `project_seat_number_text` (blocking; red 35 on the tree, then
     green), every Go instance rewritten. `ccy --teams <team>` and `cc --teams <team>` take the
-    seat this checkout last worked in (`seatchoice.Pick` over the seat records), say it in
-    words, and ask only between two seats with a conversation, rows in words. Ways on, repairs
+    one free seat with a conversation here (`seatchoice.Pick` over the seat records; the
+    lowest free seat when none ever ran), say it in words, and ask between two seats with a
+    conversation, or when a seat is held, rows in words. Ways on, repairs
     and `seats conversation` name teams.
   - Built, part two: the gate `seat-number-text` over docs, embedded help and the launchers'
     messages (same shapes as the Go rule; red 47, then green), with the docs, help and launcher
