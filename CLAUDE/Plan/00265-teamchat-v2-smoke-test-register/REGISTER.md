@@ -1513,6 +1513,28 @@ before the move to v2. Filled in as causes are found.
   host and site, and `teamchat_site`; the guard's message no longer says to hand-edit the
   pinned list. Owed by the owner before the run: the existing hand-written pinned list is
   refused by pin, so its names move into `private_name_terms` and the file is deleted.
+- **The owner's setup is one script:** `r79-private-names.bash` (this folder), the R79 entry
+  of `meta-deploy.list`.
+  - It asks for each private name that is not a team name, with the echo off, until an empty
+    line.
+  - It imports the names of the hand-written pinned list, adds each one vault-encrypted to
+    `private_name_terms`, and checks the list by decrypting it again.
+  - Only then does it delete the hand-written file. It then runs the play and prints the
+    pinned count, never a name.
+  - The list edit is the lasting tool `scripts/vault-list.bash add VARIABLE [--import FILE]`
+    (Go, `src-go/internal/vaultlist`; V1-V6 in its package doc). It edits only the list's
+    block, encrypts through `./vault.bash encrypt`, and never shows a value.
+  - `vault.bash` is on the bash-limits ratchet and may not grow, so the list mode is Go. Its
+    host_vars handling is shared with setup-rclone as `internal/hostvars`.
+  - **Owner, once batch 23 is on F44: run `./CLAUDE/Plan/meta-deploy.bash`** (its R79 entry
+    is that script; it asks for the names at the terminal).
+  - **Which checkout it pins:** only the one it runs from. The play runs pin with
+    `chdir: root_dir` (ansible.cfg's directory), and the script reads and removes the stopgap of
+    its own checkout. A worker clone that cannot run plays (no vault file, no sudo tty) and is
+    not the checkout meta-deploy runs from never gets a pin this way. Whoever provisions that
+    clone runs `scripts/qa-private-names.bash pin` in it, with the inventory JSON on stdin (the
+    play's keys, `private_name_terms` decrypted), after removing its hand-written list. It also
+    sets `core.hooksPath` to `scripts/git-hooks`.
 - **Severity:** high (a public repository). **Issue:** TBF. **State:** fixed on v2-smoke;
   waits on the host running the play (meta-deploy) and on the redaction route.
 

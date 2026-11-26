@@ -109,8 +109,9 @@ passwordless_sudo_for_unattended_deploys: false
 # a client or project name that is not a team name. play-git-hooks-security.yml joins them to
 # the team, member and container names this file declares (and the teams a bus host serves)
 # in <git dir>/private-terms-pinned. Every item must be vault-encrypted, or the play refuses
-# it: make one with `./vault.bash encrypt private_name_term` and paste the `!vault |` block it
-# prints as one list item. This file is gitignored; the vault guards a forced add or a copy.
+# it: add names with `scripts/vault-list.bash add private_name_terms`, which asks for each with
+# the echo off and writes it here as one `!vault |` item. This file is gitignored; the vault
+# guards a forced add or a copy.
 # private_name_terms:
 #   - !vault |
 #       $ANSIBLE_VAULT;1.2;AES256;localhost

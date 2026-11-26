@@ -3,6 +3,8 @@ package setuprclone
 import (
 	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostvars"
 )
 
 const vaultOut = "rclone_config: !vault |\n" +
@@ -211,11 +213,11 @@ func TestEditColumnZeroComment(t *testing.T) {
 
 // E18: the read-back refuses an edit that changed or lost another top-level key.
 func TestVerifyOtherKeys(t *testing.T) {
-	before, err := topMapping([]byte(baseVars))
+	before, err := hostvars.TopMapping([]byte(baseVars))
 	if err != nil {
 		t.Fatal(err)
 	}
-	mounts := topValue(before, mountsKey)
+	mounts := hostvars.TopValue(before, mountsKey)
 	if err := verify(before, []byte(baseVars), "", mounts); err != nil {
 		t.Fatalf("the text as read refused: %v", err)
 	}
@@ -235,11 +237,11 @@ func TestVerifyOtherKeys(t *testing.T) {
 
 // E18: the vault text must be what ansible-vault printed: one rclone_config !vault value.
 func TestParseVault(t *testing.T) {
-	if _, err := parseVault([]byte(vaultOut), "rclone_config"); err != nil {
+	if _, err := hostvars.ParseVault([]byte(vaultOut), "rclone_config"); err != nil {
 		t.Errorf("good output refused: %v", err)
 	}
 	for _, bad := range []string{"", "rclone_config: plain\n", "other: !vault |\n  x\n", vaultOut + "extra: 1\n", "[\n"} {
-		if _, err := parseVault([]byte(bad), "rclone_config"); err == nil {
+		if _, err := hostvars.ParseVault([]byte(bad), "rclone_config"); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
 	}

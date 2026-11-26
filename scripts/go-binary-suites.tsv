@@ -41,6 +41,7 @@ gh-account-setup	scripts/test-run-bash-gh-scopes.bash
 wsi-lower-media-volume	qa-go
 pingbus-status-line	scripts/test-ccy-image-build-lock.bash
 setup-rclone	qa-go
+vault-list	qa-go
 reclaim	qa-go
 nord	qa-go
 nvidia-status	qa-go
