@@ -187,4 +187,8 @@ playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-li
 # ssh-agent-start, ssh-keys-rekey and ssh-with-agent.bash, fedora-desktop-self-update,
 # docker-in-lxc and the host-health kernel-change script. changed-plays is expected to pick up
 # the plays that deploy those.
+# Plan 00265 R72 and Plan 00266 C.2's review: it is also expected to pick up
+# play-basic-configs.yml for the Ctrl+R history includes. A HISTFILE you set yourself (e.g.
+# /dev/null) is no longer pointed back at the shared file at each prompt, and the shared-history
+# redirect now lives in history-record.bash. It takes effect in terminals opened after the run.
 changed-plays
