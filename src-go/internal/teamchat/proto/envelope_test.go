@@ -383,6 +383,8 @@ func TestEntrySlotsFullMatch(t *testing.T) {
 		"timeout verb":     {timeoutEntry, func(e *Entry) { e.Verb = "" }, "verb"},
 		"questions room":   {peerEntry, func(e *Entry) { e.Questions = true }, "room"},
 		"restored timeout": {timeoutEntry, func(e *Entry) { e.Restored = true }, "restored"},
+		"late timeout":     {timeoutEntry, func(e *Entry) { e.Late = true }, "late"},
+		"late notice":      {func() Entry { return noticeEntry(EventParked) }, func(e *Entry) { e.Late = true }, "late"},
 	}
 	for name, tc := range cases {
 		e := tc.base()

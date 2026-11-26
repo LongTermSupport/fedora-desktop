@@ -201,6 +201,9 @@ type Pending struct {
 	// milliseconds (Plan 00267 C3, C4): the next free slot of the receive window or the delivery
 	// budget it was over; absent for an item not held.
 	NotBefore int64 `json:"not_before,omitempty"`
+	// Late marks an item delivered past its age limit because it was judged on replay (Plan
+	// 00267 Task 3.2): its delivery says so. Never on a TIMEOUT or a NOTICE, which have none.
+	Late bool `json:"late,omitempty"`
 }
 
 // OfQuestionsSync is whether p is an item of the questions room's own sync, which a member that
@@ -821,6 +824,7 @@ func (s *Store) checkPending(c *rules, server string) {
 			validMS(p.SentMS) && validUser(p.From, server) && (p.Handed == nil || nonceRe.MatchString(*p.Handed)) && validVerb(p.Item, p.Verb), "a pending entry is not well formed")
 		c.need(validRelay(p, server), "a pending entry's relay account is not a coordinator's on a HUMAN item of questions")
 		c.need(validMS(p.NotBefore) && (p.NotBefore == 0 || !reserved(p.Item)), "a pending entry's slot is not a time, or is on a HUMAN or TIMEOUT item")
+		c.need(!p.Late || p.Item != records.KindTimeout && p.Item != records.KindNotice, "a pending TIMEOUT or NOTICE is marked late")
 		c.need(reminderPlaced(p.ID, p.Room, p.Item), reminderRule)
 		c.need(!seen[p.ID], "pending holds an id twice")
 		seen[p.ID] = true

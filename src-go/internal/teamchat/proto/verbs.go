@@ -141,6 +141,10 @@ func PingStale(originTs int64, verb string, nowMs int64, l Limits) bool {
 	return nowMs-originTs > s*1000
 }
 
+// WaitsOnSender is whether a verb means something only while its sender waits for the answer
+// (`halt`, `sync`): once its timeout has passed, the sender has given up (Plan 00267 Task 3.2).
+func WaitsOnSender(verb string) bool { return verb == VerbHalt || verb == "sync" }
+
 // TextStale is whether a human message or agent text is older than human_max_age_s (A 8.5).
 func TextStale(originTs, nowMs int64, l Limits) bool {
 	return nowMs-originTs > l.HumanMaxAgeS*1000

@@ -200,6 +200,9 @@ func TestMappingGoldens(t *testing.T) {
 	relayedRestored := human('h', sentMS, "Use port 8080.")
 	relayedRestored.Pending.Room, relayedRestored.Pending.Restored = proto.PurposeQuestions, true
 	relayedRestored.Pending.RelayedBy, relayedRestored.Pending.Q = "myrepo.1+desk.podman", 4
+	// Judged on replay past its age limit, an item is delivered marked late (Plan 00267 Task 3.2).
+	late := human('h', sentMS, "are you still on the refactor?")
+	late.Pending.Late = true
 	peerBody := peer('e', sentMS, "")
 	peerBody.Verdict.Content.Body = "the body, when the text is empty"
 	for name, item := range map[string]deliver.Item{
@@ -208,7 +211,7 @@ func TestMappingGoldens(t *testing.T) {
 		"ping-check": check, "notice-left": notice('n', sentMS), "notice-added": added, "notice-moved": moved,
 		"carried-ping": carriedPing, "carried-text": carriedText, "timeout": timeout('t'), "timeout-ref": withRef,
 		"timeout-reminder": reminder, "restored": restored, "human-relayed": relayed,
-		"human-relayed-restored": relayedRestored,
+		"human-relayed-restored": relayedRestored, "late": late,
 	} {
 		t.Run(name, func(t *testing.T) {
 			b := build(t, []deliver.Item{item}, deliver.Facts{})

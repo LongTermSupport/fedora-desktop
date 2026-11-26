@@ -294,7 +294,7 @@ func fullStore(t *testing.T) Store {
 		p := Pending{ID: eventID(i) + "~" + longLocal, Room: proto.PurposeQuestions, Item: records.KindTimeout, SentMS: farMS, From: longID, Handed: new("0badf00d")}
 		switch {
 		case i < capPending-pendingReserve:
-			p.ID, p.Item, p.Verb = eventID(i), records.KindPing, new(proto.VerbBlocked)
+			p.ID, p.Item, p.Verb, p.NotBefore, p.Late = eventID(i), records.KindPing, new(proto.VerbBlocked), farMS, true
 		case i%2 == 0:
 			p.ID, p.Item, p.RelayedBy, p.Q = eventID(i), records.KindHuman, longLocal, proto.MaxQuestionN
 		}
@@ -776,6 +776,32 @@ func TestAHeldItemsSlotIsKeptAndChecked(t *testing.T) {
 		"on a TIMEOUT": func(s *Store) { s.Pending[1].NotBefore = 60_012 },
 		"past a time":  func(s *Store) { s.Pending[2].NotBefore = proto.MaxSentMs + 1 },
 		"negative":     func(s *Store) { s.Pending[2].NotBefore = -1 },
+	} {
+		s := sampleStore(t)
+		edit(&s)
+		if _, err := s.encode(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: encode = %v, want ErrInvalid", name, err)
+		}
+	}
+}
+
+// Plan 00267 Task 3.2: an item delivered late on replay keeps its mark through a write; a
+// TIMEOUT or a NOTICE, which have no age limit, is never late.
+func TestALateItemsMarkIsKeptAndChecked(t *testing.T) {
+	s := sampleStore(t)
+	s.Pending[0].Late, s.Pending[2].Late = true, true
+	data, err := s.encode()
+	check(t, err)
+	var back Store
+	check(t, json.Unmarshal(data, &back))
+	if !back.Pending[0].Late || !back.Pending[2].Late || back.Pending[1].Late {
+		t.Fatalf("the marks after a write: %+v", back.Pending)
+	}
+	for name, edit := range map[string]func(*Store){
+		"on a TIMEOUT": func(s *Store) { s.Pending[1].Late = true },
+		"on a NOTICE": func(s *Store) {
+			s.Pending[2].Item, s.Pending[2].Verb, s.Pending[2].Late = records.KindNotice, nil, true
+		},
 	} {
 		s := sampleStore(t)
 		edit(&s)

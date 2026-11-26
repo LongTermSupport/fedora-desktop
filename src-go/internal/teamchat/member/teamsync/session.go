@@ -868,9 +868,11 @@ func (s *sess) judgeRoom(ctx context.Context, j *judged, rj roomJudge) (roomJudg
 		return roomJudged{}, err
 	}
 	lk := &memLookup{view: view, resolved: resolved, judged: map[string]bool{}}
+	// A resume's answer (replayed set) is the history a starting link reads: staleness never
+	// drops an addressed event there (Plan 00267 Task 3.2).
 	judge := proto.Judge{
 		Server: s.a.Server, Self: s.a.Self, RoomID: rj.room, Purpose: rj.purpose,
-		Roster: s.roster, NowMs: j.now, Lookup: lk, Flood: &j.flood,
+		Roster: s.roster, NowMs: j.now, Lookup: lk, Flood: &j.flood, Replay: rj.replayed != nil,
 	}
 	out := roomJudged{evs: evs, lk: lk, floor: rj.floor, vs: make([]proto.Verdict, 0, len(evs)), judge: judge}
 	for _, e := range evs {
@@ -911,7 +913,7 @@ func (s *sess) take(j *judged, v proto.Verdict, id string, restored func(int64) 
 	case proto.Deliver:
 		p := state.Pending{
 			ID: v.Event.ID, Room: room, Item: itemKind(v.Kind), SentMS: v.Event.OriginTs,
-			From: v.Event.Sender, Restored: restored != nil && restored(v.Event.OriginTs),
+			From: v.Event.Sender, Restored: restored != nil && restored(v.Event.OriginTs), Late: v.Late,
 		}
 		// Past the receive window or the delivery budget the item is held, never dropped (Plan
 		// 00267 C4): its receive slot is reserved first, then its budget slot.

@@ -131,6 +131,23 @@ func TestAGoodbyeMarksRestored(t *testing.T) {
 	}
 }
 
+// Plan 00267 Task 3.2 (row 20): a mention older than human_max_age_s, read when the session
+// starts, is delivered marked late, never dropped `stale`; one inside the limit is not marked.
+func TestAStaleMentionReadAtTheStartIsDeliveredLate(t *testing.T) {
+	w := newWorld(t)
+	old := w.later("an old request")
+	w.clk.StepWall((w.roster.Limits.HumanMaxAgeS + 1) * 1000)
+	fresh := w.later("a new one")
+	w.start()
+	b := w.batch()
+	if got := itemIDs(b); len(got) != 2 || got[0] != old || got[1] != fresh {
+		t.Fatalf("items %v, dropped %v; log %s", got, b.Counts.DroppedBy, w.log.String())
+	}
+	if !b.Items[0].Pending.Late || b.Items[1].Pending.Late || len(b.Bounces) != 0 {
+		t.Errorf("late = %v, %v; bounces %+v", b.Items[0].Pending.Late, b.Items[1].Pending.Late, b.Bounces)
+	}
+}
+
 // posts sends n human messages addressed to no one, after one mention of me, and gives the
 // mention's id.
 func (w *world) posts(n int) string {

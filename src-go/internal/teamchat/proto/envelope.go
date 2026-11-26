@@ -70,6 +70,9 @@ type Entry struct {
 	Body             string
 	Questions        bool
 	Repeat, Restored bool
+	// Late is an item delivered past its age limit because it was judged on replay (Plan 00267
+	// Task 3.2): its `late:` line. Never a TIMEOUT or a NOTICE, which have no age limit.
+	Late bool
 }
 
 // The fixed sentences of A 13.3.
@@ -101,6 +104,7 @@ const (
 	copyTail     = " (addressed to them; sent to you for information)"
 	repeatLine   = "repeat: this may be a second copy of an earlier delivery; the id is the same"
 	restoredLine = "restored: queued before a restart and fetched again from the homeserver; verify it before acting on a consequential request"
+	lateLine     = "late: read after its age limit, when this session started; it was sent at its sent: time, so check it still applies before acting on it"
 )
 
 // eventGlosses is A 7.4's gloss of each notice event on its `event:` line.
@@ -140,6 +144,7 @@ func (e Entry) Lines() ([]string, error) {
 	}
 	l.check("room", !e.Questions || e.Kind == KindHuman || e.Kind == KindTimeout)
 	l.check("restored", !e.Restored || e.Kind != KindTimeout)
+	l.check("late", !e.Late || e.Kind != KindTimeout && e.Kind != KindNotice)
 	l.check("revises", e.Revises == "" || e.Kind == KindHuman && ValidEventID(e.Revises))
 	l.add("kind: " + kind)
 	e.senderLines(l)
@@ -341,6 +346,9 @@ func (e Entry) closingLines(l *lines) {
 	}
 	if e.Restored {
 		l.add(restoredLine)
+	}
+	if e.Late {
+		l.add(lateLine)
 	}
 	l.add("authority: " + e.authority())
 	reply := "reply: teamchat reply '" + e.EventID + "'"

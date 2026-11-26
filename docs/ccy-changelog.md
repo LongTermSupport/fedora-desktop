@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.105 — container 2.84.104
+
+- The image's teamchat no longer drops an old message it reads when its session starts
+  (Plan 00267 Task 3.2). A message older than its age limit, read then or when a queued item is
+  fetched again, is delivered with a `late:` line, and its `sent:` line gives when it was sent.
+  A `halt` or `sync` ping whose sender has stopped waiting is bounced as `expired` instead, so
+  its sender is told. A stale message read while the session runs is still bounced `stale`.
+
 ## 3.124.104 — container 2.84.103
 
 - No change to what the image's teamchat does. Its owed receipt tests (Plan 00267 Task 2.3) now

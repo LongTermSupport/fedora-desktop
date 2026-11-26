@@ -171,6 +171,9 @@
 # waits for the window's next free slot, then is delivered. Past pending's agent share it is
 # bounced `rate`, with a receipt to its sender. Sessions started after the rebuild get it.
 # Container 2.84.103 (ccy 3.124.104) is the same single rebuild: only teamchat's tests changed.
+# Plan 00267 Task 3.2 (container 2.84.104, ccy 3.124.105): the same rebuild delivers an old
+# message read when a session starts with a late: line, instead of dropping it; an expired halt
+# or sync ping is bounced `expired` to its sender.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC

@@ -258,6 +258,20 @@ func TestSD5r5RefetchRunsTheCheck(t *testing.T) {
 	}
 }
 
+// Plan 00267 Task 3.2: Refetch judges an item pending already took, read again, so staleness
+// never drops it: past its age limit it is delivered marked late.
+func TestARefetchedItemPastItsAgeIsDeliveredLate(t *testing.T) {
+	w := newWorld(t)
+	tm := w.newTeam(withForge(newFakeForge(nil)))
+	id := w.done(peer, ref(1))
+	w.clk.StepWall((w.roster.Limits.HumanMaxAgeS + 1) * 1000)
+	v, err := tm.Refetch(t.Context(), proto.PurposeMain, id)
+	check(t, err)
+	if v.Outcome != proto.Deliver || !v.Late {
+		t.Errorf("refetched past its age: %+v", v)
+	}
+}
+
 // A check cut short by the team's own end drops nothing: the error is the context's.
 func TestAnEndedCheckDropsNothing(t *testing.T) {
 	w := newWorld(t)

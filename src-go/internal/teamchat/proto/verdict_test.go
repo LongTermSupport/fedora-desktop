@@ -353,6 +353,41 @@ func TestVerdictAgent(t *testing.T) {
 	})
 }
 
+// Plan 00267 Task 3.2 (rows 20, 38): staleness never drops an addressed item judged on replay.
+// It is delivered marked late, except a verb that means something only while its sender waits
+// (halt, sync), whose sender has given up: that bounces `expired`. Off replay, stale stays a drop.
+func TestVerdictStaleOnReplay(t *testing.T) {
+	const old = 86_400_001
+	cases := map[string]struct {
+		self, ev string
+		replay   bool
+		outcome  Outcome
+		reason   string
+		late     bool
+	}{
+		"human":        {workerID, event(aliceID, old, humanContent(mention(workerID))), true, Deliver, "", true},
+		"review":       {coordID, event(workerID, old, pingContent("review", []string{coordID}, commitRef, "")), true, Deliver, "", true},
+		"text":         {coordID, event(workerID, old, textContent([]string{coordID}, "")), true, Deliver, "", true},
+		"halt":         {workerID, event(coordID, old, pingContent(VerbHalt, []string{workerID}, "", "")), true, Drop, ReasonExpired, false},
+		"sync":         {workerID, event(coordID, old, pingContent("sync", []string{workerID}, commitRef, "")), true, Drop, ReasonExpired, false},
+		"fresh review": {coordID, event(workerID, 0, pingContent("review", []string{coordID}, commitRef, "")), true, Deliver, "", false},
+		"fresh halt":   {workerID, event(coordID, 0, pingContent(VerbHalt, []string{workerID}, "", "")), true, Deliver, "", false},
+		"live human":   {workerID, event(aliceID, old, humanContent(mention(workerID))), false, Drop, ReasonStale, false},
+		"live halt":    {workerID, event(coordID, old, pingContent(VerbHalt, []string{workerID}, "", "")), false, Drop, ReasonStale, false},
+	}
+	for name, tc := range cases {
+		j := judge(t, tc.self, PurposeMain)
+		j.Replay = tc.replay
+		v := j.Judge(mustParse(t, tc.ev))
+		if v.Outcome != tc.outcome || v.Reason != tc.reason || v.Late != tc.late {
+			t.Errorf("%s: %v %q late %t, want %v %q late %t", name, v.Outcome, v.Reason, v.Late, tc.outcome, tc.reason, tc.late)
+		}
+		if reason, owed := j.Bounce(v); tc.reason == ReasonExpired && (!owed || reason != ReasonExpired) {
+			t.Errorf("%s: bounce %q %t, want expired", name, reason, owed)
+		}
+	}
+}
+
 func TestVerdictPingForgeCheck(t *testing.T) {
 	v := judge(t, coordID, PurposeMain).Judge(mustParse(t, event(workerID, 0, pingContent("review", []string{coordID}, commitRef, ""))))
 	if v.Forge == nil || v.Forge.Class != RefListed || v.Forge.Ref.Text != commitRef || len(v.Forge.Branches) != 1 || v.Forge.Trust() != TrustTrusted {

@@ -481,9 +481,11 @@ func (t *Team) Refetch(ctx context.Context, room, id string) (proto.Verdict, err
 		return proto.Verdict{}, err
 	}
 	flood := proto.Window{Times: map[string][]int64{}}
+	// An item pending took already, read again: staleness never drops it (Plan 00267 Task 3.2).
 	judge := proto.Judge{
 		Server: s.a.Server, Self: s.a.Self, RoomID: roomID, Purpose: room, Roster: s.roster,
 		NowMs: t.cfg.Clock.WallMS(), Lookup: &memLookup{view: view, resolved: resolved, judged: map[string]bool{}, skip: id}, Flood: &flood,
+		Replay: true,
 	}
 	switch room {
 	case proto.PurposeMain:

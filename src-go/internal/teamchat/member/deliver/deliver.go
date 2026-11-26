@@ -261,7 +261,7 @@ func ask(from Namer, userID string) sender {
 func entry(t paths.TeamID, self string, it Item, from Namer) (proto.Entry, bool) {
 	p := it.Pending
 	e := proto.Entry{
-		Team: t.String(), Handle: self, EventID: p.ID, SentMs: p.SentMS, Repeat: p.Repeat, Restored: p.Restored,
+		Team: t.String(), Handle: self, EventID: p.ID, SentMs: p.SentMS, Repeat: p.Repeat, Restored: p.Restored, Late: p.Late,
 		Questions: p.Room == proto.PurposeQuestions, Question: it.Question,
 	}
 	s := ask(from, p.From)

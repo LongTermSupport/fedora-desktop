@@ -167,6 +167,9 @@ type Verdict struct {
 	// NotBefore is when a delivered agent event may be shown, in wall milliseconds: NowMs within
 	// the receive window, the window's next free slot past it (Plan 00267 C4).
 	NotBefore int64
+	// Late marks an addressed item delivered past its age limit because it was judged on replay
+	// (Plan 00267 Task 3.2): staleness never drops it there, and its `late:` line says so.
+	Late bool
 }
 
 // Relayed is the relay's account of the human post it named: the coordinator who relayed it and
@@ -177,13 +180,16 @@ type Relayed struct {
 }
 
 // Judge judges the events of one room for one member against the roster as it stands now
-// (A 6.5). Flood is the member's receive window (A 11.1), which a delivery enters.
+// (A 6.5). Flood is the member's receive window (A 11.1), which a delivery enters. Replay is
+// set for an event judged on replay, the history a link reads again when its session starts:
+// staleness never drops an addressed one (Plan 00267 Task 3.2).
 type Judge struct {
 	Server, Self, RoomID, Purpose string
 	Roster                        Roster
 	NowMs                         int64
 	Lookup                        Lookup
 	Flood                         *Window
+	Replay                        bool
 }
 
 func ignore(v Verdict, reason string) Verdict {
@@ -387,7 +393,10 @@ func (j Judge) human(v Verdict, main bool) Verdict {
 	case main && !j.humanAddressed(h, original):
 		return ignore(v, IgnoreNotAddressed)
 	case main && TextStale(v.Event.OriginTs, j.NowMs, j.Roster.Limits):
-		return drop(v, ReasonStale)
+		if !j.Replay {
+			return drop(v, ReasonStale)
+		}
+		v.Late = true
 	}
 	// A team human is not flood-limited (A 11.1): a human's words are never dropped for rate. A
 	// post past the limit is delivered and marked, for the link to count and log.
@@ -492,11 +501,17 @@ func (j Judge) agent(v Verdict) Verdict {
 		// A relay (A 10.6) is judged by its relay check, not by the window or its age: what it
 		// delivers is a team human's post, fetched and verified, which a member takes once.
 		// Dropped here, a relay is lost, as nothing sends it again.
-	case j.stale(v):
+	case j.stale(v) && !j.Replay:
 		return drop(v, ReasonStale)
+	case j.stale(v) && c.Key == KeyPing && WaitsOnSender(c.Ping.Verb):
+		// Its sender has given up waiting, so the ping means nothing now: it is bounced, so the
+		// sender is told, never shown late (Plan 00267 Task 3.2).
+		return drop(v, ReasonExpired)
 	default:
-		// Past the receive window an agent's event is held to the window's next free slot, never
-		// dropped (Plan 00267 C4).
+		// Judged on replay, a stale item is delivered marked late (Plan 00267 Task 3.2). Past the
+		// receive window an agent's event is held to the window's next free slot, never dropped
+		// (Plan 00267 C4).
+		v.Late = j.stale(v)
 		v.NotBefore = j.Flood.Reserve(v.Event.Sender, j.Roster.Limits.RecvPerSenderMinute, ReceiveWindowMs, j.NowMs)
 	}
 	if isAnswer {

@@ -100,9 +100,14 @@ file and line.
   drop ledger and owed receipts of Phase 2 (`TestAHeldItemPastTheAgentShareBouncesRate`). No
   item is held back now, so the `held back:` line (A 11.4) is never written; Phase 5 decides its
   text with the `held(rate)`/`held(budget)` receipts of Phase 4.
-- [ ] ⬜ **Task 3.2**: A transient forge failure retries to a deadline. A stale item on replay is
+- [ ] 🔄 **Task 3.2**: A transient forge failure retries to a deadline. A stale item on replay is
   delivered marked late with its send time; a waiting-only verb whose sender gave up bounces
-  `expired`.
+  `expired`. Built, the replay half: `proto.Judge.Replay`, set for a resume's answer and for
+  `Refetch`, delivers a stale item with `Verdict.Late` and `Pending.late`, rendered as a `late:`
+  line (`TestVerdictStaleOnReplay`, `TestAStaleMentionReadAtTheStartIsDeliveredLate`,
+  `TestARefetchedItemPastItsAgeIsDeliveredLate`, golden `late.txt`); a stale `halt` or `sync`
+  (`proto.WaitsOnSender`) there is dropped and bounced `expired`. Off replay, stale is still a
+  bounced drop. The forge retry is not built yet; its design is in HANDOFF-phase3.md.
 
 ### Phase 4: receipts at each point (C2)
 
