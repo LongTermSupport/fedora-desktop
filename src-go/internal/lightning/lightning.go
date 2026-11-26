@@ -15,11 +15,12 @@
 //	L1 The arguments are exactly check or apply; anything else is a usage error (64).
 //	L2 Run as root, it refuses (78) before reading anything.
 //	L3 Stdin is a JSON array of objects, a repeated key refused, each entry checked as
-//	   helpers/agent_bus/element.py checks it: the keys team, base_url, server_name, ca_file and
-//	   client only; team and base_url required; team in pingbus's team grammar; base_url
-//	   https://<host>[:port], or http:// to an IP literal; server_name, by default
-//	   <team>.agent-bus.internal, a lower-case DNS name ending in .internal; ca_file only for an
-//	   https team, an absolute plain path; client element (the default) or lightning; a team
+//	   helpers/agent_bus/element.py checks it: the keys team, base_url, server_name, ca_file,
+//	   client and lightning_diagnostics only; team and base_url required; team in pingbus's team
+//	   grammar; base_url https://<host>[:port], or http:// to an IP literal; server_name, by
+//	   default <team>.agent-bus.internal, a lower-case DNS name ending in .internal; ca_file only
+//	   for an https team, an absolute plain path; client element (the default) or lightning;
+//	   lightning_diagnostics true or false (the default), true only for a lightning team; a team
 //	   listed once. A refusal (78) names the entry or team and the key, never the value.
 //	L4 The user may hold no pingbus bundles: ~/.config/pingbus there in any form, a dangling
 //	   link included, is a refusal (78), with element.py check_user's one exception, a directory
@@ -49,6 +50,13 @@
 //	L15 HoldsAccount says whether a team's instance holds a person's account: the folder
 //	   Lightning keeps it in, named from the user ID as Lightning names it, is a directory.
 //	   ccy-teams asks it for a team that opens in Lightning (Plan 00254 Task 7.1's gap).
+//	L16 A team with lightning_diagnostics true launches with LIGHTNING_SCROLL_MEMORY_TRACE=1,
+//	   LIGHTNING_SYNC_TRACE=1 and QT_LOGGING_RULES=lightning.sync.trace.debug=true, and
+//	   lightning-matrix --log-file <team>/cache/lightning-diagnostic.log (Plan 00268 Task 1.4);
+//	   turning it on or off rewrites the launcher (L8), and either launcher is this command's
+//	   (L9). Lightning writes the log; this command never does.
+//	L17 watch is the diagnostics watchdog (internal/lightning/watch, Plan 00268 Task 1.7): it
+//	   takes no stdin, runs until stopped, and reads only /proc and the instances' diagnostic logs.
 package lightning
 
 import (
@@ -87,6 +95,20 @@ const (
 
 // instanceDirs are the folders of each team's instance, in the order the launcher names them.
 var instanceDirs = []string{"data", "config", "cache"}
+
+// diagnosticLogName is the file, in an instance's cache folder, Lightning mirrors its log to
+// with diagnostics on (L16). Lightning caps it, rolling once to <name>.1 at 32 MiB (Plan 00268
+// RESEARCH.md 7.1 names the releases that do).
+const diagnosticLogName = "lightning-diagnostic.log"
+
+// diagnosticEnv is what a team with diagnostics on launches with (L16; Plan 00268 RESEARCH.md
+// 7.1): a memory line every 5 s, sync latency tracing, and its per-event category. None of them
+// logs message content, keys or tokens.
+var diagnosticEnv = []string{
+	"LIGHTNING_SCROLL_MEMORY_TRACE=1",
+	"LIGHTNING_SYNC_TRACE=1",
+	"QT_LOGGING_RULES=lightning.sync.trace.debug=true",
+}
 
 // launcherName is a launcher this command could have written; the group is its team.
 var launcherName = regexp.MustCompile(`^agent-bus-(.+)-lightning\.desktop$`)
@@ -293,24 +315,38 @@ func HoldsAccount(home, team, userID string) (bool, error) {
 	return true, nil
 }
 
-// execLine is the launcher's Exec line for a team, every path absolute (flatpak expands none).
-func (t tree) execLine(team string) string {
+// execLine is the launcher's Exec line for a team, every path absolute (flatpak expands none);
+// with diagnostics, the traces and the log file of L16.
+func (t tree) execLine(team string, diagnostics bool) string {
 	dir := t.team(team)
-	words := make([]string, 0, 4+len(instanceDirs)+3)
+	words := make([]string, 0, 4+len(instanceDirs)+2+len(diagnosticEnv)+3)
 	words = append(words, "Exec=flatpak", "run", "--command=env", t.appID)
 	for _, name := range instanceDirs {
 		words = append(words, "XDG_"+strings.ToUpper(name)+"_HOME="+filepath.Join(dir, name))
 	}
-	words = append(words, "SSL_CERT_FILE="+runtimeCA, "SSL_CERT_DIR="+filepath.Join(t.root, caDir), command)
+	words = append(words, "SSL_CERT_FILE="+runtimeCA, "SSL_CERT_DIR="+filepath.Join(t.root, caDir))
+	if diagnostics {
+		words = append(words, diagnosticEnv...)
+	}
+	words = append(words, command)
+	if diagnostics {
+		words = append(words, "--log-file", DiagnosticLog(dir))
+	}
 	return strings.Join(words, " ") + "\n"
 }
 
-func (t tree) launcherText(team string) string {
+// DiagnosticLog is the log file a team's instance writes with diagnostics on (L16), in the
+// instance's own cache folder; the watchdog (internal/lightning/watch) watches it.
+func DiagnosticLog(teamDir string) string {
+	return filepath.Join(teamDir, "cache", diagnosticLogName)
+}
+
+func (t tree) launcherText(e entry) string {
 	return "[Desktop Entry]\n" +
 		"Type=Application\n" +
-		"Name=" + team + " team (Lightning)\n" +
-		"Comment=Watch and command the " + team + " agent team\n" +
-		t.execLine(team) +
+		"Name=" + e.team + " team (Lightning)\n" +
+		"Comment=Watch and command the " + e.team + " agent team\n" +
+		t.execLine(e.team, e.diagnostics) +
 		"Icon=" + t.appID + "\n" +
 		"Terminal=false\n" +
 		"Categories=Network;InstantMessaging;\n"
@@ -362,7 +398,7 @@ func (t tree) write(w *writer, e entry) error {
 		func() error { return w.dir(filepath.Dir(settings)) },
 		func() error { return w.fileIfAbsent(settings, "[homeserver]\nurl="+e.baseURL+"\n", settingsMode) },
 		func() error { return w.parent(filepath.Dir(launcher)) },
-		func() error { return w.file(launcher, t.launcherText(e.team), launcherMode) },
+		func() error { return w.file(launcher, t.launcherText(e), launcherMode) },
 	)
 	for _, step := range steps {
 		if err := step(); err != nil {
@@ -392,7 +428,9 @@ func (t tree) prune(w *writer, mine []string) error {
 		if err != nil {
 			return fmt.Errorf("reading %s: %w", path, err)
 		}
-		if !strings.Contains(string(data), t.execLine(m[1])) {
+		ours := strings.Contains(string(data), t.execLine(m[1], false)) ||
+			strings.Contains(string(data), t.execLine(m[1], true))
+		if !ours {
 			continue
 		}
 		if err := os.Remove(path); err != nil {

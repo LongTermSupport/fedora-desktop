@@ -16,8 +16,11 @@ const (
 	clientLightning = "lightning"
 )
 
-// entry is one validated team of the list.
-type entry struct{ team, baseURL, client string }
+// entry is one validated team of the list; diagnostics is its lightning_diagnostics (L16).
+type entry struct {
+	team, baseURL, client string
+	diagnostics           bool
+}
 
 // The list's grammar, element.py's and the pingbus rules it calls: protocol.TEAM_NAME_PATTERN,
 // teamfile.DNS_LABEL_PATTERN and SERVER_NAME_TLD. A team with no server_name has the default,
@@ -35,15 +38,16 @@ var (
 
 // The entry's keys (element.py PROFILE_KEYS).
 const (
-	keyBaseURL    = "base_url"
-	keyCAFile     = "ca_file"
-	keyClient     = "client"
-	keyServerName = "server_name"
-	keyTeam       = "team"
+	keyBaseURL     = "base_url"
+	keyCAFile      = "ca_file"
+	keyClient      = "client"
+	keyDiagnostics = "lightning_diagnostics"
+	keyServerName  = "server_name"
+	keyTeam        = "team"
 )
 
 // entryKeys are the keys in the order a refusal lists them.
-var entryKeys = []string{keyBaseURL, keyCAFile, keyClient, keyServerName, keyTeam}
+var entryKeys = []string{keyBaseURL, keyCAFile, keyClient, keyDiagnostics, keyServerName, keyTeam}
 
 // parseEntries is element.py parse_profiles over the stdin text (L3).
 func parseEntries(text string) ([]entry, error) {
@@ -124,7 +128,29 @@ func parseTeam(team string, d *pycompat.Dict) (entry, error) {
 		}
 		client = named
 	}
-	return entry{team: team, baseURL: baseURL, client: client}, nil
+	diagnostics, why := checkDiagnostics(d, client)
+	if why != "" {
+		return entry{}, refuseKey(keyDiagnostics, why)
+	}
+	return entry{team: team, baseURL: baseURL, client: client, diagnostics: diagnostics}, nil
+}
+
+// checkDiagnostics is element.py _check_diagnostics: lightning_diagnostics, false when absent, is
+// true or false, and true only for a lightning team. It is the value and the refusal, "" when
+// there is none.
+func checkDiagnostics(d *pycompat.Dict, client string) (bool, string) {
+	found, ok := d.Get(keyDiagnostics)
+	if !ok {
+		return false, ""
+	}
+	on, isBool := found.(pycompat.Bool)
+	switch {
+	case !isBool:
+		return false, "must be true or false"
+	case bool(on) && client != clientLightning:
+		return false, "is only for a team whose client is " + clientLightning
+	}
+	return bool(on), ""
 }
 
 // has is whether the entry names key, null included.

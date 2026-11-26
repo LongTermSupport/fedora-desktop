@@ -15,8 +15,10 @@ can read it. So a user who holds pingbus bundles (`~/.config/pingbus/`, the defa
 refuse a `host` member beside a Matrix client profile (`config.MATRIX_CLIENTS`).
 
 Usage, as the human's desktop user, the profiles as JSON on stdin
-(`[{"team": ..., "base_url": ..., "server_name": ..., "ca_file": ..., "client": ...}]`,
-`server_name`, `ca_file` and `client` optional; `ca_file` names the team CA on this machine,
+(`[{"team": ..., "base_url": ..., "server_name": ..., "ca_file": ..., "client": ...,
+"lightning_diagnostics": ...}]`, all but `team` and `base_url` optional;
+`lightning_diagnostics`, true only for a Lightning team, is read by agent-bus-lightning, not
+here (Plan 00268 Task 1.4); `ca_file` names the team CA on this machine,
 for an https team whose homeserver is elsewhere, and is read by the CA tasks, not here;
 `client`, `element` (the default) or `lightning`, is the client the team opens in. Only an
 Element team gets a profile and launcher; a team declared for Lightning keeps its Element
@@ -63,12 +65,14 @@ ELECTRON_STORE_FILE = "electron-config.json"
 SPELLCHECK_SEED = {"spellCheckerEnabled": False}
 APPLICATIONS_DIR = pathlib.PurePosixPath(".local/share/applications")
 
-PROFILE_KEYS = frozenset({"team", "base_url", "server_name", "ca_file", "client"})
+PROFILE_KEYS = frozenset({"team", "base_url", "server_name", "ca_file", "client",
+                          "lightning_diagnostics"})
 REQUIRED_PROFILE_KEYS = ("team", "base_url")
 #: The Matrix client a team opens in (Plan 00254 DESIGN-client-choice.md). Only an Element team
 #: is written here; a Lightning team's is src-go/cmd/agent-bus-lightning's.
 CLIENT_ELEMENT = "element"
-CLIENTS = (CLIENT_ELEMENT, "lightning")
+CLIENT_LIGHTNING = "lightning"
+CLIENTS = (CLIENT_ELEMENT, CLIENT_LIGHTNING)
 
 DIR_MODE = 0o700
 PRIVATE_MODE = 0o600
@@ -146,8 +150,22 @@ def _parse_one(position: int, data: object) -> Profile:
     client = data.get("client", CLIENT_ELEMENT)
     if not isinstance(client, str) or client not in CLIENTS:
         raise refuse("client", f"must be one of {', '.join(CLIENTS)}")
+    _check_diagnostics(data, client, refuse)
     return Profile(team=team, base_url=base_url, server_name=server_name, ca_file=ca_file,
                    client=client)
+
+
+def _check_diagnostics(data: dict, client: str,
+                       refuse: Callable[[str, str], ElementError]) -> None:
+    """lightning_diagnostics (Plan 00268 Task 1.4), false when absent, is true or false, and true
+    only for a Lightning team: agent-bus-lightning reads it, so nothing here acts on it."""
+    if "lightning_diagnostics" not in data:
+        return
+    on = data["lightning_diagnostics"]
+    if not isinstance(on, bool):
+        raise refuse("lightning_diagnostics", "must be true or false")
+    if on and client != CLIENT_LIGHTNING:
+        raise refuse("lightning_diagnostics", f"is only for a team whose client is {CLIENT_LIGHTNING}")
 
 
 def _check_ca_file(ca_file: object, base_url: str,

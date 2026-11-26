@@ -150,6 +150,32 @@ class TestParseProfiles(unittest.TestCase):
             with self.subTest(name), self.assertRaisesRegex(element.ElementError, "client"):
                 profile(client=value)
 
+    def test_lightning_diagnostics_is_a_boolean_for_a_lightning_team(self) -> None:
+        # Plan 00268 Task 1.4: agent-bus-lightning reads it; the list is checked here too.
+        self.assertIn("lightning_diagnostics", element.PROFILE_KEYS)
+        profile(client="lightning", lightning_diagnostics=True)
+        profile(client="lightning", lightning_diagnostics=False)
+        profile(lightning_diagnostics=False)
+
+    def test_lightning_diagnostics_refusals(self) -> None:
+        cases = {
+            "a string": {"client": "lightning", "lightning_diagnostics": "yes"},
+            "a number": {"client": "lightning", "lightning_diagnostics": 1},
+            "null": {"client": "lightning", "lightning_diagnostics": None},
+            "on an element team": {"lightning_diagnostics": True},
+            "on a team with no client": {"client": "element", "lightning_diagnostics": True},
+        }
+        for name, overrides in cases.items():
+            with self.subTest(name), self.assertRaisesRegex(element.ElementError,
+                                                            "team team-a: lightning_diagnostics"):
+                profile(**overrides)
+
+    def test_the_unknown_key_refusal_lists_every_key_as_go_does(self) -> None:
+        with self.assertRaises(element.ElementError) as caught:
+            element.parse_profiles([{"team": "team-a", "base_url": BASE_URL, "port": 8448}])
+        self.assertIn("base_url, ca_file, client, lightning_diagnostics, server_name, team",
+                      str(caught.exception))
+
     def test_no_ca_file_is_none(self) -> None:
         self.assertIsNone(profile().ca_file)
 

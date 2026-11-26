@@ -148,33 +148,37 @@ func TestL3AnInvalidListIsRefused(t *testing.T) {
 		return `[{"team": "team-a", "base_url": "` + https + `", "ca_file": ` + caFile + `}]`
 	}
 	cases := map[string]struct{ stdin, want string }{
-		"not JSON":              {"[", "not valid JSON"},
-		"a duplicate key":       {`[{"team": "a", "team": "b"}]`, "not valid JSON"},
-		"not a list":            {lightningTeam("team-a"), "must be a JSON array"},
-		"an entry not object":   {`["team-a"]`, "entry 1: must be an object"},
-		"an unknown key":        {entry(`, "port": 1`), "entry 1: the only keys are base_url, ca_file, client, server_name, team"},
-		"no team":               {`[{"base_url": "` + baseURL + `"}]`, "entry 1: team is required"},
-		"no base_url":           {`[{"team": "team-a"}]`, "entry 1: base_url is required"},
-		"a bad team":            {`[{"team": "Team_A", "base_url": "` + baseURL + `"}]`, "entry 1: team must match"},
-		"a team not a string":   {`[{"team": 1, "base_url": "` + baseURL + `"}]`, "entry 1: team must match"},
-		"http to a name":        {`[{"team": "team-a", "base_url": "http://bus.example.com"}]`, "team team-a: base_url may use http://"},
-		"a path":                {`[{"team": "team-a", "base_url": "` + baseURL + `/_matrix"}]`, "team team-a: base_url must have no path"},
-		"a url not a string":    {`[{"team": "team-a", "base_url": 1}]`, "team team-a: base_url must be a URL of printable ASCII"},
-		"bad brackets":          {`[{"team": "team-a", "base_url": "https://[bus"}]`, "team team-a: base_url is not a URL"},
-		"server_name public":    {entry(`, "server_name": "a.example.com"`), "team team-a: server_name must end in .internal"},
-		"server_name one label": {entry(`, "server_name": "internal"`), "team team-a: server_name must be a lower-case DNS name"},
-		"server_name a number":  {entry(`, "server_name": 1`), "team team-a: server_name must be a DNS name"},
-		"ca_file on http":       {entry(`, "ca_file": "/etc/a.pem"`), "team team-a: ca_file is only for"},
-		"ca_file relative":      {httpsEntry(`"a.pem"`), "team team-a: ca_file must be an absolute path"},
-		"ca_file a directory":   {httpsEntry(`"/etc/"`), "team team-a: ca_file must be an absolute path"},
-		"ca_file not a string":  {httpsEntry(`["/etc/a.pem"]`), "team team-a: ca_file must be an absolute path"},
-		"ca_file a parent step": {httpsEntry(`"/etc/../a.pem"`), "team team-a: ca_file must be a plain path"},
-		"ca_file a newline":     {httpsEntry(`"/etc/a\npem"`), "team team-a: ca_file must be a plain path"},
-		"another client":        {entry(`, "client": "nheko"`), "team team-a: client must be one of element, lightning"},
-		"a client not a string": {entry(`, "client": null`), "team team-a: client must be one of"},
-		"a team listed twice":   {list(lightningTeam("team-a"), elementTeam("team-a")), "a team is listed more than once"},
-		"a secret in the url":   {`[{"team": "team-a", "base_url": "http://u:hunter2@192.0.2.10"}]`, "team team-a: base_url must carry no credentials"},
-		"a secret in ca_file":   {entry(`, "ca_file": "/srv/secret-place/a.pem"`), "team team-a: ca_file"},
+		"not JSON":               {"[", "not valid JSON"},
+		"a duplicate key":        {`[{"team": "a", "team": "b"}]`, "not valid JSON"},
+		"not a list":             {lightningTeam("team-a"), "must be a JSON array"},
+		"an entry not object":    {`["team-a"]`, "entry 1: must be an object"},
+		"an unknown key":         {entry(`, "port": 1`), "entry 1: the only keys are base_url, ca_file, client, lightning_diagnostics, server_name, team"},
+		"diagnostics a string":   {entry(`, "client": "lightning", "lightning_diagnostics": "yes"`), "team team-a: lightning_diagnostics must be true or false"},
+		"diagnostics null":       {entry(`, "client": "lightning", "lightning_diagnostics": null`), "team team-a: lightning_diagnostics must be true or false"},
+		"diagnostics a number":   {entry(`, "client": "lightning", "lightning_diagnostics": 1`), "team team-a: lightning_diagnostics must be true or false"},
+		"diagnostics on element": {entry(`, "lightning_diagnostics": true`), "team team-a: lightning_diagnostics is only for a team whose client is lightning"},
+		"no team":                {`[{"base_url": "` + baseURL + `"}]`, "entry 1: team is required"},
+		"no base_url":            {`[{"team": "team-a"}]`, "entry 1: base_url is required"},
+		"a bad team":             {`[{"team": "Team_A", "base_url": "` + baseURL + `"}]`, "entry 1: team must match"},
+		"a team not a string":    {`[{"team": 1, "base_url": "` + baseURL + `"}]`, "entry 1: team must match"},
+		"http to a name":         {`[{"team": "team-a", "base_url": "http://bus.example.com"}]`, "team team-a: base_url may use http://"},
+		"a path":                 {`[{"team": "team-a", "base_url": "` + baseURL + `/_matrix"}]`, "team team-a: base_url must have no path"},
+		"a url not a string":     {`[{"team": "team-a", "base_url": 1}]`, "team team-a: base_url must be a URL of printable ASCII"},
+		"bad brackets":           {`[{"team": "team-a", "base_url": "https://[bus"}]`, "team team-a: base_url is not a URL"},
+		"server_name public":     {entry(`, "server_name": "a.example.com"`), "team team-a: server_name must end in .internal"},
+		"server_name one label":  {entry(`, "server_name": "internal"`), "team team-a: server_name must be a lower-case DNS name"},
+		"server_name a number":   {entry(`, "server_name": 1`), "team team-a: server_name must be a DNS name"},
+		"ca_file on http":        {entry(`, "ca_file": "/etc/a.pem"`), "team team-a: ca_file is only for"},
+		"ca_file relative":       {httpsEntry(`"a.pem"`), "team team-a: ca_file must be an absolute path"},
+		"ca_file a directory":    {httpsEntry(`"/etc/"`), "team team-a: ca_file must be an absolute path"},
+		"ca_file not a string":   {httpsEntry(`["/etc/a.pem"]`), "team team-a: ca_file must be an absolute path"},
+		"ca_file a parent step":  {httpsEntry(`"/etc/../a.pem"`), "team team-a: ca_file must be a plain path"},
+		"ca_file a newline":      {httpsEntry(`"/etc/a\npem"`), "team team-a: ca_file must be a plain path"},
+		"another client":         {entry(`, "client": "nheko"`), "team team-a: client must be one of element, lightning"},
+		"a client not a string":  {entry(`, "client": null`), "team team-a: client must be one of"},
+		"a team listed twice":    {list(lightningTeam("team-a"), elementTeam("team-a")), "a team is listed more than once"},
+		"a secret in the url":    {`[{"team": "team-a", "base_url": "http://u:hunter2@192.0.2.10"}]`, "team team-a: base_url must carry no credentials"},
+		"a secret in ca_file":    {entry(`, "ca_file": "/srv/secret-place/a.pem"`), "team team-a: ca_file"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -201,6 +205,8 @@ func TestL3AValidListIsAccepted(t *testing.T) {
 		`{"team": "team-a", "base_url": "`+baseURL+`"}`,
 		`{"team": "team-b", "base_url": "http://[2001:db8::1]:8448", "server_name": "b.agent-bus.internal", "client": "element"}`,
 		`{"team": "team-c", "base_url": "HTTPS://bus.example.com", "ca_file": "/etc/teamchat/c.pem", "client": "lightning"}`,
+		`{"team": "team-d", "base_url": "`+baseURL+`", "client": "lightning", "lightning_diagnostics": true}`,
+		`{"team": "team-e", "base_url": "`+baseURL+`", "lightning_diagnostics": false}`,
 	)
 	if r := w.run([]string{"check"}, stdin); r.code != term.ExitOK {
 		t.Fatalf("%+v", r)
@@ -382,6 +388,54 @@ func (w *world) checkLauncher() {
 	}
 	if got := w.mode(w.launcher("team-a")); got != 0o644 {
 		w.t.Errorf("launcher mode %o", got)
+	}
+}
+
+// diagnosticTeam is a lightning team with diagnostics on (Plan 00268 Task 1.4).
+func diagnosticTeam(team string) string {
+	return `{"team": "` + team + `", "base_url": "` + baseURL + `", "client": "lightning", "lightning_diagnostics": true}`
+}
+
+// TestL16DiagnosticsAddTheTracesAndALogFile holds that a team with lightning_diagnostics true
+// launches with the memory and sync traces and a log file in its own cache folder, that false is
+// the plain launcher, and that turning it on or off rewrites the launcher.
+func TestL16DiagnosticsAddTheTracesAndALogFile(t *testing.T) {
+	w := newWorld(t)
+	root := w.root()
+	plain := " SSL_CERT_DIR=" + root + "/teamchat-ca lightning-matrix\n"
+	traced := " SSL_CERT_DIR=" + root + "/teamchat-ca" +
+		" LIGHTNING_SCROLL_MEMORY_TRACE=1 LIGHTNING_SYNC_TRACE=1 QT_LOGGING_RULES=lightning.sync.trace.debug=true" +
+		" lightning-matrix --log-file " + root + "/teams/team-a/cache/lightning-diagnostic.log\n"
+	if r := w.apply(list(diagnosticTeam("team-a"))); r.code != term.ExitOK {
+		t.Fatalf("%+v", r)
+	}
+	if got := w.read(w.launcher("team-a")); !strings.Contains(got, traced) {
+		t.Fatalf("diagnostics on, launcher\n%s\nwant a line ending\n%s", got, traced)
+	}
+	off := `{"team": "team-a", "base_url": "` + baseURL + `", "client": "lightning", "lightning_diagnostics": false}`
+	if r := w.apply(list(off)); r.code != term.ExitOK || r.out != "CHANGED\t"+w.launcher("team-a")+"\n" {
+		t.Fatalf("turning diagnostics off: %+v", r)
+	}
+	w.checkLauncher()
+	if got := w.read(w.launcher("team-a")); !strings.Contains(got, plain) {
+		t.Fatalf("diagnostics off, launcher\n%s", got)
+	}
+	if r := w.apply(list(diagnosticTeam("team-a"))); r.code != term.ExitOK || r.out != "CHANGED\t"+w.launcher("team-a")+"\n" {
+		t.Fatalf("turning diagnostics on: %+v", r)
+	}
+	if exists(filepath.Join(w.team("team-a"), "cache/lightning-diagnostic.log")) {
+		t.Fatal("apply wrote the log file; only Lightning writes it")
+	}
+}
+
+// TestL9AStaleDiagnosticLauncherIsRemoved holds that a launcher written with diagnostics on is
+// still known as this command's when its team moves to Element.
+func TestL9AStaleDiagnosticLauncherIsRemoved(t *testing.T) {
+	w := newWorld(t)
+	w.apply(list(diagnosticTeam("team-a")))
+	r := w.apply(list(elementTeam("team-a")))
+	if r.code != term.ExitOK || !strings.Contains(r.out, "CHANGED\t"+w.launcher("team-a")+"\n") || exists(w.launcher("team-a")) {
+		t.Fatalf("%+v", r)
 	}
 }
 
