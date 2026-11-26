@@ -223,6 +223,29 @@ Decision for C.2 (and the fix for today's start):
 
 - [ ] ⬜ **Task C.3**: verify-restore reports the LXC set.
 
+- [ ] ⬜ **Task C.4**: a restarted LXC seat signs in from its team's own token pool, on the token
+  it was on before. Asked for by another team's owner (26 Nov) for their containers, and agreed
+  by the coordinator. Design only until the owner has seen it; built after C.2 ships.
+
+  - **The last-launch record:** the seat's launch writes, beside the record of its conversation,
+    the token's pool name (a file's basename, never the secret, a descriptor or an inode) and its
+    flags, checked against an allowlist. It sits in a host-owned or root-owned place, never in
+    the checkout.
+  - **The restart** reads that record and opens the named token from the pool inside the
+    container (checked with that team: one token per file, `<team>_<name>.token`, under the
+    agent user's `~/.claude-tokens/tokens/`, directories 0700 and files 0600, all owned by that
+    user). It hands the token to claude through the root-written `/run` env file the seat unit
+    already reads (that file is then 0600). The pool directory is recreated on every run of that
+    team's play, so the record names a file, never a handle.
+  - **Never a fallback:** a missing or emptied token is a refusal that names it. The restart
+    never picks another token.
+  - **Rotation** is deliberate only: a verb rewrites the record (that team prefers a command to a
+    file). A restart never rotates.
+  - **Sharing:** that team's owner has set no rule on two live seats using one token, so the
+    design works either way. A rule, if one is wanted, is his to make.
+  - **Later:** the same record is what a standalone cc/ccy would read. That is a separate plan,
+    after batch 24 (agreed with the coordinator 26 Nov).
+
 ## Success Criteria
 
 - [ ] A test plants each checkout-content change of Task A.1's class, and the launch and the
