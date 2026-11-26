@@ -145,6 +145,15 @@ another batch; this plan decides at the end whether it stays.
   - **Acceptance:** the drop-in is in place on the laptop, `systemctl --user show` on a running
     instance's scope reports the cap, and a stand-in kill produces the notice.
   - **Order:** its own CI build after batch 23 lands, ahead of batch 24.
+  - **Built** (report `subagent-reports/261126-task-1-9.md`): the play's `agent-bus-lightning` tag
+    places `app-flatpak-<app id>-.scope.d/agent-bus-memory-cap.conf` (`MemoryMax`, `MemorySwapMax=0`
+    so zram cannot stretch it, `OnFailure=agent-bus-lightning-capped@%n.service`), the app id read
+    from the Matrix client list; `agent_bus_lightning_memory_max` (home-level, default 2G, `false`
+    removes it) is checked before anything is installed. On for every host that runs the play,
+    not gated like `lightning_diagnostics`. The notice is the oneshot user unit
+    `agent-bus-lightning-capped@.service`: a critical desktop notification naming the scope.
+    Open: the teamchat notice (the desktop user holds no bus identity, so it cannot post), and
+    the host seat's checks on the laptop (report section 4). Queued in `meta-deploy.list`.
 
 ### Phase 2: Reproduce
 

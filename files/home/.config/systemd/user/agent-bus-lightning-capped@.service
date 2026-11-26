@@ -1,0 +1,12 @@
+[Unit]
+Description=Say that the Lightning instance in %i was stopped
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+# Plan 00268 Task 1.9. play-agent-bus-element.yml caps every Lightning Flatpak scope with a
+# drop-in (MemoryMax, no swap) whose OnFailure= starts this, with the failed scope as %i. A
+# scope fails when the kernel kills its process at the cap (result oom-kill); Lightning
+# quitting on its own leaves it inactive, not failed. Nothing restarts Lightning: an automatic
+# restart would hide a runaway, so the human reopens it from its launcher.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/notify-send --urgency=critical --app-name=Lightning "Lightning was stopped" "Its Flatpak scope %i failed, as a kill at its memory cap fails it. Reopen it from its team launcher. Why: journalctl --user -u %i --no-pager"

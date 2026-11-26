@@ -21,7 +21,9 @@
 # then writes each lightning team's own instance, settings file and launcher through the Go
 # command agent-bus-lightning (src-go/internal/lightning), and runs that command's diagnostics
 # watchdog as the user service agent-bus-lightning-watch only while a lightning team has
-# lightning_diagnostics true (Plan 00268). Both Lightning steps are Go binaries
+# lightning_diagnostics true (Plan 00268). It caps every Lightning instance's memory
+# (agent_bus_lightning_memory_max, 2G by default, no swap) with a drop-in on the app's Flatpak
+# scopes, and a kill at the cap raises a desktop notification. Both Lightning steps are Go binaries
 # built here, so the Go toolchain is installed first; play-golang.yml stays its one source of
 # truth.
 #
@@ -68,6 +70,18 @@
     agent_bus_lightning_diagnostics_on: >-
       {{ agent_bus_element_lightning_teams | selectattr('lightning_diagnostics', 'defined')
          | selectattr('lightning_diagnostics', 'equalto', true) | list | length > 0 }}
+    # The memory cap on every Lightning instance (Plan 00268 Task 1.9): systemd's MemoryMax
+    # size (2G by default), or false for no cap. Set in host_vars as agent_bus_lightning_memory_max.
+    agent_bus_lightning_memory_cap: "{{ agent_bus_lightning_memory_max | default('2G') }}"
+    agent_bus_lightning_memory_cap_on: "{{ agent_bus_lightning_memory_cap is not sameas false }}"
+    # Lightning's Flatpak app id, read from the one Matrix client list, never spelt here.
+    agent_bus_lightning_app_id: >-
+      {{ (lookup('ansible.builtin.file', root_dir ~ '/helpers/pingbus/matrix_clients.json') | from_json).clients
+         | selectattr('name', 'equalto', 'Lightning') | map(attribute='app_id') | first }}
+    # The prefix drop-in holding the cap, in the desktop user's systemd folder (read once the
+    # user's home is resolved).
+    agent_bus_lightning_cap_file: >-
+      {{ ansible_facts['getent_passwd'][user_login][4] }}/.config/systemd/user/app-flatpak-{{ agent_bus_lightning_app_id }}-.scope.d/agent-bus-memory-cap.conf
     # Matches the helper's CHANGED<TAB><path> marker lines.
     agent_bus_element_changed_re: "^CHANGED\t"
     # Where an https team's CA is put for Element (tasks/element-team-ca.yml): nssdb or system,
@@ -123,6 +137,19 @@
       loop_control:
         label: "{{ item.team | default('(no team)') }}"
       tags: [agent-bus-element, agent-bus-lightning]
+
+    - name: Check the Lightning memory cap is a size or false
+      ansible.builtin.assert:
+        that:
+          - >-
+            agent_bus_lightning_memory_cap is sameas false
+            or (agent_bus_lightning_memory_cap is string
+                and agent_bus_lightning_memory_cap is match('^[1-9][0-9]*[KMG]$'))
+        fail_msg: >-
+          agent_bus_lightning_memory_max must be a size systemd's MemoryMax takes, a whole number
+          and K, M or G (2G is the default), or false for no cap on Lightning's memory.
+        quiet: true
+      tags: [agent-bus-lightning]
 
     # Read-only, so it runs in --check too, and before anything is installed.
     - name: Validate the profiles and refuse a user_login holding pingbus bundles
@@ -317,7 +344,60 @@
       register: agent_bus_lightning_watch_unit
       tags: [agent-bus-lightning]
 
-    - name: Reload the desktop user's systemd manager so it reads the watchdog's unit
+    # The memory cap (Plan 00268 Task 1.9): a prefix drop-in that systemd applies to every
+    # app-flatpak-<app id>-<n>.scope flatpak run starts, whichever team's launcher (or none)
+    # started it. No swap, so the cap is the whole of the instance's memory, not RAM with zram
+    # behind it. A kill at the cap fails the scope, and its OnFailure= raises a desktop
+    # notification through the template unit below. Nothing restarts Lightning.
+    - name: Place the user unit that says a Lightning instance was stopped
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/agent-bus-lightning-capped@.service"
+        dest: "{{ ansible_facts['getent_passwd'][user_login][4] }}/.config/systemd/user/agent-bus-lightning-capped@.service"
+        mode: "0644"
+      register: agent_bus_lightning_capped_unit
+      tags: [agent-bus-lightning]
+
+    - name: Ensure the drop-in directory of Lightning's Flatpak scopes exists while the cap is on
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.file:
+        path: "{{ agent_bus_lightning_cap_file | dirname }}"
+        state: directory
+        mode: "0755"
+      when: agent_bus_lightning_memory_cap_on
+      tags: [agent-bus-lightning]
+
+    - name: Cap every Lightning instance's memory while the cap is on
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.copy:
+        content: |
+          # Plan 00268 Task 1.9, placed by play-agent-bus-element.yml (agent_bus_lightning_memory_max).
+          [Scope]
+          MemoryMax={{ agent_bus_lightning_memory_cap }}
+          MemorySwapMax=0
+
+          [Unit]
+          OnFailure=agent-bus-lightning-capped@%n.service
+        dest: "{{ agent_bus_lightning_cap_file }}"
+        mode: "0644"
+      when: agent_bus_lightning_memory_cap_on
+      register: agent_bus_lightning_cap_placed
+      tags: [agent-bus-lightning]
+
+    - name: Remove the Lightning memory cap while it is off
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.file:
+        path: "{{ agent_bus_lightning_cap_file }}"
+        state: absent
+      when: not agent_bus_lightning_memory_cap_on
+      register: agent_bus_lightning_cap_removed
+      tags: [agent-bus-lightning]
+
+    - name: Reload the desktop user's systemd manager so it reads the watchdog's unit and the cap
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.systemd:
@@ -328,6 +408,9 @@
       when:
         - not ansible_check_mode
         - agent_bus_lightning_watch_unit is changed
+          or agent_bus_lightning_capped_unit is changed
+          or agent_bus_lightning_cap_placed is changed
+          or agent_bus_lightning_cap_removed is changed
       tags: [agent-bus-lightning]
 
     - name: Run the Lightning diagnostics watchdog while a team has diagnostics on, else stop it
