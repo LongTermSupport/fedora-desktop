@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.93 — container 2.84.96
+
+- teamchat: a member's queue of read receipts (`m.read` for a human's message the session was
+  shown) no longer loses one when it is full. A full queue keeps each room's latest receipt,
+  which marks the room read up to that message, so the human still sees every message read
+  (Plan 00267 Task 2.3). A new Go project rule, `project_store_refusal_lost`, holds every other
+  seat-store add to returning its refusal. The seat store's file cap is now 17 x 256 KiB.
+
 ## 3.124.92 — container 2.84.95
 
 - The `CCY_VERSION` comment, which the rebuild banner prints, is one short line for the current

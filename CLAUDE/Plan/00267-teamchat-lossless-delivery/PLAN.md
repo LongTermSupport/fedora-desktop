@@ -70,8 +70,10 @@ file and line.
   drops.
 - [ ] ⬜ **Task 2.2**: Bounce selection: addressees only, with the coordinator as bouncer for
   undecodable content and for unheard human posts.
-- [ ] ⬜ **Task 2.3**: A durable receipt queue and its sender loop. The existing `m.read` queue
-  stops losing when full.
+- [ ] 🔄 **Task 2.3**: A durable receipt queue and its sender loop. The existing `m.read` queue
+  stops losing when full. Built: the `m.read` queue, full, keeps each room's latest receipt
+  (`TestAFullReceiptQueueKeepsEachRoomsLatest`), and the rule `project_store_refusal_lost`
+  holds every other store add to returning its refusal.
 
 ### Phase 3: never lose under limits (C3, C4)
 

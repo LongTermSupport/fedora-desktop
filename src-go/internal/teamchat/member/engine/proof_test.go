@@ -163,7 +163,7 @@ func TestAProvenDeliveryLeavesAwaiting(t *testing.T) {
 			if !slices.Equal(ledgerIDs(s), []string{evID(1), evID(2)}) {
 				t.Fatalf("the ledger: %+v", s.Ledger)
 			}
-			if len(s.Receipts) != 1 || s.Receipts[0] != (state.Receipt{ID: evID(1), Room: proto.PurposeMain}) {
+			if len(s.Receipts) != 1 || !receiptFor(s.Receipts[0], evID(1)) || s.Receipts[0].SentMS == 0 {
 				t.Fatalf("the receipts: %+v", s.Receipts)
 			}
 			check(t, pw.tr.Err())
@@ -369,7 +369,8 @@ func TestALateFind(t *testing.T) {
 	if len(s.Pending) != 0 || !slices.Contains(ledgerIDs(s), evID(2)) {
 		t.Fatalf("after the late find: %+v", s)
 	}
-	if !slices.Contains(s.Receipts, state.Receipt{ID: evID(2), Room: proto.PurposeMain}) || slices.Contains(s.Receipts, state.Receipt{ID: evID(1), Room: proto.PurposeMain}) {
+	if !slices.ContainsFunc(s.Receipts, func(r state.Receipt) bool { return receiptFor(r, evID(2)) }) ||
+		slices.ContainsFunc(s.Receipts, func(r state.Receipt) bool { return receiptFor(r, evID(1)) }) {
 		t.Fatalf("the receipts: %+v", s.Receipts)
 	}
 	if ids := pw.recvIDs(); len(ids) != 0 {
@@ -890,4 +891,9 @@ func TestABootTimePastWhatTheProofCountsIsTheBootClocksStart(t *testing.T) {
 			t.Errorf("a missed entry of %d ms expires at %v", ms, got)
 		}
 	}
+}
+
+// receiptFor is whether r is the main room's read receipt for id, whatever its sent time.
+func receiptFor(r state.Receipt, id string) bool {
+	return r.ID == id && r.Room == proto.PurposeMain
 }

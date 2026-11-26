@@ -14,10 +14,11 @@ import (
 )
 
 // MaxStore is the seat store's file cap (B 2.3.2): the list caps' sum, rounded up to the next
-// 256 KiB (n3d-D1), so a list cap always fires first. The sum is n3d's lists, about 3.0 MB, and
-// the questions room's, about 1.1 MB (SPEC-n3f 12.6, QX6): 4 185 860 bytes counted as written, so
-// 4 MiB.
-const MaxStore = 16 * 256 << 10
+// 256 KiB (n3d-D1), so a list cap always fires first. The sum is n3d's lists, about 3.0 MB, the
+// questions room's, about 1.1 MB (SPEC-n3f 12.6, QX6), and Plan 00267's receiver bookkeeping
+// (DESIGN C2, C6): 4 210 436 bytes counted as written with the read receipt's sent_ms, so
+// 17 x 256 KiB.
+const MaxStore = 17 * 256 << 10
 
 // B 2.3.2's caps: entries per list, and bytes per entry as the store writes it (writtenSize).
 const (
@@ -31,7 +32,7 @@ const (
 	sizeLedger     = 448
 	sizePing       = 3 << 10
 	capReceipts    = 1024
-	sizeReceipt    = 80
+	sizeReceipt    = 104 // the event id, the longest room purpose and a 13-digit sent_ms
 	capAwaiting    = 32
 	sizeAwaiting   = 2252 // 2.2 KiB
 	capMissed      = 16
@@ -249,10 +250,12 @@ type Ledger struct {
 	Verb *string `json:"verb"`
 }
 
-// Receipt is a read receipt still to send.
+// Receipt is a read receipt still to send, with its event's origin time (0 for one queued
+// before the time was kept), which orders it among its room's.
 type Receipt struct {
-	ID   string `json:"id"`
-	Room string `json:"room"`
+	ID     string `json:"id"`
+	Room   string `json:"room"`
+	SentMS int64  `json:"sent_ms,omitempty"`
 }
 
 // Outbox is the sends: pings awaiting answers, sends in flight, the send gate, and the event
@@ -626,8 +629,32 @@ func (s *Store) AddAwaiting(a Awaiting) error {
 	return grow(&s.Awaiting, a, capAwaiting, "awaiting")
 }
 
-// AddReceipt queues a read receipt.
-func (s *Store) AddReceipt(r Receipt) error { return grow(&s.Receipts, r, capReceipts, "receipts") }
+// AddReceipt queues a read receipt, and never loses one (Plan 00267 C2). An m.read on an event
+// says its room is read up to it, so a full queue keeps only each room's latest receipt (by
+// origin time, the later in the queue on a tie), in queue order, then takes r unless one of
+// its room's is as late: every receipt it held is then sent or covered by a later one.
+func (s *Store) AddReceipt(r Receipt) {
+	if len(s.Receipts) < capReceipts {
+		s.Receipts = append(s.Receipts, r)
+		return
+	}
+	latest := map[string]int{}
+	for i, q := range s.Receipts {
+		if j, ok := latest[q.Room]; !ok || q.SentMS >= s.Receipts[j].SentMS {
+			latest[q.Room] = i
+		}
+	}
+	kept := make([]Receipt, 0, len(latest)+1)
+	for i, q := range s.Receipts {
+		if latest[q.Room] == i {
+			kept = append(kept, q)
+		}
+	}
+	if j, ok := latest[r.Room]; !ok || s.Receipts[j].SentMS < r.SentMS {
+		kept = append(kept, r)
+	}
+	s.Receipts = kept
+}
 
 // AddPing records a sent ping.
 func (s *Store) AddPing(p Ping) error { return grow(&s.Outbox.Pings, p, MaxPings, "pings") }
@@ -739,7 +766,7 @@ func (s *Store) checkDelivered(c *rules, server string) {
 		l.check(c, server)
 	}
 	for _, r := range s.Receipts {
-		c.need(proto.ValidEventID(r.ID) && slices.Contains(storeRooms, r.Room), "a receipt is not well formed")
+		c.need(proto.ValidEventID(r.ID) && slices.Contains(storeRooms, r.Room) && validMS(r.SentMS), "a receipt is not well formed")
 	}
 }
 

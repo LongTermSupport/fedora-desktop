@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -289,7 +290,7 @@ func fullStore(t *testing.T) Store {
 		s.AddLedger(Ledger{ID: eventID(i) + "~" + longLocal, Room: proto.PurposeQuestions, Item: records.KindTimeout, Thread: new(eventID(i)), From: longID, AtMS: farMS})
 	}
 	for i := range capReceipts {
-		s.Receipts = append(s.Receipts, Receipt{ID: eventID(i), Room: proto.PurposeQuestions})
+		s.Receipts = append(s.Receipts, Receipt{ID: eventID(i), Room: proto.PurposeQuestions, SentMS: farMS})
 	}
 	s.Outbox.Pings = []Ping{}
 	for i := range MaxPings {
@@ -344,8 +345,8 @@ const (
 
 // TestStoreFullFitsTheFileCap holds B 2.3.2: a store with every list full is under the file
 // cap, by construction and by the caps' arithmetic, so a list cap is always the one that fires.
-// The sum is n3d's lists with the questions room's (SPEC-n3f 12.6, QX6): the file cap is that
-// sum rounded up to the next 256 KiB, 4 MiB at these caps.
+// The sum is n3d's lists with the questions room's (SPEC-n3f 12.6, QX6) and Plan 00267's: the
+// file cap is that sum rounded up to the next 256 KiB.
 func TestStoreFullFitsTheFileCap(t *testing.T) {
 	s := fullStore(t)
 	data, err := s.encode()
@@ -371,10 +372,11 @@ func TestStoreFullFitsTheFileCap(t *testing.T) {
 	if bound > MaxStore {
 		t.Fatalf("the list caps sum to %d bytes, over the file cap of %d", bound, MaxStore)
 	}
-	// n3d-D1: the file cap is that sum rounded up to the next 256 KiB, no more; QX6 makes it 4 MiB.
+	// n3d-D1: the file cap is that sum rounded up to the next 256 KiB, no more; QX6 and Plan 00267's
+	// bookkeeping make it 17 x 256 KiB.
 	const step = 256 << 10
-	if want := (bound + step - 1) / step * step; MaxStore != want || MaxStore != 4<<20 {
-		t.Fatalf("the file cap is %d, want the sum %d rounded up to %d (4 MiB)", MaxStore, bound, want)
+	if want := (bound + step - 1) / step * step; MaxStore != want || MaxStore != 17*step {
+		t.Fatalf("the file cap is %d, want the sum %d rounded up to %d (17 x 256 KiB)", MaxStore, bound, want)
 	}
 }
 
@@ -610,7 +612,6 @@ func TestStoreListsRefuseOrRoll(t *testing.T) {
 		add   func() error
 	}{
 		"awaiting": {capAwaiting, func() error { return s.AddAwaiting(Awaiting{}) }},
-		"receipts": {capReceipts, func() error { return s.AddReceipt(Receipt{}) }},
 		"pings":    {MaxPings, func() error { return s.AddPing(Ping{}) }},
 		"sending":  {MaxSending, func() error { return s.AddSending(Sending{}) }},
 		"gate":     {capGateKeys, func() error { return s.AddGateKey(GateKey{}) }},
@@ -633,6 +634,36 @@ func TestStoreListsRefuseOrRoll(t *testing.T) {
 	}
 	if len(s.Missed) != capMissed || s.Missed[0].Nonce != "00000001" {
 		t.Fatalf("missed did not roll: %+v", s.Missed[0])
+	}
+}
+
+// A full read-receipt queue never loses a receipt (Plan 00267 C2): an m.read on an event says
+// its room is read up to it, so the queue keeps each room's latest receipt and the new one, and
+// every receipt it held is sent or covered by a later one of its room.
+func TestAFullReceiptQueueKeepsEachRoomsLatest(t *testing.T) {
+	s := NewStore(teamID(t), agentID, StoreRun{ID: runID(t)}, Gate{})
+	for i := range capReceipts {
+		room := proto.PurposeMain
+		if i%2 == 1 {
+			room = proto.PurposeQuestions
+		}
+		s.AddReceipt(Receipt{ID: eventID(i), Room: room, SentMS: int64(100 + i)})
+	}
+	if len(s.Receipts) != capReceipts {
+		t.Fatalf("below the cap the queue holds %d, want every one of %d", len(s.Receipts), capReceipts)
+	}
+	s.AddReceipt(Receipt{ID: eventID(5000), Room: proto.PurposeMain, SentMS: 50})
+	want := []Receipt{
+		{ID: eventID(capReceipts - 2), Room: proto.PurposeMain, SentMS: int64(100 + capReceipts - 2)},
+		{ID: eventID(capReceipts - 1), Room: proto.PurposeQuestions, SentMS: int64(100 + capReceipts - 1)},
+	}
+	if !slices.Equal(s.Receipts, want) {
+		t.Fatalf("an older receipt past the cap: the queue is %+v, want each room's latest %+v (the new one is covered)", s.Receipts, want)
+	}
+	s.AddReceipt(Receipt{ID: eventID(5001), Room: proto.PurposeMain, SentMS: 9000})
+	want = append(want, Receipt{ID: eventID(5001), Room: proto.PurposeMain, SentMS: 9000})
+	if !slices.Equal(s.Receipts, want) {
+		t.Fatalf("a later receipt: the queue is %+v, want %+v", s.Receipts, want)
 	}
 }
 

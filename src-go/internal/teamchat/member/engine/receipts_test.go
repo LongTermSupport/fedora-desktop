@@ -14,7 +14,7 @@ import (
 func (w *world) storeWithReceipts(id paths.TeamID, ids ...string) []byte {
 	s := w.newStore(id)
 	for _, e := range ids {
-		check(w.t, s.AddReceipt(state.Receipt{ID: e, Room: proto.PurposeMain}))
+		s.AddReceipt(state.Receipt{ID: e, Room: proto.PurposeMain})
 	}
 	return encodeStore(w.t, s)
 }
