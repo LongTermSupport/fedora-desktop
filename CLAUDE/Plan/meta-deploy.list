@@ -181,6 +181,17 @@ playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-li
 # offline, say), fewer units found than members declared, a probe that did not answer, or a
 # failed lxc-stop or lxc-start.
 00257-cross-host-lxc-team-members/lxc-no-autostart-acceptance.bash
+
+# Issue #325: play-photography's RapidRAW check now asks rpm for the package's real name,
+# rapid-raw (it asked for rapidraw, so every run downloaded the RPM, found it installed and
+# deleted it again), and fails on any rpm answer other than installed or not installed. The
+# play runs twice, in full, as the idempotence proof: the first run may converge the host;
+# the SECOND RUN MUST REPORT changed=0 in its PLAY RECAP. Any changed task there, or a
+# "Download RapidRAW RPM" that is not skipped, means #325 is not fixed.
+playbooks/imports/optional/common/play-photography.yml
+# The second pass of the #325 proof above: its PLAY RECAP must say changed=0.
+playbooks/imports/optional/common/play-photography.yml
+
 # Issue #322 (ccy 3.124.18): line-based listings are captured first instead of read through a
 # process substitution and its wait "$!". Besides the launcher, cc and agent-bus-install (whose
 # plays have run), the change reaches the user tools imgpaste, qnap-finder, raw-prune,

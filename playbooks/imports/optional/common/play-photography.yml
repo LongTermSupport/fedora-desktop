@@ -10,6 +10,8 @@
     # RapidRAW - hardcoded version for security and reproducibility
     # @see https://github.com/CyberTimon/RapidRAW/releases
     rapidraw_version: "1.6.3"
+    # The RPM's own Name, which is not the project's name (`rpm -qp --queryformat '%{NAME}'`).
+    rapidraw_package: rapid-raw
     # One rpm per architecture, keyed as Fedora names it. The whole file name is mapped: the
     # arm build is named ubuntu-22.04-arm, not by the arch alone. Bump the digests (each the
     # release asset's published digest) with the version.
@@ -168,11 +170,19 @@
         fail_msg: "RapidRAW: no build pinned for {{ ansible_facts['architecture'] }} (pinned: {{ rapidraw_builds | list | join(', ') }})"
       tags: rapidraw
 
+    # rpm -q exits 1 and says "is not installed" only for a package that is absent; any other
+    # answer (a broken rpm database, a wrong name in a query) fails the play rather than read
+    # as "absent", which would re-download the RPM on every run. Read-only, so it also runs
+    # under --check, where the tasks below need its answer.
     - name: Check if RapidRAW is already installed at target version
-      ansible.builtin.shell: |
-        rpm -q rapidraw --queryformat '%{VERSION}' 2>/dev/null || echo "not-installed"
-      register: rapidraw_installed_version
+      ansible.builtin.command:
+        argv: [rpm, -q, --queryformat, "%{VERSION}", "{{ rapidraw_package }}"]
+      register: rapidraw_installed
       changed_when: false
+      check_mode: false
+      failed_when: >-
+        rapidraw_installed.rc not in [0, 1]
+        or (rapidraw_installed.rc == 1 and 'is not installed' not in rapidraw_installed.stdout)
       tags: rapidraw
 
     - name: Download RapidRAW RPM
@@ -181,7 +191,7 @@
         dest: "{{ rapidraw_tmp }}"
         checksum: "sha256:{{ rapidraw_sha256 }}"
         mode: "0644"
-      when: rapidraw_installed_version.stdout != rapidraw_version
+      when: rapidraw_installed.stdout != rapidraw_version
       tags: rapidraw
 
     - name: Install RapidRAW RPM
@@ -189,14 +199,14 @@
         name: "{{ rapidraw_tmp }}"
         state: present
         disable_gpg_check: true  # Community release, no GPG key
-      when: rapidraw_installed_version.stdout != rapidraw_version
+      when: rapidraw_installed.stdout != rapidraw_version
       tags: rapidraw
 
     - name: Clean up RapidRAW RPM
       ansible.builtin.file:
         path: "{{ rapidraw_tmp }}"
         state: absent
-      when: rapidraw_installed_version.stdout != rapidraw_version
+      when: rapidraw_installed.stdout != rapidraw_version
       tags: rapidraw
 
     # /usr/local/bin precedes /usr/bin in PATH, so this shim is transparently
