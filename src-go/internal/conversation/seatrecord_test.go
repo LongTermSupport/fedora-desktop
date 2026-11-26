@@ -207,6 +207,35 @@ func TestRecordSeatsRefusesWhatIsNotARecord(t *testing.T) {
 	}
 }
 
+// A launch writes its seats' records inside the checkout only (R36 batch review, finding 4): a
+// container can replace the seat-records directory, or a team's directory in it, with a link,
+// and a launch that followed it would write the host's records outside the checkout.
+func TestRecordSeatsNeverWritesThroughALinkOutOfTheCheckout(t *testing.T) {
+	for _, linked := range []string{seatRecordDir, filepath.Join(seatRecordDir, "alpha")} {
+		t.Run(linked, func(t *testing.T) {
+			w := newWorld(t)
+			outside := t.TempDir()
+			at := filepath.Join(w.checkout, linked)
+			if err := os.MkdirAll(filepath.Dir(at), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(outside, at); err != nil {
+				t.Fatal(err)
+			}
+			if err := RecordSeats(w.checkout, "1@alpha", id, SourceLaunch, recordMS); err == nil {
+				t.Error("recorded through a link out of the checkout, want a refusal")
+			}
+			entries, err := os.ReadDir(outside)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 0 {
+				t.Errorf("wrote %d entries outside the checkout, want none", len(entries))
+			}
+		})
+	}
+}
+
 // The session's end carries the conversation it ended in into its seats' records: the v1 hook's
 // record here, read as a restore reads it.
 func TestSyncSeatsRecordsTheConversationTheSessionEndedIn(t *testing.T) {

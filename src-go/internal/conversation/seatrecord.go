@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +14,6 @@ import (
 	"syscall"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
@@ -67,7 +67,12 @@ type seatRecord struct {
 
 // SeatRecordPath is where checkout keeps the record of s.
 func SeatRecordPath(checkout string, s membership.Seat) string {
-	return filepath.Join(checkout, seatRecordDir, s.Team, s.Seat+".json")
+	return filepath.Join(checkout, seatRecordRel(s))
+}
+
+// seatRecordRel is the record of s from the checkout's top.
+func seatRecordRel(s membership.Seat) string {
+	return filepath.Join(seatRecordDir, s.Team, s.Seat+".json")
 }
 
 // parseList is a --teams list of seats (spaces dropped, as agent-bus drops them), at least one.
@@ -94,11 +99,22 @@ func RecordSeats(checkout, list, id, source string, nowMS int64) error {
 	if !slices.Contains(seatSources, source) {
 		return fmt.Errorf("%q is not a seat record's source", source)
 	}
-	dir := filepath.Join(checkout, seatRecordDir)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	// Everything is reached through the checkout as an os.Root: a container can write the
+	// checkout, and a link it planted would otherwise steer the host's writes out of it.
+	root, err := os.OpenRoot(checkout)
+	if err != nil {
 		return fmt.Errorf("the seat records of %s: %w", checkout, err)
 	}
-	lock, err := os.OpenFile(filepath.Join(dir, seatRecordLock), os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
+	return errors.Join(recordSeatsIn(root, checkout, seats, id, source, nowMS), root.Close())
+}
+
+// recordSeatsIn writes each seat's record under the checkout's seat-record lock, every path
+// resolved inside root.
+func recordSeatsIn(root *os.Root, checkout string, seats []membership.Seat, id, source string, nowMS int64) error {
+	if err := root.MkdirAll(seatRecordDir, 0o700); err != nil {
+		return fmt.Errorf("the seat records of %s: %w", checkout, err)
+	}
+	lock, err := root.OpenFile(filepath.Join(seatRecordDir, seatRecordLock), os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return fmt.Errorf("could not open the seat-record lock of %s: %w", checkout, err)
 	}
@@ -108,16 +124,37 @@ func RecordSeats(checkout, list, id, source string, nowMS int64) error {
 			if err != nil {
 				return fmt.Errorf("the record of seat %s@%s: %w", s.Seat, s.Team, err)
 			}
-			path := SeatRecordPath(checkout, s)
-			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			rel := seatRecordRel(s)
+			if err := root.MkdirAll(filepath.Dir(rel), 0o700); err != nil {
 				return fmt.Errorf("the seat records of %s: %w", checkout, err)
 			}
-			if err := fsx.WriteAtomic(path, "seat record", append(data, '\n'), 0o600); err != nil {
-				return err
+			if err := writeInRoot(root, rel, append(data, '\n')); err != nil {
+				return fmt.Errorf("could not write the record of seat %s@%s in %s: %w", s.Seat, s.Team, checkout, err)
 			}
 		}
 		return nil
 	})
+}
+
+// writeInRoot writes rel whole inside root: an exclusively created temporary beside it under a
+// random name, renamed into place, so no reader sees half of it and a planted name is never
+// opened.
+func writeInRoot(root *os.Root, rel string, data []byte) error {
+	tmp := rel + ".tmp." + rand.Text()
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if err = errors.Join(err, f.Close()); err == nil {
+		err = root.Rename(tmp, rel)
+	}
+	if err != nil {
+		if rmErr := root.Remove(tmp); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+			err = errors.Join(err, rmErr)
+		}
+	}
+	return err
 }
 
 // seatRecordLock is the checkout's seat-record lock file, in its seat-record directory.

@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.76 — container 2.84.89
+
+- A launch writes its seats' conversation records, and takes their lock, inside its checkout
+  only: a seat-records directory a container replaced with a link is refused, never followed to
+  write outside the checkout.
+
 ## 3.124.75 — container 2.84.89
 
 - `ccy-teams remove` deletes a stopped session's keeper report inside its checkout only: a

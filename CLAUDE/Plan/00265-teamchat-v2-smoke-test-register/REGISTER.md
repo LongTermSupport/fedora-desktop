@@ -579,8 +579,11 @@ filled in as each cause is known.
   reached through a link. Only the lock file itself is opened `O_NOFOLLOW`. The launch reaches
   the directories above it, and writes each seat record, by plain path, as before the port. So a
   container that links `.claude/ccy/seat-conversations` elsewhere makes the host's launch write
-  records there. **Open, for the coordinator:** confine the launch's seat-record writes to the
-  checkout (an `os.Root` and an exclusive temporary in it), as remove's side already is.
+  records there. **Fixed (the coordinator's call, this batch):** the launch now reaches the lock
+  and every record through the checkout as an `os.Root`. Each record is written to an
+  exclusively created temporary renamed into place, so a linked seat-records or team directory
+  is refused. The test (both links) was red, records written outside, and is green now (ccy
+  3.124.76).
 - **(3) fixed (on v2-smoke, after batch 13):** `remove` asks, while the team is still up and
   once its running sessions are off it, which stopped sessions name it on the agent bus (each
   record's system read as a restore reads it, `conversation.SystemOfRecord`). Once the team is
@@ -594,7 +597,7 @@ filled in as each cause is known.
   missed lines) and are green now. The sweep found 12 lines in 9 files: plan, test and vmtest
   scripts, a test's fake clipboard, and the UniFi play, whose temporary takes the properties
   file's mode. Each now uses `mktemp` beside its target, and the gate is clean.
-- **Batch review (qa-reviewer, 26 Nov 04:09Z, fix before merge), on v2-smoke:**
+- **Batch review (qa-reviewer, 26 Nov, fix before merge), on v2-smoke:**
   - (1) remove deleted a stopped session's keeper report by a path that follows links. It now
     deletes inside the checkout only (`os.Root`), before the record is rewritten.
   - (2) a stopped session that could not be taken off skipped the forgetting, and a second
@@ -602,12 +605,11 @@ filled in as each cause is known.
     the failure names each session left, saying what a restore of it would do.
   - (3) a running session whose membership could not be read was skipped, then taken for a
     stopped one. remove now refuses, naming it.
-  - (4) the lock's link claim is corrected above.
+  - (4) the lock's link claim did not hold; the launch's writes are now confined (above).
   - (5) two suites without `set -e` now stop when `mktemp` fails.
   - Each code fix was red first and is green now.
 - **Severity:** medium (duplicate work, and a QA rule not landed). **Issue:** #417. **State:**
-  fixed on v2-smoke for the batch after 13 (not yet on F44); (b) is for the daemon's upstream;
-  the launch's seat-record writes through a linked directory are open (finding 4).
+  fixed on v2-smoke for the batch after 13 (not yet on F44); (b) is for the daemon's upstream.
   The six branches (ci/v2-batch3, 3b, 3c and the three old agent branches) wait for the
   owner's yes to delete them, asked by the coordinator once this is green.
 
