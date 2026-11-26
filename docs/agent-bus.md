@@ -1084,6 +1084,15 @@ These are known and documented rather than engineered around:
   plain routes to your sign-in, not a determined agent, which could post as you; every
   agent on the team takes that as your request. Run agents in ccy sessions (or as a
   dedicated agent user) when that matters.
+- Those deny rules refuse any command that names a Matrix client's app id, `flatpak info`
+  included, so `flatpak run` and `flatpak enter` cannot reach the client's sandbox. To read a
+  client's installed version, permissions and running instances, a seat runs
+  `/var/local/claude-code/chat-client-info`, which `play-claude-yolo.yml` installs. It takes
+  no arguments and only runs `/usr/bin/flatpak info`, `info --show-permissions` and `ps` for
+  the clients it was built with, in a clean environment, so a caller's `PATH` cannot swap in
+  another `flatpak`. Variables an override sets are shown by name only. It is the one hole in the rules, and the
+  rules themselves are unchanged: tests in `src-go/internal/chatclientinfo` fail if they are
+  ever narrowed.
 - A `cc --teams` session's deny rules also keep the host seat in its lane: it deploys and
   triages, and does not run tests, builds, lint or QA (`go test`, `make`, `scripts/qa-*.bash`,
   `ansible-playbook` and the rest of `files/var/local/claude-code/cc-teams-settings.json`).

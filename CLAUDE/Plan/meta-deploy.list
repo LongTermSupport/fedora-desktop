@@ -112,6 +112,9 @@
 # Go commands so files written whole (fsx) create their temporary exclusively (#417). R36
 # (ccy 3.124.69): ccy-teams remove also forgets the team's seat conversation records. R36
 # (ccy 3.124.70): ccy-teams' Start a ccy session adds --fresh for a seat never used here.
+# Plan 00265 R82: the same run builds and installs /var/local/claude-code/chat-client-info, the
+# one command a cc --teams seat may use to read the chat clients' flatpak info, permissions and
+# running instances (no arguments, no other flatpak verb). The deny rules are unchanged.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00265 R23 (issue #425): teamchat run --kind lxc --key now reads the key, so a v2 LXC

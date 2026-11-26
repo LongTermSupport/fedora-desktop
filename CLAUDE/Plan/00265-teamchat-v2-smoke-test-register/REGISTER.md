@@ -1401,7 +1401,7 @@ before the move to v2. Filled in as causes are found.
     answer this one call in time (busy, or the host loaded), is reported as starting or
     restarting.
   - The words are wrong, and the state it implies (messages waiting) may be wrong too.
-- **Fix (batch 24, built test-first):**
+- **Fix (batch 23, 5fff6d691, built test-first):**
   - `ReadDown` also probes `link.lock`. A held keeper.lock, with keeper.json saying `running`
     and link.lock held, is the new state `busy`. Its text: "teamchat is running but did not
     answer in time (busy, or the machine is loaded); team messages wait on the server until it
@@ -1411,8 +1411,8 @@ before the move to v2. Filled in as causes are found.
   - The status line draws `teamchat busy` if it ever meets this state.
   - SPEC-n3 LN3 says the same.
   - The bound was not put in the words: it differs per verb (hooks 300 ms to `wait`'s timeout).
-- **Severity:** low (misleading, not lossy). **Issue:** TBF. **State:** fixed on v2-smoke, waits
-  on batch 24.
+- **Severity:** low (misleading, not lossy). **Issue:** TBF. **State:** fixed on v2-smoke in
+  batch 23 (5fff6d691).
 
 ## R77: an LXC seat unit cannot find a claude installed under nvm
 
@@ -1564,5 +1564,49 @@ before the move to v2. Filled in as causes are found.
     the broad deny exists, because a deny beats any matching allow. Until 2 ships, use 1.
   - Any change gets a test that a data-path read and a `flatpak run --command` into the app are
     still refused, and an independent review before it merges.
-- **Severity:** low (the build was read another way). **Issue:** TBF. **State:** open, owner
-  decision.
+- **Decision:** option 2, the hole punch (the owner's words above; the coordinator approved the
+  shape, 26 Nov).
+- **Fix:** `chat-client-info` (`src-go/cmd/chat-client-info`, `src-go/internal/chatclientinfo`),
+  installed root-owned at `/var/local/claude-code/chat-client-info` by `play-claude-yolo.yml`.
+  - Any argument is exit 64.
+  - It runs one fixed argv table through `execx`, each call bounded to 30 s: `flatpak ps --columns=instance,pid,application`, then `flatpak info <id>` and `flatpak info --show-permissions <id>` for each client of the embedded list (`internal/matrixclients`).
+  - `flatpak` is `/usr/bin/flatpak`, run in a clean environment (`PATH=/usr/bin:/bin`,
+    `LC_ALL=C`, and `HOME` and `XDG_RUNTIME_DIR` from the password database). So the caller's
+    `PATH`, `LD_PRELOAD` or `FLATPAK_USER_DIR` cannot choose what runs, and "not installed" is
+    read in one locale.
+  - It prints each client's info, permissions and `flatpak ps` rows. The values of the
+    permissions' `[Environment]` section are printed as `<hidden>`, because an override could
+    carry a token. A client not installed is reported as such, exit 0. Any other flatpak
+    failure is exit 1, with flatpak's cause on stderr and nothing on stdout. It never reads
+    `~/.var/app`.
+  - The deny rules are unchanged. `hole_test.go` fails if any app-id `Bash` deny or `Read`/`Edit`
+    data deny is gone, if `flatpak run --command=sh`, `flatpak enter`, `flatpak info` or a
+    data-path `cat` naming a client would pass, or if the command's own path is refused.
+  - Tests seen red against a stub, then green (`go test -race`, golangci-lint clean). Documented
+    in `docs/agent-bus.md` (Limits) and `CLAUDE/QA.md` (matrix-client-guard-uncovered).
+  - The independent review (qa-reviewer) found that the first version ran `flatpak` from the
+    caller's `PATH` and environment, and matched "not installed" in the caller's locale. Both
+    are fixed and tested above, before the first commit.
+  - Commit: FIXCOMMIT_PENDING.
+- **Severity:** low (the build was read another way). **Issue:** none. **State:** fixed, awaiting
+  deploy (`play-claude-yolo.yml` in `meta-deploy.list`).
+
+## R83: the stdin notice gives terminal advice to a live pipe
+
+- **Seen:** the devops seat, 26 Nov 09:29Z. A seat-issue script piped an issued seat into
+  `teamchat seat place-issued`, which printed "waiting for input on stdin, which has not ended",
+  then read the bundle, answered with the key and exited 0.
+- **Cause (checked):**
+  - `place-issued` reads the issued seat from stdin by design (`member/cli/place.go:50`).
+  - The notice is `internal/stdinread`'s one-second notice (`stdinread.go:245`). It fires
+    whenever nothing has arrived after a second, here because the producer at the other end of
+    the pipe was slow.
+  - Its advice ("pipe it in, or end it (ctrl-D, or < /dev/null for none)") is written for a
+    terminal. To a script whose pipe is live and only slow, it reads as a fault.
+- **Fix:**
+  - When stdin is a pipe or a file, not a terminal, the notice says that the input is still
+    awaited from its pipe, and gives the bound after which the verb refuses. The ctrl-D advice
+    goes only to a terminal.
+  - The one notice serves every verb (issue #260's seam), so this is one change in `stdinread`
+    with a test for each kind of stdin.
+- **Severity:** low (misleading text, no wrong result). **Issue:** TBF. **State:** open.

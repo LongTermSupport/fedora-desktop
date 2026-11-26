@@ -3472,6 +3472,10 @@ every native folder (and each `-<profile>` folder), plus `Bash(*<app id>*)` and
 hold the Secret Service denies. The launcher's `MATRIX_PROFILE_PATHS` and
 `MATRIX_PROFILE_PREFIXES` arrays, each on one line, must be the list's paths and prefixes in
 order. Run it alone with `go -C src-go test ./internal/matrixclients -run 'Cover|Copy'`.
+`src-go/internal/chatclientinfo`'s `hole_test.go` holds the one hole in those deny rules
+(`chat-client-info`, Plan 00265 R82): the app-id and data-path denies are still there, a
+`flatpak run --command`, `flatpak enter`, `flatpak info` or data-path read naming a client is
+still refused, and the command's own path passes every Bash deny.
 
 **Why it exists.** These guards spell out the clients by hand, so a client added to the list
 would reach every guard that reads the list but none of these (issue #251).
