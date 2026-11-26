@@ -1378,3 +1378,21 @@ before the move to v2. Filled in as causes are found.
     owner's word, and refuses a held seat or a live team. The owner's retire decision is
     their Q17.
 - **Severity:** medium. **Issue:** #386 (related). **State:** open.
+
+## R76: "teamchat is starting or restarting" from a link that is running
+
+- **Seen:** the coordinator, 26 Nov 08:11Z. It got a prompt notice "teamchat is starting or
+  restarting; team messages wait on the server", while its status showed link restarts 0 and
+  uptime 13750 s.
+- **Cause (read in code):** when a verb or hook gets no answer from the link, it asks
+  `ReadDown` why (`member/client/client.go:223`, `member/client/nolink.go:43-69`).
+  - `ReadDown` starts from `DownStarting`. It changes that only for a failed link, or for a
+    restarting one with a next-try time.
+  - So a link whose `keeper.json` says `running` (`state/values.go:22`), but which did not
+    answer this one call in time (busy, or the host loaded), is reported as starting or
+    restarting.
+  - The words are wrong, and the state it implies (messages waiting) may be wrong too.
+- **Fix (batch 24):** a held keeper lock with the link `running` is its own state. The words say
+  the link is up but did not answer this call in time, and name the bound. A test runs over a
+  `keeper.json` that says running.
+- **Severity:** low (misleading, not lossy). **Issue:** TBF. **State:** open.
