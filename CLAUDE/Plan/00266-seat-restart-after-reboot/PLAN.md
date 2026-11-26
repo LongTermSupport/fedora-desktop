@@ -93,14 +93,40 @@ passes no token, so claude uses the container user's own stored Claude login. A 
 container therefore needs that user logged in to Claude once, interactively, inside the
 container. The host's per-session token pool does not reach it.
 
+**Finding the claude command (checked in `unit.go:92`; the install fact is from a team seat's
+own check in a project's containers):** the unit's PATH is fixed:
+`~/.local/bin:/usr/local/bin:/usr/bin:/bin`. In some containers, claude is an npm package
+under nvm (`~/.nvm/versions/node/<version>/bin/claude`), and `~/.bashrc` loads nvm only in an
+interactive shell. That container's own launchers source `nvm.sh` themselves. So a seat unit
+there finds neither `claude` nor the `node` it runs on. This already breaks
+`teamchat-admin lxc start` in such a container, not only a restart after a reboot.
+Decision for C.2 (and the fix for today's start):
+
+- At `lxc start`, the host asks the container user's interactive login shell once for
+  `command -v claude` and `command -v node`, and refuses loudly, naming both, if either is
+  missing.
+
+- Both directories go first in the unit's PATH.
+
+- The recorded start command carries the same resolved PATH, so a boot replay needs no shell
+  of the user's.
+
+- Nothing is guessed from a version number. A change of node version shows as a refusal at
+  the next start, with the repair named (start the seat again).
+
 - [x] ✅ **Task C.0**: How an LXC seat starts and signs in: answered above.
+
 - [ ] ⬜ **Task C.1**: Owner ruling, given 26 Nov: seats in LXC come back after a reboot, which
   reverses Plan 00257 Task B.12, "no LXC member session starts with its container", for the seats active at
   shutdown. Recorded; nothing more to decide.
+
 - [ ] ⬜ **Task C.2**: A root unit from `play-lxc-install-config.yml`. At shutdown it records the
   running containers and their active seat units, root-owned under `/var/lib`. At boot it
   starts exactly those containers, then runs `teamchat-admin lxc start --member` for each
   recorded seat, by its declared container and key only. It runs before the user's session restore, and its logic is in Go.
+  Before it: the claude and node lookup above, test first, in the unit and in `lxc start`
+  (register R77).
+
 - [ ] ⬜ **Task C.3**: verify-restore reports the LXC set.
 
 ## Success Criteria
