@@ -32,7 +32,7 @@ filled in as each cause is known.
 - **Severity:** critical. **Issue:** #422. **Unit:** U2. **State:** fixed (U2), merged into
   `v2-smoke` and on F44 at c1b20004f (the home pin), but in no image until container 2.84.78
   (`09c383f5b`; R54). The live check is in `reports/U2.md`.
-  The owner confirmed the new meaning (lts-ops Q11, A12): `human_text` gates a human's words
+  The owner confirmed the new meaning (<team> Q11, A12): `human_text` gates a human's words
   only. Plan 00209 A 7.6 rule 08 and Plan 00161 D63 now say so.
 
 ## R2: `reply` refuses an item `history` lists
@@ -133,7 +133,7 @@ filled in as each cause is known.
 - **Reproduce:** start a coordinator seat; no procedure is shown.
 - **Owner's input (F9, 12:39Z):** messages to a human are walls of text. The procedure must say a
   message to a human is short markdown: the point first in bold, then bullets, a status emoji, and
-  the ask last. Questions are closed when done and bumped while waiting. lts-infra's wording
+  the ask last. Questions are closed when done and bumped while waiting. the infrastructure agents' wording
   ("The owner, and how they want to be spoken to" in its coordinator doc) is input for the
   generic text.
 - **Severity:** high. **Issue:** #420. **State:** open.
@@ -246,7 +246,7 @@ filled in as each cause is known.
 - **Severity:** high (blocks every container-made fix from reaching the estate).
   **Issue:** TBF. **State:** confirmed by the coordinator (A9). The estate accepts four keys, and
   this container's key is not one of them, so the pin check and the dev VMs' self-update refuse
-  these commits. The owner decides (lts-ops Q10): countersign each batch, trust the key, or trust
+  these commits. The owner decides (<team> Q10): countersign each batch, trust the key, or trust
   it at home only. Who signs is not changed here. **Resolved for home (A10, the owner, 12:47Z):**
   no countersigning. The home environment trusts this key (the home dev VM's shared key), and
   the datacentre does not, so it stays on its old pin and skips these commits.
@@ -305,7 +305,7 @@ filled in as each cause is known.
 ## R41: a seat cannot be added to a running v2 session (regression against v1)
 
 - **Seen:** this seat, reading the code for F18 and F19 (the owner: another team's coordinator also
-  becomes worker seat 7 on lts-ops), 2026-11-25.
+  becomes worker seat 7 on <team>), 2026-11-25.
 - **What:** v1's `ccy-teams session add <session> <team>[/<seat>]` adds a seat to a running
   session. In v2 the keeper already re-reads the session's `desired.json` and the engine can add
   a team while running (`member/keeper/seats.go`, `engine/teams.go`). But `session add`
@@ -316,7 +316,7 @@ filled in as each cause is known.
   each delivery names its team, role and `human_text` are per seat, and the questions verbs check
   coordinatorship per team.
 - **Interim:** relaunch keeping the conversation: `ccy-teams seats conversation 1@<team-B>` while
-  the session runs, `/exit`, then `ccy --resume <id> --teams 1@<team-B>,7@lts-ops`.
+  the session runs, `/exit`, then `ccy --resume <id> --teams 1@<team-B>,7@<team>`.
 - **Fix:** `ccy-teams session add` writes the next generation of a teamchat session's
   `desired.json` (after the seat is in the pool).
 - **Cause, checked (U10):** worse than the row said: a v2 launch makes no v1 membership
@@ -421,7 +421,7 @@ filled in as each cause is known.
 
 ## R44: the standard coordinator procedure ships with the team tooling
 
-- **Seen:** the owner, lts-ops questions room 13:55Z (F20): "this needs to be standardised and
+- **Seen:** the owner, <team> questions room 13:55Z (F20): "this needs to be standardised and
   the <team-B> team coordinator needs the same instructions" (team name replaced).
 - **What:** a team's coordinator learns its procedure from a hand-over note in its own
   repository; another team's coordinator has none. The infrastructure repository has written one
@@ -482,7 +482,7 @@ filled in as each cause is known.
 
 ## R35: the Lightning client setup for a team, with presets
 
-- **Seen:** the owner, lts-ops Q2 and 12:53Z (F13).
+- **Seen:** the owner, <team> Q2 and 12:53Z (F13).
 - **What:** the owner's boundary ruling puts setting up Lightning for a team in fedora-desktop.
   Today that setup is a script in the team's own infrastructure repository. The owner asks
   whether Lightning can be preconfigured when it is set up for a team. The first preset is the
@@ -683,7 +683,7 @@ filled in as each cause is known.
 
 ## R49: a worker's failed questions join was reported as "event not found"
 
-- **Seen:** the devops seat, Task 4.11 (lts-ops), 14:40Z, holding a write on owner words it
+- **Seen:** the devops seat, Task 4.11 (<team>), 14:40Z, holding a write on owner words it
   could not verify (F25).
 - **What:** a worker's `verify` of a questions post joins questions by its invite when refused
   (`teamsync/verbs.go`, `getQuestionsEvent`). When that join failed, the cause went only to
@@ -703,7 +703,7 @@ filled in as each cause is known.
 
 ## R48: the off-host route demanded a dedicated agent user (uid and groups)
 
-- **Seen:** the owner, lts-ops Q8, 14:31Z (F22): "we're still blocked - the whole uid thing is
+- **Seen:** the owner, <team> Q8, 14:31Z (F22): "we're still blocked - the whole uid thing is
   misguided".
 - **What:** K15 (a guest uid that is a host account's is refused) is enforced only by the
   homeserver host's own `lxc apply` and its absent phase (`guestfacts.go:157`, given that host's
@@ -807,7 +807,7 @@ filled in as each cause is known.
 ## R64: a link restart re-judges the questions room and rate-drops the owner's posts
 
 - **Seen:** the coordinator's `teamchat status` after its 18:48Z relaunch, 25 Nov:
-  `"dropped_by":{"rate":45}`, and link.log lines "teamsync lts-ops: dropped $<id>: rate".
+  `"dropped_by":{"rate":45}`, and link.log lines "teamsync <team>: dropped $<id>: rate".
   The coordinator re-fetched all 45 with `teamchat verify`. Every one was a HUMAN post by the
   owner in the questions room, sent 12:42-16:47Z, all already shown before the relaunch. So
   nothing was lost this time.
@@ -1069,7 +1069,7 @@ filled in as each cause is known.
 
 ## R45: Lightning shows no settings button in a collapsed room list with the rail hidden
 
-- **Seen:** the owner, lts-ops questions room, 14:16Z (F21).
+- **Seen:** the owner, <team> questions room, 14:16Z (F21).
 - **What:** with the spaces rail hidden and the room list collapsed to its narrow column, no
   settings or account button is on screen; the owner widened the list by hand to reach them.
   Upstream source at 05d0be9c: the full-width header that carries them is hidden when compact,
@@ -1079,7 +1079,7 @@ filled in as each cause is known.
 
 ## R46: Lightning has no quick toggle to collapse and expand the room list
 
-- **Seen:** the owner, lts-ops questions room, 14:16Z (F21).
+- **Seen:** the owner, <team> questions room, 14:16Z (F21).
 - **What:** collapsing or expanding the room list takes a drag, click or double-click on a 1 px
   divider; Ctrl+B hides the list entirely and no shortcut or button switches its width.
 - **Issue:** upstream [lightning-matrix/lightning#108](https://github.com/lightning-matrix/lightning/issues/108).
@@ -1133,9 +1133,9 @@ before the move to v2. Filled in as causes are found.
 - **What:** the tab should show the team and seat, and follow a switch between tmux sessions.
 - **Owner's spec (F10, 12:47Z):** the tab, the tmux session and the seat all show team, project
   and seat number, and the seat type, which is the launcher used (`ccy` for a container seat,
-  `cc` for a seat on the machine itself). Example: `lts-ops · fedora-desktop.4 · ccy`. The owner
+  `cc` for a seat on the machine itself). Example: `<team> · fedora-desktop.4 · ccy`. The owner
   may still change the order.
-- **More (F15, the laptop host seat, 13:36Z):** that seat's tmux session is `cc-lts-lts-infra`,
+- **More (F15, the laptop host seat, 13:36Z):** that seat's tmux session is `cc-<team>-<project>`,
   which does not name its seat. The tab title inside tmux is tmux's own: `files/etc/tmux.conf`
   sets `set-titles on` with `set-titles-string "tmux: #S  (F12 then Detach leaves it running)"`,
   so the tab shows the session name, and ccy's own title (`CCY: <project>`) is overwritten while
@@ -1272,7 +1272,7 @@ before the move to v2. Filled in as causes are found.
   delivery the session did get from 25 Nov on was a PING (fetch).
 - **Correction (08:14Z, from the seat's link log):** my first read said the loss was between
   the store and the session. That was wrong. The link drops the messages at receive.
-  - Its `link.log` holds 433 lines `teamsync lts-ops: dropped <id>: sender`, covering every
+  - Its `link.log` holds 433 lines `teamsync <team>: dropped <id>: sender`, covering every
     PEER from every sender. The coordinator's 07:54Z job is among them.
   - The 14 "in"/"peer" history items are the same drops: that binary's history records a
     dropped item too.
@@ -1432,7 +1432,7 @@ before the move to v2. Filled in as causes are found.
 
 ## R78: run.bash runs from a dirty checkout, or one behind its upstream
 
-- **Seen:** the owner, lts-ops Q18, 26 Nov 08:58Z (verbatim): "run.bash should block with force
+- **Seen:** the owner, <team> Q18, 26 Nov 08:58Z (verbatim): "run.bash should block with force
   escape hatch if the repo is behind remote or uncommited".
 - **Today (checked in run.bash):**
   - A clean tree is required only before an update or a pin (`assert_clean_worktree`, line

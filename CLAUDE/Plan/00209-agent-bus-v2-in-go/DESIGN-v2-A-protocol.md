@@ -1120,7 +1120,7 @@ otherwise: `redact` (rule 01), `index` (rule 03), `fault` (rule 05) and `record`
     Otherwise the typed-key rule (7.1), then by key: `teamchat.ping` the ping path (8.1), kind PING;
     `teamchat.text` kind PEER, after rule 09's addressing and whatever the member's
     `human_text`: `human_text` gates a human's words only, and the agents of a team can always
-    message a seat (the owner, lts-ops Q11; issue #422), except one with `relay`, which a member with `human_text: false` drops `sender` and which otherwise takes the relay path (10.6) and, if it passes,
+    message a seat (the owner, <team> Q11; issue #422), except one with `relay`, which a member with `human_text: false` drops `sender` and which otherwise takes the relay path (10.6) and, if it passes,
     kind HUMAN with the room lines of questions; `teamchat.notice` only
     `left`, `disconnected` or `back` with `subject` equal to `sender`, kind NOTICE; any other agent notice:
     drop `target`.

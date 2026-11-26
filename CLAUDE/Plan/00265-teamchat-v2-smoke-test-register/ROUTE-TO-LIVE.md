@@ -16,7 +16,7 @@ repository's code or seen in a run; anything else is marked unchecked.
 | L6  | The kit inside each container (`/usr/local/lib/teamchat/kit/<digest>/`, `current`, `/usr/local/bin/teamchat`), built for the container's architecture.                               | Not started. Today: the container's own provisioner copies it (owner question O1). | the container team's repository                        | L5 (a kit to copy); O1   |
 | L7  | ~~A dedicated agent user whose uid is no host account's (K15).~~ Not needed (F22, R48): off-host nothing reads a host's accounts; the container's existing login, not root, will do. | Dropped. `seat place-lxc` accepts the login's other groups (R48).                  | -                                                      | -                        |
 | L8  | The container's launcher wraps `teamchat run --claude --kind lxc --key <key> -- <its wrapper> claude ...` and stops looking for the v1 kit (its exit 78 today).                      | Not started. The contract is pinned by a test (A3).                                | the container team's repository                        | nothing (contract known) |
-| L9  | The team's `url` is a name the containers' VM resolves, and its TLS terminator is reachable from there (`networks`, firewall).                                                       | Unchecked.                                                                         | lts-infra inventory                                    | nothing                  |
+| L9  | The team's `url` is a name the containers' VM resolves, and its TLS terminator is reachable from there (`networks`, firewall).                                                       | Unchecked.                                                                         | the infrastructure inventory                           | nothing                  |
 | L10 | Issue and place each seat: `teamchat-admin member add ... --kind lxc --credential token` on the homeserver host, piped by ssh into `teamchat seat place-lxc` in the container.       | Not started.                                                                       | the owner (sudo on the homeserver host) or devops seat | L5-L9; O4                |
 | L11 | Live acceptance (below, A1-A5).                                                                                                                                                      | Not started.                                                                       | devops seat                                            | L10                      |
 
@@ -51,7 +51,7 @@ decide at L5.
 
 - **The container team's repository:** a dedicated agent user (L7); the launcher change (L8); a
   plan to copy the kit (L6, pending O1).
-- **lts-infra:** confirm the team url resolves and the terminator is reachable from the containers'
+- **The infrastructure agents:** confirm the team url resolves and the terminator is reachable from the containers'
   VM (L9); if the owner picks the same-host route, the declaration move.
 
 ## 2. Every other fix: merge, build, restart
