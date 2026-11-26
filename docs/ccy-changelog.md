@@ -17,6 +17,11 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.127 — container 2.84.110
+
+- No change in behaviour: the custom Dockerfile check's unattended flag is set by an `if`, which
+  the `ccy-unattended-refusal-status` gate reads correctly.
+
 ## 3.124.126 — container 2.84.110
 
 - A custom `.claude/ccy/Dockerfile` is built only as a person approved it (Plan 00266 review

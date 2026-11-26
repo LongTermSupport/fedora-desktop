@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.124.126"  # Container 2.84.110: a custom Dockerfile is built only as a person approved it; the history is in docs/ccy-changelog.md.
+CCY_VERSION="3.124.127"  # Container 2.84.110: a custom Dockerfile is built only as a person approved it; the history is in docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -2025,8 +2025,7 @@ ccy_image_build_locked "$IMAGE_NAME" ccy_base_image_current "$REQUIRED_CONTAINER
 # and writes those bytes into a private directory; that copy is what is hashed and built.
 PROJECT_DOCKERFILE=""
 if [ "$DISABLE_CUSTOM_DOCKER" = false ] && { [ -e .claude/ccy/Dockerfile ] || [ -L .claude/ccy/Dockerfile ]; }; then
-    dockerfile_unattended=false
-    ! ccy_launch_unattended || dockerfile_unattended=true
+    if ccy_launch_unattended; then dockerfile_unattended=true; else dockerfile_unattended=false; fi
     PROJECT_DOCKERFILE=$(ccy-teams internal checkout-pin dockerfile "$dockerfile_unattended" "$(mktemp -d "${TMPDIR:-/tmp}/ccy-dockerfile-XXXXXX")") || {
         [ "$dockerfile_unattended" = false ] || ccy_unattended_stop dockerfile-unapproved "the custom Dockerfile was refused (see above): approve it with ccy-teams approve dockerfile $PWD"
         exit 1
