@@ -211,6 +211,9 @@ func (e *Engine) rejudgeAll(got map[key]fetched, c *copies) {
 		if (f.err != nil && !gone) || h == nil || !eligible(h, nil) {
 			continue
 		}
+		if !gone && e.forgeHeld(h, k.id, f.v, c) {
+			continue
+		}
 		var why string
 		if gone {
 			why = "it can no longer be fetched (" + f.err.Error() + ")"
@@ -221,19 +224,29 @@ func (e *Engine) rejudgeAll(got map[key]fetched, c *copies) {
 			h.content[k.id] = f.v
 			continue
 		}
-		if s := c.of(h); s != nil {
-			i := slices.IndexFunc(s.Pending, func(it state.Pending) bool { return it.ID == k.id })
-			if i < 0 {
-				continue
-			}
-			left := s.Pending[i]
-			s.Pending = slices.Delete(s.Pending, i, i+1)
-			if floor, moved := raiseFloors(s, []state.Pending{left}); moved {
-				c.raised[h.id] = floor
-			}
+		if c.remove(h, k.id) {
 			e.logf("team %s: restored item %s dropped: %s", h.id, k.id, why)
 		}
 	}
+}
+
+// remove takes the item id out of h's copy, its floor raised as B 2.3.2 says; false when the
+// copy cannot be made or holds no such item.
+func (c *copies) remove(h *held, id string) bool {
+	s := c.of(h)
+	if s == nil {
+		return false
+	}
+	i := slices.IndexFunc(s.Pending, func(it state.Pending) bool { return it.ID == id })
+	if i < 0 {
+		return false
+	}
+	left := s.Pending[i]
+	s.Pending = slices.Delete(s.Pending, i, i+1)
+	if floor, moved := raiseFloors(s, []state.Pending{left}); moved {
+		c.raised[h.id] = floor
+	}
+	return true
 }
 
 // choose marks the candidates within the caps handed by ack, in their copies, and is their
@@ -334,6 +347,45 @@ func (e *Engine) rejudge(h *held, id string, v proto.Verdict) string {
 		return "it is not newer than its room's floor"
 	}
 	return ""
+}
+
+// forgeHeld is a re-judged item whose forge check failed (Plan 00267 Task 3.2), in its copy: a
+// transient failure before its deadline (Pending.ForgeUntil, set now for an item never checked
+// before) is kept, unproven, until its next check; at the deadline, or on a provenance answer,
+// it is dropped into the drop ledger and bounced to its sender. False for any other verdict.
+// An item whose bounce the store refuses is kept, so it is never lost.
+func (e *Engine) forgeHeld(h *held, id string, v proto.Verdict, c *copies) bool {
+	if v.Outcome != proto.Drop || !proto.ForgeTransient(v.Reason) && v.Reason != proto.ReasonProvenance {
+		return false
+	}
+	s := c.of(h)
+	if s == nil {
+		return true
+	}
+	i := slices.IndexFunc(s.Pending, func(it state.Pending) bool { return it.ID == id })
+	if i < 0 {
+		return true
+	}
+	wall := e.cfg.Clock.WallMS()
+	p := &s.Pending[i]
+	until := p.ForgeUntil
+	if until == 0 {
+		until = wall + proto.ForgeRetryLimitMs
+	}
+	if proto.ForgeTransient(v.Reason) && wall < until {
+		p.ForgeUntil, p.NotBefore = until, wall+proto.ForgeRetryEveryMs
+		e.logf("team %s: item %s: its forge check gave %s; it is checked again until %s",
+			h.id, id, v.Reason, time.UnixMilli(until).UTC().Format(time.RFC3339))
+		return true
+	}
+	left := *p
+	if err := bounce(s, team.Bounce{ID: left.ID, Room: left.Room, From: left.From, SentMS: left.SentMS, Reason: v.Reason}, wall); err != nil {
+		e.logf("team %s: item %s is kept: its forge check gave %s, and its bounce was refused: %v", h.id, id, v.Reason, err)
+		return true
+	}
+	c.remove(h, id)
+	e.logf("team %s: item %s dropped and bounced: its forge check gave %s", h.id, id, v.Reason)
+	return true
 }
 
 // recv is LN4's recv: items handed and persisted, then their records, then more when items are

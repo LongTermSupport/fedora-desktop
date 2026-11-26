@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.110 — container 2.84.107
+
+- The image's teamchat keeps a ping whose forge check failed for a passing reason in its store,
+  not in memory (Plan 00267 Task 3.2a). A link restart no longer loses it. It is checked again
+  every 30 seconds before it is delivered. If it is still unproven 10 minutes after it was
+  first read, or the forge says `provenance`, it is dropped and bounced to its sender. A queued
+  item whose check fails for a passing reason when it is fetched again is kept the same way.
+
 ## 3.124.109 — container 2.84.106
 
 - The approved project mounts are appended to the run's mounts by `load_project_mounts`

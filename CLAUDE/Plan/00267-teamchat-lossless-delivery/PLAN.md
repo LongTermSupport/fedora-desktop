@@ -100,31 +100,31 @@ file and line.
   drop ledger and owed receipts of Phase 2 (`TestAHeldItemPastTheAgentShareBouncesRate`). No
   item is held back now, so the `held back:` line (A 11.4) is never written; Phase 5 decides its
   text with the `held(rate)`/`held(budget)` receipts of Phase 4.
-- [ ] 🔄 **Task 3.2**: A transient forge failure retries to a deadline. A stale item on replay is
+- [x] ✅ **Task 3.2**: A transient forge failure retries to a deadline. A stale item on replay is
   delivered marked late with its send time; a waiting-only verb whose sender gave up bounces
   `expired`. Built, the replay half: `proto.Judge.Replay`, set for a resume's answer and for
   `Refetch`, delivers a stale item with `Verdict.Late` and `Pending.late`, rendered as a `late:`
   line (`TestVerdictStaleOnReplay`, `TestAStaleMentionReadAtTheStartIsDeliveredLate`,
   `TestARefetchedItemPastItsAgeIsDeliveredLate`, golden `late.txt`); a stale `halt` or `sync`
   (`proto.WaitsOnSender`) there is dropped and bounced `expired`. Off replay, stale is still a
-  bounced drop. Built, the forge half: a check that gives `unresolved` or `forge-rate` holds
-  the ping on the team (`Team.forgeHeld`, at most `forgeHeldCap` 256; past it, dropped and
-  bounced at once), logged `held <id>: its forge check gave <reason>; it is checked again until <time>`. Each answer checks the held pings again every `forgeRetryEvery` (30 s): a proven one
-  is delivered, and a `provenance` drop, or a failure at `forgeRetryLimit` (10 min from the first
-  judging), is dropped and bounced with its reason. Main's floor stays just below each held
-  ping (`heldFloor`). Tests: `TestATransientForgeFailureIsHeldUntilItProves`,
-  `TestATransientForgeFailureIsBouncedAtItsDeadline`, `TestAProvenanceFailureIsBouncedAtOnce`,
-  `TestPastTheHeldCapAFailureIsDroppedAtOnce`, `TestTheFloorStaysBelowAHeldPing`, SD5-r1/r2/r4/r8/
-  r11/r12 changed to hold (r8 also shows a hold outliving a session restart). It stays open
-  until the coordinator rules whether Task 3.2a must land with it.
-- [ ] ⬜ **Task 3.2a**: Make the forge hold durable. A held ping lives in the link's memory, and
-  the link resumes from the stored `next_batch` whenever one is stored, not from the floor.
-  So a link that restarts while a ping is held never reads it again, and the ping is lost
-  with no bounce. The floor below it helps only a resume with no position (a first run or a
-  restore-epoch reset). The likely fix is a store change: keep the held ping as a pending
-  entry marked unproven, with `not_before` set to its next check, and check it again before
-  delivery. `Team.Refetch` (an item read again from pending) still turns a transient
-  failure into a drop at once. It needs the same hold, which that pending mark would give.
+  bounced drop. The forge half is Task 3.2a's durable hold.
+- [x] ✅ **Task 3.2a**: The forge hold is durable (the coordinator's ruling of 26 Nov: no path to
+  a silent loss; a hold in the link's memory was refused, because the link resumes from the
+  stored `next_batch`, past a held ping, so a restart would lose it unbounced). A check that
+  gives `unresolved` or `forge-rate` (`proto.ForgeTransient`) takes the ping into pending
+  unproven: `Pending.forge_until`, the deadline `proto.ForgeRetryLimitMs` (10 min) after it was
+  first judged, and `not_before` its next check, `proto.ForgeRetryEveryMs` (30 s) on. Its
+  verdict is kept out of memory, so the delivery loop and `recv` re-fetch it (`Team.Refetch`,
+  which runs the check) before it is shown. The engine's `forgeHeld` keeps a check still failing
+  before the deadline to the next slot, and at the deadline, or on `provenance`, drops it into
+  the drop ledger and bounces it to its sender; a refused bounce keeps the item. A restored item
+  whose re-fetch fails transiently is given the same mark. Pending's agent share bounds the
+  unproven pings (past it, bounced `rate`). Tests: `TestATransientForgeFailureIsTakenUnproven`,
+  `TestAnUnprovenPingStillFailingIsHeldToItsNextCheck`, `TestAnUnprovenPingIsBouncedAtItsDeadline`,
+  `TestAnUnprovenPingThatProvesIsHanded`, `TestAPersistedUnprovenPingIsCheckedAgainBeforeItIsHanded`,
+  `TestAnUnprovenPingSurvivesALinkRestart` (a fresh engine over the persisted store delivers it,
+  or bounces it at its deadline), `TestAnUnprovenPingsDeadlineIsKeptAndChecked`,
+  `TestForgeTransient`; SD5-r1/r2/r4/r8/r11/r12 changed to take the ping unproven.
 
 ### Phase 4: receipts at each point (C2)
 

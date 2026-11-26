@@ -533,3 +533,15 @@ func TestVerdictReceiveFlood(t *testing.T) {
 		t.Fatalf("the admin is not flood-limited: %+v", v)
 	}
 }
+
+// Plan 00267 Task 3.2: unresolved and forge-rate are the forge failures checked again; a
+// provenance failure, and every other reason, is final.
+func TestForgeTransient(t *testing.T) {
+	for reason, want := range map[string]bool{
+		ReasonUnresolved: true, ReasonForgeRate: true, ReasonProvenance: false, ReasonStale: false, "": false,
+	} {
+		if got := ForgeTransient(reason); got != want {
+			t.Errorf("ForgeTransient(%q) = %v, want %v", reason, got, want)
+		}
+	}
+}

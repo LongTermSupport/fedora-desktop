@@ -95,6 +95,20 @@ const (
 	DeliveryWindowMs  = 600_000
 )
 
+// A ping whose forge check fails transiently (ForgeTransient) is checked again every
+// ForgeRetryEveryMs, until ForgeRetryLimitMs after it was first judged, then dropped and
+// bounced (Plan 00267 DESIGN A row 42).
+const (
+	ForgeRetryEveryMs = 30_000
+	ForgeRetryLimitMs = 600_000
+)
+
+// ForgeTransient is whether a forge check's drop reason may pass if the check is made again:
+// the forge did not answer in time, or a rate limit refused it. Provenance is final.
+func ForgeTransient(reason string) bool {
+	return reason == ReasonUnresolved || reason == ReasonForgeRate
+}
+
 // ForgeChecksPerSender is a sender's uncached receive checks per ReceiveWindowMs, past which its
 // pings drop unresolved with no request: one of the member's own bounds on forge requests
 // (n3d-D31), not a roster limit.

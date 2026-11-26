@@ -294,7 +294,7 @@ func fullStore(t *testing.T) Store {
 		p := Pending{ID: eventID(i) + "~" + longLocal, Room: proto.PurposeQuestions, Item: records.KindTimeout, SentMS: farMS, From: longID, Handed: new("0badf00d")}
 		switch {
 		case i < capPending-pendingReserve:
-			p.ID, p.Item, p.Verb, p.NotBefore, p.Late = eventID(i), records.KindPing, new(proto.VerbBlocked), farMS, true
+			p.ID, p.Item, p.Verb, p.NotBefore, p.Late, p.ForgeUntil = eventID(i), records.KindPing, new(proto.VerbBlocked), farMS, true, farMS
 		case i%2 == 0:
 			p.ID, p.Item, p.RelayedBy, p.Q = eventID(i), records.KindHuman, longLocal, proto.MaxQuestionN
 		}
@@ -802,6 +802,30 @@ func TestALateItemsMarkIsKeptAndChecked(t *testing.T) {
 		"on a NOTICE": func(s *Store) {
 			s.Pending[2].Item, s.Pending[2].Verb, s.Pending[2].Late = records.KindNotice, nil, true
 		},
+	} {
+		s := sampleStore(t)
+		edit(&s)
+		if _, err := s.encode(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: encode = %v, want ErrInvalid", name, err)
+		}
+	}
+}
+
+// Plan 00267 Task 3.2: a ping whose forge check failed transiently keeps, through a write, the
+// time until which it is checked again; only a PING carries one, and it is a time.
+func TestAnUnprovenPingsDeadlineIsKeptAndChecked(t *testing.T) {
+	s := sampleStore(t)
+	s.Pending[2].ForgeUntil = 600_012
+	data, err := s.encode()
+	check(t, err)
+	var back Store
+	check(t, json.Unmarshal(data, &back))
+	if back.Pending[2].ForgeUntil != 600_012 || back.Pending[0].ForgeUntil != 0 {
+		t.Fatalf("the deadlines after a write: %+v", back.Pending)
+	}
+	for name, edit := range map[string]func(*Store){
+		"on a HUMAN item": func(s *Store) { s.Pending[0].ForgeUntil = 600_012 },
+		"not a time":      func(s *Store) { s.Pending[2].ForgeUntil = -1 },
 	} {
 		s := sampleStore(t)
 		edit(&s)

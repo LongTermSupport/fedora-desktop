@@ -3,14 +3,12 @@ package teamsync
 import (
 	"context"
 	"errors"
-	"fmt"
 	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -107,85 +105,38 @@ func (w *world) done(local, reference string) string {
 	return w.post(local, out, err)
 }
 
-// halt posts coord's halt to me, a ping with no reference: an item every answer that holds it
-// persists, so a test of a held ping always has a batch to read.
-func (w *world) halt() {
-	w.t.Helper()
-	out, err := w.composer(coord).Ping(proto.Ping{Verb: proto.VerbHalt, To: []string{user(me)}}, "", "")
-	w.post(coord, out, err)
-}
-
-// heldIn is whether the batch b took nothing of the held ping id: no item, no drop, no bounce,
-// and main's floor, when it moves, still below it.
-func (w *world) heldIn(b team.Batch, id string) bool {
-	w.t.Helper()
-	if slices.Contains(itemIDs(b), id) || b.Counts.Dropped != 0 || len(b.Bounces) != 0 {
-		return false
+// unprovenIn is whether the batch b took the ping id unproven: an item marked with its forge
+// deadline and held to its next check, and no drop or bounce.
+func unprovenIn(b team.Batch, id string) bool {
+	for _, it := range b.Items {
+		if it.Pending.ID == id {
+			p := it.Pending
+			return p.ForgeUntil != 0 && p.NotBefore != 0 && b.Counts.Dropped == 0 && len(b.Bounces) == 0
+		}
 	}
-	f, moved := b.Floors[proto.PurposeMain]
-	return !moved || !f.Covers(w.ts(id), id)
+	return false
 }
 
-// Plan 00267 Task 3.2 (DESIGN A row 42): a transient forge failure is held, not dropped, and
-// checked again; once the forge proves it, it is delivered and the floor passes it.
-func TestATransientForgeFailureIsHeldUntilItProves(t *testing.T) {
+// Plan 00267 Task 3.2 (DESIGN A row 42): a transient forge failure is no drop. The ping is
+// taken unproven, durably, with the deadline of its checks and held to the first of them; the
+// delivery loop checks it again (engine forgeHeld).
+func TestATransientForgeFailureIsTakenUnproven(t *testing.T) {
 	w := newWorld(t)
 	f := newFakeForge(map[string]forgeAnswer{ref(1): {outcome: proto.ReasonForgeRate}})
 	r, release := w.held(w.newTeam(withForge(f)))
 	id := w.done(peer, ref(1))
-	w.halt()
+	now := w.clk.WallMS()
 	release()
 	b := w.batch()
-	if !w.heldIn(b, id) || len(b.Items) != 1 {
-		t.Fatalf("the failed check: batch %+v; log %q", b, w.log.String())
-	}
 	r.settled(t, b)
+	if len(b.Items) != 1 || b.Counts.Dropped != 0 || len(b.Bounces) != 0 {
+		t.Fatalf("batch %+v", b)
+	}
+	if p := b.Items[0].Pending; p.ID != id || p.ForgeUntil != now+proto.ForgeRetryLimitMs || p.NotBefore != now+proto.ForgeRetryEveryMs {
+		t.Errorf("pending %+v", p)
+	}
 	if n := w.log.count("held " + id + ": its forge check gave forge-rate; it is checked again until "); n != 1 {
 		t.Errorf("the held line said %d times; log %q", n, w.log.String())
-	}
-	f.answerAll(forgeAnswer{})
-	w.clk.StepWall(forgeRetryEvery.Milliseconds())
-	w.halt()
-	b = w.batch()
-	if got := itemIDs(b); len(got) != 2 || got[0] != id || b.Counts.Dropped != 0 {
-		t.Errorf("rechecked: items %v, counts %+v; log %q", got, b.Counts, w.log.String())
-	}
-	if fl := b.Floors[proto.PurposeMain]; !fl.Covers(w.ts(id), id) {
-		t.Errorf("the floor %+v does not pass the delivered ping", fl)
-	}
-}
-
-// Plan 00267 Task 3.2: a failure still there at forgeRetryLimit is dropped with its reason and
-// bounced to its sender; before then a recheck that fails again holds it still.
-func TestATransientForgeFailureIsBouncedAtItsDeadline(t *testing.T) {
-	w := newWorld(t)
-	f := newFakeForge(map[string]forgeAnswer{ref(1): {outcome: proto.ReasonUnresolved}})
-	r, release := w.held(w.newTeam(withForge(f)))
-	id := w.done(peer, ref(1))
-	w.halt()
-	release()
-	if b := w.batch(); !w.heldIn(b, id) {
-		t.Fatalf("the failed check: batch %+v", b)
-	}
-	r.poll(t)
-	w.clk.StepWall(forgeRetryEvery.Milliseconds())
-	w.halt()
-	if b := w.batch(); !w.heldIn(b, id) {
-		t.Fatalf("a recheck before the deadline: batch %+v", b)
-	}
-	r.poll(t)
-	w.clk.StepWall((forgeRetryLimit - forgeRetryEvery).Milliseconds())
-	w.halt()
-	b := w.batch()
-	r.settled(t, b)
-	if slices.Contains(itemIDs(b), id) || b.Counts.DroppedBy[proto.ReasonUnresolved] != 1 || w.log.count("dropped "+id+": unresolved") != 1 {
-		t.Errorf("at the deadline: batch %+v; log %q", b, w.log.String())
-	}
-	if len(b.Bounces) != 1 || b.Bounces[0].ID != id || b.Bounces[0].Reason != proto.ReasonUnresolved {
-		t.Errorf("bounces %+v", b.Bounces)
-	}
-	if n := len(f.checked()); n != 3 {
-		t.Errorf("checked %d times, want 3", n)
 	}
 }
 
@@ -203,47 +154,6 @@ func TestAProvenanceFailureIsBouncedAtOnce(t *testing.T) {
 	}
 	if w.log.count("held ") != 0 {
 		t.Errorf("held a provenance failure; log %q", w.log.String())
-	}
-}
-
-// Plan 00267 Task 3.2: past forgeHeldCap held pings a transient failure is dropped and bounced
-// at once, never lost.
-func TestPastTheHeldCapAFailureIsDroppedAtOnce(t *testing.T) {
-	transient := proto.Verdict{Outcome: proto.Drop, Reason: proto.ReasonForgeRate}
-	if !holds(nil, "$a", transient) {
-		t.Error("a transient failure with room to hold it is not held")
-	}
-	if holds(nil, "$a", proto.Verdict{Outcome: proto.Drop, Reason: proto.ReasonProvenance}) {
-		t.Error("provenance is held")
-	}
-	if holds(nil, "", transient) {
-		t.Error("an event with no id is held")
-	}
-	full := make([]forgeHeld, forgeHeldCap)
-	for i := range full {
-		full[i].id = fmt.Sprintf("$%d", i)
-	}
-	if holds(full, "$new", transient) {
-		t.Error("held past the cap")
-	}
-	if !holds(full[:forgeHeldCap-1], "$new", transient) {
-		t.Error("not held below the cap")
-	}
-}
-
-// Plan 00267 Task 3.2: the floor is kept just below the earliest held ping it would cover.
-func TestTheFloorStaysBelowAHeldPing(t *testing.T) {
-	high := state.Floor{MS: 500, IDs: []string{"$c"}}
-	held := []forgeHeld{
-		{id: "$b", v: proto.Verdict{Event: proto.Event{OriginTs: 300}}},
-		{id: "$a", v: proto.Verdict{Event: proto.Event{OriginTs: 200}}},
-		{id: "$z", v: proto.Verdict{Event: proto.Event{OriginTs: 900}}},
-	}
-	if got := heldFloor(high, held); !got.Equal(state.Before(200)) {
-		t.Errorf("heldFloor %+v, want %+v", got, state.Before(200))
-	}
-	if got := heldFloor(high, nil); !got.Equal(high) {
-		t.Errorf("with nothing held %+v, want %+v", got, high)
 	}
 }
 
@@ -266,9 +176,14 @@ func TestSD5r1FailedChecksAreDropped(t *testing.T) {
 	}
 	release()
 	b := w.batch()
-	r.poll(t)
-	if got := itemIDs(b); len(got) != 1 || got[0] != ids[5] {
+	r.settled(t, b)
+	if got := itemIDs(b); !slices.Equal(got, ids[1:]) || b.Items[4].Pending.ForgeUntil != 0 {
 		t.Errorf("items %v", got)
+	}
+	for _, id := range ids[1:5] {
+		if !slices.ContainsFunc(b.Items, func(it team.Item) bool { return it.Pending.ID == id && it.Pending.ForgeUntil != 0 }) {
+			t.Errorf("%s is not taken unproven", id)
+		}
 	}
 	if b.Counts.Dropped != 1 || w.log.count("dropped "+ids[0]+": "+proto.ReasonProvenance) != 1 {
 		t.Errorf("counts %+v; log %q", b.Counts, w.log.String())
@@ -292,12 +207,12 @@ func TestSD5r2NoLoginIsSaidOnce(t *testing.T) {
 	r := w.start(withForge(f))
 	w.batch()
 	r.poll(t)
-	// held waits until the answer holding the n-th ping is settled: a held ping alone may move
-	// nothing the store keeps, so there need be no batch to wait for.
 	held := func(n int) {
 		id := w.done(peer, ref(n))
-		for w.log.count("held "+id+": its forge check gave unresolved;") == 0 {
-			r.poll(t)
+		b := w.batch()
+		r.settled(t, b)
+		if !unprovenIn(b, id) {
+			t.Errorf("batch %+v", b)
 		}
 	}
 	for n := range 2 {
@@ -308,11 +223,11 @@ func TestSD5r2NoLoginIsSaidOnce(t *testing.T) {
 	}
 	f.answerAll(forgeAnswer{})
 	id := w.done(peer, ref(2))
-	b := w.batch()
-	for !slices.Contains(itemIDs(b), id) {
-		b = w.batch()
+	if b := w.batch(); len(b.Items) != 1 || b.Items[0].Pending.ID != id || b.Items[0].Pending.ForgeUntil != 0 {
+		t.Errorf("a proven ping: %+v", b)
+	} else {
+		r.settled(t, b)
 	}
-	r.settled(t, b)
 	f.answerAll(forgeAnswer{err: team.ErrForgeLogin})
 	held(3)
 	if n := w.log.count("forge-login"); n != 2 {
@@ -359,7 +274,6 @@ func TestSD5r4AHungForgeCostsOneBudget(t *testing.T) {
 		}
 		w.done(from, ref(i))
 	}
-	w.halt()
 	release()
 	for range forgeParallel {
 		select {
@@ -372,7 +286,7 @@ func TestSD5r4AHungForgeCostsOneBudget(t *testing.T) {
 	w.clk.Advance(forgeBudget)
 	b := w.batch()
 	r.poll(t)
-	if len(b.Items) != 1 || b.Counts.Dropped != 0 || w.log.count("gave unresolved;") != 10 {
+	if len(b.Items) != 10 || b.Counts.Dropped != 0 || w.log.count("gave unresolved;") != 10 {
 		t.Errorf("batch %+v; log %q", b, w.log.String())
 	}
 	if n := f.mostAtOnce(); n != forgeParallel {
@@ -462,7 +376,7 @@ func TestSD5r7EachCheckIsBoundByTheBudget(t *testing.T) {
 
 // SD5-r8 (n3d-D31): a sender spends at most proto.ForgeChecksPerSender uncached checks per
 // receive window; past it the ping is held forge-rate (n3d-D34) and no request is made. Another
-// sender keeps its own budget, and the window restores it, when the held two are delivered.
+// sender keeps its own budget, and the window restores it.
 func TestSD5r8ASendersChecksAreBudgeted(t *testing.T) {
 	w := newWorld(t)
 	f := newFakeForge(nil)
@@ -475,7 +389,7 @@ func TestSD5r8ASendersChecksAreBudgeted(t *testing.T) {
 	release()
 	b := w.batch()
 	r.poll(t)
-	if len(b.Items) != over-1 || b.Counts.Dropped != 0 || w.log.count("gave forge-rate;") != 2 {
+	if len(b.Items) != over+1 || b.Counts.Dropped != 0 || w.log.count("gave forge-rate;") != 2 {
 		t.Errorf("items %d, dropped %d; log %q", len(b.Items), b.Counts.Dropped, w.log.String())
 	}
 	if n := len(f.checked()); n != over-1 {
@@ -483,7 +397,7 @@ func TestSD5r8ASendersChecksAreBudgeted(t *testing.T) {
 	}
 	w.clk.Advance(time.Duration(proto.ReceiveWindowMs) * time.Millisecond)
 	w.done(peer, ref(over+1))
-	if b := w.batch(); len(b.Items) != 3 {
+	if b := w.batch(); len(b.Items) != 1 {
 		t.Errorf("after the window: items %d, dropped %d; log %q", len(b.Items), b.Counts.Dropped, w.log.String())
 	}
 }
@@ -547,11 +461,10 @@ func TestSD5r11AGroupWithNoBudgetIsForgeRate(t *testing.T) {
 	r, release := w.held(w.spentTeam(peer, f))
 	w.done(peer, ref(1))
 	w.done(peer, ref(1))
-	w.halt()
 	release()
 	b := w.batch()
 	r.poll(t)
-	if len(b.Items) != 1 || b.Counts.Dropped != 0 || w.log.count("gave forge-rate;") != 2 {
+	if len(b.Items) != 2 || b.Counts.Dropped != 0 || w.log.count("gave forge-rate;") != 2 {
 		t.Errorf("items %d, dropped %d; log %q", len(b.Items), b.Counts.Dropped, w.log.String())
 	}
 	if calls := f.checked(); len(calls) != 0 {
@@ -570,7 +483,6 @@ func TestSD5r12ACheckWithNoRequestIsNotAnAnswer(t *testing.T) {
 	r.poll(t)
 	for i, from := range []string{coord, peer, coord} {
 		w.done(from, ref(i))
-		w.halt()
 		w.batch()
 		r.poll(t)
 	}

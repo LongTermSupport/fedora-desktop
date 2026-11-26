@@ -176,6 +176,8 @@
 # or sync ping is bounced `expired` to its sender.
 # Plan 00267 Task 3.2 (container 2.84.106, ccy 3.124.108): the same rebuild holds a ping whose
 # forge check failed transiently and checks it again for up to 10 minutes, then bounces it.
+# Plan 00267 Task 3.2a (container 2.84.107, ccy 3.124.110): the same rebuild keeps that held
+# ping in the store, so a link restart no longer loses it.
 # Plan 00266 C.3 rework (ccy 3.124.106, container 2.84.105): ccy-sessions is rebuilt so
 # verify-restore reads the LXC set from /var/lib/teamchat-status/lxc-set.json with no sudo
 # (lxc NO-STATUS / lxc STALE until the boot unit writes it this boot). The same single image

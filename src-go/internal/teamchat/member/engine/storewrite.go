@@ -310,6 +310,9 @@ func apply(s *state.Store, b team.Batch, now int64) (map[string]proto.Verdict, e
 		known[it.Pending.ID] = true
 		err := s.AddPending(p)
 		switch {
+		case err == nil && p.ForgeUntil != 0:
+			// An unproven ping keeps no verdict, so it is re-fetched and checked again before it
+			// is shown (Plan 00267 Task 3.2).
 		case err == nil:
 			added[it.Pending.ID] = it.Verdict
 		case p.NotBefore != 0 && errors.Is(err, state.ErrFull):

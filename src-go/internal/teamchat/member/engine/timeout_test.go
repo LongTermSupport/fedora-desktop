@@ -127,7 +127,7 @@ func TestSD4_7AFailedTimeoutWriteThenARestartMakesItOnce(t *testing.T) {
 	if got := w.store(ops); len(timeouts(got)) != 0 || len(got.Outbox.Pings[0].Reported) != 0 {
 		t.Fatalf("a refused write left %+v", got.Outbox.Pings[0])
 	}
-	w.restart(state.DeliverySocket)
+	w.restart()
 	s = w.pingStore(ops, p)
 	check(t, w.root.Replace(w.layout.Seat(ops).Store(), encodeStore(t, s), 0o600))
 	w.readd(ops)
@@ -135,7 +135,7 @@ func TestSD4_7AFailedTimeoutWriteThenARestartMakesItOnce(t *testing.T) {
 	if n := len(timeouts(w.store(ops))); n != 1 {
 		t.Fatalf("TIMEOUTs after the restart = %d", n)
 	}
-	w.restart(state.DeliverySocket)
+	w.restart()
 	w.readd(ops)
 	w.clk.Advance(time.Hour)
 	if n := len(timeouts(w.store(ops))); n != 1 {

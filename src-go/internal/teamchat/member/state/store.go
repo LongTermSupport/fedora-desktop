@@ -204,6 +204,10 @@ type Pending struct {
 	// Late marks an item delivered past its age limit because it was judged on replay (Plan
 	// 00267 Task 3.2): its delivery says so. Never on a TIMEOUT or a NOTICE, which have none.
 	Late bool `json:"late,omitempty"`
+	// ForgeUntil marks a PING whose forge check failed transiently (Plan 00267 Task 3.2): it is
+	// checked again before it is delivered, at its slot, until this wall time, then dropped
+	// and bounced; absent for a ping proven or never checked.
+	ForgeUntil int64 `json:"forge_until,omitempty"`
 }
 
 // OfQuestionsSync is whether p is an item of the questions room's own sync, which a member that
@@ -825,6 +829,7 @@ func (s *Store) checkPending(c *rules, server string) {
 		c.need(validRelay(p, server), "a pending entry's relay account is not a coordinator's on a HUMAN item of questions")
 		c.need(validMS(p.NotBefore) && (p.NotBefore == 0 || !reserved(p.Item)), "a pending entry's slot is not a time, or is on a HUMAN or TIMEOUT item")
 		c.need(!p.Late || p.Item != records.KindTimeout && p.Item != records.KindNotice, "a pending TIMEOUT or NOTICE is marked late")
+		c.need(validMS(p.ForgeUntil) && (p.ForgeUntil == 0 || p.Item == records.KindPing), "a pending entry's forge deadline is not a time, or is not on a PING")
 		c.need(reminderPlaced(p.ID, p.Room, p.Item), reminderRule)
 		c.need(!seen[p.ID], "pending holds an id twice")
 		seen[p.ID] = true

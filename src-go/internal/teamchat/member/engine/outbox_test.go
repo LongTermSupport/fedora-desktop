@@ -52,12 +52,13 @@ func (w *world) advanceTo(ms int64) {
 	w.clk.Advance(time.Duration(d) * time.Millisecond)
 }
 
-// restart shuts the engine down and runs a fresh one over the same home, as a restarted link.
-func (w *world) restart(delivery string) {
+// restart shuts the engine down and runs a fresh one over the same home, as a restarted link
+// delivering to the socket.
+func (w *world) restart() {
 	w.t.Helper()
 	first := w.e
 	check(w.t, first.Shutdown(w.t.Context()))
-	e, err := New(w.config(delivery))
+	e, err := New(w.config(state.DeliverySocket))
 	check(w.t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	ran := make(chan error, 1)
@@ -352,7 +353,7 @@ func TestSD4_10StatusOutboxRecords(t *testing.T) {
 	if !reflect.DeepEqual(recs[0], want) {
 		t.Fatalf("the outbox record = %+v\nwant %+v", recs[0], want)
 	}
-	w.restart(state.DeliverySocket)
+	w.restart()
 	w.readd(ops)
 	want.Answers = records.List[records.Answer]{{From: n.name(agent(ops, 2))}}
 	if got := w.outbox(); !reflect.DeepEqual(got[0], want) {

@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.124.109"  # Container 2.84.106: the approved project mounts are appended to the run's mounts by their loader; the history is in docs/ccy-changelog.md.
+CCY_VERSION="3.124.110"  # Container 2.84.107: teamchat keeps a ping whose forge check failed transiently in its store until it proves or is bounced; the history is in docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -105,7 +105,7 @@ ccy_container_limits || exit 1
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.84.106"
+REQUIRED_CONTAINER_VERSION="2.84.107"
 
 set -e
 

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -23,59 +22,10 @@ const (
 	forgeBudget   = 30 * time.Second
 )
 
-// A transient forge failure (unresolved, forge-rate) is held and checked again every
-// forgeRetryEvery, and dropped and bounced only once forgeRetryLimit has passed since it was
-// first judged (Plan 00267 DESIGN A row 42). At most forgeHeldCap are held; past it a failure is
-// dropped and bounced at once, never lost.
-const (
-	forgeRetryEvery = 30 * time.Second
-	forgeRetryLimit = 10 * time.Minute
-	forgeHeldCap    = 256
-)
-
-// forgeHeld is one held ping: its verdict before the check, the room judging it was part of
-// (whose judge says who bounces it), and the wall times of its next check and of its deadline.
-// The session holds them; main's floor is kept below each (heldFloor), so a link that restarts
-// reads a held ping again and judges it afresh.
-type forgeHeld struct {
-	id             string
-	v              proto.Verdict
-	jr             roomJudged
-	next, deadline int64
-}
-
-// holds is whether a checked verdict is held rather than taken: a transient failure of an
-// event with an id, not held already, with room left to hold it.
-func holds(held []forgeHeld, id string, v proto.Verdict) bool {
-	transient := v.Outcome == proto.Drop && (v.Reason == proto.ReasonUnresolved || v.Reason == proto.ReasonForgeRate)
-	return transient && id != "" && len(held) < forgeHeldCap && !isHeld(held, id)
-}
-
-func isHeld(held []forgeHeld, id string) bool {
-	return slices.ContainsFunc(held, func(h forgeHeld) bool { return h.id == id })
-}
-
-// heldFloor is high lowered just below each held ping it covers, so the store's floor never
-// passes a ping still owed a check.
-func heldFloor(high state.Floor, held []forgeHeld) state.Floor {
-	f := high
-	for _, h := range held {
-		if ts := h.v.Event.OriginTs; f.Covers(ts, h.id) {
-			f = state.Before(ts)
-		}
-	}
-	return f
-}
-
 // forgeNews is what a batch's checks leave for link.log: a check the forge answered (one that
 // made a request; a cached or refused one shows nothing of the login), and one refused for want
 // of a gh login.
 type forgeNews struct{ answered, noLogin bool }
-
-// or is the news of two runs of checks in one answer.
-func (n forgeNews) or(o forgeNews) forgeNews {
-	return forgeNews{answered: n.answered || o.answered, noLogin: n.noLogin || o.noLogin}
-}
 
 // forgeChecked is one check's result: the drop reason, "" for proven, and whether a sender's
 // budget was charged for it, which only a check about to make a request is.

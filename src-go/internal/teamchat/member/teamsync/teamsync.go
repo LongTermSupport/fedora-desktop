@@ -128,10 +128,6 @@ type Team struct {
 	// last.
 	budget    proto.Window
 	factsNote string
-	// forgeHeld are the pings whose forge check failed transiently, checked again until their
-	// deadline (Plan 00267 Task 3.2). They are the team's, not a session's, so a session that
-	// starts again from the stored position, past them, still owes them their checks.
-	forgeHeld []forgeHeld
 	// q is the questions room (QS); qmoved is poked when its readiness may have moved, which
 	// ends a long-poll in flight whose filter it changed (QS4).
 	q      qroom
