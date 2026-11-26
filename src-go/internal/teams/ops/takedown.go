@@ -321,13 +321,19 @@ func (o *Ops) confirmDown(ctx context.Context, team string, purge bool, stopped 
 	} else {
 		o.Term.Say("Team " + team + " is down; its data is kept in /var/lib/agent-bus/" + team + ".")
 	}
+	// Both steps run whatever the other does: the team is down, and a second remove is refused as
+	// a team not built here, so nothing later would finish either.
+	code := term.ExitOK
 	if o.TakeStoppedOff != nil && len(stopped) > 0 {
 		if err := o.TakeStoppedOff(team, stopped); err != nil {
-			o.Term.PrintError("Team " + team + " is down, but its stopped sessions could not all be taken off it: " + err.Error())
-			return term.ExitFailure
+			o.Term.PrintError("Team " + team + " is down, but its stopped sessions could not all be taken off it: " + err.Error() +
+				". Each session named still lists " + team + " in its record: a restore of it would join a team made again as " +
+				team + ", so fix what is named, then take " + team + " out of that session's --teams before restoring it.")
+			code = term.ExitFailure
+		} else {
+			o.Term.Say("The stopped sessions " + strings.Join(stopped, ", ") + " are taken off " + team +
+				", so a restore does not rejoin a team made again as " + team + ".")
 		}
-		o.Term.Say("The stopped sessions " + strings.Join(stopped, ", ") + " are taken off " + team +
-			", so a restore does not rejoin a team made again as " + team + ".")
 	}
 	if o.ForgetTeam != nil {
 		if err := o.ForgetTeam(team); err != nil {
@@ -336,7 +342,7 @@ func (o *Ops) confirmDown(ctx context.Context, team string, purge bool, stopped 
 		}
 		o.Term.Say("Its seats' conversation records are removed, so a team made again as " + team + " resumes nothing of this one.")
 	}
-	return term.ExitOK
+	return code
 }
 
 // Backup is "ccy-teams backup <team>": a backup taken now, as root. The installer's own exit

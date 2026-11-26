@@ -79,19 +79,29 @@ func TestRemoveThatCannotTellTheStoppedSessionsTakesNothingDown(t *testing.T) {
 	}
 }
 
-func TestRemoveThatCannotTakeAStoppedSessionOffFailsNamingWhy(t *testing.T) {
+// A stopped session that cannot be taken off fails the remove, naming it, but the team's seat
+// records are still forgotten (R36 batch review, finding 2): the team is already down, and a
+// second remove is refused as a team not built here, so nothing would ever forget them.
+func TestRemoveThatCannotTakeAStoppedSessionOffStillForgetsAndFailsNamingWhy(t *testing.T) {
 	r := removeRig(t)
 	r.ops.StoppedIn = func(string) ([]string, error) { return []string{"ccy-x"}, nil }
 	r.ops.TakeStoppedOff = func(string, []string) error { return errors.New("could not take session ccy-x off alpha: read-only") }
-	r.ops.ForgetTeam = func(string) error {
-		t.Fatal("forgot the seats while a stopped session still names the team")
-		return nil
-	}
+	forgot := false
+	r.ops.ForgetTeam = func(string) error { forgot = true; return nil }
 	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 1 {
 		t.Fatalf("code %d: %s", code, r.said())
 	}
-	if !strings.Contains(r.said(), "Team alpha is down, but its stopped sessions could not all be taken off it: could not take session ccy-x off alpha: read-only") {
-		t.Errorf("said %q", r.said())
+	if !forgot {
+		t.Error("the seat records were not forgotten, and no later remove can forget them")
+	}
+	for _, want := range []string{
+		"Team alpha is down, but its stopped sessions could not all be taken off it: could not take session ccy-x off alpha: read-only",
+		"Its seats' conversation records are removed",
+		"still lists alpha",
+	} {
+		if !strings.Contains(r.said(), want) {
+			t.Errorf("said %q, want %q", r.said(), want)
+		}
 	}
 }
 

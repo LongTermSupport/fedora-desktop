@@ -213,6 +213,38 @@ func TestTakingAStoppedSessionOffNeverRemovesAReportThroughALink(t *testing.T) {
 	}
 }
 
+// One stopped session that cannot be taken off does not leave the others on the team (R36 batch
+// review, finding 2): the team is already down when they are taken off, and nothing later takes
+// them off, so each is tried and every failure is named.
+func TestOneStoppedSessionThatCannotBeTakenOffLeavesTheOthersTakenOff(t *testing.T) {
+	store := registry.New(filepath.Join(t.TempDir(), "ccy", "sessions"))
+	linked, plain, outside := t.TempDir(), t.TempDir(), t.TempDir()
+	writeRecords(t, store,
+		registry.Record{Name: "ccy-a", Dir: linked, Launcher: "/x/ccy", Prefix: "ccy", Args: []string{"--teams", "1@alpha"}},
+		registry.Record{Name: "ccy-b", Dir: plain, Launcher: "/x/ccy", Prefix: "ccy", Args: []string{"--teams", "2@alpha"}},
+	)
+	sessions := filepath.Dir(membership.SessionDir(linked, "ccy-a"))
+	if err := os.MkdirAll(filepath.Dir(sessions), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, sessions); err != nil {
+		t.Fatal(err)
+	}
+	err := takeStoppedOff(store, "alpha", []string{"ccy-a", "ccy-b"})
+	if err == nil || !strings.Contains(err.Error(), "ccy-a") {
+		t.Errorf("err %v, want a failure naming ccy-a", err)
+	}
+	for name, want := range map[string]string{"ccy-a": "1@alpha", "ccy-b": ""} {
+		rec, getErr := store.Get(name)
+		if getErr != nil {
+			t.Fatal(getErr)
+		}
+		if got := discover.RecordTeams(rec); got != want {
+			t.Errorf("%s --teams %q, want %q", name, got, want)
+		}
+	}
+}
+
 // The real wiring hands remove the stopped sessions of the team and their taking off, over the
 // host's own registry, a record's system read as a restore reads it.
 func TestWireGivesRemoveTheStoppedSessionsAndTheirTakingOff(t *testing.T) {

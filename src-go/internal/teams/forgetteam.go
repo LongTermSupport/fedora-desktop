@@ -89,27 +89,37 @@ func stoppedOn(store *registry.Store, team string, onBus func(registry.Record) (
 // (no --teams when team was its only one), so a restore does not rejoin a team made again under
 // the name, and its keeper's report is removed (never authority; the keeper writes it again when
 // the session starts), so a seat lookup does not find the old team's conversation through it.
+// Each session is tried, and every failure is named: the team is already down, and nothing later
+// takes off a session this leaves on it.
 func takeStoppedOff(store *registry.Store, team string, names []string) error {
+	var errs []error
 	for _, name := range names {
-		rec, err := store.Get(name)
-		if err != nil {
-			return err
-		}
-		seats, err := recordSeats(rec)
-		if err != nil {
-			return err
-		}
-		if err := removeReport(rec.Dir, name); err != nil {
-			return err
-		}
-		kept := slices.DeleteFunc(seats, func(s membership.Seat) bool { return s.Team == team })
-		set := store.SetTeams
-		if rec.Prefix == membership.KindCC {
-			set = store.SetCCTeams
-		}
-		if err := set(name, membership.Canonical(kept)); err != nil {
-			return fmt.Errorf("could not take session %s off %s: %w", name, team, err)
-		}
+		errs = append(errs, takeOneOff(store, team, name))
+	}
+	return errors.Join(errs...)
+}
+
+// takeOneOff takes team out of one stopped session's record and removes its keeper report, the
+// report first, so a refused removal leaves the record as it was.
+func takeOneOff(store *registry.Store, team, name string) error {
+	rec, err := store.Get(name)
+	if err != nil {
+		return err
+	}
+	seats, err := recordSeats(rec)
+	if err != nil {
+		return err
+	}
+	if err := removeReport(rec.Dir, name); err != nil {
+		return err
+	}
+	kept := slices.DeleteFunc(seats, func(s membership.Seat) bool { return s.Team == team })
+	set := store.SetTeams
+	if rec.Prefix == membership.KindCC {
+		set = store.SetCCTeams
+	}
+	if err := set(name, membership.Canonical(kept)); err != nil {
+		return fmt.Errorf("could not take session %s off %s: %w", name, team, err)
 	}
 	return nil
 }

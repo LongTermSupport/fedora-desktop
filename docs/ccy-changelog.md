@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.75 — container 2.84.89
+
+- `ccy-teams remove` deletes a stopped session's keeper report inside its checkout only: a
+  directory a container replaced with a link is refused, never followed to a file outside it.
+- When a stopped session cannot be taken off the team, `remove` still tries every other one and
+  still forgets the team's seat records, then fails naming each session left on the team.
+- `remove` refuses, naming the session, when a running session's membership cannot be read,
+  instead of taking it for a stopped session and rewriting its record while it runs.
+
 ## 3.124.74 — container 2.84.89
 
 - **`ccy-teams remove` takes the team's stopped sessions off it.** It already took the running
