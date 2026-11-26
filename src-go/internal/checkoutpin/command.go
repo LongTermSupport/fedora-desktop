@@ -31,8 +31,8 @@ import (
 //     with false (a person is there and chose to start them) the digest is recorded. No compose
 //     file is exit 0 either way.
 //   - V3. `ccy-teams approve mounts|compose|last-launch [CHECKOUT]` (the checkout defaults to the
-//     working directory), a person's: shown what it approves (each mount resolved, the compose
-//     files read, or each saved launch choice), a [y/N] question at a terminal, and only a yes records the digest. No terminal is
+//     working directory), a person's: shown what it approves (each mount resolved, every line of
+//     every file the compose digest covers, or each saved launch choice), a [y/N] question at a terminal, and only a yes records the digest. No terminal is
 //     exit 1, so neither a session nor a pipe can approve; a mounts file that breaks a rule cannot
 //     be approved, nor a saved launch file the launcher would not read.
 //
@@ -211,16 +211,14 @@ func (c Command) shown(dir string, kind Kind) (string, bool) {
 		return c.shownLastLaunch(dir)
 	}
 	if kind == KindCompose {
-		files, digest, present, err := ComposeDigest(dir)
+		files, digest, present, err := ComposeRead(dir)
 		if err != nil || !present {
 			c.say(fmt.Sprintf("✗ no compose file to approve in %s (%v)", dir, err))
 			return "", false
 		}
-		c.say("The compose files " + dir + " starts with `up -d`, as you, on this machine:")
-		for _, f := range files {
-			c.say("  " + f)
-		}
-		c.say("Read them before you approve: a volume they name is bound from this machine.")
+		c.say("The compose files " + dir + " starts with `up -d`, as you, on this machine (under --engine docker, as root):")
+		c.showFiles(files)
+		c.say("Read them: a volume they name is bound from this machine, and a build runs its Dockerfile.")
 		return digest, true
 	}
 	content, digest, present, err := MountsDigest(dir)
@@ -237,6 +235,18 @@ func (c Command) shown(dir string, kind Kind) (string, bool) {
 		c.say("  " + m.Src + " → " + m.Dst + " (" + m.Opt + ")")
 	}
 	return digest, true
+}
+
+// showFiles prints each file under its name, line by line (through say, so escaped: K6).
+func (c Command) showFiles(files []PinnedFile) {
+	for _, f := range files {
+		c.say("── " + f.Name + " ──")
+		text := strings.TrimSuffix(string(f.Content), "\n")
+		for i, line := range strings.Split(text, "\n") {
+			c.say(fmt.Sprintf("%4d  %s", i+1, line))
+		}
+	}
+	c.say("── end ──")
 }
 
 // shownLastLaunch says the saved launch choices an approval would let a launch nobody attends

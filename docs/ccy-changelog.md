@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.117 — container 2.84.109
+
+- `ccy-teams approve compose` shows every line of every file it approves (the compose files,
+  their `.env` and each file they include or extend), each under its name, no longer only the
+  file names: the bytes recorded are the bytes the person read (Plan 00266 security review,
+  finding 9).
+
 ## 3.124.116 — container 2.84.109
 
 - `ccy-teams approve` and the project-mounts check print checkout text through one escaper:

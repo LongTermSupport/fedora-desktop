@@ -220,6 +220,24 @@ const maxComposeFiles = 64
 // ComposeDigest is the files a compose up in checkout reads, their digest, and whether there is
 // any compose file at all (K4).
 func ComposeDigest(checkout string) (files []string, digest string, present bool, err error) {
+	read, digest, present, err := ComposeRead(checkout)
+	for _, f := range read {
+		if f.Name != composeEnv {
+			files = append(files, f.Name)
+		}
+	}
+	return files, digest, present, err
+}
+
+// PinnedFile is one file a digest covers, by its name in the checkout, and the bytes hashed.
+type PinnedFile struct {
+	Name    string
+	Content []byte
+}
+
+// ComposeRead is ComposeDigest with each file's bytes, the .env among them when there is one,
+// in the order hashed: what an approval of the compose files shows (V3).
+func ComposeRead(checkout string) (files []PinnedFile, digest string, present bool, err error) {
 	root, err := os.OpenRoot(checkout)
 	if err != nil {
 		return nil, "", false, err
@@ -243,7 +261,7 @@ func ComposeDigest(checkout string) (files []string, digest string, present bool
 		}
 	}
 	sum := sha256.Sum256(w.text.Bytes())
-	return w.files, hex.EncodeToString(sum[:]), true, nil
+	return w.read, hex.EncodeToString(sum[:]), true, nil
 }
 
 // composeWalk is one ComposeDigest: the files found so far, in order, and the text hashed.
@@ -252,6 +270,7 @@ type composeWalk struct {
 	checkout string
 	seen     map[string]bool
 	files    []string
+	read     []PinnedFile
 	text     bytes.Buffer
 }
 
@@ -290,6 +309,9 @@ func (w *composeWalk) env() error {
 func (w *composeWalk) entry(name string, here bool, content []byte) {
 	w.text.WriteString(name + "\x00" + strconv.FormatBool(here) + "\x00" + strconv.Itoa(len(content)) + "\x00")
 	w.text.Write(content)
+	if here {
+		w.read = append(w.read, PinnedFile{Name: name, Content: content})
+	}
 }
 
 // follow adds the files one compose file includes or extends.

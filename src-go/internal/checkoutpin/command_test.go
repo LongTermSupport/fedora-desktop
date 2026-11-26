@@ -198,3 +198,22 @@ func TestComposePin(t *testing.T) {
 		}
 	}
 }
+
+// C6 (finding 9): approving the compose files shows what is approved, each file's lines under
+// its name: the compose files, the .env they read and each file they include, so the person
+// reads the bytes recorded, not a list of names.
+func TestApproveComposeShowsTheContent(t *testing.T) {
+	r := newRig(t)
+	write(t, r.dir, "compose.yml", "include: [base.yml]\nservices:\n  app:\n    volumes: [\"${DATA}:/d\"]\n")
+	write(t, r.dir, "base.yml", "services:\n  db:\n    image: postgres\n")
+	write(t, r.dir, ".env", "DATA=/srv/data\n")
+	r.answer = no()
+	if code := r.cmd().Approve(context.Background(), []string{"compose"}); code != term.ExitFailure {
+		t.Fatalf("approve: %v", code)
+	}
+	for _, want := range []string{"── compose.yml ──", `volumes: ["${DATA}:/d"]`, "── base.yml ──", "image: postgres", "── .env ──", "DATA=/srv/data"} {
+		if !strings.Contains(r.err.String(), want) {
+			t.Errorf("approval screen lacks %q:\n%s", want, r.err.String())
+		}
+	}
+}

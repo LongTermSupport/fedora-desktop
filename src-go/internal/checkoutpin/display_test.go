@@ -42,6 +42,13 @@ func TestApprovalScreensEscapeFormatCharacters(t *testing.T) {
 	if strings.Contains(r.err.String(), rlo) || !strings.Contains(r.err.String(), `\u{202E}evil`) {
 		t.Fatalf("mounts screen drew the override: %q", r.err.String())
 	}
+	write(t, r.dir, "compose.yml", "services: {}\n# "+rlo+"evil\n")
+	if code := r.cmd().Approve(context.Background(), []string{"compose"}); code != term.ExitFailure {
+		t.Fatalf("approve compose: %v", code)
+	}
+	if strings.Contains(r.err.String(), rlo) || !strings.Contains(r.err.String(), `# \u{202E}evil`) {
+		t.Fatalf("compose screen drew the override: %q", r.err.String())
+	}
 }
 
 // D3: the saved launch choices and the mounts paths refuse a format character outright, as
