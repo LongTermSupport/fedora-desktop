@@ -59,10 +59,10 @@ file and line.
 
 ### Phase 1: protocol (DESIGN.md C1, C7)
 
-- [ ] ⬜ **Task 1.1**: The `teamchat.receipt` key (v 1), its decoder and closed reason set,
+- [x] ✅ **Task 1.1**: The `teamchat.receipt` key (v 1), its decoder and closed reason set,
   added inside protocol major 1. Test first, with corpus and agreement tests.
-- [ ] ⬜ **Task 1.2**: A `kit` field on every typed send, ignored by old kits.
-- [ ] ⬜ **Task 1.3**: The receipt-of-receipt guard (one receipt per item and addressee).
+- [x] ✅ **Task 1.2**: A `kit` field on every typed send, ignored by old kits.
+- [x] ✅ **Task 1.3**: The receipt-of-receipt guard (one receipt per item and addressee).
 
 ### Phase 2: receiver bookkeeping (C2, C6)
 
@@ -103,6 +103,35 @@ file and line.
   absent, compacting and restarting sessions are held, then delivered.
 - [ ] ⬜ **Task 6.3**: Old-kit interop, and a failpoint between the drop-ledger write and the
   receipt send that yields exactly one receipt after a restart.
+
+### Phase 7: turn efficiency (the owner, Q19, 26 Nov)
+
+The owner: "teamchat should try to buffer events messages etc and batch deliver info, batch
+responses should also be encouraged from agents."
+
+Today (checked): one delivery already carries up to 8 entries in 12 KiB
+(`proto/delivery.go:16-17`, `Fit` at :129-157), one team's pending at a time
+(`member/deliver/deliver.go:112-150`). The deliver loop sends as soon as something is pending
+and then waits `paceWait` 2 s (`member/engine/deliverloop.go:21-26`); that is a pace, not a
+window, so a burst is split across the first delivery and the next. Pings and notices are an
+entry each, never folded. Delivery debouncing (Plan 00209 Task 3.5, issue #129: a quiet window
+with a ceiling, a halt ping and a human's direct message passing through) is planned, not
+built; this phase builds it here and closes that task.
+
+- [ ] ⬜ **Task 7.1**: A coalesce window before a delivery: items for one session are held for a
+  short quiet bound with a ceiling, then delivered as one. A HUMAN item and a halt ping skip the
+  hold. Test first, on the fake clock. Plan 00209 Task 3.5 held this until Plan 00246 Task 8.8
+  (cross-network, still 🔄) is done; whether the owner's Q19 lifts that gate is asked of the
+  coordinator. Until then Tasks 7.2-7.4, which do not touch the delivery path's timing, go
+  first.
+- [ ] ⬜ **Task 7.2**: Receipts never cost a turn of their own. delivered, held and recorded
+  receipts are not delivered to a session at all; the sender reads them by `status`. A bounce
+  rides in the next delivery as one trailing line per bounced message, unless it is the only
+  thing pending, when it waits out the window like any item.
+- [ ] ⬜ **Task 7.3**: Notices of one kind about one member in one window fold into one line
+  (e.g. left then back).
+- [ ] ⬜ **Task 7.4**: The skill text (`member/kit/skill.txt` and the plugin's copy, which must stay
+  identical) asks a seat to answer several messages in one reply where it can.
 
 ## Success Criteria
 

@@ -116,7 +116,7 @@ func (c Composer) Ping(p Ping, answers, display string) (Outgoing, error) {
 	if p.Branch != "" {
 		obj = append(obj, M("branch", Str(p.Branch)))
 	}
-	content := agentContent(MsgNotice, display, p.To, rel, KeyPing, Obj(obj...))
+	content := agentContent(MsgNotice, display, p.To, rel, KeyPing, kitted(obj))
 	forge, err := c.checkMain(class, content)
 	if err != nil {
 		return Outgoing{}, err
@@ -148,7 +148,7 @@ func (c Composer) Text(t Text, replyTo, display string) (Outgoing, error) {
 	if r := t.Relay; r != nil {
 		members = append(members, M("relay", Obj(M("room", Str(r.Room)), M("id", Str(r.ID)), M("q", Int(r.Q)))))
 	}
-	content := formatted(agentContent(msgtype, display, t.To, rel, KeyText, Obj(members...)))
+	content := formatted(agentContent(msgtype, display, t.To, rel, KeyText, kitted(members)))
 	if _, err := c.checkMain(class, content); err != nil {
 		return Outgoing{}, err
 	}
@@ -174,7 +174,7 @@ func (c Composer) Notice(n Notice, display string) (Outgoing, error) {
 		obj = append(obj, M("role", Str(n.Role)))
 	}
 	obj = append(obj, M("to", strArray(sortedStrs(n.To))))
-	content := agentContent(MsgNotice, display, n.To, Relation{}, KeyNotice, Obj(obj...))
+	content := agentContent(MsgNotice, display, n.To, Relation{}, KeyNotice, kitted(obj))
 	if err := c.checkNotice(content); err != nil {
 		return Outgoing{}, err
 	}
@@ -228,7 +228,7 @@ func (c Composer) Report(text string) (Outgoing, error) {
 	if _, err := ReportForm(text); err != nil {
 		return Outgoing{}, err
 	}
-	content := formatted(Obj(M("msgtype", Str(MsgNotice)), M("body", Str(text)), M(keyMentions, Obj()), M(KeyReport, Obj(M("v", Int(WireMajor))))))
+	content := formatted(Obj(M("msgtype", Str(MsgNotice)), M("body", Str(text)), M(keyMentions, Obj()), M(KeyReport, kitted([]Member{M("v", Int(WireMajor))}))))
 	if _, err := decodeSent(content, ReportKeys); err != nil {
 		return Outgoing{}, err
 	}
@@ -263,7 +263,7 @@ func (c Composer) Question(q QuestionPost) (Outgoing, error) {
 	if q.RemindAfterS != 0 {
 		obj = append(obj, M("remind_after_s", Int(q.RemindAfterS)))
 	}
-	content := formatted(agentContent(MsgText, body, c.Roster.Humans, Relation{}, KeyQuestion, Obj(obj...)))
+	content := formatted(agentContent(MsgText, body, c.Roster.Humans, Relation{}, KeyQuestion, kitted(obj)))
 	if _, err := decodeSent(content, QuestionKeys); err != nil {
 		return Outgoing{}, err
 	}
@@ -315,7 +315,7 @@ func (c Composer) Thread(t ThreadPost) (Outgoing, error) {
 		msgtype, mentioned = MsgText, c.Roster.Humans
 		obj = append(obj, M("wait", Bool(true)))
 	}
-	content := formatted(agentContent(msgtype, body, mentioned, rel, KeyThread, Obj(obj...)))
+	content := formatted(agentContent(msgtype, body, mentioned, rel, KeyThread, kitted(obj)))
 	if _, err := decodeSent(content, QuestionKeys); err != nil {
 		return Outgoing{}, err
 	}
@@ -343,7 +343,7 @@ func (c Composer) LinkBack(l LinkPost) (Outgoing, error) {
 		return Outgoing{}, refused(ReasonTarget, "a link-back mentions the human whose post it answers")
 	}
 	body := QuestionName(int(l.N)) + ": answered in its thread: " + l.Permalink
-	obj := Obj(M("v", Int(WireMajor)), M("n", Int(l.N)), M("link", Str(l.Link)))
+	obj := kitted([]Member{M("v", Int(WireMajor)), M("n", Int(l.N)), M("link", Str(l.Link))})
 	content := formatted(agentContent(MsgText, body, []string{l.To}, ReplyTo(l.Post), KeyThread, obj))
 	if _, err := decodeSent(content, QuestionKeys); err != nil {
 		return Outgoing{}, err
@@ -596,6 +596,12 @@ func formatted(content Value) Value {
 		return with
 	}
 	return content
+}
+
+// kitted is a typed object of these members with this kit's `kit` last (A 7.1, C7 of Plan
+// 00267), which an older kit ignores.
+func kitted(members []Member) Value {
+	return Obj(append(members, M("kit", Int(KitLevel)))...)
 }
 
 // typedObject is content's typed object under key, which the caller has decoded.

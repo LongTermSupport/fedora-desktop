@@ -1,0 +1,69 @@
+[
+  {
+    "name": "receipt",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "reports",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.1+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"receipt\",\"m.mentions\":{},\"teamchat.receipt\":{\"v\":1,\"of\":\"$ppppppppppppppppppppppppppppppppppppppppppp\",\"to\":[\"@myrepo.2+desk.podman:myteam.teamchat.internal\"],\"state\":\"bounced\",\"reason\":\"stale\",\"at\":1,\"kit\":1}}}",
+    "outcome": "fault"
+  },
+  {
+    "name": "receipt bad state",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "reports",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.1+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"receipt\",\"m.mentions\":{},\"teamchat.receipt\":{\"v\":1,\"of\":\"$ppppppppppppppppppppppppppppppppppppppppppp\",\"to\":[\"@myrepo.2+desk.podman:myteam.teamchat.internal\"],\"state\":\"read\",\"at\":1}}}",
+    "outcome": "drop",
+    "reason": "schema"
+  },
+  {
+    "name": "receipt by admin",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "reports",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@admin:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"receipt\",\"m.mentions\":{},\"teamchat.receipt\":{\"v\":2}}}",
+    "outcome": "fault"
+  },
+  {
+    "name": "receipt by human",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "reports",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@alice:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"receipt\",\"m.mentions\":{},\"teamchat.receipt\":{\"v\":2}}}",
+    "outcome": "fault"
+  },
+  {
+    "name": "receipt by probe",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "reports",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@teamchat.probe+desk.host:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"receipt\",\"m.mentions\":{},\"teamchat.receipt\":{\"v\":2}}}",
+    "outcome": "fault"
+  },
+  {
+    "name": "receipt in main",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.1+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"receipt\",\"m.mentions\":{},\"teamchat.receipt\":{\"v\":1,\"of\":\"$ppppppppppppppppppppppppppppppppppppppppppp\",\"to\":[\"@myrepo.2+desk.podman:myteam.teamchat.internal\"],\"state\":\"bounced\",\"reason\":\"stale\",\"at\":1,\"kit\":1}}}",
+    "outcome": "drop",
+    "reason": "schema"
+  },
+  {
+    "name": "receipt stranger",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "reports",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@bob:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"receipt\",\"m.mentions\":{},\"teamchat.receipt\":{\"v\":1,\"of\":\"$ppppppppppppppppppppppppppppppppppppppppppp\",\"to\":[\"@myrepo.2+desk.podman:myteam.teamchat.internal\"],\"state\":\"bounced\",\"reason\":\"stale\",\"at\":1,\"kit\":1}}}",
+    "outcome": "drop",
+    "reason": "sender"
+  },
+  {
+    "name": "receipt v two",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "reports",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.2+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"receipt\",\"m.mentions\":{},\"teamchat.receipt\":{\"v\":2}}}",
+    "outcome": "drop",
+    "reason": "version"
+  },
+  {
+    "name": "report",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "reports",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.1+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"body\":\"x\",\"teamchat.report\":{\"v\":1}}}",
+    "outcome": "fault"
+  }
+]

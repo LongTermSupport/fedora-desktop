@@ -17,16 +17,17 @@ const (
 	KeyQuestion = "teamchat.question"
 	KeyThread   = "teamchat.thread"
 	KeyCarried  = "teamchat.carried"
+	KeyReceipt  = "teamchat.receipt"
 )
 
-var typedKeys = []string{KeyPing, KeyText, KeyNotice, KeyReport, KeyQuestion, KeyThread, KeyCarried}
+var typedKeys = []string{KeyPing, KeyText, KeyNotice, KeyReport, KeyQuestion, KeyThread, KeyCarried, KeyReceipt}
 
 // The typed keys a room takes from its senders (A 7.1): an agent's in main, the admin's in main
-// (A 7.6 rule 06), and the side rooms'.
+// (A 7.6 rule 06), and the side rooms'. The reports room carries receipts (A 7.8).
 var (
 	MainKeys      = []string{KeyPing, KeyText, KeyNotice}
 	AdminMainKeys = []string{KeyNotice, KeyCarried}
-	ReportKeys    = []string{KeyReport}
+	ReportKeys    = []string{KeyReport, KeyReceipt}
 	QuestionKeys  = []string{KeyQuestion, KeyThread}
 )
 
@@ -208,17 +209,20 @@ func relType(content Value) string {
 }
 
 // Content is a decoded agent event: its typed key, its `body`, its relation, and the typed
-// object of that key. Each `to` is sorted.
+// object of that key. Each `to` is sorted. Kit is the typed object's `kit`, the sender kit's
+// protocol level (A 7.1), 0 for an older kit that sends none.
 type Content struct {
 	Key      string
 	Body     string
 	Relation Relation
+	Kit      int64
 	Ping     Ping
 	Text     Text
 	Notice   Notice
 	Question Question
 	Thread   Thread
 	Carried  Carried
+	Receipt  Receipt
 	// Retitles is the question root a coordinator's retitle edit replaces (A 10.4): Body is then
 	// the new body, Question the new content's object.
 	Retitles string
@@ -290,6 +294,7 @@ var objectDecoders = map[string]func(c *Content, obj Value) string{
 	KeyQuestion: decodeQuestionObject,
 	KeyThread:   decodeThreadObject,
 	KeyCarried:  decodeCarriedObject,
+	KeyReceipt:  decodeReceiptObject,
 }
 
 // DecodeContent decodes an agent event's content under A 7.1, given the typed keys its room and
@@ -316,7 +321,7 @@ func DecodeContent(content Value, keys []string) (Content, string) {
 		return Content{}, ReasonEdit
 	}
 	c := Content{Key: key, Body: f.str("body", true, ReasonSchema)}
-	if !formatPair(f) || f.rule != "" || !decodeContentRelation(f, &c) {
+	if c.Kit = readKit(obj); c.Kit < 0 || !formatPair(f) || f.rule != "" || !decodeContentRelation(f, &c) {
 		return Content{}, ReasonSchema
 	}
 	if reason := objectDecoders[key](&c, obj); reason != "" {
@@ -326,6 +331,17 @@ func DecodeContent(content Value, keys []string) (Content, string) {
 		return Content{}, ReasonSchema
 	}
 	return c, ""
+}
+
+// readKit is a typed object's `kit` (A 7.1): 0 when absent, -1 when it is not an integer from 1
+// to MaxKit.
+func readKit(obj Value) int64 {
+	f := readFields(obj, ReasonSchema)
+	kit := f.integer("kit", false, 0, ReasonSchema)
+	if f.rule != "" || f.has("kit") && (kit < 1 || kit > MaxKit) {
+		return -1
+	}
+	return kit
 }
 
 // formatPair is A 7.1's `format`: absent with `formatted_body`, or org.matrix.custom.html with
