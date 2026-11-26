@@ -124,7 +124,11 @@ another batch; this plan decides at the end whether it stays.
   - **Order:** after batch 23 lands, in the batch with 00266's C.2 (batch 24). Its plain memory
     cap is pulled forward as Task 1.9.
 
-- [ ] 🔄 **Task 1.9**: A plain memory cap now (5 GB), ahead of 1.8's capture. Owner (Q20, 26 Nov 11:40Z,
+- [x] ✅ **Task 1.9**: A plain memory cap now (5 GB), ahead of 1.8's capture. **Accepted on the
+  laptop, 26 Nov** (the coordinating team's host seat, its report section 11): all five checks
+  passed. A live stand-in was OOM-killed at 5G and raised the notification, which the owner
+  confirmed. An instance started before the deploy picked up the cap, a normal close raised
+  nothing, and the live repro (a long thread) ran under the cap. Owner (Q20, 26 Nov 11:40Z,
   verbatim): "but for now lets also mitigate this with flatpak limits etc. I thin there's no
   reason for it to need more than 1GB so a 2GB cap is probably OK. If it could crash and
   restart automtically that would be handy, with some kind of reporting somehow so we know its
