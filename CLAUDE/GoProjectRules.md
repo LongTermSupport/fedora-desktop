@@ -105,6 +105,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_store_refusal_lost`       | a teamchat seat-store add's refusal (its list full) that reaches no return, so the write goes ahead without the entry and what it stood for is lost                                                                            | teamchat `engine`: the proof logged a full read-receipt queue and went on, so the human never saw the message read (Plan 00267 C2)                                                                                      |
 | `project_teamchat_root_read` | a teamchat machine record (paths' status-root names) handed to a call in ccy-teams with no `TeamchatRoot` in front, so a test world reads the machine's own teams | `teams` wiring: the session-name role lookup and four more read the status record through `system.StatusRecord`, past `teamtest`'s root (Plan 00265 batch 26 review) |
 | `project_checkout_config_pin` | a constant naming a checkout file the host launcher applies (`.claude/ccy/mounts`, `.claude/ccy/.last-launch.conf`, a compose file or override) outside `internal/checkoutpin`, so a container session's write to its checkout reaches the host unapproved | `sessions` restore's own compose file list (Plan 00266 Task A.1; its bash half is the semgrep rule `ccy-host-applies-checkout-config`) |
+| `project_record_launcher_exec` | a read of a session record's `Launcher` field (its `launcher=` path) outside `internal/registry`, other than in a comparison, so a planted record line is a program the next boot or a team restart runs | `sessions` restore's start of a recorded session and `teams/restart`'s start of a stopped one (Plan 00266 Task A.4) |
 | `project_memory_ahead_of_store` | teamchat engine memory written inside a store write's change function, which runs before the write, so a refused write leaves memory ahead of the disk | teamchat `engine`: recv's settle forgot each delivered item's content inside its write, so a refused ack left the items pending with nothing to render (issue #443's sweep) |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
@@ -4445,3 +4446,28 @@ Green: the claude-yolo front reads and writes it only through `checkoutpin.LastL
 
 **How to fix.** Ask `internal/checkoutpin`: its names, `MountsDigest`, `ComposeDigest` and
 `Store.Verify`.
+
+### project_record_launcher_exec
+
+**What it is about.** A session record is a file in the user's state directory that any process
+of that user can write: the launcher, `ccy-sessions declare`, a host `cc` session's claude. A
+restore and a team restart started the session by the path its `launcher=` line held, so a
+planted line was a program the next boot ran unasked, past every refusal a launch has (Plan
+00266 Task A.4, class "host executes a session record's launcher path"). `registry.Launcher`
+gives the fixed table's program for the record's prefix (`ccy`, `cc`) and refuses any other.
+
+**What it flags**, in src-go's `internal/` and `cmd/` trees (not the nested `qa` module, not test
+files, not `internal/registry`, which reads and writes the line), every read of the `Launcher`
+field of `registry.Record`, except as an operand of `==` or `!=`. A write (an assignment's left
+side, a composite literal's key) is not a read.
+
+**Red.** `go vet -vettool=<driver> -project_record_launcher_exec ./internal/... ./cmd/...` on the
+tree before the fix flagged exactly `internal/sessions/restore.go:565` and
+`internal/teams/restart/jobs.go:302`; the fixture `qa/rules/testdata/recordlauncher` holds both,
+a read kept in a variable, and the clean forms (the table, a comparison, a write, a test file, a
+`Launcher` field of another type). Green: both start `registry.Launcher`'s program.
+
+**Not caught.** The path read from the record's file by other means (a line parsed by hand), or
+handed out of `internal/registry` in a copy.
+
+**How to fix.** `registry.Launcher(getenv, rec)`.

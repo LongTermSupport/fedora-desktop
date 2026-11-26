@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.111 — container 2.84.107
+
+- `ccy-sessions restore` and `ccy-teams restart` start a session with the installed launcher of
+  its record's prefix (`ccy` or `cc`), never the path its `launcher=` line holds (Plan 00266
+  Task A.4). A record with any other prefix is refused (`launcher-unknown`), by
+  `restore --check` too.
+
 ## 3.124.110 — container 2.84.107
 
 - The image's teamchat keeps a ping whose forge check failed for a passing reason in its store,

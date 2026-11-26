@@ -14,6 +14,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylaunch"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
@@ -99,6 +100,8 @@ func newHarness(t *testing.T) *harness {
 		"CCY_STATE_DIR": filepath.Join(root, "state"), "CCY_BOOT_ID_FILE": filepath.Join(root, "boot_id"),
 		"CCY_SESSIONS_POLL_SECONDS": "5", "CCY_SESSIONS_MINUTE_SECONDS": "60",
 		"CCY_SESSIONS_SUBMIT_DELAY": "0.2", "NO_COLOR": "1",
+		// The fixed launcher table, in a directory of the test's own (/launch/ccy, /launch/cc).
+		registry.LauncherDirEnv: "/launch",
 	}
 	if err := os.WriteFile(h.env["CCY_BOOT_ID_FILE"], []byte("this-boot\n"), 0o600); err != nil {
 		t.Fatal(err)

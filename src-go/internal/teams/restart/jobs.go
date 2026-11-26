@@ -61,9 +61,11 @@ type job struct {
 	file   string
 	action action
 
-	// id is the conversation a start resumes (none when fresh), args the launcher's arguments.
-	id   string
-	args []string
+	// id is the conversation a start resumes (none when fresh), args the launcher's arguments,
+	// launcher the fixed table's program for the record's prefix (registry.Launcher).
+	id       string
+	args     []string
+	launcher string
 	// memDir is a running ccy session's membership directory, generation its desired one's.
 	memDir     string
 	generation int
@@ -247,12 +249,17 @@ func (r *Restart) prepareStart(j *job) {
 		j.done(resultFailed, "its folder no longer exists: "+j.rec.Dir)
 		return
 	}
+	launcher, err := registry.Launcher(r.Getenv, j.rec)
+	if err != nil {
+		j.done(resultFailed, err.Error())
+		return
+	}
 	start, err := conversation.StartPlan(j.rec, conversation.Here(r.Getenv))
 	if err != nil {
 		j.done(resultFailed, strings.TrimPrefix(err.Error(), j.rec.Name+": "))
 		return
 	}
-	j.id, j.fresh, j.args, j.action = start.ID, start.Fresh, start.Args, actStart
+	j.id, j.fresh, j.args, j.launcher, j.action = start.ID, start.Fresh, start.Args, launcher, actStart
 }
 
 // actAll makes every request and start before anything is waited for (B7).
@@ -299,7 +306,7 @@ func (r *Restart) askToRestart(ctx context.Context, j *job) {
 
 // start starts the stopped session on ccy's tmux, as ccy-sessions restore does.
 func (r *Restart) start(ctx context.Context, j *job) {
-	command := append([]string{"env", "CCY_SESSION_RESTORE=1", j.rec.Launcher}, j.args...)
+	command := append([]string{"env", "CCY_SESSION_RESTORE=1", j.launcher}, j.args...)
 	spec := tmuxccy.StartSpec{Name: j.name, Dir: j.rec.Dir, Command: command, RecordPath: j.file, Prefix: j.rec.Prefix}
 	if err := r.Tmux.StartDetached(ctx, spec); err != nil {
 		j.done(resultFailed, "could not start it: "+err.Error())

@@ -11,6 +11,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
@@ -54,6 +55,8 @@ func newMachine(t *testing.T) *machine {
 	m := &machine{World: teamtest.Populated(t), t: t, now: time.Unix(1_800_000_000, 0)}
 	m.runtime = filepath.Join(m.Root, "run")
 	m.Env["XDG_RUNTIME_DIR"] = m.runtime
+	// The fixed launcher table, in a directory of the test's own (/x/ccy, /x/cc).
+	m.Env[registry.LauncherDirEnv] = "/x"
 	m.sessions = []*session{{name: "ccy-proj", prefix: "ccy", seat: "1", live: true, container: "c1", supervised: true, holdsOnStart: true}}
 	m.desire(m.sessions[0])
 	m.converse("ccy-proj", "ccy")

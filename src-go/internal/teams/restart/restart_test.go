@@ -158,6 +158,24 @@ func TestAStoppedSessionIsStartedResumingItsConversation(t *testing.T) {
 	)
 }
 
+// Plan 00266 Task A.4: a stopped session is started by the fixed table's launcher for its
+// prefix, never by the launcher= path its record holds (a file any process of the user writes).
+func TestAStoppedSessionIsStartedByTheTablesLauncherNotItsRecordedPath(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	m.stop(m.find("ccy-proj"))
+	teamtest.MustWrite(m.t, filepath.Join(m.Root, "home/.local/state/ccy/sessions", "ccy-proj"),
+		"ccy-session-record 1\nname=ccy-proj\ndir="+m.Checkout()+"\nlauncher=/tmp/planted\nprefix=ccy\nrestore=yes\n"+
+			"arg=--teams\narg=1@alpha\n")
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	want := "env CCY_SESSION_RESTORE=1 /x/ccy --teams 1@alpha --supervise --resume " + conversationOf("ccy-proj")
+	if !slices.Equal(m.started, []string{want}) {
+		t.Fatalf("started %q, want %q", m.started, want)
+	}
+}
+
 // A team restart acts on agent-bus teams only (a v2 team is refused, below), so a session of
 // one resumes v1's record: a teamchat record left in the seat store under the same session name
 // is another session's and is never read (Plan 00209 DESIGN-host-cc-v2.md section 4).

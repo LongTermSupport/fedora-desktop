@@ -55,7 +55,7 @@ It is written beside the registry at `<state>/ccy/last-restore`, never inside it
 
 - `planRestore`: the dir must be a directory, then `conversation.StartPlan` runs [checked sessions/restore.go:155-170].
 - `judgeRestore` adds: the hostname rule, `--ssh-key` must be a file, the token pool must not be all expired, the engine, and the network [checked restore.go:177-201, refusals.go:53-200].
-- **argv:** `env CCY_SESSION_RESTORE=1 [passphrase-file var] <rec.Launcher> <args>` [checked restore.go:552-560], placed after `bash -c <trampoline> ccy-tmux` [checked tmuxccy/start.go:82-84]. The trampoline runs it as `"$@"`, and only the record path, stop path and prefix are quoted into it [checked registry/restore.go:503-519]. **No free-form string reaches a shell.**
+- **argv:** `env CCY_SESSION_RESTORE=1 [passphrase-file var] <launcher> <args>` [checked restore.go:552-560], where `<launcher>` is the fixed table's program for the record's prefix (`registry.Launcher`; Task A.4), never the record's `launcher=` path, placed after `bash -c <trampoline> ccy-tmux` [checked tmuxccy/start.go:82-84]. The trampoline runs it as `"$@"`, and only the record path, stop path and prefix are quoted into it [checked registry/restore.go:503-519]. **No free-form string reaches a shell.**
 - **Arguments:**
   - `ReplayArgs` drops the one-shot flags (`--prompt`, `--run-for`, `--until`, bare first messages and others) [checked replay.go:23-42, registry/restore.go:57-60].
   - It **keeps every unknown `-flag`, the word after it, and everything after `--` verbatim** [checked replay.go:31-41].

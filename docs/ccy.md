@@ -561,7 +561,9 @@ restore wrote (`~/.local/state/ccy/last-restore`) and prints one line per sessio
 `STARTING`, `SETTING-GOING`, `NOT-SET-GOING <reason>`, `WAITING-AT-PROMPT <prompt>`,
 `DEAD <reason>` or `NOT-STARTED <reason>` (a record the restore could not start:
 `no-conversation`, `directory-gone`, `record-unreadable`, `arguments-unworkable`,
-`start-failed`). A session at Claude Code's conversation picker (a restore of a `--resume`
+`launcher-unknown`, `start-failed`). A restore starts each session by the installed launcher
+of its prefix (ccy or cc), never the path its record holds; any other prefix is
+`launcher-unknown`. A session at Claude Code's conversation picker (a restore of a `--resume`
 launch) is `WAITING-AT-PROMPT thread-picker`. `NOT-SET-GOING` is a session left alone, or one whose transcript shows no
 input within two minutes of the keys being typed (`continue-not-started`). It exits non-zero unless every session is `OK`. `--wait` polls
 until the restore has settled: nothing `STARTING` or `SETTING-GOING`, and the same answer

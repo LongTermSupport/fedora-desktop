@@ -40,6 +40,7 @@ const (
 	whyArgumentsUnknown   = "arguments-unworkable"
 	whyStartFailed        = "start-failed"
 	whyRecordUnreadable   = "record-unreadable"
+	whyLauncherUnknown    = "launcher-unknown"
 	checkLineRestorable   = " RESTORABLE"
 	checkLineUnrestorable = " UNRESTORABLE "
 	// detailFresh is the manifest's detail for a session started fresh, not resumed.
@@ -145,11 +146,13 @@ func staleNote(rec registry.Record, plan restorePlan) string {
 // restorePlan is how one record would be started, or why it cannot be: why is a word from the
 // list above, empty when it can, and sentence says the same to a person. start is
 // conversation.StartPlan's answer. note is what a restorable record's judgement has to say
-// about it (usage that could not be read).
+// about it (usage that could not be read). launcher is the program that starts it, from the
+// fixed table by its prefix (registry.Launcher), never the record's own launcher= path.
 type restorePlan struct {
 	why, sentence, note string
 	elsewhere           bool
 	start               conversation.Start
+	launcher            string
 }
 
 // planRestore decides whether a record can be restored, by the rules the restore starts it by:
@@ -162,6 +165,10 @@ func (a *App) planRestore(rec registry.Record, file string) restorePlan {
 		return restorePlan{why: whyDirectoryGone, sentence: "its directory no longer exists: " + rec.Dir +
 			keptAtAdvising(file, "; remove it if the project is gone")}
 	}
+	launcher, err := registry.Launcher(a.Getenv, rec)
+	if err != nil {
+		return restorePlan{why: whyLauncherUnknown, sentence: err.Error() + keptAt(file)}
+	}
 	start, err := conversation.StartPlan(rec, conversation.Here(a.Getenv))
 	var argsErr *conversation.ArgsError
 	var elsewhere *conversation.ElsewhereError
@@ -172,7 +179,7 @@ func (a *App) planRestore(rec registry.Record, file string) restorePlan {
 	case err != nil:
 		return restorePlan{why: whyNoConversation, sentence: err.Error() + keptAt(file), elsewhere: errors.As(err, &elsewhere)}
 	}
-	return restorePlan{start: start}
+	return restorePlan{start: start, launcher: launcher}
 }
 
 // judgeRestore is planRestore with the refusals a launch would meet before its session starts
@@ -562,7 +569,7 @@ func (r *restoreRun) record(ctx context.Context, rec registry.Record, file strin
 		// The pane says why the compose question is asked: not a record from before compose=.
 		command = append(command, noComposeWhyEnv+"="+noComposeProvisioned)
 	}
-	command = append(append(command, rec.Launcher), args...)
+	command = append(append(command, plan.launcher), args...)
 	spec := tmuxccy.StartSpec{Name: rec.Name, Dir: rec.Dir, Command: command, RecordPath: file, Prefix: rec.Prefix}
 	if err := a.Tmux.StartDetached(ctx, spec); err != nil {
 		a.failErr(err)

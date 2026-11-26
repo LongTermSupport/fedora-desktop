@@ -69,8 +69,14 @@ The full findings, each with file and line, are in [DESIGN.md](DESIGN.md).
   from the one recorded at the attended launch. **Built:** `ccy_compose_up` asks
   `ccy-teams internal checkout-pin compose <unattended>` first; the digest covers the compose
   files, overrides, `.env` and every file they include or extend.
-- [ ] ⬜ **Task A.4**: Derive the record's `launcher` from its prefix (a fixed table), never
-  executing a recorded path.
+- [x] ✅ **Task A.4**: Derive the record's `launcher` from its prefix (a fixed table), never
+  executing a recorded path. **Built:** class "host executes a session record's launcher path";
+  the Go rule `project_record_launcher_exec` was red on exactly `sessions/restore.go:565` and
+  `teams/restart/jobs.go:302` (a team restart's start, found by the sweep). `registry.Launcher`
+  is the table (`ccy` → `/var/local/claude-yolo/claude-yolo`, `cc` → `/var/local/claude-code/cc`);
+  `planRestore` refuses any other prefix as `launcher-unknown`, so `restore --check` agrees. The
+  suites reach their fakes through `CCY_SESSIONS_LAUNCHER_DIR`, host-only environment that no
+  container can set (the same trust as `CCY_LIB`, which names the code the launcher sources).
 - [ ] ⬜ **Task A.5**: Replay arguments through an allowlist of the launcher's own flags. No
   unknown flag, and no word after `--`, for cc above all.
 

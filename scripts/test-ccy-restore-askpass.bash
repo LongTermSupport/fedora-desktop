@@ -498,9 +498,10 @@ converse ccy-proj 11111111-0000-4000-8000-000000000000 "$PROJ/.claude/ccy/projec
 converse cc-proj 22222222-0000-4000-8000-000000000000 "$CLAUDE_HOME/projects/${PROJ//[^a-zA-Z0-9]/-}"
 
 # restore_run — the restore under test: the built binary's `restore` subcommand, which is
-# what the boot unit runs.
+# what the boot unit runs. It starts each session by the fixed launcher table (Plan 00266 A.4),
+# here in /launch, the directory the records also name.
 restore_run() {
-    CCY_LIB="$LIB_DIR" CLAUDE_CONFIG_DIR="$CLAUDE_HOME" "$GO_TOOL" restore
+    CCY_LIB="$LIB_DIR" CLAUDE_CONFIG_DIR="$CLAUDE_HOME" CCY_SESSIONS_LAUNCHER_DIR=/launch "$GO_TOOL" restore
 }
 
 rm -f "$STARTED_LOG"
