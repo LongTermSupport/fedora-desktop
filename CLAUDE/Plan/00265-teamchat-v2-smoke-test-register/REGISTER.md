@@ -1704,4 +1704,49 @@ before the move to v2. Filled in as causes are found.
   `playbooks/ tasks/ vars/ environment/`). Report: `subagent-reports/261126-dbf-repo-path.md`.
   The play still has to run on the host (queued through `r79-private-names.bash` in
   `meta-deploy.list`); the session-start hooksPath detector above is still to do.
+- **Interim (26 Nov 10:06Z, the coordinator's decision):** the play cannot run in this checkout
+  (no vault file, and become asks for a password with no tty), so the devops seat set
+  `core.hooksPath` here by hand, as a recorded interim, and proved it: `git hook run pre-commit`
+  scanned clean with rc 0. The hooks run here again; the hand scan stopped. The lasting owner of
+  this checkout's hooks path, and of its pinned list, is the infrastructure repository's dev-VM
+  checkout task, which provisions it; the play pins only the checkout that runs it.
 - **Severity:** high (all local security gates off, silently). **Issue:** TBF. **State:** open.
+
+## R85: a shutdown warning fails for a live seat that has no context sidecar
+
+- **Seen:** the owner's laptop shutdown-with-update, 26 Nov 10:17Z, relayed by the coordinator.
+  The reboot-warning signal to one team's ccy container exited 1: "--all-sessions found no live
+  session (no <session>.json context sidecar ...)". A live seat in it was not warned.
+- **Hazard:** the lossless rule. A seat with work in flight goes down unwarned, so it cannot
+  finish or hand off.
+- **Fix:** to find out (unchecked): why the live session had no sidecar, or why the signal
+  looked for one where it was not. Then the signal reaches every live session, and a session it
+  cannot reach is named as not warned, never a bare exit 1.
+- **Severity:** high (a live seat not warned before a shutdown). **Issue:** TBF. **State:** open.
+
+## R86: a stale ccy session record shows as live at shutdown
+
+- **Seen:** the same shutdown. The warning listed a ccy session with no container in its
+  process tree as "left out". It is the stale session already known on the laptop.
+- **Hazard:** the list says a session exists that has nothing in it, which hides the real
+  state from the operator and from `ccy-sessions restore`.
+- **Fix:** such a session either should not exist (cleaned up when its container ended) or shows
+  as stopped. To decide which owner (ccy-sessions or the ccy launcher) and why the record stayed.
+- **Severity:** low. **Issue:** TBF. **State:** open.
+
+## R87: a host cc session cannot be shown an operator signal
+
+- **Seen:** the same shutdown. "Not shown the warning: these cc sessions run claude on the host
+  with no ccy supervisor". The laptop's host seat is one.
+- **Hazard:** the lossless rule. An operator signal that cannot reach a session must reach it
+  another way. Today it reaches only the operator's terminal.
+- **Fix:** when a session cannot be shown the signal and it is a team seat, the signal also goes
+  to that seat as a teamchat notice (or the cc launch gains the supervisor's signal path). To
+  design.
+- **Severity:** medium. **Issue:** TBF. **State:** open.
+
+## R88: the shutdown warning prints the same blocks twice
+
+- **Seen:** the same shutdown. The same blocks printed twice.
+- **Fix:** to find out (unchecked) whether the warning runs twice or prints twice, then once.
+- **Severity:** low (noise). **Issue:** TBF. **State:** open.
