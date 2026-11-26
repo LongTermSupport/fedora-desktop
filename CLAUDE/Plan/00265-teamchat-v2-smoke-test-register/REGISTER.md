@@ -6,7 +6,9 @@ seen and stays open until a fix is proven. [PLAN.md](PLAN.md) holds the units an
 
 **Severity:** critical stops real work or silently loses information; high forces a manual
 workaround; medium misleads; low is cosmetic.
-**State:** `open`, `in progress (unit)`, `fixed (commit)` or `proven (how)`.
+**State:** `open`, `in progress (unit)`, `fixed (commit)` or `proven (how)`. "On F44 (X)"
+means F44 commit X has the tree of a v2-smoke commit that holds the cited fixes. F44 gets each
+batch as one commit-tree copy, so the v2-smoke hashes are never F44's ancestors.
 **Issue:** TBF means it is to be filed before its unit starts.
 **Cause class:** kept for the owner's retrospective in [Cause classes](#cause-classes) at the end,
 filled in as each cause is known.
@@ -861,7 +863,7 @@ filled in as each cause is known.
 - **Not ours:** the session network policy has to admit a hot-joined team's port. That is the
   owner's host configuration.
 - **Severity:** high (a join reported done that never happened). **Issue:** TBF. **State:** on
-  F44 (`2e057a895`, 26 Nov; batch 12, `b239a00a6`, `2a0b1854c`: the host reads a running older image's
+  F44 (`2e057a895`, 26 Nov, whose tree is v2-smoke `d8c38c8d8`'s; batch 12, `b239a00a6`, `2a0b1854c`: the host reads a running older image's
   report.json, which has no `down`, as down null; `8d93dd3d7`: container 2.84.82, ccy
   3.124.60); not yet run live. Detail: `reports/R60.md`.
 
