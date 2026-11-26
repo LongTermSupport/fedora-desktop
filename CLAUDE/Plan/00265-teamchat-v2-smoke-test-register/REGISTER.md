@@ -1775,9 +1775,15 @@ before the move to v2. Filled in as causes are found.
   - So nothing restores every seat on a machine. This seat, asked at 10:12Z, named
     `ccy-sessions restore` from the first section. That was wrong for these seats, and the
     coordinator and the owner followed it.
-- **Unchecked:** why the sessions left no record. A record is removed when its session ends,
-  however it ends, and is left behind only when the session is killed. Either these sessions
-  ended before the shutdown killed them, or teamchat seat launches do not write one.
+- **Why no record (read in code, fact-check report r89; which case hit the laptop is
+  unchecked):**
+  - The record is written in bash by `ccy_registry_write` (`files/var/local/claude-yolo/lib/tmux-session.bash:423`,
+    in `ccy_tmux_insulate`). Go only reads records.
+  - No record is written when stdin or stdout is not a terminal, or when the launch is the
+    re-exec landing inside ccy's own tmux. `--no-restore` writes one with restore off.
+  - The pane trampoline removes the record when the launcher returns, whatever its status,
+    except 88, an unattended stop (`session-registry.bash:591-613`). Only a kill or a reboot
+    leaves it.
 - **Fix (owner requirement, relayed):**
   - One command that brings every seat on a machine back on its recorded conversation, with a
     dry run first. It reads the seat records (`seat-checkouts` and each checkout's
@@ -1787,4 +1793,20 @@ before the move to v2. Filled in as causes are found.
     and `ccy-sessions restore` says that teamchat seats are restored by it.
   - Find and fix why the session records were missing.
 - **Severity:** high (a reboot loses every seat's session, and the documented route restores
-  none). **Issue:** TBF. **State:** open.
+  none). **Issue:** TBF. **State:** open; planned with R90 as PLAN Task 4.2.
+
+## R90: owner standing rule — a human never needs a seat number
+
+- **Seen:** the owner, the team's questions room, 26 Nov 10:44Z, relayed by the coordinator
+  (verbatim): "we need to stop this expecation that im going to know exactly what seat number
+  to run a session on - it does not make sense and its not human".
+- **Rule:**
+  - `cc`, `ccy --teams <team>` or a bare `ccy --teams` in a checkout picks the right seat by
+    itself: the seat the checkout already holds, resuming its recorded conversation.
+  - It asks only when there is a genuine choice, and then in words (what each seat is for,
+    when it last ran), never numbers.
+  - Seat numbers leave every human-facing message, doc and error, restore output included.
+  - R89's one restore command follows the same rule.
+- **Fix:** PLAN Task 4.2, detector first.
+- **Severity:** high (an owner rule; today's restore asks for exactly what it forbids).
+  **Issue:** TBF. **State:** open.
