@@ -50,10 +50,30 @@ another batch; this plan decides at the end whether it stays.
 - [ ] ⬜ **Task 1.3**: A read-only traffic probe (Go): a team's event counts by room, type,
   relation (thread, reply, edit), receipt and presence change, per hour, over a window, with no
   content. Run on the busy team for 25 Nov and on a quieter team for comparison.
-- [ ] ⬜ **Task 1.4**: Owner decision D1, then IaC: an opt-in debug launch for a team's Lightning
-  (`--console --log-file`, `LIGHTNING_SCROLL_TRACE`, `LIGHTNING_SYNC_TRACE`,
-  `LIGHTNING_GUI_STALL_TRACE`) written by `agent-bus-lightning` from a host var, deployed through
-  `meta-deploy.bash`.
+- [ ] ⬜ **Task 1.3a**: The stall window first: the bus host's admin seat runs
+  [bus-host-commands.md](bus-host-commands.md) for 25 Nov 17:00:00Z-17:15:00Z in the busy team's
+  main, questions and reports rooms (event shapes only, no bodies). Name the event shape at or
+  just before 17:09:12Z that could start a GUI-thread runaway (RESEARCH.md 8.1).
+- [ ] ⬜ **Task 1.4**: Owner decision D1, then IaC: a per-team key `lightning_diagnostics` in an
+  `agent_bus_element_teams` entry. When true, the launcher's Exec line adds
+  `LIGHTNING_SCROLL_MEMORY_TRACE=1 LIGHTNING_SCROLL_TRACE=1 LIGHTNING_GUI_STALL_TRACE=1` and
+  `--log-file <team>/cache/lightning-diagnostic.log` (RESEARCH.md 7.3, 7.4). Test first in
+  `src-go/internal/lightning` (`entries.go` key, `lightning.go` `execLine`) and in
+  `helpers/agent_bus/element.py` (`PROFILE_KEYS`), the key in `localhost.yml.dist` and
+  `docs/agent-bus.md`. Deployed by the play's `agent-bus-lightning` tag through
+  `meta-deploy.bash`; on for the busy team, only on Lightning 0.10.7 or later (its `--log-file`
+  cap).
+- [ ] ⬜ **Task 1.5**: Owner question Q20: what the incident left behind. The laptop's host seat
+  runs [laptop-commands.md](laptop-commands.md) section 10 (systemd's CPU and peak accounting of
+  the killed scope, Lightning's stderr in the journal or the ccy-teams log, any rolling log).
+  Answer: [Q20-answer.md](Q20-answer.md).
+- [ ] ⬜ **Task 1.6**: Dogfooding fault: `systemd.LaunchClient` appends a client's stderr to
+  `<ccy-teams state dir>/<client>-<team>.log` with no cap or rotation. Log it as a GitHub issue
+  before Task 1.4 turns tracing on.
+- [ ] ⬜ **Task 1.7**: Catch the trigger next time (RESEARCH.md 7.5): add per-event sync tracing to
+  Task 1.4's key, and a user-level watchdog (IaC) that, when the instance's log is silent for
+  60 s while its RSS climbs past a threshold, records per-thread CPU and an all-threads
+  backtrace once. Lightning's own stall tracer logs only when a stall ends, so it cannot.
 
 ### Phase 2: Reproduce
 
@@ -65,8 +85,9 @@ another batch; this plan decides at the end whether it stays.
 - [ ] ⬜ **Task 2.2**: Lightning from Flathub in the VM lab (or a headless nested compositor with a
   D-Bus session and a Secret Service), signed in to the test team; a sampler writing RSS, PSS,
   `memory.stat`, CPU time and cumulative event counts every 30 s.
-- [ ] ⬜ **Task 2.3**: Baseline and the replay of the busy day: does memory grow as on the laptop?
-  NOT ESTABLISHED until a run grows at a comparable rate.
+- [ ] ⬜ **Task 2.3**: First, replay Task 1.3a's window (its event shapes in order and spacing)
+  with a thread panel open, then the rest of the busy day. Confirmed only when the event loop stops
+  (the 300 s timers go silent) and the JS heap climbs, as on the laptop.
 
 ### Phase 3: Isolate
 
@@ -74,7 +95,9 @@ another batch; this plan decides at the end whether it stays.
   unfocused and a thread panel open; growth against events (H2) and against time with traffic
   stopped (H1).
 - [ ] ⬜ **Task 3.2**: Profile the triggering arm: heaptrack on a source build (or the Flatpak's
-  `--devel` SDK), `QV4_MM_STATS=1`, `LIGHTNING_RUST_LOG`; name the allocation site.
+  `--devel` SDK), Qt's QML GC statistics, `LIGHTNING_RUST_LOG`; name the allocation site.
+- [ ] ⬜ **Task 3.3**: Audit the QML the trigger points at (0.10.7's thread panel, edit following,
+  `MessageDragSelection.qml`) for an unbounded loop or a re-entrant model or signal cycle (H8).
 
 ### Phase 4: Fix upstream
 
@@ -103,10 +126,10 @@ another batch; this plan decides at the end whether it stays.
 
 ## Owner decisions
 
-| ID  | Question                                                         | Recommendation                    |
-| --- | ---------------------------------------------------------------- | --------------------------------- |
-| D1  | Launch the busy team's Lightning with its traces and a log file? | Yes, opt-in per team, through IaC |
-| D2  | Keep the memory cap once the fix is verified?                    | Decide after Task 6.2             |
+| ID  | Question                                                         | Recommendation                 |
+| --- | ---------------------------------------------------------------- | ------------------------------ |
+| D1  | Launch the busy team's Lightning with its traces and a log file? | Yes, Task 1.4's memory tracing |
+| D2  | Keep the memory cap once the fix is verified?                    | Decide after Task 6.2          |
 
 ## Dependencies
 

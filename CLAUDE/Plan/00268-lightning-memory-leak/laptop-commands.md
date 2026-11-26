@@ -140,6 +140,47 @@ Answers: link restarts, drop counts and the last items (kinds, senders, times); 
 into a report. The full day's event counts by type and room need a read-only probe this plan
 builds (Task 1.3), not a command run by hand.
 
+## 10. What the OOM incident left behind (owner question Q20)
+
+The killed instance started about 25 Nov 11:00Z and died at 18:08:56Z.
+
+```bash
+# systemd's own accounting when the scope stopped: CPU time used and memory peak.
+journalctl --user -b --no-pager -o short-iso --since '2026-11-25 10:00:00 UTC' --until '2026-11-25 18:20:00 UTC' \
+  | grep -F 'org.lightning_matrix.Lightning' | grep -i -E 'consumed|memory peak|oom|killed|deactivated|failed' | cut -c1-240 | cat
+journalctl -b --no-pager -o short-iso -u systemd-oomd | cat
+```
+
+A steady, high CPU time over the instance's life points at a loop (H1); little CPU at a large
+peak points at accumulation (H2, H3).
+
+```bash
+# Which journal identifiers Lightning writes under, if it was opened from the app grid.
+journalctl --user -b -F SYSLOG_IDENTIFIER | grep -i -E 'lightning|flatpak' | cat
+# Its memory readings from the trim, and its stall and repeat summaries, in that window.
+journalctl --user -b --no-pager -o short-iso --since '2026-11-25 10:00:00 UTC' --until '2026-11-25 18:10:00 UTC' \
+  | grep -E 'idle trim:|GUI stall|repeated|scroll-memory' | cut -c1-200 | cat
+```
+
+```bash
+# The ccy-teams launch log, if ccy-teams opened it: sizes first, then the same readings.
+find ~/.local/state -maxdepth 4 -name 'lightning-*.log' -printf '%s %TY-%Tm-%TdT%TH:%TM %p\n' | cat
+grep -h -E 'idle trim:|GUI stall|repeated|scroll-memory|panic|abort' <that log> | cut -c1-200 | cat
+awk '{s=substr($0,1,100); gsub(/[0-9]+/,"N",s); print s}' <that log> | sort | uniq -c | sort -rn | awk 'NR<=30'
+```
+
+```bash
+# Lightning's own rolling log, only if "Keep a diagnostic log" was on, and the event store's size.
+APP=org.lightning_matrix.Lightning
+grep -r -l -F 'keepLog=true' ~/.var/app/$APP/teams/*/config 2>&1 | cat
+find ~/.var/app/$APP/teams -type d -name logs -printf '%p\n' -exec ls -la {} \; | cat
+find ~/.var/app/$APP/teams -name 'matrix-sdk-event-cache.sqlite3*' -printf '%s %TY-%Tm-%TdT%TH:%TM %P\n' | cat
+```
+
+The output names teams and paths: anonymise before it reaches any tracked file. The `idle trim:`
+lines carry only numbers; the repeated-line counts carry no message text after the 100-character
+cut, but check before quoting.
+
 ## Not read-only: needs the owner's yes and goes through IaC
 
 Running the busy team's next instance with Lightning's traces on (`--console --log-file <path>`,

@@ -211,7 +211,7 @@ room crosses from harmless to explosive in hours, while a quiet one stays flat f
 fits the busy/quiet divergence without needing a loop.
 **Test:** in the reproduction, drive N events at a fixed rate and plot RSS against N: linear
 refutes, quadratic confirms. Then run each event family alone (threads only, receipts only,
-mentions only) to find which. `QV4_MM_STATS=1` (Qt's JS memory manager statistics) separates JS
+mentions only) to find which. Qt's QML garbage-collector statistics (section 7.1) separate JS
 heap growth from C++ heap growth; heaptrack names the allocation site.
 
 ### H3. The trims never run for a watched team, so every event is kept
@@ -319,14 +319,14 @@ GPU memory, not anon heap.
   debug info; inside the Flatpak, `flatpak run --devel --command=sh` gives the SDK runtime where a
   debugger exists (whether heaptrack is in `org.kde.Sdk` is unchecked; the fallback is a native
   build in a podman container from Plan 00254's Containerfile with Rust added).
-- **JS heap or C++ heap:** `QV4_MM_STATS=1` prints QV4 garbage-collector statistics on each
-  collection; `QML_DISABLE_DISK_CACHE` is irrelevant here.
+- **JS heap or C++ heap:** Qt's QML garbage-collector statistics (section 7.1; `QV4_MM_STATS` is
+  the Qt 5 spelling).
 - **Rust side:** `LIGHTNING_RUST_LOG=matrix_sdk=debug,matrix_sdk_ui=debug` for repeated requests;
   per-thread glibc arenas (many anon mappings of 64 MiB) in smaps point at Rust/tokio threads
   rather than the GUI thread's main heap (`[heap]`).
 - **Trim decisions:** `LIGHTNING_SCROLL_TRACE=1`.
 - **Stalls and loops:** `LIGHTNING_GUI_STALL_TRACE=1`, `LIGHTNING_SYNC_TRACE=1`, with
-  `--console --log-file <path>`.
+  `--log-file <path>` (`--console` only opens a console window on Windows).
 - **Without a rebuild:** smaps by mapping, `memory.stat`, `/proc/<pid>/task/*/stat` CPU per
   thread (which thread is busy names the loop's owner: the GUI thread, a QML render thread, a
   tokio worker), and `gcore` of a test instance (never the owner's) for offline inspection.
@@ -344,3 +344,190 @@ GPU memory, not anon heap.
   protocol is not changed on a guess.
 - **The stopgap cap** (a systemd scope MemoryHigh 6G / MemoryMax 8G) is in another batch; it
   bounds the damage, not the cause. Whether it stays is decided once the fix is verified.
+
+## 7. Logs and debug modes (owner question Q20)
+
+Read in Lightning's source at `origin/main` `933902d2` and the tags `v0.10.6` and `v0.10.7`
+(checked by reading code; none of it run).
+
+### 7.1 Every logging, debug and memory mode Lightning has
+
+**Where output goes by default.** Every Qt message (`qInfo` and above; release builds drop
+`qDebug`) is written to **stderr**, through a repeat limiter that folds repeated lines into a
+summary (`src/main.cpp`, `installRepeatLimiter`). Where stderr ends up depends on who launched it
+(**unchecked**, from how GLib and GNOME Shell launch apps): an instance opened by ccy-teams
+inherits the stderr of `gio launch`, which `systemd.LaunchClient` points at
+`<ccy-teams state dir>/lightning-<team>.log`, appended for ever with no cap; one opened from the
+GNOME app grid writes to the user journal. So **some log of the killed instance may already
+exist**, holding Lightning's ordinary `qInfo` lines, among them the `idle trim:` line each time
+the allocator trim runs (`resident <before> -> <after> MB`), which is a memory reading.
+
+| Mode                                                                 | What it writes                                                                                                                                                     | Where                                                                                                            | Cost                                                                                                       | Privacy                                                                                                                       |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| default                                                              | `qInfo` and warnings, repeat-limited; `idle trim:` lines with RSS before and after                                                                                 | stderr                                                                                                           | none extra                                                                                                 | user ids and paths; the code's own rule is no message content, keys or tokens                                                 |
+| `--log-file <path>`                                                  | a mirror of the Qt messages; Rust tracing is NOT mirrored (it writes to stderr directly)                                                                           | the path; 0.10.7+ rolls once to `<path>.1` at 32 MiB (`CappedLogFile`), so 64 MiB at most; **0.10.6 has no cap** | one async write per line                                                                                   | file header: "Matrix user ids and local file paths; never message content, keys or tokens"; created owner-only, refuses links |
+| "Keep a diagnostic log" (Settings, About; key `diagnostics/keepLog`) | a rolling copy of the Qt messages                                                                                                                                  | `<cache>/logs/`, files of 1 MiB, 8 MiB and 16 files at most                                                      | small                                                                                                      | as `--log-file`; the export to share is sanitised again                                                                       |
+| `LIGHTNING_SCROLL_MEMORY_TRACE=1`                                    | every 5 s: `scroll-memory rssKiB=… bridgeBytes=… qtPixmapLimitKiB=… rows=… sourceRows=…` (RSS, media cache bytes, delegates, timeline rows held)                   | stderr and `--log-file`                                                                                          | one `/proc/self/status` read every 5 s; about 120 bytes a line, 17,280 lines a day, about 2 MiB a day      | numbers only                                                                                                                  |
+| `LIGHTNING_SCROLL_TRACE=1`                                           | each idle-trim check's inputs (`idle live-edge trim check following= idleMs= windowActive= paneBlocked= popup= switching= rows=`), plus scroll events              | stderr and `--log-file`                                                                                          | a line per trim check (120 s or more apart) and per scroll step while the human scrolls (unchecked volume) | numbers and widget class names                                                                                                |
+| `LIGHTNING_GUI_STALL_TRACE=1` (or a threshold in ms)                 | `GUI stall <ms> ms category=…` when the GUI thread misses its watchdog beat                                                                                        | stderr and `--log-file`                                                                                          | a watchdog thread; a line only on a stall                                                                  | none                                                                                                                          |
+| `LIGHTNING_SYNC_TRACE=1` (or a threshold in ms)                      | per event `sdk->bridge->model->ui` times, `SLOW sync gap=` lines; per-event lines need `QT_LOGGING_RULES='lightning.sync.trace=true'`                              | stderr and `--log-file`                                                                                          | a stamp per event; a line per event when the rule is on                                                    | event ids and a room key, no content                                                                                          |
+| `LIGHTNING_EDIT_TRACE=1`                                             | edit handling                                                                                                                                                      | stderr                                                                                                           | per edit                                                                                                   | event ids (unchecked for content)                                                                                             |
+| `LIGHTNING_RUST_LOG=1` or a `tracing` filter                         | the Rust SDK's tracing (`1` = crypto debug, base and sdk info, ui warn); HTTP-layer targets are forced off                                                         | **stderr only**                                                                                                  | at `debug` a heavy, unbounded stream                                                                       | ids, and whatever the SDK logs at that level (unchecked); the forced-off HTTP targets keep URLs and tokens out                |
+| `QT_LOGGING_RULES` (Qt)                                              | turns on any Qt or Lightning category, e.g. `lightning.e2ee.debug=true`, and Qt's QML GC statistics categories `qt.qml.gc.statistics` / `qt.qml.gc.allocatorStats` | stderr and `--log-file`                                                                                          | GC statistics print on every collection: heavy for a day-long run                                          | none                                                                                                                          |
+
+There is **no heap-dump route in Lightning**: it reads `mallinfo2()` and `/proc/self/statm`
+only to decide whether to trim, and reports nothing else. A heap profile needs heaptrack or
+`gcore` from outside (section 5.3), on a test instance, never the owner's.
+
+### 7.2 What the incident can still tell us
+
+All read-only; the commands are in [laptop-commands.md](laptop-commands.md) section 10.
+
+- **systemd's own accounting of the killed scope.** When a scope stops, the user manager logs a
+  line for it, normally "Consumed <cpu> CPU time, <peak> memory peak" (the form varies with the
+  systemd version). The CPU time over the instance's life is the best single clue: a loop (H1)
+  burns CPU steadily for its whole run; a slow accumulation (H2, H3) does not.
+- **systemd-oomd's lines** already read: usage 84.7G, pressure 85.55%. oomd logs no breakdown.
+- **Lightning's stderr** for that instance: the ccy-teams log for the busy team, or the user
+  journal, from its start to 18:08:56Z. `idle trim:` lines give RSS over time (a growth curve
+  for free); `GUI stall` or repeat-limiter summaries point at a loop.
+- **Lightning's own files:** a rolling log only if "Keep a diagnostic log" was on; the instance's
+  event-cache database and its write-ahead log size and mtime (growth with events kept).
+- **Gone for good:** the dead scope's `memory.stat` and smaps. Only the next growth can show
+  where the memory is, which is why 7.3 matters.
+
+### 7.3 Recommendation: run the busy team's instance with memory tracing from now on
+
+Yes. The cheapest mode that tells H1-H7 apart:
+
+```text
+LIGHTNING_SCROLL_MEMORY_TRACE=1 LIGHTNING_SCROLL_TRACE=1 LIGHTNING_GUI_STALL_TRACE=1
+lightning-matrix --log-file <team>/cache/lightning-diagnostic.log
+```
+
+How it separates them, with laptop-commands.md steps 3 and 6 (the cgroup's `memory.stat`)
+sampled beside it:
+
+| Reading                                                                                    | Points at   |
+| ------------------------------------------------------------------------------------------ | ----------- |
+| `rssKiB` climbs while `sourceRows` stays flat; stall lines; high CPU time                  | H1 (a loop) |
+| `rssKiB` climbs faster than `sourceRows`, the cost per row rising with rows                | H2          |
+| `sourceRows` climbs and the trim check reads `windowActive= true` or `paneBlocked= true`   | H3          |
+| growth in step with the human-message or seat-start counts of the traffic probe (Task 1.3) | H4, H5      |
+| growth when a thread panel is open, none when closed                                       | H6          |
+| `memory.stat` grows in `shmem` or drm memory while `rssKiB`'s anon part is flat            | H7          |
+
+Cost: about 2 MiB of memory lines per 86,400 s, trim checks 120 s or more apart, stall lines only on stalls.
+Cap: `--log-file` rolls at 32 MiB to one `.1` file, so 64 MiB at most, **on 0.10.7 or later
+only** (0.10.6 has no cap: confirm the version first, laptop-commands.md step 1). The same lines
+also go to stderr, so the ccy-teams log, which has no cap, grows by the same 2 MiB per 86,400 s; that
+log's lack of rotation is logged as Task 1.6. Not recommended live: `LIGHTNING_RUST_LOG` at
+debug (heavy, stderr only, uncapped) and the QML GC statistics (a block per collection); both
+belong in the reproduction.
+
+### 7.4 The launch change, as configuration
+
+The launcher is the one place every launch goes through: ccy-teams runs `gio launch` on it, and
+the app grid uses it. It is written by `src-go/internal/lightning/lightning.go`
+(`tree.execLine`), from the team list `play-agent-bus-element.yml` passes on stdin
+(`agent_bus_element_profiles`, built from host vars `agent_bus_element_teams`). Today:
+
+```text
+Exec=flatpak run --command=env org.lightning_matrix.Lightning XDG_DATA_HOME=<team>/data XDG_CONFIG_HOME=<team>/config XDG_CACHE_HOME=<team>/cache SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt SSL_CERT_DIR=<app>/teamchat-ca lightning-matrix
+```
+
+The change: a new optional per-team key `lightning_diagnostics` (boolean, default false) in an
+`agent_bus_element_teams` entry. When true, the Exec line becomes:
+
+```diff
+-... SSL_CERT_DIR=<app>/teamchat-ca lightning-matrix
++... SSL_CERT_DIR=<app>/teamchat-ca LIGHTNING_SCROLL_MEMORY_TRACE=1 LIGHTNING_SCROLL_TRACE=1 LIGHTNING_GUI_STALL_TRACE=1 lightning-matrix --log-file <team>/cache/lightning-diagnostic.log
+```
+
+Files it touches, which is why it is a task and not done here:
+
+- `src-go/internal/lightning/entries.go`: the key in `entryKeys`, a boolean check (L3);
+- `src-go/internal/lightning/lightning.go`: `execLine` adds the variables and `--log-file`
+  (L8: the launcher is rewritten when its content differs, so turning it on or off rewrites it);
+  tests first in `lightning_test.go`;
+- `helpers/agent_bus/element.py`: `PROFILE_KEYS` and its check, since the same list is checked
+  there and an unknown key is refused; its tests;
+- `environment/localhost/host_vars/localhost.yml.dist` and `docs/agent-bus.md`: the key;
+- the play needs no change (it passes each whole entry). Deployed by the play's
+  `agent-bus-lightning` tag through `meta-deploy.bash`; it takes effect at the instance's next
+  launch.
+
+### 7.5 Catching the trigger next time (after the new evidence in section 8)
+
+The stall watchdog does **not** catch a stall that never ends: `watchdogLoop`
+(`src/app/GuiStallTracer.cpp`, checked) logs "GUI stall" only when the GUI thread beats again,
+so the 25 Nov stall would have logged nothing. Two additions to 7.3:
+
+- **A line per event received:** `LIGHTNING_SYNC_TRACE=1` with
+  `QT_LOGGING_RULES=lightning.sync.trace.debug=true` logs each event's id and room key as it
+  reaches the model and the UI (`docs/sync-latency.md`, checked; the exact category spelling is
+  unchecked against the build). The last ids before the log goes silent name the trigger event.
+  Cost: one line per event, a few thousand per 86,400 s for a busy team.
+- **A watchdog outside the process** (fedora-desktop side, Task 1.7): a user timer that every
+  30 s compares the instance's RSS with its last log line; when the log has been silent for
+  60 s while RSS rises past a threshold (say 4 GiB), it records once, read-only, the per-thread
+  CPU (`/proc/<pid>/task/*/stat`), `wchan`, and a native backtrace of all threads
+  (`gdb -batch -p <pid> -ex 'thread apply all bt'`, which needs ptrace for the same user and
+  pauses the process briefly; the instance is already lost by then). With the runtime's debug
+  extension the GUI thread's frames name the QML engine call. A core dump would show the JS
+  objects being allocated but holds message content: only with the owner's consent, kept
+  untracked.
+
+## 8. New evidence (laptop host seat, 2026-11-26 09:17Z) and the re-ranking
+
+Read by the seat from `journalctl --user _PID=<killed instance>` and its 17:56Z capture; relayed,
+so **unchecked** here except where marked.
+
+- Lightning's stderr **is** in the user journal (the seat read it by pid), so 7.2's journal route
+  is the right one.
+- **Not a slow leak.** The `idle trim:` line (every 300 s) shows RSS flat at 607-672 MB from
+  13:37Z to 17:09:12Z (last: "resident 664 -> 661 MB"). `ps` read 75 GB at 17:55Z: about 74 GB
+  in at most 2,760 s.
+- **The event loop stopped at about 17:09-17:10Z.** The search index sweep (every 300 s) last ran
+  at 17:05:00Z; the 17:10:00Z run never logged. Nothing was logged from 17:09:12Z until the oomd
+  kill at 18:08:56Z. Last lines before: 17:05:00Z sweep (rooms=3 held_events=414), 17:06:16Z
+  "rows marked seen by room read state rows=1", 17:09:12Z idle trim.
+- **The memory:** 80 GB anonymous private dirty; 153,465 `/memfd:unknown-usage:QtQml` mappings
+  and 3,795 JSGCHeap mappings. That is the QML/JS engine's heap, not graphics and not the Rust
+  SDK. The seat reads it as one runaway allocation loop on a stuck thread, likely QML/JS
+  (its own interpretation, unverified).
+- Repeats 11:00-18:10Z (949 lines): 196 `qt.qpa.wayland.textinput disableSurface`; 61
+  `TypeError MessageDragSelection.qml: Property 'applyDragSelection' ... is not a function`;
+  60/59/54 thread subscription start/stop/close; 43 notification sounds. Nothing at warning
+  priority or above.
+- One process per instance, no WebView child; 28 threads. Build of the instance running now:
+  app-commit `51e71f77662d`, org.kde.Platform 6.11 (Qt 6.11.3), and the seat reads the version as
+  0.10.7. Whether the killed process ran the same commit is unchecked.
+
+### 8.1 Hypotheses re-ranked
+
+| Rank | Hypothesis                                                                                                    | Against the new evidence                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | **H8 (new): a synchronous runaway on the GUI thread, in QML/JS, started by one event shape or one UI action** | fits all of it: both GUI-thread timers stopped at once (event loop blocked), the growth is JS heap (QtQml memfd, JSGCHeap), sudden after 12,800 s flat. Forms: a JS loop whose exit waits on something that cannot change while it runs, collecting into an array; or a handler that re-enters itself through a model or property change (a re-entrant model reset or signal cycle, which Qt's binding-loop check does not catch). Unchecked which. |
+| 2    | H1, narrowed to the GUI thread (a teamchat pattern starts the loop)                                           | H1's "allocates at its own rate, independent of traffic" fits; a Rust-side or async loop does not, since it would not stop the Qt timers and the memory is QtQml's                                                                                                                                                                                                                                                                                  |
+| 3    | H6 as a trigger: thread panel activity                                                                        | the thread subscription start/stop/close lines (about 60 each) show threads opened and closed all day; a thread event or a thread panel change is a candidate trigger shape                                                                                                                                                                                                                                                                         |
+| 4    | Edits as a trigger (was "ruled unlikely")                                                                     | 0.10.7 is new in exactly this area: the thread root and thread list follow edits (#101), edit history shows a word diff. The coordinator's retitle is an `m.replace` of a thread root. One such event is a candidate trigger. Unchecked                                                                                                                                                                                                             |
+| 5    | Drag selection                                                                                                | 61 `applyDragSelection is not a function` TypeErrors show the 0.10.7 multi-message selection code meeting a row that lacks the function; a UI action, so it needs the human at the laptop at 17:09Z (unchecked)                                                                                                                                                                                                                                     |
+| -    | H2, H3 (slow accumulation)                                                                                    | **down**: RSS was flat for 12,800 s before the stall                                                                                                                                                                                                                                                                                                                                                                                                |
+| -    | H4, H5 (receipts, presence)                                                                                   | down as causes; one burst could still be the trigger, but `/messages` cannot show it (bus-host-commands.md)                                                                                                                                                                                                                                                                                                                                         |
+| -    | H7 (graphics)                                                                                                 | **refuted** by the seat's capture: anonymous private memory in QtQml mappings, not drm or shared buffers                                                                                                                                                                                                                                                                                                                                            |
+
+Checked in source for the two `while` loops in 0.10.7's `TimelinePane.qml` and `ThreadPanel.qml`:
+both are bounded (a binary search; a loop guarded by `guard++ < 64`). Not the culprit; a full
+audit of loops and re-entrant handlers in the files the trigger names is Task 3.3.
+
+### 8.2 The window to read
+
+17:05:00Z-17:09:12Z in all three rooms of the busy team. No member can read it (`teamchat history` is capped at 100 recent items). The homeserver admin can, read-only:
+[bus-host-commands.md](bus-host-commands.md) (event type, time, typed key, relation, thread root,
+size, sender role, redacted and edit flags; no bodies, the token never in argv). Receipts,
+typing and presence are ephemeral and not in that history.
+
+The reproduction (section 5) now starts with that window: replay its exact event shapes, in
+order and with the same spacing, against a Lightning with a thread panel open, and watch for the
+event loop to stop (the 300 s timers go silent) and the JS heap to climb.
