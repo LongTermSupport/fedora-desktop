@@ -171,3 +171,23 @@ b3415c570, 04a498413, 5311a2699, 9b210f7f4**, in that order, with these reworks:
 `drill.json` marker so it no longer collides with the carry's `DrillRecord`, give the CCY bump
 fresh numbers, update the backup doc for the carry, and resolve the 11 conflicts against the
 carry's wiring. Batch 24 already names it (REGISTER.md:681-682).
+
+## Port: photography-idempotent
+
+Ported as `314a33e90` on v2-smoke (the diff of `74a4145f0` applied unchanged, no follow-up
+edits). Read against #325 it is complete: the probe was the only task changed on every run, and
+#325's comment records the ART and mock-cache changes as one-time convergence. Every other
+RapidRAW task is gated on the probe's answer.
+
+- `qa-ansible.bash`: pass (fail-fast check included; the `failed_when` is an explicit check of
+  the registered result, not `false`).
+- `qa-ansible-syntax.bash play-photography.yml`: exit 2, the known container fault (no vault
+  password file). The host run is the syntax proof.
+- yamllint is not installed in the container, and no QA gate here runs it.
+- The same commit queues `play-photography.yml` twice in `meta-deploy.list`, before
+  `changed-plays`. The second run's PLAY RECAP must say `changed=0`. Nothing has run on a host
+  yet, so #325 stays open until it does.
+- A fault found in the tooling: `meta-deploy.bash` names each unit's capture log after the
+  unit's basename, so the second run of a listed play overwrites the first run's log
+  (`untracked/plan-runs/_meta-deploy/<stamp>/play-photography.yml.log`). The second run is the
+  one to keep here, but a repeated entry loses evidence. Filed as #442.
