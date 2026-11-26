@@ -267,6 +267,12 @@ playbooks/imports/play-teamchat.yml
 # the app's Flatpak scopes, and places agent-bus-lightning-capped@.service, which a kill at the
 # cap starts to raise a critical desktop notification; nothing reopens Lightning. The user
 # manager is reloaded; the cap holds for instances opened after the run (close and reopen each).
+# Plan 00265 R20: the same run writes a NEW team's Lightning settings file with the spaces rail
+# hidden ([shell] spacesRailVisible=false beside [homeserver] url=). An existing instance's file
+# is never rewritten, so present teams and anyone's own choice are unchanged. Check on the
+# laptop with one throwaway lightning team: it opens with one sidebar, and Show spaces rail is
+# unticked in its settings (Ctrl+,); if it shows two, Lightning reset the preset or reads
+# another spelling, and R20 is reopened.
 playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-lightning
 
 # Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that

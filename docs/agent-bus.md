@@ -77,9 +77,11 @@ launch does not start.
    say so: its own `client: lightning` in `agent_bus_element_teams`, else
    `agent_bus_matrix_client: lightning` (Element by default). Every menu line and message then
    names Lightning, `ccy-teams` opens the team's Lightning launcher in its own window, and
-   setting it up writes the team's own Lightning instance instead of an Element profile. For
-   one sidebar instead of two (a portrait window), untick *Show spaces rail* in Lightning's
-   settings. A lightning team's entry may also set `lightning_diagnostics: true`: its instance
+   setting it up writes the team's own Lightning instance instead of an Element profile. A new
+   instance starts with the spaces rail hidden, so one sidebar instead of two (a portrait
+   window); tick *Show spaces rail* in Lightning's settings (Ctrl+, opens them in every layout)
+   to bring it back, and that choice is kept. An instance made before this preset keeps its
+   rail until you untick it there. A lightning team's entry may also set `lightning_diagnostics: true`: its instance
    then logs its memory and its slow events to `<team>/cache/lightning-diagnostic.log`, and the
    user service `agent-bus-lightning-watch` records the instance's threads once if that log
    falls silent while memory climbs (Plan 00268; the key is in `localhost.yml.dist`). Every

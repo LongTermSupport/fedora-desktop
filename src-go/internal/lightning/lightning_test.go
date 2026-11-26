@@ -361,8 +361,9 @@ func TestL6ToL8ApplyWritesEachLightningTeam(t *testing.T) {
 			t.Errorf("%s: mode %o, want 700", dir, got)
 		}
 	}
-	if got := w.read(w.settings()); got != "[homeserver]\nurl="+baseURL+"\n" {
-		t.Errorf("settings %q", got)
+	want := "[homeserver]\nurl=" + baseURL + "\n\n[shell]\nspacesRailVisible=false\n"
+	if got := w.read(w.settings()); got != want {
+		t.Errorf("settings %q, want %q", got, want)
 	}
 	if got := w.mode(w.settings()); got != 0o600 {
 		t.Errorf("settings mode %o", got)
@@ -481,15 +482,21 @@ func TestL6ANonDirectoryIsRefused(t *testing.T) {
 }
 
 // TestL7TheSettingsFileIsLightningsOnceWritten holds that a settings file already there is never
-// rewritten, whatever it holds, and that a link there is refused.
+// rewritten, whatever it holds (a person's rail ticked back on, or no [shell] at all, included),
+// and that a link there is refused.
 func TestL7TheSettingsFileIsLightningsOnceWritten(t *testing.T) {
-	w := newWorld(t)
-	w.write(w.settings(), "[homeserver]\nurl=https://canonical.example.com\n[other]\nkey=1\n")
-	if r := w.apply(list(lightningTeam("team-a"))); r.code != term.ExitOK || strings.Contains(r.out, w.settings()) {
-		t.Fatalf("%+v", r)
-	}
-	if got := w.read(w.settings()); !strings.Contains(got, "canonical.example.com") {
-		t.Fatalf("rewritten: %q", got)
+	for _, held := range []string{
+		"[homeserver]\nurl=https://canonical.example.com\n[other]\nkey=1\n",
+		"[homeserver]\nurl=" + baseURL + "\n\n[shell]\nspacesRailVisible=true\n",
+	} {
+		w := newWorld(t)
+		w.write(w.settings(), held)
+		if r := w.apply(list(lightningTeam("team-a"))); r.code != term.ExitOK || strings.Contains(r.out, w.settings()) {
+			t.Fatalf("%+v", r)
+		}
+		if got := w.read(w.settings()); got != held {
+			t.Fatalf("rewritten: %q, want %q", got, held)
+		}
 	}
 	linked := newWorld(t)
 	mkdir(t, filepath.Dir(linked.settings()))

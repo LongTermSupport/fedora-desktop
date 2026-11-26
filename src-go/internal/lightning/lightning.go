@@ -31,8 +31,10 @@
 //	   with teams and teams/<team> themselves, mode 0700, narrowing a wider mode; anything there
 //	   that is not a directory (a link included) is refused, never followed.
 //	L7 The settings file config/MatrixClient/matrix-client.conf, "[homeserver]" and
-//	   "url=<base_url>", is written only when absent, mode 0600: Lightning rewrites and owns it
-//	   afterwards. Anything there that is not a regular file is refused.
+//	   "url=<base_url>", then "[shell]" and "spacesRailVisible=false" (the spaces rail hidden,
+//	   the same for every team), is written only when absent, mode 0600: Lightning rewrites and
+//	   owns it afterwards, so a person's own change survives every run and an instance made
+//	   before the rail preset keeps its file. Anything there that is not a regular file is refused.
 //	L8 The launcher ~/.local/share/applications/agent-bus-<team>-lightning.desktop is rewritten
 //	   when its content or mode (0644) differs; a non-regular file there is refused.
 //	L9 A launcher of that name for a valid team not declared for Lightning is removed only when
@@ -455,7 +457,7 @@ func (t tree) write(w *writer, e entry) error {
 	}
 	steps = append(steps,
 		func() error { return w.dir(filepath.Dir(settings)) },
-		func() error { return w.fileIfAbsent(settings, "[homeserver]\nurl="+e.baseURL+"\n", settingsMode) },
+		func() error { return w.fileIfAbsent(settings, settingsText(e.baseURL), settingsMode) },
 		func() error { return w.parent(filepath.Dir(launcher)) },
 		func() error { return w.file(launcher, t.launcherText(e), launcherMode) },
 	)
@@ -465,6 +467,13 @@ func (t tree) write(w *writer, e entry) error {
 		}
 	}
 	return nil
+}
+
+// settingsText is a new instance's settings file (L7): the team's homeserver, and Lightning's
+// spaces rail hidden (shell/spacesRailVisible in Lightning's SettingsManager), so a new team
+// opens with one sidebar (Plan 00265 R20).
+func settingsText(baseURL string) string {
+	return "[homeserver]\nurl=" + baseURL + "\n\n[shell]\nspacesRailVisible=false\n"
 }
 
 // prune removes each launcher of ours whose team is not one of mine (L9).

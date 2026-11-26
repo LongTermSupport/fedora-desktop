@@ -1198,9 +1198,13 @@ before the move to v2. Filled in as causes are found.
 - **Reproduce:** open Lightning in a portrait window.
 - **Workaround (the owner, F11, 12:52Z):** untick *Show spaces rail* in Lightning's settings,
   which hides one sidebar. This is now in `docs/agent-bus.md`. No issue was filed anywhere.
-- **Severity:** low. **Issue:** none. **State:** workaround known; an optional improvement is
-  that each new team's Lightning instance starts with the rail off (`internal/lightning`), or
-  with a collapsed option.
+- **Severity:** low. **Issue:** none. **State:** built; the laptop proves it. A new team's
+  Lightning instance is written with `[shell] spacesRailVisible=false` (key F16, F29) beside
+  `[homeserver] url=` (`internal/lightning` L7). The same for every team, and still written
+  only when absent, so a person's own change survives every run and an existing instance keeps
+  its file (the owner's untick, as before). Owed on the laptop: a new throwaway instance opens
+  with one sidebar, i.e. Lightning keeps the preset at first launch and `false` is the
+  spelling.
 
 ## R21: status counts do not say what they hold
 
