@@ -11,10 +11,9 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
 )
 
-// The host's two boot records (Plan 00266 Task C.2): the seats `lxc start` started and `lxc stop`
-// has not stopped (paths.LXCStartedFile), and the containers that ran at the last shutdown
-// (paths.LXCRunningFile). Both are root's alone, outside every container and checkout, and decode
-// strictly: a file must be what its write would write.
+// The record of started seats (Plan 00266 Task C.2): the seats `lxc start` started and `lxc stop`
+// has not stopped (paths.LXCStartedFile). It is root's alone, outside every container and
+// checkout, and decodes strictly: a file must be what its write would write.
 const (
 	MaxStarted              = 1 << 20
 	StartedMode fs.FileMode = 0o600
@@ -80,40 +79,6 @@ func WriteStarted(root string, s Started) error {
 		return err
 	}
 	return writeBoot(root+paths.LXCStartedFile, s.normal())
-}
-
-// running is the containers that ran at the last shutdown.
-type running struct {
-	V          int                   `json:"v"`
-	Containers []paths.ContainerName `json:"containers"`
-}
-
-func (r running) normal() running {
-	c := slices.Clone(r.Containers)
-	if c == nil {
-		c = []paths.ContainerName{}
-	}
-	slices.SortFunc(c, func(a, b paths.ContainerName) int { return cmp.Compare(a.String(), b.String()) })
-	return running{V: 1, Containers: slices.Compact(c)}
-}
-
-// ReadRunning is the containers that ran at the last shutdown, sorted; no file is none.
-func ReadRunning(root string) ([]paths.ContainerName, error) {
-	var r running
-	found, err := readBoot(root+paths.LXCRunningFile, &r, func() any { return r.normal() })
-	if err != nil || !found {
-		return nil, err
-	}
-	return r.Containers, nil
-}
-
-// WriteRunning writes the containers, sorted and each once, root 0600 atomically. A file there
-// that does not decode is refused, not replaced.
-func WriteRunning(root string, containers []paths.ContainerName) error {
-	if _, err := ReadRunning(root); err != nil {
-		return err
-	}
-	return writeBoot(root+paths.LXCRunningFile, running{Containers: containers}.normal())
 }
 
 // readBoot decodes the file at path into v strictly: v 1, and in its written form, which normal

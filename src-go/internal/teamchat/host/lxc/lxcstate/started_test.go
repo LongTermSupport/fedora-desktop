@@ -81,25 +81,3 @@ func TestReadStartedRefusesAnUnwrittenFile(t *testing.T) {
 		}
 	}
 }
-
-// The running containers are kept as a sorted set, and read back as written.
-func TestRunningRoundTrip(t *testing.T) {
-	root := startedRoot(t)
-	if got, err := ReadRunning(root); err != nil || len(got) != 0 {
-		t.Fatalf("%v %v", got, err)
-	}
-	in := []paths.ContainerName{box(t, "c2"), box(t, "c1"), box(t, "c2")}
-	if err := WriteRunning(root, in); err != nil {
-		t.Fatal(err)
-	}
-	got, err := ReadRunning(root)
-	if err != nil || !slices.Equal(got, []paths.ContainerName{box(t, "c1"), box(t, "c2")}) {
-		t.Fatalf("%v %v", got, err)
-	}
-	if err := os.WriteFile(filepath.Join(root, paths.LXCRunningFile), []byte(`{"v":1,"containers":["c2","c1"]}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ReadRunning(root); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("unsorted: %v", err)
-	}
-}

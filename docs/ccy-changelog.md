@@ -17,6 +17,11 @@ Two version numbers move independently — see
 
 ---
 
+## 3.124.84 — container 2.84.93
+
+- teamchat in the image no longer names a record of the containers running at shutdown, which
+  3.124.83 added with no caller (Plan 00266 Task C.2).
+
 ## 3.124.83 — container 2.84.92
 
 - teamchat in the image is built from sources that name two new host files, the record of
