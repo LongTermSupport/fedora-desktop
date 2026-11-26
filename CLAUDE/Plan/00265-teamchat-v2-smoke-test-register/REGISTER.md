@@ -1483,20 +1483,14 @@ before the move to v2. Filled in as causes are found.
   `teamchat verify` on the id of an owner post in the questions room that authorised its job,
   and got exit 23, `not-found`. The rule "verify before acting" then cannot be followed by the
   very worker the owner authorised.
-- **What exists (checked):** `teamchat verify <event-id> [--room main|questions]`. The skill
-  tells a worker to verify a relayed human answer with `--room questions`.
-- **Unchecked:** whether the seat passed `--room questions`, and whether a worker's account is
-  a member of the questions room and allowed to read it. If it is not, the verb's `not-found`
-  is the wrong answer too: the event exists, and the refusal must name its real cause (no
-  access to that room) and the next step, as a teamchat refusal must.
-- **Fix:**
-  - First reproduce it on a worker seat, with and without `--room questions`, to learn which
-    case this is.
-  - Then give the worker a route to the human's own words. Either `verify` reads a
-    questions-room event that a delivery has cited to that worker (the relayed answer's
-    `relayed by:` entry names it), or the coordinator countersigns an authorisation the worker
-    can check. A worker must never accept a peer's word as the human's.
-  - Test: a worker verifies an owner post relayed to it (pass), and a post never relayed to it
-    (a refusal that names the cause).
-- **Severity:** medium (a worker either acts unverified or cannot act). **Issue:** TBF.
-  **State:** open.
+- **Cause (checked): R12 on an old build, not a new fault.** The seat passed `--room questions`
+  (its message, 09:14:44Z). It runs kit `90f502ac` (ccy 3.124.41), a src-go tree whose
+  `getQuestionsEvent` (`teamsync/verbs.go:245`) joins the questions room only on a 403. Tuwunel
+  answers a reader who has not joined 404, so no join is tried and verify answers 23. That is
+  R12. Its fix (join on a 404 too, `verbs.go:254`) and R49's (a failed join is refused as
+  forbidden, naming the cause, never as not-found) are both in F44's tree as of e67e28d72.
+- **Fix:** none new. The laptop update to F44's build carries both. After its relaunch the host
+  seat re-runs the same verify, and that re-run closes this row (the coordinator has arranged
+  it).
+- **Severity:** medium (a worker either acts unverified or cannot act). **Issue:** none (R12).
+  **State:** fixed on F44; awaiting the re-run on the updated laptop.
